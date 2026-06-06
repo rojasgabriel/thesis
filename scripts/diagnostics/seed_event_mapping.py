@@ -59,7 +59,37 @@ SESSION_MAPPING_SPECS = [
     },
     {
         "subject_name": "GRB058",
+        "session_name": "20260421_122752",
+        "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
+    },
+    {
+        "subject_name": "GRB058",
         "session_name": "20260421_160125",
+        "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
+    },
+    {
+        "subject_name": "GRB058",
+        "session_name": "20260526_124438",
+        "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
+    },
+    {
+        "subject_name": "GRB059",
+        "session_name": "20260225_154153",
+        "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
+    },
+    {
+        "subject_name": "GRB059",
+        "session_name": "20260319_142123",
+        "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
+    },
+    {
+        "subject_name": "GRB059",
+        "session_name": "20260421_134936",
+        "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
+    },
+    {
+        "subject_name": "GRB059",
+        "session_name": "20260526_140834",
         "source_event_names": DEFAULT_LOGICAL_EVENT_NAMES,
     },
 ]

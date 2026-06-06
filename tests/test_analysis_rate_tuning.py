@@ -4,18 +4,33 @@ import numpy as np
 import pandas as pd
 
 from ephys.src.utils.analysis_rate_tuning import (
-    add_light_exposure_to_responses,
-    add_trial_predictors,
     aggregate_tuning_curves,
     build_task_stimulus_windows,
-    compute_light_exposure,
-    compute_timecourse_responses,
     compute_trial_responses,
-    fit_encoding_models,
     first_event_in_window,
     response_events_for_choice,
-    shuffle_fsi_null,
     summarize_units,
+)
+from ephys.src.utils.analysis_rate_tuning_light import (
+    add_light_exposure_to_responses,
+    compute_light_exposure,
+)
+from ephys.src.utils.analysis_rate_tuning_choice import (
+    balanced_choice_trial_responses,
+    repeated_choice_balanced_fsi,
+)
+from ephys.src.utils.analysis_rate_tuning_decoding import (
+    decode_target,
+    trial_response_matrix,
+)
+from ephys.src.utils.analysis_rate_tuning_models import (
+    add_trial_predictors,
+    fit_choice_light_encoding_models,
+    fit_encoding_models,
+)
+from ephys.src.utils.analysis_rate_tuning_shuffle import shuffle_fsi_null
+from ephys.src.utils.analysis_rate_tuning_timecourse import (
+    compute_timecourse_responses,
     summarize_timecourse_encoding,
 )
 
@@ -220,6 +235,107 @@ class RateTuningResponseTests(unittest.TestCase):
             {"baseline", "signed_evidence", "category", "choice", "combined"},
         )
         self.assertTrue(summary["cv_r2"].notna().any())
+
+        responses["total_light_time_s"] = np.linspace(0.1, 0.8, len(responses))
+        expanded = fit_choice_light_encoding_models(
+            responses,
+            n_splits=4,
+            n_shuffles=3,
+            seed=0,
+        )
+        self.assertEqual(set(expanded["regressor"]), {"stimulus", "choice", "light"})
+        self.assertIn("full_cv_r2", expanded.columns)
+        self.assertIn("shuffled_cv_r2_median", expanded.columns)
+        self.assertIn("unique_delta_cv_r2", expanded.columns)
+
+    def test_choice_balancing_equalizes_sides_within_rate(self):
+        rows = []
+        for unit_id in [1, 2]:
+            for trial_idx, rate, choice in [
+                (0, 4.0, -1),
+                (1, 4.0, -1),
+                (2, 4.0, 1),
+                (3, 8.0, -1),
+                (4, 8.0, 1),
+                (5, 8.0, 1),
+            ]:
+                rows.append(
+                    {
+                        "unit_id": unit_id,
+                        "trial_idx": trial_idx,
+                        "stim_rate_vision": rate,
+                        "response_side": choice,
+                        "response_sp_s": rate + unit_id,
+                        "window_duration_s": 0.5,
+                    }
+                )
+        responses = pd.DataFrame(rows)
+
+        balanced = balanced_choice_trial_responses(
+            responses,
+            class_column="stim_rate_vision",
+            seed=0,
+        )
+        trial_counts = (
+            balanced[["trial_idx", "stim_rate_vision", "response_side"]]
+            .drop_duplicates("trial_idx")
+            .groupby(["stim_rate_vision", "response_side"])
+            .size()
+        )
+
+        self.assertEqual(trial_counts.loc[(4.0, -1)], 1)
+        self.assertEqual(trial_counts.loc[(4.0, 1)], 1)
+        self.assertEqual(trial_counts.loc[(8.0, -1)], 1)
+        self.assertEqual(trial_counts.loc[(8.0, 1)], 1)
+
+        population, units = repeated_choice_balanced_fsi(
+            responses,
+            n_resamples=3,
+            seed=0,
+        )
+        self.assertEqual(len(population), 3)
+        self.assertEqual(set(units["unit_id"]), {1, 2})
+
+    def test_logistic_decoding_returns_observed_and_shuffle_rows(self):
+        rows = []
+        trial_specs = [
+            (0, 4.0, "low_rate", -1),
+            (1, 4.0, "low_rate", 1),
+            (2, 5.0, "low_rate", -1),
+            (3, 5.0, "low_rate", 1),
+            (4, 16.0, "high_rate", -1),
+            (5, 16.0, "high_rate", 1),
+            (6, 18.0, "high_rate", -1),
+            (7, 18.0, "high_rate", 1),
+        ]
+        for unit_id in [1, 2, 3]:
+            for trial_idx, rate, category, choice in trial_specs:
+                rows.append(
+                    {
+                        "unit_id": unit_id,
+                        "trial_idx": trial_idx,
+                        "stim_rate_vision": rate,
+                        "stim_category": category,
+                        "response_side": choice,
+                        "response_sp_s": rate + unit_id,
+                    }
+                )
+        responses = pd.DataFrame(rows)
+
+        matrix, metadata = trial_response_matrix(responses)
+        self.assertEqual(matrix.shape, (8, 3))
+        self.assertEqual(len(metadata), 8)
+
+        decoded = decode_target(
+            responses,
+            target="category",
+            n_resamples=2,
+            seed=0,
+        )
+        self.assertEqual(
+            set(decoded["condition"]),
+            {"observed", "choice_side_shuffle"},
+        )
 
     def test_timecourse_encoding_summary_shapes(self):
         rows = []
