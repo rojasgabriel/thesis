@@ -12,13 +12,24 @@ dependencies = [
     "ipympl>=0.10.0",
     "ipywidgets>=8.1.8",
     "labdata>=0.1.7",
+    "opencv-python-headless>=4.10.0",
     "pandas==2.3.3",
     "scipy>=1.15.3",
+    "SciencePlots>=2.1.1",
+    "scikit-learn>=1.7.0",
     "seaborn>=0.13.2",
     "spks",
     "statsmodels>=0.14.6",
     "torch>=2.10.0",
     "torchaudio>=2.10.0",
+]
+
+[tool.uv]
+constraint-dependencies = [
+    "cryptography>=48.0.1",
+    "tornado>=6.5.7",
+    "urllib3>=2.7.0",
+    "pygments>=2.20.0",
 ]
 
 [tool.uv.sources]
@@ -29,3 +40,8 @@ include = ["src", "tests", "scripts", "notebooks"]
 
 [tool.ty.environment]
 extra-paths = ["typings"]
+
+[tool.pyright]
+include = ["src", "scripts", "notebooks", "tests"]
+extraPaths = ["typings"]
+reportMissingModuleSource = "none"
