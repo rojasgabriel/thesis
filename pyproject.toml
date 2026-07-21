@@ -20,13 +20,14 @@ dependencies = [
     "seaborn>=0.13.2",
     "spks",
     "statsmodels>=0.14.6",
-    "torch>=2.10.0",
+    "torch>=2.13.0",
     "torchaudio>=2.10.0",
 ]
 
 [tool.uv]
 constraint-dependencies = [
     "cryptography>=48.0.1",
+    "pillow>=12.3.0",
     "tornado>=6.5.7",
     "urllib3>=2.7.0",
     "pygments>=2.20.0",
