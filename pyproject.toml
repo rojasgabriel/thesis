@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "behavioral analysis code for my thesis in the Churchland Lab"
 requires-python = ">=3.10"
 dependencies = [
+    "datajoint>=0.14.0",
     "ipykernel>=6.0.0",
-    "labdata>=0.0.22",
+    "labdata>=0.1.7",
     "matplotlib>=3.0.0",
     "natsort>=8.0.0",
     "numpy>=1.24.0",
@@ -13,8 +14,9 @@ dependencies = [
     "scikit-learn>=1.0.0",
     "scipy>=1.10.0",
     "seaborn>=0.13.0",
+    "statsmodels>=0.14.0",
     "chiCa",
-    "djchurchland",
+    "fit-psychometric",
 ]
 
 [tool.uv]
@@ -22,7 +24,10 @@ package = false
 
 [tool.uv.sources]
 chiCa = { git = "https://github.com/churchlandlab/chiCa" }
-djchurchland = { git = "https://github.com/churchlandlab/djchurchland" }
+fit-psychometric = { path = "/Users/gabriel/lib/fit_psychometric", editable = true }
+
+[tool.behavior_analyses]
+chipmunk_plugin_path = "/Users/gabriel/labdata/plugins/chipmunk"
 
 [tool.ruff]
 exclude = [
