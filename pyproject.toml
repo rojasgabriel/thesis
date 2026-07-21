@@ -20,7 +20,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "spks",
     "statsmodels>=0.14.6",
-    "torch>=2.10.0",
+    "torch>=2.13.0",
     "torchaudio>=2.10.0",
 ]
 
