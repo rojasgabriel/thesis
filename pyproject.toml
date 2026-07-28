@@ -40,3 +40,13 @@ chipmunk_plugin_path = "/Users/gabriel/labdata/plugins/chipmunk"
 exclude = [
     "psychometric_curves/fit_psychometric.py",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+per-file-ignores = { "*.ipynb" = ["E402", "F401", "F403", "F405"] }
+
+[tool.ruff.format]
+exclude = [
+    "notebooks/stress_test_labdata_migration.ipynb",
+    "stress_test_labdata_migration.ipynb",
+]

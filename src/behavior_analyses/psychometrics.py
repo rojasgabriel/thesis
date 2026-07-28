@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 from fit_psychometric import cumulative_gaussian, fit_psychometric
 
+__all__ = ["cumulative_gaussian", "fit_psychometric_labdata"]
+
 MIN_CHOICES = 100
 MIN_STIM_VALUES = 6
 

@@ -24,11 +24,13 @@ def main() -> None:
     from behavior_analyses.psychometrics import cumulative_gaussian
     from labdata_plugin.analysisschema import PsychometricSubjectFit
 
-    rows = (
-        PsychometricSubjectFit() & {"session_set_id": args.session_set_id}
-    ).fetch(as_dict=True)
+    rows = (PsychometricSubjectFit() & {"session_set_id": args.session_set_id}).fetch(
+        as_dict=True
+    )
     if not rows:
-        raise RuntimeError(f"No psychometric rows for session_set_id={args.session_set_id}")
+        raise RuntimeError(
+            f"No psychometric rows for session_set_id={args.session_set_id}"
+        )
 
     fig, ax = plt.subplots(figsize=(5, 5))
     for row in rows:

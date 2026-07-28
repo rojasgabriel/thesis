@@ -82,4 +82,3 @@ def fit_psychophysical_kernel(
         "bias": np.asarray(biases, dtype=float),
         "error": np.asarray(errors, dtype=float),
     }
-

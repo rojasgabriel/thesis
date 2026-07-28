@@ -41,4 +41,3 @@ def _load_local_chipmunk_plugin() -> Any:
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
-

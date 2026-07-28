@@ -10,4 +10,3 @@ SRC_ROOT = REPO_ROOT / "src"
 for path in [str(SRC_ROOT), str(REPO_ROOT)]:
     if path not in sys.path:
         sys.path.insert(0, path)
-

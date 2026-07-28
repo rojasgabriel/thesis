@@ -23,9 +23,9 @@ def main() -> None:
 
     from labdata_plugin.analysisschema import PsychophysicalKernel
 
-    rows = (
-        PsychophysicalKernel() & {"session_set_id": args.session_set_id}
-    ).fetch(as_dict=True)
+    rows = (PsychophysicalKernel() & {"session_set_id": args.session_set_id}).fetch(
+        as_dict=True
+    )
     if not rows:
         raise RuntimeError(f"No kernel rows for session_set_id={args.session_set_id}")
 

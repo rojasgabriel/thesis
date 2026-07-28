@@ -27,7 +27,9 @@ def summarize_trialset(row: dict) -> dict:
         "performance_easy": _finite_or_none(row.get("performance_easy")),
         "mean_initiation_time": _nanmean_or_none(initiation_times),
         "mean_reaction_time": _nanmean_or_none(reaction_times),
-        "stim_values": np.sort(np.unique(intensity_values[np.isfinite(intensity_values)])),
+        "stim_values": np.sort(
+            np.unique(intensity_values[np.isfinite(intensity_values)])
+        ),
         "response_values": response_values,
         "correct_values": correct_values,
         "intensity_values": intensity_values,
@@ -48,4 +50,3 @@ def _finite_or_none(value) -> float | None:
     if not np.isfinite(value):
         return None
     return value
-

@@ -44,8 +44,7 @@ def main() -> None:
             "n_sessions": count,
         }
         for (subject, trialset), count in Counter(
-            (row["subject_name"], row["trialset_description"])
-            for row in trialset_rows
+            (row["subject_name"], row["trialset_description"]) for row in trialset_rows
         ).items()
     ]
     session_set = {

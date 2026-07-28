@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 import datajoint as dj
-from labdata.schema import DecisionTask, Session, Subject, get_user_schema
+from labdata.schema import (
+    DecisionTask,
+    Session,  # noqa: F401 - referenced by DataJoint definitions above
+    Subject,  # noqa: F401 - referenced by DataJoint definitions above
+    get_user_schema,
+)
 
 
 rojasbowe_schema = get_user_schema()
@@ -25,7 +30,7 @@ class BehaviorSessionSet(dj.Manual):
     analysis_version                    : varchar(32)
     """
 
-    class Session(dj.Part):
+    class Session(dj.Part):  # noqa: F811 - DataJoint part name is intentional
         definition = """
         -> master
         -> Session
@@ -189,9 +194,7 @@ class PsychophysicalKernel(dj.Computed):
 
         Chipmunk = get_chipmunk_table()
         relation = (
-            Chipmunk()
-            * Chipmunk.Trial()
-            * Chipmunk.TrialParameters()
+            Chipmunk() * Chipmunk.Trial() * Chipmunk.TrialParameters()
             & session_rows
             & {"rewarded_modality": key["trialset_description"]}
         )
@@ -209,7 +212,11 @@ class PsychophysicalKernel(dj.Computed):
             {
                 **key,
                 "n_sessions": len(
-                    {row["session_name"] for row in session_rows if "session_name" in row}
+                    {
+                        row["session_name"]
+                        for row in session_rows
+                        if "session_name" in row
+                    }
                 ),
                 "n_trials": int(result["choice_right"].size),
                 "timebins": timebins,

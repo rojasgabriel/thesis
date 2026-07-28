@@ -23,9 +23,9 @@ def main() -> None:
 
     from labdata_plugin.analysisschema import LearningSessionMetrics
 
-    rows = (
-        LearningSessionMetrics() & {"session_set_id": args.session_set_id}
-    ).fetch(as_dict=True)
+    rows = (LearningSessionMetrics() & {"session_set_id": args.session_set_id}).fetch(
+        as_dict=True
+    )
     if not rows:
         raise RuntimeError(f"No learning rows for session_set_id={args.session_set_id}")
 
