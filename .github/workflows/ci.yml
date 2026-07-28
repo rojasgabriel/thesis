@@ -23,6 +23,31 @@ jobs:
         with:
           python-version-file: .python-version
 
+      # ponytail: upstream is un-packaged; remove this shim when it publishes pyproject metadata.
+      - name: Prepare fit-psychometric source
+        run: |
+          git clone https://github.com/jcouto/fit_psychometric.git ../fit_psychometric
+          git -C ../fit_psychometric checkout 665d058
+          cat > ../fit_psychometric/pyproject.toml <<'EOF'
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [project]
+          name = "fit-psychometric"
+          version = "0.1.0"
+          description = "Tutorials and functions to fit psychometric functions"
+          requires-python = ">=3.10"
+          dependencies = [
+              "numpy",
+              "scipy",
+              "statsmodels",
+          ]
+
+          [tool.hatch.build.targets.wheel]
+          packages = ["fit_psychometric"]
+          EOF
+
       - name: Configure git credentials for private deps
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
 

@@ -31,7 +31,7 @@ constraint-dependencies = [
 
 [tool.uv.sources]
 chiCa = { git = "https://github.com/churchlandlab/chiCa" }
-fit-psychometric = { path = "/Users/gabriel/lib/fit_psychometric", editable = true }
+fit-psychometric = { path = "../fit_psychometric", editable = true }
 
 [tool.behavior_analyses]
 chipmunk_plugin_path = "/Users/gabriel/labdata/plugins/chipmunk"
