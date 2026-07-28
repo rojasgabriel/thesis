@@ -7,8 +7,10 @@ Codex/labdata migration draft (``src/behavior_analyses/kernels.py``).
 Intentional deviations from the notebook/draft:
 - Fixed absolute time bins from first stimulus onset (width ``bin_width_s``),
   not ``linspace(first, last)`` per trial, so late bins can be marked missing
-  when the animal leaves the center port early.
-- Unseen / post-withdrawal bins are ``NaN``, never zero-filled evidence.
+  when observation ends early.
+- Two observation windows: ``center_exit`` (fixation flashes only) and
+  ``response`` (flashes through the response-port poke).
+- Unseen / post-observation bins are ``NaN``, never zero-filled evidence.
 - Expected counts use ``max_rate_hz * observed_bin_duration`` (fixes the
   notebook's ``max_rate_hz / len(bins)`` off-by-one).
 - Choice coding follows current Chipmunk / ephys convention: ``response == 1``
@@ -269,20 +271,35 @@ def interpret_kernel_weights(
     return "flat_indeterminate"
 
 
+OBSERVATION_WINDOWS = ("center_exit", "response")
+
+
 def extract_trial_kernel_inputs(
     align_ev: Mapping[str, np.ndarray],
     trial_df,
     *,
     stim_key: str = "stim_ev",
+    observation_window: str = "center_exit",
 ) -> dict[str, np.ndarray | list]:
     """Build per-trial stimulus / timing arrays using NIDAQ-aligned events.
 
     Uses the same center-port exit / response-port logic as
     ``build_trial_stim_classification``, but keeps all merged stim pulses
-    (``stim_ev``) rather than only 15 ms pulses, and does not require movement
-    flashes after withdrawal.
+    (``stim_ev``) rather than only 15 ms pulses.
+
+    ``observation_window``:
+    - ``center_exit``: flashes from last center-port entry until center exit
+      (fixation / stationary evidence only).
+    - ``response``: flashes from last center-port entry until the chosen
+      response-port entry (fixation + movement-period flashes).
     """
     import pandas as pd
+
+    if observation_window not in OBSERVATION_WINDOWS:
+        raise ValueError(
+            f"observation_window must be one of {OBSERVATION_WINDOWS}, "
+            f"got {observation_window!r}"
+        )
 
     stim_times = np.asarray(align_ev[stim_key], dtype=float)
     cp_entries = np.asarray(align_ev["center_port"], dtype=float)
@@ -346,13 +363,20 @@ def extract_trial_kernel_inputs(
             continue
         rp_entry = float(rp_pool[rp_mask][0])
 
-        trial_stims = stim_times[(stim_times >= cp_entry) & (stim_times < cp_exit)]
+        if observation_window == "center_exit":
+            observation_end = cp_exit
+        else:
+            observation_end = rp_entry
+
+        trial_stims = stim_times[
+            (stim_times >= cp_entry) & (stim_times < observation_end)
+        ]
         if trial_stims.size < 1:
             continue
 
         stim_times_per_trial.append(trial_stims)
         first_stim_times.append(float(trial_stims[0]))
-        observation_end_times.append(cp_exit)
+        observation_end_times.append(observation_end)
         response_values.append(int(response[i]))
         wait_times.append(cp_exit - cp_entry)
         response_times.append(rp_entry - cp_exit)
@@ -364,6 +388,7 @@ def extract_trial_kernel_inputs(
         "response_values": np.asarray(response_values, dtype=int),
         "wait_times": np.asarray(wait_times, dtype=float),
         "response_times": np.asarray(response_times, dtype=float),
+        "observation_window": observation_window,
         "n_trials": len(stim_times_per_trial),
         "trial_table": pd.DataFrame(
             {
@@ -371,7 +396,7 @@ def extract_trial_kernel_inputs(
                 "wait_time": wait_times,
                 "response_time": response_times,
                 "first_stim": first_stim_times,
-                "cp_exit": observation_end_times,
+                "observation_end": observation_end_times,
             }
         ),
     }
@@ -389,9 +414,15 @@ def compute_session_psychophysical_kernel(
     min_trials_per_bin: int = 50,
     regularization_C: float = 1.0,
     stim_key: str = "stim_ev",
+    observation_window: str = "center_exit",
 ) -> dict[str, Any]:
     """End-to-end kernel computation from NIDAQ events + Chipmunk trial table."""
-    inputs = extract_trial_kernel_inputs(align_ev, trial_df, stim_key=stim_key)
+    inputs = extract_trial_kernel_inputs(
+        align_ev,
+        trial_df,
+        stim_key=stim_key,
+        observation_window=observation_window,
+    )
     residual, choice_right, n_observed, bin_centers = build_residual_rate_matrix(
         inputs["stim_times_per_trial"],
         inputs["first_stim_times"],
@@ -421,6 +452,7 @@ def compute_session_psychophysical_kernel(
         **fit,
         "bin_centers_s": bin_centers,
         "interpretation": interpretation,
+        "observation_window": observation_window,
         "wait_time_mean": float(np.mean(wait_times)) if wait_times.size else np.nan,
         "wait_time_std": float(np.std(wait_times)) if wait_times.size else np.nan,
         "response_time_mean": float(np.mean(response_times))

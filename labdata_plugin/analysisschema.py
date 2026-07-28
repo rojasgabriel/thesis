@@ -294,7 +294,7 @@ class LocomotionPeaks(dj.Computed):
 @rojasbowe_schema
 class PsychophysicalKernelParam(dj.Lookup):
     definition = """
-    kernel_param_id                      : varchar(32)
+    kernel_param_id                      : varchar(48)
     ---
     timebins                             : int
     bin_width_s                          : float
@@ -303,10 +303,14 @@ class PsychophysicalKernelParam(dj.Lookup):
     max_rate_hz                          : float
     min_trials_per_bin                   : int
     regularization_c                     : float
+    observation_window                   : varchar(32)  # center_exit | response
     analysis_version                     : varchar(32)
     """
     contents = [  # noqa: RUF012
-        ("v1_100ms_10bin", 10, 0.1, 10, 0, 20.0, 50, 1.0, "v1"),
+        # Fixation-only: flashes until center-port exit.
+        ("v1_100ms_10bin_center", 10, 0.1, 10, 0, 20.0, 50, 1.0, "center_exit", "v1"),
+        # Through response: flashes until chosen response-port poke.
+        ("v1_100ms_10bin_response", 10, 0.1, 10, 0, 20.0, 50, 1.0, "response", "v1"),
     ]
 
 
@@ -377,6 +381,7 @@ class PsychophysicalKernel(dj.Computed):
             random_state=int(params["random_state"]),
             min_trials_per_bin=int(params["min_trials_per_bin"]),
             regularization_C=float(params["regularization_c"]),
+            observation_window=str(params["observation_window"]),
         )
         if not result["fit_converged"]:
             raise RuntimeError(

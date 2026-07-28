@@ -5,9 +5,11 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import pandas as pd
 from ephys.src.utils.psychophysical_kernel import (
     build_residual_rate_matrix,
     code_choice_right,
+    extract_trial_kernel_inputs,
     fit_psychophysical_kernel,
     interpret_kernel_weights,
 )
@@ -77,6 +79,45 @@ class ResidualMatrixTests(unittest.TestCase):
         # Bin0 [0,0.1): two flashes -> 2 - 2 = 0; bin1 [0.1,0.2): one flash -> 1-2=-1
         np.testing.assert_allclose(residual[0], [0.0, -1.0])
         np.testing.assert_allclose(centers, [0.05, 0.15])
+
+
+class ObservationWindowTests(unittest.TestCase):
+    def _one_trial_fixture(self):
+        # CP entry 0.1, first flash 0.2, CP exit 0.5, movement flash 0.7, RP 0.9
+        align_ev = {
+            "stim_ev": np.array([0.2, 0.35, 0.7]),
+            "center_port": np.array([0.1]),
+            "center_port_exit": np.array([0.5]),
+            "left_port": np.array([]),
+            "right_port": np.array([0.9]),
+            "trial_start": np.array([0.0, 2.0]),
+        }
+        trial_df = pd.DataFrame(
+            {
+                "t_sync": [0.0, 2.0],
+                "t_react": [0.5, np.nan],
+                "response": [1, 0],
+            }
+        )
+        return align_ev, trial_df
+
+    def test_center_exit_excludes_movement_flashes(self):
+        align_ev, trial_df = self._one_trial_fixture()
+        inputs = extract_trial_kernel_inputs(
+            align_ev, trial_df, observation_window="center_exit"
+        )
+        self.assertEqual(inputs["n_trials"], 1)
+        np.testing.assert_allclose(inputs["stim_times_per_trial"][0], [0.2, 0.35])
+        self.assertAlmostEqual(float(inputs["observation_end_times"][0]), 0.5)
+
+    def test_response_window_includes_movement_flashes(self):
+        align_ev, trial_df = self._one_trial_fixture()
+        inputs = extract_trial_kernel_inputs(
+            align_ev, trial_df, observation_window="response"
+        )
+        self.assertEqual(inputs["n_trials"], 1)
+        np.testing.assert_allclose(inputs["stim_times_per_trial"][0], [0.2, 0.35, 0.7])
+        self.assertAlmostEqual(float(inputs["observation_end_times"][0]), 0.9)
 
 
 class FitDeterminismTests(unittest.TestCase):
