@@ -21,6 +21,12 @@ dependencies = [
 
 [tool.uv]
 package = false
+constraint-dependencies = [
+    "cryptography>=48.0.1",
+    "pillow>=12.3.0",
+    "tornado>=6.5.7",
+    "urllib3>=2.7.0",
+]
 
 [tool.uv.sources]
 chiCa = { git = "https://github.com/churchlandlab/chiCa" }
