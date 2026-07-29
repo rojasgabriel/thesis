@@ -99,6 +99,7 @@ class KernelTests(unittest.TestCase):
         x, y = build_residual_rate_matrix(stim_events, responses, timebins=2)
 
         self.assertEqual(x.shape, (1, 2))
+        np.testing.assert_allclose(x[0], [1 - 20 / 3, 2 - 20 / 3])
         np.testing.assert_array_equal(y, [1])
 
 

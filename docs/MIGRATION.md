@@ -30,9 +30,20 @@ merging [PR #8](https://github.com/rojasgabriel/behavior_analyses/pull/8).
 - Chipmunk access prefers `from chipmunk import Chipmunk`. Optional local
   fallback uses `CHIPMUNK_PLUGIN_PATH` or
   `tool.behavior_analyses.chipmunk_plugin_path` (empty by default).
+- LabData 0.1.x requires DataJoint `<2`. DataJoint 0.14.9 is the latest
+  compatible release and upstream pins `setuptools<82` because it still uses
+  `pkg_resources`.
 
 ## Live LabData validation
 
-Read-only schema/query checks and disposable seed/populate require DataJoint
-credentials and an explicit approval for writes. Without those, local unit
-tests + CI are the automated gates; live smoke tests remain a manual step.
+Read-only checks completed on 2026-07-28:
+
+- DataJoint 0.14.9 connected and exposed the expected Chipmunk
+  `TrialParameters` and LabData `DecisionTask.TrialSet` fields.
+- GRB006 had 263 LabData trial sets.
+- The corrected psychometric query returned 422 choice trials for
+  `20240826_113307`, all with finite boundary-centered intensities spanning
+  -8 to +8 Hz.
+
+Disposable seed/populate writes still require explicit approval and have not
+been run.

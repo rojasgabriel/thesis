@@ -15,10 +15,6 @@ import numpy as np
 import seaborn as sns
 
 from behavior_analyses.io import get_chipmunk_table
-from behavior_analyses.psychometrics import (
-    cumulative_gaussian,
-    fit_psychometric_labdata,
-)
 
 
 def _as_session_name_strings(sessions_list: list[Any] | None) -> list[str] | None:
@@ -27,7 +23,7 @@ def _as_session_name_strings(sessions_list: list[Any] | None) -> list[str] | Non
     out = []
     for session in sessions_list:
         if isinstance(session, datetime.datetime):
-            out.append(session.strftime("%Y-%m-%d %H:%M:%S"))
+            out.append(session.strftime("%Y%m%d_%H%M%S"))
         else:
             out.append(str(session))
     return out
@@ -47,7 +43,20 @@ def _fetch_choice_and_stim(
     if query:
         relation = relation & query
     relation = relation & "response != 0"
-    return relation.fetch("response", "stim_rate")
+    response, modality, audio_rate, visual_rate, boundary = relation.fetch(
+        "response",
+        "rewarded_modality",
+        "stim_rate_audio",
+        "stim_rate_vision",
+        "category_boundary",
+    )
+    modality = np.asarray(modality)
+    stim_rate = np.where(
+        np.isin(modality, ["visual", "visual+audio"]),
+        np.asarray(visual_rate, dtype=float),
+        np.asarray(audio_rate, dtype=float),
+    )
+    return response, stim_rate - np.asarray(boundary, dtype=float)
 
 
 def plot_single_mouse_psychometric_fit(
@@ -65,6 +74,11 @@ def plot_single_mouse_psychometric_fit(
     ``PsychometricSessionFit``). When omitted, only the pooled average fit from
     Chipmunk trials is drawn.
     """
+    from behavior_analyses.psychometrics import (
+        cumulative_gaussian,
+        fit_psychometric_labdata,
+    )
+
     if ax is None:
         _, ax = plt.subplots(figsize=(5, 5))
 
@@ -123,7 +137,7 @@ def plot_single_mouse_psychometric_fit(
                 )
 
     ax.set_ylabel("P(right choice)", fontsize=14)
-    ax.set_xlabel("Stimulus rate (Hz)", fontsize=14)
+    ax.set_xlabel("Stimulus rate relative to boundary (Hz)", fontsize=14)
     ax.tick_params(axis="both", which="major", labelsize=10)
     ax.set_ylim([0, 1])
     return ax
@@ -133,6 +147,11 @@ def plot_multi_mouse_psychometric_fit(
     mouse_sessions_dict, mice_list=None, query=None, ax=None
 ):
     """Plot average psychometric fits for multiple mice."""
+    from behavior_analyses.psychometrics import (
+        cumulative_gaussian,
+        fit_psychometric_labdata,
+    )
+
     if ax is None:
         _, ax = plt.subplots(figsize=(5, 5))
 
@@ -166,7 +185,7 @@ def plot_multi_mouse_psychometric_fit(
         )
 
     ax.set_ylabel("P(right choice)", fontsize=14)
-    ax.set_xlabel("Stimulus rate (Hz)", fontsize=14)
+    ax.set_xlabel("Stimulus rate relative to boundary (Hz)", fontsize=14)
     ax.tick_params(axis="both", which="major", labelsize=10)
     ax.set_ylim([0, 1])
     return ax

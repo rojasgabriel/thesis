@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
+import json
 from pathlib import Path
 import runpy
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -146,6 +150,38 @@ class IoConfigTests(unittest.TestCase):
         self.assertEqual(path, Path("/tmp/chipmunk-plugin"))
 
 
+class PsychometricPlotHelperTests(unittest.TestCase):
+    def test_fetch_uses_labdata_rates_and_session_names(self):
+        from psychometric_curves import utils
+
+        relation = MagicMock()
+        relation.__mul__.return_value = relation
+        relation.__and__.return_value = relation
+        relation.fetch.return_value = (
+            np.array([1, -1, 1]),
+            np.array(["visual", "audio", "visual+audio"]),
+            np.array([20.0, 8.0, 20.0]),
+            np.array([14.0, 20.0, 13.0]),
+            np.array([12.0, 10.0, 12.0]),
+        )
+        part = MagicMock(return_value=relation)
+        chipmunk = types.SimpleNamespace(Trial=part, TrialParameters=part)
+        with patch.object(utils, "get_chipmunk_table", return_value=chipmunk):
+            responses, intensity = utils._fetch_choice_and_stim(
+                "GRB006",
+                None,
+                [datetime(2024, 8, 26, 11, 33, 7)],
+            )
+
+        np.testing.assert_array_equal(responses, [1, -1, 1])
+        np.testing.assert_allclose(intensity, [2, -2, 1])
+        self.assertIn(
+            [{"session_name": "20240826_113307"}],
+            [call.args[0] for call in relation.__and__.call_args_list],
+        )
+        self.assertNotIn("stim_rate", relation.fetch.call_args.args)
+
+
 class NoDjchurchlandImportsTests(unittest.TestCase):
     def test_maintained_python_sources_do_not_import_djchurchland(self):
         import ast
@@ -175,6 +211,22 @@ class NoDjchurchlandImportsTests(unittest.TestCase):
                     ):
                         offenders.append(str(path.relative_to(REPO_ROOT)))
                         break
+
+        for path in [
+            REPO_ROOT / "behavioral_metrics" / "plot_learning_curves.ipynb",
+            REPO_ROOT / "psychometric_curves" / "plot_psychometric_fits.ipynb",
+            REPO_ROOT / "psychophysical_kernels" / "plot_kernels.ipynb",
+            REPO_ROOT / "sess.ipynb",
+        ]:
+            notebook = json.loads(path.read_text(encoding="utf-8"))
+            code = "\n".join(
+                "".join(cell["source"])
+                for cell in notebook["cells"]
+                if cell["cell_type"] == "code"
+            )
+            if "djchurchland" in code:
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+
         self.assertEqual(offenders, [])
 
 

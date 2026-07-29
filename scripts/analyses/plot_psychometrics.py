@@ -40,7 +40,7 @@ def main() -> None:
         x = np.asarray(sorted(stims), dtype=float)
         ax.plot(x, cumulative_gaussian(*params, x), label=row["subject_name"])
         ax.plot(stims, p_right, "o", ms=4)
-    ax.set_xlabel("Stimulus rate")
+    ax.set_xlabel("Stimulus rate relative to boundary (Hz)")
     ax.set_ylabel("P(right choice)")
     ax.set_ylim(0, 1)
     ax.legend(frameon=False, fontsize=8)

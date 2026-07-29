@@ -35,6 +35,11 @@ class FakeSchema:
 
 
 class SchemaImportTests(unittest.TestCase):
+    def test_locked_datajoint_imports(self):
+        import datajoint
+
+        self.assertTrue(hasattr(datajoint, "schema"))
+
     def test_analysis_schema_imports_with_fake_labdata(self):
         fake_dj = types.ModuleType("datajoint")
         fake_dj.Manual = FakeTable

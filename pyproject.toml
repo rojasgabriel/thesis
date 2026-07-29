@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "behavioral analysis code for my thesis in the Churchland Lab"
 requires-python = ">=3.10"
 dependencies = [
-    "datajoint>=0.14.0",
+    "datajoint>=0.14.9,<2.0.0",
     "ipykernel>=6.0.0",
     "labdata>=0.1.7",
     "matplotlib>=3.0.0",
@@ -24,7 +24,6 @@ package = false
 constraint-dependencies = [
     "cryptography>=48.0.1",
     "pillow>=12.3.0",
-    "setuptools>=83.0.0",
     "tornado>=6.5.7",
     "urllib3>=2.7.0",
 ]
