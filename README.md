@@ -27,16 +27,16 @@ export CHIPMUNK_PLUGIN_PATH=/path/to/labdata/plugins/chipmunk
 - `docs/MIGRATION.md` — inventory, portability notes, live-validation gates
 - `behavioral_metrics/`, `psychometric_curves/`,
   `psychophysical_kernels/` — maintained labdata notebooks + helpers
-- `historical/djchurchland/` — preserved pre-migration notebooks
+- `archive/djchurchland/` — preserved pre-migration notebooks
 - `notebooks/` — ingestion and exploratory work
-- `oft/` — open-field analyses (historical notebooks relocated)
+- `oft/` — open-field analyses (archived notebooks relocated)
 
 ## Data access
 
 Maintained analysis paths use `labdata` and the local plugin in
 `labdata_plugin/`. Prefer `from chipmunk import Chipmunk` for trial-level
-Chipmunk data. Historical `djchurchland` notebooks are under
-`historical/djchurchland/` and are not active entry points.
+Chipmunk data. Archived `djchurchland` notebooks are under
+`archive/djchurchland/` and are not active entry points.
 
 ## Migration CLIs
 

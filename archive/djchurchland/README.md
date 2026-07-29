@@ -1,15 +1,15 @@
-# Historical djchurchland notebooks
+# Archived djchurchland notebooks
 
 These notebooks are preserved as provenance for the pre-labdata analysis workflows.
 They are **not** maintained entry points.
 
 | Path | Classification |
 | --- | --- |
-| `psychometric_curves/` | historical |
-| `behavioral_metrics/` | historical |
-| `psychophysical_kernels/` | historical |
-| `root/sess.ipynb` | historical |
-| `oft/` | historical (absolute desktop paths; not part of the Chipmunk LabData migration) |
+| `psychometric_curves/` | archived |
+| `behavioral_metrics/` | archived |
+| `psychophysical_kernels/` | archived |
+| `root/sess.ipynb` | archived |
+| `oft/` | archived (absolute desktop paths; not part of the Chipmunk LabData migration) |
 
 Maintained replacements:
 

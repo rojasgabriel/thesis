@@ -1,6 +1,6 @@
 """Labdata-backed psychometric plotting helpers.
 
-Historical djchurchland notebooks live under ``historical/djchurchland/``.
+Archived djchurchland notebooks live under ``archive/djchurchland/``.
 Maintained plotting entry points are ``scripts/analyses/plot_psychometrics.py``
 and the helpers in this module.
 """

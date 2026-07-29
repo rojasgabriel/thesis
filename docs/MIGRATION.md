@@ -14,11 +14,11 @@ merging [PR #8](https://github.com/rojasgabriel/behavior_analyses/pull/8).
 | `labdata_plugin/` | migrate (done) | User-schema tables for session sets and fits |
 | `scripts/analyses/` | migrate (done) | Seed / populate / plot CLIs |
 | `psychometric_curves/utils.py` | migrate (done) | LabData/Chipmunk plotting helpers |
-| `psychometric_curves/*.ipynb` (old) | historical | Moved under `historical/djchurchland/` |
-| `behavioral_metrics/*.ipynb` (old) | historical | Moved under `historical/djchurchland/` |
-| `psychophysical_kernels/*.ipynb` (old) | historical | Moved under `historical/djchurchland/` |
-| `sess.ipynb` (old) | historical | Moved under `historical/djchurchland/root/` |
-| `oft/` notebooks | historical | Open-field; not Chipmunk LabData path |
+| `psychometric_curves/*.ipynb` (old) | archived | Moved under `archive/djchurchland/` |
+| `behavioral_metrics/*.ipynb` (old) | archived | Moved under `archive/djchurchland/` |
+| `psychophysical_kernels/*.ipynb` (old) | archived | Moved under `archive/djchurchland/` |
+| `sess.ipynb` (old) | archived | Moved under `archive/djchurchland/root/` |
+| `oft/` notebooks | archived | Open-field; not Chipmunk LabData path |
 | `psychometric_curves/fit_psychometric.py` | preserve local copy | Upstream also vendored in `third_party/fit_psychometric` |
 | `labdata2_testing/`, `notebooks/ingest_subjects.ipynb` | already labdata | Leave as-is |
 

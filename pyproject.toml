@@ -41,7 +41,7 @@ chipmunk_plugin_path = ""
 exclude = [
     "psychometric_curves/fit_psychometric.py",
     "third_party",
-    "historical",
+    "archive",
 ]
 
 [tool.ruff.lint]
@@ -52,6 +52,6 @@ per-file-ignores = { "*.ipynb" = ["E402", "F401", "F403", "F405"] }
 exclude = [
     "notebooks/stress_test_labdata_migration.ipynb",
     "stress_test_labdata_migration.ipynb",
-    "historical",
+    "archive",
     "third_party",
 ]
