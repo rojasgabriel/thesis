@@ -1,6 +1,6 @@
 """Diagnostic plots for the session psychophysical-kernel table.
 
-Reads ``PsychophysicalKernel`` for a subject/session and writes:
+Reads ``SessionPsychophysicalKernel`` for a subject/session and writes:
 - kernel coefficient vs stimulus-event time
 - contributing trial counts per bin
 - wait-time / response-time summary statistics from the stored row
@@ -30,8 +30,8 @@ FIGURE_ROOT = Path(os.environ.get("EPHYS_FIGURE_ROOT", str(REPO_ROOT / "figures"
 FIGURE_DIR = FIGURE_ROOT / "psychophysical_kernels"
 
 DEFAULT_PARAM_IDS = (
-    "v1_100ms_10bin_center",
-    "v1_100ms_10bin_response",
+    "v2_100ms_10bin_center_rate",
+    "v2_100ms_10bin_response_rate",
 )
 
 
@@ -62,9 +62,10 @@ def main() -> None:
     from matplotlib import pyplot as plt
 
     from labdata_plugin.analysisschema import (
-        PsychophysicalKernel,
         PsychophysicalKernelParam,
+        SessionPsychophysicalKernel,
     )
+    from src.utils.psychophysical_kernel import kernel_late_early_ratio
 
     if args.populate:
         for param_id in args.kernel_param_id:
@@ -73,7 +74,7 @@ def main() -> None:
                 "session_name": args.session,
                 "kernel_param_id": param_id,
             }
-            PsychophysicalKernel.populate(key, display_progress=True)
+            SessionPsychophysicalKernel.populate(key, display_progress=True)
 
     rows = []
     for param_id in args.kernel_param_id:
@@ -82,9 +83,9 @@ def main() -> None:
             "session_name": args.session,
             "kernel_param_id": param_id,
         }
-        relation = PsychophysicalKernel() & key
+        relation = SessionPsychophysicalKernel() & key
         if not relation:
-            print(f"Missing PsychophysicalKernel row for {key}")
+            print(f"Missing SessionPsychophysicalKernel row for {key}")
             continue
         row = relation.fetch1()
         window = (PsychophysicalKernelParam() & key).fetch1("observation_window")
@@ -93,7 +94,7 @@ def main() -> None:
 
     if not rows:
         raise RuntimeError(
-            f"No PsychophysicalKernel rows for {args.subject} {args.session} "
+            f"No SessionPsychophysicalKernel rows for {args.subject} {args.session} "
             f"params={args.kernel_param_id}. Re-run with --populate once "
             "EventMapping + Chipmunk data are available."
         )
@@ -112,12 +113,17 @@ def main() -> None:
         errors = np.asarray(row["weights_error"], dtype=float)
         window = row["observation_window"]
         color = colors.get(window, "C1")
+        ratio = kernel_late_early_ratio(weights, row["n_observed_per_bin"])
         ax.plot(
             centers,
             weights,
             color=color,
             lw=2,
-            label=f"{labels.get(window, window)} ({row['interpretation']})",
+            label=(
+                f"{labels.get(window, window)} "
+                f"(late/early={ratio:.2f}; "
+                f"Δmajority={row['score_above_majority']:+.2f})"
+            ),
         )
         finite = np.isfinite(weights) & np.isfinite(errors)
         ax.fill_between(
@@ -173,8 +179,12 @@ def main() -> None:
     print(f"Wrote {output}")
     for row in rows:
         n_obs = np.asarray(row["n_observed_per_bin"], dtype=int)
+        ratio = kernel_late_early_ratio(row["weights_mean"], n_obs)
         print(
             f"{row['observation_window']}: interpretation={row['interpretation']} "
+            f"late_early_ratio={ratio:.3f} "
+            f"score={row['score_mean']:.3f} "
+            f"above_majority={row['score_above_majority']:.3f} "
             f"n_observed_per_bin={n_obs.tolist()}"
         )
 

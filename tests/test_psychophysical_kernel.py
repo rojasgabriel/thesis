@@ -12,6 +12,7 @@ from ephys.src.utils.psychophysical_kernel import (
     extract_trial_kernel_inputs,
     fit_psychophysical_kernel,
     interpret_kernel_weights,
+    kernel_late_early_ratio,
 )
 
 
@@ -30,7 +31,7 @@ class ResidualMatrixTests(unittest.TestCase):
         observation_end = [1.15]
         responses = [1]
 
-        residual, choices, n_observed, centers = build_residual_rate_matrix(
+        residual, choices, n_observed, centers, _ = build_residual_rate_matrix(
             stim_times,
             first_stim,
             observation_end,
@@ -52,7 +53,7 @@ class ResidualMatrixTests(unittest.TestCase):
     def test_zero_evidence_is_distinct_from_missing(self):
         # A fully observed empty bin should be count-expected (= negative), not NaN.
         stim_times = [np.array([0.0])]
-        residual, _, n_observed, _ = build_residual_rate_matrix(
+        residual, _, n_observed, _, _ = build_residual_rate_matrix(
             stim_times,
             [0.0],
             [0.3],
@@ -67,7 +68,7 @@ class ResidualMatrixTests(unittest.TestCase):
 
     def test_event_order_aligned_to_first_stim(self):
         stim_times = [np.array([10.0, 10.05, 10.15])]
-        residual, _, _, centers = build_residual_rate_matrix(
+        residual, _, _, centers, _ = build_residual_rate_matrix(
             stim_times,
             [10.0],
             [10.25],
@@ -79,6 +80,19 @@ class ResidualMatrixTests(unittest.TestCase):
         # Bin0 [0,0.1): two flashes -> 2 - 2 = 0; bin1 [0.1,0.2): one flash -> 1-2=-1
         np.testing.assert_allclose(residual[0], [0.0, -1.0])
         np.testing.assert_allclose(centers, [0.05, 0.15])
+
+    def test_trial_rate_encoding_removes_each_trials_mean_rate(self):
+        residual, _, _, _, expected = build_residual_rate_matrix(
+            [np.array([0.0]), np.array([0.0])],
+            [0.0, 0.0],
+            [0.1, 0.1],
+            [-1, 1],
+            timebins=1,
+            bin_width_s=0.1,
+            trial_rate_hz=[10.0, 20.0],
+        )
+        np.testing.assert_allclose(residual[:, 0], [0.0, -1.0])
+        np.testing.assert_allclose(expected[:, 0], [1.0, 2.0])
 
 
 class ObservationWindowTests(unittest.TestCase):
@@ -107,6 +121,7 @@ class ObservationWindowTests(unittest.TestCase):
             align_ev, trial_df, observation_window="center_exit"
         )
         self.assertEqual(inputs["n_trials"], 1)
+        np.testing.assert_array_equal(inputs["trial_indices"], [0])
         np.testing.assert_allclose(inputs["stim_times_per_trial"][0], [0.2, 0.35])
         self.assertAlmostEqual(float(inputs["observation_end_times"][0]), 0.5)
 
@@ -157,11 +172,44 @@ class FitDeterminismTests(unittest.TestCase):
             min_trials_per_bin=40,
         )
         self.assertTrue(first["fit_converged"])
+        self.assertGreaterEqual(first["majority_accuracy"], 0.5)
+        self.assertAlmostEqual(
+            first["score_above_majority"],
+            first["score_mean"] - first["majority_accuracy"],
+        )
         np.testing.assert_allclose(first["weights_mean"], second["weights_mean"])
         np.testing.assert_allclose(first["scores"], second["scores"])
         # Incomplete late bins contribute fewer trials than early bins.
         self.assertLess(int(n_observed[3]), int(n_observed[0]))
         self.assertTrue(np.any(~np.isfinite(residual[:, 3])))
+
+    def test_eq5_fit_is_deterministic(self):
+        residual, choices, n_observed = self._synthetic_fixture()
+        trial_scale = np.linspace(0.5, 1.5, residual.shape[0])[:, None]
+        expected = np.where(np.isfinite(residual), trial_scale, np.nan)
+        first = fit_psychophysical_kernel(
+            residual,
+            choices,
+            n_observed_per_bin=n_observed,
+            cv_splits=5,
+            random_state=7,
+            min_trials_per_bin=40,
+            expected_counts=expected,
+        )
+        second = fit_psychophysical_kernel(
+            residual,
+            choices,
+            n_observed_per_bin=n_observed,
+            cv_splits=5,
+            random_state=7,
+            min_trials_per_bin=40,
+            expected_counts=expected,
+        )
+        self.assertTrue(first["fit_converged"])
+        np.testing.assert_allclose(
+            first["weights_mean"], second["weights_mean"], equal_nan=True
+        )
+        np.testing.assert_allclose(first["scores"], second["scores"])
 
     def test_interpretation_labels_early_integrator(self):
         weights = np.array([0.8, 0.6, 0.1, 0.05])
@@ -170,6 +218,10 @@ class FitDeterminismTests(unittest.TestCase):
             weights, n_observed, min_trials_per_bin=50, ratio_threshold=1.5
         )
         self.assertEqual(label, "early_integrator")
+        self.assertAlmostEqual(
+            kernel_late_early_ratio(weights, n_observed),
+            0.15 / 1.4,
+        )
 
 
 if __name__ == "__main__":

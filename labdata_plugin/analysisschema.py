@@ -303,6 +303,7 @@ class PsychophysicalKernelParam(dj.Lookup):
     cv_splits                            : int
     random_state                         : int
     max_rate_hz                          : float
+    evidence_encoding                    : varchar(32)  # max_rate | trial_rate
     min_trials_per_bin                   : int
     regularization_c                     : float
     observation_window                   : varchar(32)  # center_exit | response
@@ -310,14 +311,66 @@ class PsychophysicalKernelParam(dj.Lookup):
     """
     contents = [  # noqa: RUF012
         # Fixation-only: flashes until center-port exit.
-        ("v1_100ms_10bin_center", 10, 0.1, 10, 0, 20.0, 50, 1.0, "center_exit", "v1"),
+        (
+            "v1_100ms_10bin_center",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "max_rate",
+            50,
+            1.0,
+            "center_exit",
+            "v1",
+        ),
         # Through response: flashes until chosen response-port poke.
-        ("v1_100ms_10bin_response", 10, 0.1, 10, 0, 20.0, 50, 1.0, "response", "v1"),
+        (
+            "v1_100ms_10bin_response",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "max_rate",
+            50,
+            1.0,
+            "response",
+            "v1",
+        ),
+        # Locked primary: fixation-only, centered on each trial's generative rate.
+        (
+            "v2_100ms_10bin_center_rate",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "trial_rate",
+            50,
+            1.0,
+            "center_exit",
+            "v2",
+        ),
+        # Window sensitivity: includes movement-period flashes through response.
+        (
+            "v2_100ms_10bin_response_rate",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "trial_rate",
+            50,
+            1.0,
+            "response",
+            "v2",
+        ),
     ]
 
 
 @rojasbowe_schema
-class PsychophysicalKernel(dj.Computed):
+class SessionPsychophysicalKernel(dj.Computed):
     """Session psychophysical kernel (logistic reverse correlation).
 
     See ``ephys.src.utils.psychophysical_kernel`` and Odoemene et al. 2018
@@ -339,6 +392,8 @@ class PsychophysicalKernel(dj.Computed):
     bin_centers_s                        : longblob  # time from first flash
     scores                               : longblob  # CV holdout accuracy
     score_mean                           : float
+    majority_accuracy = NULL             : float
+    score_above_majority = NULL          : float
     bias                                 : longblob  # CV intercepts β0
     bias_mean                            : float
     interpretation                       : varchar(32)  # early/late/flat/failed
@@ -384,6 +439,7 @@ class PsychophysicalKernel(dj.Computed):
             min_trials_per_bin=int(params["min_trials_per_bin"]),
             regularization_C=float(params["regularization_c"]),
             observation_window=str(params["observation_window"]),
+            evidence_encoding=str(params["evidence_encoding"]),
         )
         if not result["fit_converged"]:
             raise RuntimeError(
@@ -405,6 +461,8 @@ class PsychophysicalKernel(dj.Computed):
                 "bin_centers_s": result["bin_centers_s"],
                 "scores": result["scores"],
                 "score_mean": float(result["score_mean"]),
+                "majority_accuracy": float(result["majority_accuracy"]),
+                "score_above_majority": float(result["score_above_majority"]),
                 "bias": result["bias"],
                 "bias_mean": float(result["bias_mean"]),
                 "interpretation": result["interpretation"],
