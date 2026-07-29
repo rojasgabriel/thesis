@@ -22,6 +22,7 @@ dependencies = [
     "statsmodels>=0.14.6",
     "torch>=2.13.0",
     "torchaudio>=2.10.0",
+    "neuropop",
 ]
 
 [tool.uv]
@@ -35,6 +36,8 @@ constraint-dependencies = [
 
 [tool.uv.sources]
 spks = { git = "https://github.com/spkware/spks" }
+# Sibling checkout in the multi-repo workspace (MouseLand/neuropop).
+neuropop = { path = "../neuropop", editable = true }
 
 [tool.ty.src]
 include = ["src", "tests", "scripts", "notebooks"]
