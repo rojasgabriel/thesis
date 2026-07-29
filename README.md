@@ -8,7 +8,14 @@ Behavioral-only analysis code for thesis work in the Churchland Lab.
 uv sync
 uvx ruff check .
 uvx ruff format --check .
-uv run pytest
+uv run python -m unittest discover -s tests -v
+```
+
+`fit-psychometric` is vendored under `third_party/fit_psychometric` (no sibling
+checkout or machine-local path required). Optional Chipmunk plugin fallback:
+
+```bash
+export CHIPMUNK_PLUGIN_PATH=/path/to/labdata/plugins/chipmunk
 ```
 
 ## Layout
@@ -17,16 +24,26 @@ uv run pytest
 - `scripts/analyses/` — maintained scripts and migration entry points
 - `labdata_plugin/` — local analysis-schema plugin under development
 - `tests/` — migration-focused tests
+- `docs/MIGRATION.md` — inventory, portability notes, live-validation gates
 - `behavioral_metrics/`, `psychometric_curves/`,
-  `psychophysical_kernels/`, and `oft/` — established analysis areas
+  `psychophysical_kernels/` — maintained labdata notebooks + helpers
+- `historical/djchurchland/` — preserved pre-migration notebooks
 - `notebooks/` — ingestion and exploratory work
+- `oft/` — open-field analyses (historical notebooks relocated)
 
 ## Data access
 
-The active migration uses `labdata` with the local plugin configuration in
-`pyproject.toml`. Older notebooks may still use `djchurchland`; inspect the
-specific path before extending it.
+Maintained analysis paths use `labdata` and the local plugin in
+`labdata_plugin/`. Prefer `from chipmunk import Chipmunk` for trial-level
+Chipmunk data. Historical `djchurchland` notebooks are under
+`historical/djchurchland/` and are not active entry points.
 
-The repository may contain uncommitted migration work. Git and the local files
-are the source of truth for implementation state; Notion owns priorities and
-cross-system decisions.
+## Migration CLIs
+
+```bash
+uv run python scripts/analyses/seed_behavior_session_set.py --help
+uv run python scripts/analyses/populate_behavior_tables.py --help
+uv run python scripts/analyses/plot_psychometrics.py --help
+```
+
+Use `--dry-run` on seed/populate before any database writes.

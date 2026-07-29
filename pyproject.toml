@@ -31,14 +31,18 @@ constraint-dependencies = [
 
 [tool.uv.sources]
 chiCa = { git = "https://github.com/churchlandlab/chiCa" }
-fit-psychometric = { path = "../fit_psychometric", editable = true }
+fit-psychometric = { path = "third_party/fit_psychometric", editable = true }
 
 [tool.behavior_analyses]
-chipmunk_plugin_path = "/Users/gabriel/labdata/plugins/chipmunk"
+# Optional local Chipmunk plugin checkout. Prefer `from chipmunk import Chipmunk`
+# (labdata plugin entry point). Override with env CHIPMUNK_PLUGIN_PATH.
+chipmunk_plugin_path = ""
 
 [tool.ruff]
 exclude = [
     "psychometric_curves/fit_psychometric.py",
+    "third_party",
+    "historical",
 ]
 
 [tool.ruff.lint]
@@ -49,4 +53,6 @@ per-file-ignores = { "*.ipynb" = ["E402", "F401", "F403", "F405"] }
 exclude = [
     "notebooks/stress_test_labdata_migration.ipynb",
     "stress_test_labdata_migration.ipynb",
+    "historical",
+    "third_party",
 ]
