@@ -45,5 +45,16 @@ Read-only checks completed on 2026-07-28:
   `20240826_113307`, all with finite boundary-centered intensities spanning
   -8 to +8 Hz.
 
-Disposable seed/populate writes still require explicit approval and have not
-been run.
+Approved disposable write checks completed on 2026-07-28:
+
+- Seeded `lab_tasks_479_smoke_20260728` with the GRB006
+  `20240819_110829` visual trial set: one session, one trial set, and one
+  subject/trial-set aggregate.
+- Created the four computed analysis tables and populated one row in each:
+  `LearningSessionMetrics`, `PsychometricSessionFit`,
+  `PsychometricSubjectFit`, and `PsychophysicalKernel`.
+- Verified 393 choice trials in the psychometric outputs and a 10-fold kernel
+  fit over 393 trials (`score_mean = 0.844744`).
+
+The repository's Python 3.10 environment has a damaged local SciPy binary, so
+the successful populate ran from the same lockfile under Python 3.11.
