@@ -293,6 +293,8 @@ class LocomotionPeaks(dj.Computed):
 
 @rojasbowe_schema
 class PsychophysicalKernelParam(dj.Lookup):
+    """Analysis params for ``PsychophysicalKernel`` (Odoemene-style logistic kernel)."""
+
     definition = """
     kernel_param_id                      : varchar(48)
     ---
@@ -316,11 +318,11 @@ class PsychophysicalKernelParam(dj.Lookup):
 
 @rojasbowe_schema
 class PsychophysicalKernel(dj.Computed):
-    """Session-level psychophysical kernel from NIDAQ-timed flashes.
+    """Session psychophysical kernel (logistic reverse correlation).
 
-    Depends on ``Session`` + ``PsychophysicalKernelParam``. ``make()`` requires
-    ``EventMapping`` rows and Chipmunk trial metadata for the session; missing
-    NIDAQ mappings raise rather than falling back to raw Bpod timestamps.
+    See ``ephys.src.utils.psychophysical_kernel`` and Odoemene et al. 2018
+    doi:10.1523/JNEUROSCI.3478-17.2018. Requires ``EventMapping`` + Chipmunk;
+    missing NIDAQ mappings raise (no Bpod-timestamp fallback).
     """
 
     definition = """
@@ -330,16 +332,16 @@ class PsychophysicalKernel(dj.Computed):
     n_trials                             : int
     n_trials_fit                         : int
     n_bins_fit                           : int
-    weights                              : longblob  # cv x timebins
-    weights_mean                         : longblob
-    weights_error                        : longblob
-    n_observed_per_bin                   : longblob
-    bin_centers_s                        : longblob
-    scores                               : longblob
+    weights                              : longblob  # cv x timebins; kernel folds
+    weights_mean                         : longblob  # psychophysical kernel w(t)
+    weights_error                        : longblob  # approx. SE on w(t)
+    n_observed_per_bin                   : longblob  # trials with finite evidence
+    bin_centers_s                        : longblob  # time from first flash
+    scores                               : longblob  # CV holdout accuracy
     score_mean                           : float
-    bias                                 : longblob
+    bias                                 : longblob  # CV intercepts β0
     bias_mean                            : float
-    interpretation                       : varchar(32)
+    interpretation                       : varchar(32)  # early/late/flat/failed
     wait_time_mean                       : float
     wait_time_std                        : float
     response_time_mean                   : float

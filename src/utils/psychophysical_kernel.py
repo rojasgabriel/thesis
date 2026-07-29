@@ -1,21 +1,22 @@
-"""Psychophysical-kernel design matrix and logistic fit.
+"""Psychophysical kernels for fluctuating visual flash-rate decisions.
 
-Provenance: residual-rate logistic regression from
-``behavior_analyses/psychophysical_kernels/psychophysical_kernels.ipynb`` and the
-Codex/labdata migration draft (``src/behavior_analyses/kernels.py``).
+Kernel = time-resolved weights from logistic regression of choice on
+momentary evidence (reverse correlation). Early vs late weight profiles
+distinguish impulsive / primacy-like vs flat / late strategies.
 
-Intentional deviations from the notebook/draft:
-- Fixed absolute time bins from first stimulus onset (width ``bin_width_s``),
-  not ``linspace(first, last)`` per trial, so late bins can be marked missing
-  when observation ends early.
-- Two observation windows: ``center_exit`` (fixation flashes only) and
-  ``response`` (flashes through the response-port poke).
-- Unseen / post-observation bins are ``NaN``, never zero-filled evidence.
-- Expected counts use ``max_rate_hz * observed_bin_duration`` (fixes the
-  notebook's ``max_rate_hz / len(bins)`` off-by-one).
-- Choice coding follows current Chipmunk / ephys convention: ``response == 1``
-  is right and becomes class ``1``; ``response == -1`` is left / class ``0``.
-  The notebook comment that right is ``-1`` is stale relative to current schema.
+References:
+ - Odoemene, Pisupati, Nguyen & Churchland 2018 doi:10.1523/JNEUROSCI.3478-17.2018
+   (flash-rate task; logistic kernel; residualize rate when pooling)
+ - Huk & Shadlen 2005 doi:10.1523/JNEUROSCI.4684-04.2005
+ - Katz, Yates, Pillow & Huk 2016 doi:10.1038/ncomms13623
+ - Yates, Park, Katz, Pillow & Huk 2017 doi:10.1038/nn.4611
+ - Okazawa, She, Purcell & Kiani 2018 doi:10.1038/s41467-018-05797-y
+   (kernels mix sensory weights with decision dynamics)
+
+Local provenance: ``behavior_analyses/psychophysical_kernels/``.
+Deviations from the notebook: fixed bins from first flash (not
+per-trial linspace), NaN for unobserved late bins, observation window
+``center_exit`` vs ``response``, expected count = max_rate * duration.
 """
 
 from __future__ import annotations
@@ -31,7 +32,11 @@ from sklearn.model_selection import StratifiedKFold
 def code_choice_right(
     response_values: Sequence[Any],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Map Chipmunk response codes to right=1 / left=0; drop non-choice."""
+    """Map Chipmunk response to right=1 / left=0; drop no-choice trials.
+
+    Matches current Chipmunk / ephys convention (``response == 1`` is right),
+    as in Odoemene et al. 2018 high-rate → right contingencies.
+    """
     responses = np.asarray(response_values)
     mask = np.isin(responses, (-1, 1))
     coded = (responses[mask] == 1).astype(int)
@@ -48,30 +53,16 @@ def build_residual_rate_matrix(
     bin_width_s: float = 0.1,
     max_rate_hz: float = 20.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Build trial × bin residual-rate matrix with NaN for unobserved bins.
+    """Trial × bin residual flash rate, with NaN after observation ends.
 
-    Parameters
-    ----------
-    stim_times_per_trial
-        Absolute stimulus-flash timestamps actually presented on each trial.
-    first_stim_times
-        Absolute first-stimulus time used as bin alignment (per trial).
-    observation_end_times
-        Absolute time when observation ends (center-port exit / withdrawal).
-    response_values
-        Chipmunk response codes (``1`` right, ``-1`` left, ``0`` no choice).
+    Evidence in bin ``b`` (Odoemene et al. 2018 Eqs. 4–5 style):
 
-    Returns
-    -------
-    residual
-        Shape ``(n_trials, timebins)`` with ``NaN`` where the animal had already
-        left before the bin started.
-    choice_right
-        Shape ``(n_trials,)`` with right=1, left=0.
-    n_observed_per_bin
-        Count of finite residual entries per bin.
-    bin_centers_s
-        Bin centers relative to first stimulus (seconds).
+        X_{t,b} = n_flashes_{t,b} - max_rate_hz * observed_duration_{t,b}
+
+    Residualizing removes the mean-rate confound when trials span multiple
+    generative rates. Bins the animal never reached are ``NaN``, not zero.
+
+    Returns residual, choice_right, n_observed_per_bin, bin_centers_s.
     """
     if timebins < 1:
         raise ValueError("timebins must be >= 1")
@@ -109,6 +100,7 @@ def build_residual_rate_matrix(
             if observed_duration <= 0:
                 continue
             count = int(np.sum((relative >= bin_start) & (relative < observed_end)))
+            # expected count under max_rate_hz over the observed fraction of the bin
             expected = max_rate_hz * observed_duration
             residual[trial_idx, bin_idx] = float(count - expected)
 
@@ -147,12 +139,19 @@ def fit_psychophysical_kernel(
     min_trials_per_bin: int = 50,
     regularization_C: float = 1.0,
 ) -> dict[str, Any]:
-    """Cross-validated L2 logistic regression on residual-rate bins.
+    """L2 logistic psychophysical kernel on residual-rate bins.
 
-    Late bins with missing values are excluded via a complete-case prefix:
-    only the longest leading set of bins where each bin has enough observed
-    trials and enough fully-finite rows is used for the multivariate fit.
-    Coefficients for unused late bins are stored as ``NaN``.
+    Fits:
+
+        logit P(right) = β0 + X w
+
+    where ``w`` is the kernel (weight per time bin). Same logistic reverse-
+    correlation approach as Odoemene et al. 2018 / Huk & Shadlen 2005.
+    Incomplete late bins are handled by a complete-case prefix (never
+    zero-filled). Coefficients beyond the fitted prefix stay ``NaN``.
+
+    Stored metrics: CV weights, mean±error kernel, holdout scores, bias,
+    n_observed_per_bin, n_trials_fit / n_bins_fit.
     """
     residual = np.asarray(residual, dtype=float)
     y = np.asarray(choice_right, dtype=int)
@@ -254,7 +253,15 @@ def interpret_kernel_weights(
     min_trials_per_bin: int = 50,
     ratio_threshold: float = 1.5,
 ) -> str:
-    """Label early/late/flat/failed without overstating certainty."""
+    """Coarse early/late/flat label from |kernel| halves.
+
+    Matches the early-vs-late comparison in Odoemene et al. 2018 Fig. 2A/F.
+    Labels are descriptive only — Okazawa et al. 2018: kernel shape also
+    reflects decision dynamics, not pure sensory weighting.
+
+    Returns ``early_integrator``, ``late_integrator``, ``flat_indeterminate``,
+    or ``failed_fit``.
+    """
     weights_mean = np.asarray(weights_mean, dtype=float)
     n_observed_per_bin = np.asarray(n_observed_per_bin, dtype=int)
     usable = np.isfinite(weights_mean) & (n_observed_per_bin >= min_trials_per_bin)
@@ -281,17 +288,13 @@ def extract_trial_kernel_inputs(
     stim_key: str = "stim_ev",
     observation_window: str = "center_exit",
 ) -> dict[str, np.ndarray | list]:
-    """Build per-trial stimulus / timing arrays using NIDAQ-aligned events.
-
-    Uses the same center-port exit / response-port logic as
-    ``build_trial_stim_classification``, but keeps all merged stim pulses
-    (``stim_ev``) rather than only 15 ms pulses.
+    """Per-trial NIDAQ flash times and observation cutoffs for the kernel.
 
     ``observation_window``:
-    - ``center_exit``: flashes from last center-port entry until center exit
-      (fixation / stationary evidence only).
-    - ``response``: flashes from last center-port entry until the chosen
-      response-port entry (fixation + movement-period flashes).
+    - ``center_exit``: flashes until center-port exit (fixation only)
+    - ``response``: flashes until chosen response-port poke
+
+    Timing uses NIDAQ digital events (Bpod clocks can lag ~10–15 ms).
     """
     import pandas as pd
 
@@ -416,7 +419,7 @@ def compute_session_psychophysical_kernel(
     stim_key: str = "stim_ev",
     observation_window: str = "center_exit",
 ) -> dict[str, Any]:
-    """End-to-end kernel computation from NIDAQ events + Chipmunk trial table."""
+    """Session kernel: extract flashes → residual matrix → logistic fit."""
     inputs = extract_trial_kernel_inputs(
         align_ev,
         trial_df,
