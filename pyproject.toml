@@ -31,6 +31,7 @@ constraint-dependencies = [
     "tornado>=6.5.7",
     "urllib3>=2.7.0",
     "pygments>=2.20.0",
+    "setuptools>=83.0.0",
 ]
 
 [tool.uv.sources]
