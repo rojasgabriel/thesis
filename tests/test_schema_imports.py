@@ -43,12 +43,12 @@ class SchemaImportTests(unittest.TestCase):
     def test_analysis_schema_imports_with_fake_labdata(self):
         fake_dj = types.ModuleType("datajoint")
         fake_dj.Manual = FakeTable
+        fake_dj.Lookup = FakeTable
         fake_dj.Computed = FakeTable
         fake_dj.Part = FakeTable
 
         fake_schema = types.ModuleType("labdata.schema")
         fake_schema.DecisionTask = types.SimpleNamespace(TrialSet=FakeTable())
-        fake_schema.Session = FakeTable
         fake_schema.Subject = FakeTable
         fake_schema.get_user_schema = lambda: FakeSchema()
 
@@ -67,8 +67,11 @@ class SchemaImportTests(unittest.TestCase):
             module = importlib.import_module("labdata_plugin.analysisschema")
             module = importlib.reload(module)
 
-        self.assertTrue(hasattr(module, "BehaviorSessionSet"))
+        self.assertTrue(hasattr(module, "BehaviorAnalysisSet"))
+        self.assertTrue(hasattr(module, "PsychometricFitConfig"))
+        self.assertTrue(hasattr(module, "PsychophysicalKernelFitConfig"))
         self.assertTrue(hasattr(module, "PsychophysicalKernel"))
+        self.assertFalse(hasattr(module, "LearningSessionMetrics"))
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import _bootstrap  # noqa: F401
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--session-set-id", required=True)
+    parser.add_argument("--analysis-set-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -21,13 +21,17 @@ def main() -> None:
     from matplotlib import pyplot as plt
     import pandas as pd
 
-    from labdata_plugin.analysisschema import LearningSessionMetrics
+    from labdata.schema import DecisionTask
+    from labdata_plugin.analysisschema import BehaviorAnalysisSet
 
-    rows = (LearningSessionMetrics() & {"session_set_id": args.session_set_id}).fetch(
-        as_dict=True
-    )
+    selected = BehaviorAnalysisSet.TrialSet() & {
+        "analysis_set_id": args.analysis_set_id
+    }
+    rows = (DecisionTask.TrialSet() & selected).fetch(as_dict=True)
     if not rows:
-        raise RuntimeError(f"No learning rows for session_set_id={args.session_set_id}")
+        raise RuntimeError(
+            f"No selected TrialSets for analysis_set_id={args.analysis_set_id}"
+        )
 
     data = pd.DataFrame(rows).sort_values(["subject_name", "session_name"])
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -37,6 +41,7 @@ def main() -> None:
     ax.set_ylabel("Easy performance")
     ax.set_ylim(0, 1)
     ax.legend(frameon=False, fontsize=8)
+    ax.set_title("Easy performance across selected sessions")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, bbox_inches="tight")
 

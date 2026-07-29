@@ -39,6 +39,7 @@ def fit_psychophysical_kernel(
     cv_splits: int = 10,
     random_state: int = 0,
     max_rate_hz: float = 20.0,
+    regularization_c: float = 1.0,
 ) -> dict:
     x, y = build_residual_rate_matrix(
         stim_events, response_values, timebins=timebins, max_rate_hz=max_rate_hz
@@ -64,7 +65,10 @@ def fit_psychophysical_kernel(
         x_train, x_test = x[train_index], x[test_index]
         y_train, y_test = y[train_index], y[test_index]
         model = LogisticRegression(
-            penalty="l2", solver="liblinear", C=1, fit_intercept=True
+            penalty="l2",
+            solver="liblinear",
+            C=regularization_c,
+            fit_intercept=True,
         ).fit(x_train, y_train)
         predict_prob = model.predict_proba(x_train)
         variance = np.prod(predict_prob, axis=1)

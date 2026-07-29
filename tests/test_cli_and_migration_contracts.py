@@ -51,6 +51,20 @@ class FakeComputed:
 
 
 class CliContractTests(unittest.TestCase):
+    def test_schema_migration_deduplicates_direct_trialset_keys(self):
+        module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
+        rows = [
+            {"subject_name": "GRB001", "session_name": "s1", "set": "a"},
+            {"subject_name": "GRB001", "session_name": "s1", "set": "b"},
+            {"subject_name": "GRB001", "session_name": "s2", "set": "a"},
+        ]
+
+        unique = module["_deduplicate_by_fields"](
+            rows, ("subject_name", "session_name")
+        )
+
+        self.assertEqual([row["session_name"] for row in unique], ["s1", "s2"])
+
     def test_seed_script_dry_run_prints_counts_without_insert(self):
         fake_rows = [
             {
@@ -77,16 +91,14 @@ class CliContractTests(unittest.TestCase):
             raise AssertionError("database writes should not run in dry-run")
 
         fake_plugin = types.ModuleType("labdata_plugin.analysisschema")
-        fake_plugin.BehaviorSessionSet = types.SimpleNamespace(
+        fake_plugin.BehaviorAnalysisSet = types.SimpleNamespace(
             insert1=_boom,
-            Session=types.SimpleNamespace(insert=_boom),
             TrialSet=types.SimpleNamespace(insert=_boom),
-            SubjectTrialSet=types.SimpleNamespace(insert=_boom),
         )
 
         argv = [
-            "seed_behavior_session_set.py",
-            "--session-set-id",
+            "seed_behavior_analysis_set.py",
+            "--analysis-set-id",
             "test_set",
             "--name",
             "Test",
@@ -107,13 +119,15 @@ class CliContractTests(unittest.TestCase):
             patch.object(sys, "argv", argv),
         ):
             runpy.run_path(
-                str(SCRIPTS / "seed_behavior_session_set.py"), run_name="__main__"
+                str(SCRIPTS / "seed_behavior_analysis_set.py"), run_name="__main__"
             )
 
     def test_populate_script_dry_run_reports_pending(self):
         fake_plugin = types.ModuleType("labdata_plugin.analysisschema")
+        fake_plugin.BehaviorAnalysisSet = types.SimpleNamespace(
+            TrialSet=FakeTrialSet([])
+        )
         for name in [
-            "LearningSessionMetrics",
             "PsychometricSessionFit",
             "PsychometricSubjectFit",
             "PsychophysicalKernel",
@@ -122,7 +136,7 @@ class CliContractTests(unittest.TestCase):
 
         argv = [
             "populate_behavior_tables.py",
-            "--session-set-id",
+            "--analysis-set-id",
             "test_set",
             "--dry-run",
         ]

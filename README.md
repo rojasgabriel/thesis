@@ -28,6 +28,7 @@ export CHIPMUNK_PLUGIN_PATH=/path/to/labdata/plugins/chipmunk
 - `behavioral_metrics/`, `psychometric_curves/`,
   `psychophysical_kernels/` — maintained labdata notebooks + helpers
 - `archive/djchurchland/` — preserved pre-migration notebooks
+- `archive/labdata_migration/` — preserved superseded migration smoke notebooks
 - `notebooks/` — ingestion and exploratory work
 - `oft/` — open-field analyses (archived notebooks relocated)
 
@@ -41,7 +42,8 @@ Chipmunk data. Archived `djchurchland` notebooks are under
 ## Migration CLIs
 
 ```bash
-uv run python scripts/analyses/seed_behavior_session_set.py --help
+uv run python scripts/analyses/seed_behavior_analysis_set.py --help
+uv run python scripts/analyses/migrate_behavior_analysis_schema.py --help
 uv run python scripts/analyses/populate_behavior_tables.py --help
 uv run python scripts/analyses/plot_psychometrics.py --help
 ```

@@ -4,39 +4,34 @@ import numpy as np
 import datajoint as dj
 from labdata.schema import (
     DecisionTask,
-    Session,  # noqa: F401 - referenced by DataJoint definitions above
-    Subject,  # noqa: F401 - referenced by DataJoint definitions above
+    Subject,  # noqa: F401 - referenced by DataJoint definitions
     get_user_schema,
 )
 
 
 rojasbowe_schema = get_user_schema()
 
+TRIALSET_KEY_FIELDS = (
+    "subject_name",
+    "session_name",
+    "dataset_name",
+    "trialset_description",
+)
+
 
 @rojasbowe_schema
-class BehaviorSessionSet(dj.Manual):
-    definition = """
-    session_set_id                      : varchar(64)
-    ---
-    session_set_name                    : varchar(64)
-    session_set_description = NULL      : varchar(512)
-    performance_threshold = NULL        : float
-    min_trials_with_choice = 0           : int
-    goal_wait_time_min = NULL            : float
-    goal_wait_time_max = NULL            : float
-    kernel_timebins = 10                 : int
-    kernel_cv_splits = 10                : int
-    kernel_random_state = 0              : int
-    analysis_version                    : varchar(32)
-    """
+class BehaviorAnalysisSet(dj.Manual):
+    """A curated set of upstream DecisionTask trial sets."""
 
-    class Session(dj.Part):  # noqa: F811 - DataJoint part name is intentional
-        definition = """
-        -> master
-        -> Session
-        ---
-        include_reason = NULL            : varchar(256)
-        """
+    definition = """
+    analysis_set_id                     : varchar(64)
+    ---
+    analysis_set_name                   : varchar(64)
+    analysis_set_description = NULL     : varchar(512)
+    performance_threshold = NULL        : float
+    min_trials_with_choice = 0          : int
+    selection_version                   : varchar(32)
+    """
 
     class TrialSet(dj.Part):
         definition = """
@@ -46,182 +41,197 @@ class BehaviorSessionSet(dj.Manual):
         include_reason = NULL            : varchar(256)
         """
 
-    class SubjectTrialSet(dj.Part):
-        definition = """
-        -> master
-        -> Subject
-        trialset_description             : varchar(54)
-        ---
-        n_sessions                       : int
-        """
-
 
 @rojasbowe_schema
-class LearningSessionMetrics(dj.Computed):
+class PsychometricFitConfig(dj.Lookup):
+    """Versioned eligibility settings for psychometric fits."""
+
     definition = """
-    -> BehaviorSessionSet.TrialSet
+    psychometric_fit_config_id           : varchar(48)
     ---
-    n_trials                            : int
-    n_with_choice                       : int
-    n_correct                           : int
-    performance = NULL                  : float
-    performance_easy = NULL             : float
-    mean_initiation_time = NULL         : float
-    mean_reaction_time = NULL           : float
-    stim_values                         : longblob
-    response_values                     : longblob
-    correct_values                      : longblob
-    intensity_values                    : longblob
+    min_choices                          : int
+    min_stim_values                      : int
+    analysis_version                     : varchar(32)
     """
-
-    def make(self, key):
-        from behavior_analyses.learning import summarize_trialset
-
-        row = (DecisionTask.TrialSet() & key).fetch1()
-        summary = summarize_trialset(row)
-        self.insert1({**key, **summary})
+    contents = [("v1", 100, 6, "v1")]  # noqa: RUF012
 
 
 @rojasbowe_schema
 class PsychometricSessionFit(dj.Computed):
+    """One psychometric fit per upstream trial set and fit configuration."""
+
     definition = """
-    -> BehaviorSessionSet.TrialSet
+    -> DecisionTask.TrialSet
+    -> PsychometricFitConfig
     ---
-    stims                               : longblob
-    p_side                              : longblob  # legacy p(right)
-    p_right                             : longblob
-    p_side_ci                           : longblob
-    p_right_ci                          : longblob
-    n_side                              : longblob  # legacy n(right)
-    n_right                             : longblob
-    n_obs                               : longblob
-    bias                                : float
-    sensitivity                         : float
-    guess_rate                          : float
-    lapse_rate                          : float
-    goodness_of_fit                     : float
-    fit_params                          : longblob
+    fit_status                           : enum('fit', 'skipped')
+    fit_message = NULL                   : varchar(256)
+    n_choices_fit                        : int
+    stims = NULL                         : longblob  # boundary-centered stimulus rate (Hz)
+    p_right = NULL                       : longblob
+    p_right_ci = NULL                    : longblob
+    n_right = NULL                       : longblob
+    n_obs = NULL                         : longblob
+    bias = NULL                          : float
+    sensitivity = NULL                   : float
+    guess_rate = NULL                    : float
+    lapse_rate = NULL                    : float
+    goodness_of_fit = NULL               : float
     """
 
-    def make(self, key):
-        from behavior_analyses.psychometrics import fit_psychometric_labdata
+    @property
+    def key_source(self):
+        selected = DecisionTask.TrialSet() & BehaviorAnalysisSet.TrialSet()
+        return selected * PsychometricFitConfig()
 
-        row = (DecisionTask.TrialSet() & key).fetch1()
-        fit = fit_psychometric_labdata(row["intensity_values"], row["response_values"])
-        if fit is None:
-            return
-        self.insert1({**key, **fit})
+    def make(self, key):
+        row = (DecisionTask.TrialSet() & _trialset_key(key)).fetch1()
+        config = (PsychometricFitConfig() & key).fetch1()
+        self.insert1({**key, **_psychometric_fit_payload(row, config)})
 
 
 @rojasbowe_schema
 class PsychometricSubjectFit(dj.Computed):
+    """One pooled psychometric fit per analysis set, subject, condition, and config."""
+
     definition = """
-    -> BehaviorSessionSet.SubjectTrialSet
+    -> BehaviorAnalysisSet
+    -> Subject
+    trialset_description                 : varchar(54)
+    -> PsychometricFitConfig
     ---
-    n_sessions                          : int
-    n_trials                            : int
-    stims                               : longblob
-    p_side                              : longblob  # legacy p(right)
-    p_right                             : longblob
-    p_side_ci                           : longblob
-    p_right_ci                          : longblob
-    n_side                              : longblob  # legacy n(right)
-    n_right                             : longblob
-    n_obs                               : longblob
-    bias                                : float
-    sensitivity                         : float
-    guess_rate                          : float
-    lapse_rate                          : float
-    goodness_of_fit                     : float
-    fit_params                          : longblob
+    fit_status                           : enum('fit', 'skipped')
+    fit_message = NULL                   : varchar(256)
+    n_choices_fit                        : int
+    stims = NULL                         : longblob  # boundary-centered stimulus rate (Hz)
+    p_right = NULL                       : longblob
+    p_right_ci = NULL                    : longblob
+    n_right = NULL                       : longblob
+    n_obs = NULL                         : longblob
+    bias = NULL                          : float
+    sensitivity = NULL                   : float
+    guess_rate = NULL                    : float
+    lapse_rate = NULL                    : float
+    goodness_of_fit = NULL               : float
     """
 
-    def make(self, key):
-        from behavior_analyses.psychometrics import fit_psychometric_labdata
+    @property
+    def key_source(self):
+        subject_conditions = (
+            dj.U("analysis_set_id", "subject_name", "trialset_description")
+            & BehaviorAnalysisSet.TrialSet()
+        )
+        return subject_conditions * PsychometricFitConfig()
 
+    def make(self, key):
         rows = _fetch_trialset_rows_for_subject(key)
-        if not rows:
-            return
         intensity_values = np.concatenate(
             [np.asarray(row["intensity_values"], dtype=float) for row in rows]
         )
         response_values = np.concatenate(
             [np.asarray(row["response_values"], dtype=float) for row in rows]
         )
-        fit = fit_psychometric_labdata(intensity_values, response_values)
-        if fit is None:
-            return
+        config = (PsychometricFitConfig() & key).fetch1()
         self.insert1(
             {
                 **key,
-                "n_sessions": len(rows),
-                "n_trials": int(response_values.size),
-                **fit,
+                **_psychometric_fit_payload(
+                    {
+                        "intensity_values": intensity_values,
+                        "response_values": response_values,
+                    },
+                    config,
+                ),
             }
         )
 
 
 @rojasbowe_schema
-class PsychophysicalKernel(dj.Computed):
+class PsychophysicalKernelFitConfig(dj.Lookup):
+    """Versioned settings for pooled psychophysical-kernel fits."""
+
     definition = """
-    -> BehaviorSessionSet.SubjectTrialSet
+    kernel_fit_config_id                 : varchar(48)
     ---
-    n_sessions                          : int
-    n_trials                            : int
-    timebins                            : int
-    cv_splits                           : int
-    random_state                        : int
-    weights                             : longblob
-    weights_mean                        : longblob
-    weights_error                       : longblob
-    scores                              : longblob
-    score_mean                          : float
-    bias                                : longblob
-    bias_mean                           : float
+    timebins                             : int
+    cv_splits                            : int
+    random_state                         : int
+    max_rate_hz                          : float  # calibration rate
+    regularization_c                     : float
+    analysis_version                     : varchar(32)
     """
+    contents = [("v1_10bin_10fold", 10, 10, 0, 20.0, 1.0, "v1")]  # noqa: RUF012
+
+
+@rojasbowe_schema
+class PsychophysicalKernel(dj.Computed):
+    """One pooled kernel per analysis set, subject, condition, and config."""
+
+    definition = """
+    -> BehaviorAnalysisSet
+    -> Subject
+    trialset_description                 : varchar(54)
+    -> PsychophysicalKernelFitConfig
+    ---
+    fit_status                           : enum('fit', 'skipped')
+    fit_message = NULL                   : varchar(256)
+    n_trials_fit                         : int
+    weights = NULL                       : longblob  # cv fold x stimulus time bin
+    weights_mean = NULL                  : longblob
+    weights_error = NULL                 : longblob
+    scores = NULL                        : longblob  # held-out accuracy by fold
+    score_mean = NULL                    : float
+    bias = NULL                          : longblob  # intercept by fold
+    bias_mean = NULL                     : float
+    """
+
+    @property
+    def key_source(self):
+        subject_conditions = (
+            dj.U("analysis_set_id", "subject_name", "trialset_description")
+            & BehaviorAnalysisSet.TrialSet()
+        )
+        return subject_conditions * PsychophysicalKernelFitConfig()
 
     def make(self, key):
         from behavior_analyses.io import get_chipmunk_table
         from behavior_analyses.kernels import fit_psychophysical_kernel
 
-        set_params = (BehaviorSessionSet() & key).fetch1(
-            "kernel_timebins", "kernel_cv_splits", "kernel_random_state"
-        )
-        timebins, cv_splits, random_state = [int(value) for value in set_params]
-        session_rows = (BehaviorSessionSet.TrialSet() & key).fetch("KEY")
-        if not session_rows:
-            return
-
+        config = (PsychophysicalKernelFitConfig() & key).fetch1()
+        trialset_keys = _selected_trialset_keys(key)
         Chipmunk = get_chipmunk_table()
         relation = (
             Chipmunk() * Chipmunk.Trial() * Chipmunk.TrialParameters()
-            & session_rows
+            & trialset_keys
             & {"rewarded_modality": key["trialset_description"]}
         )
         stim_events, response_values = relation.fetch("stim_events", "response")
         result = fit_psychophysical_kernel(
             stim_events,
             response_values,
-            timebins=timebins,
-            cv_splits=cv_splits,
-            random_state=random_state,
+            timebins=int(config["timebins"]),
+            cv_splits=int(config["cv_splits"]),
+            random_state=int(config["random_state"]),
+            max_rate_hz=float(config["max_rate_hz"]),
+            regularization_c=float(config["regularization_c"]),
         )
+        n_trials_fit = int(result["choice_right"].size)
         if result["weights"].size == 0:
+            self.insert1(
+                {
+                    **key,
+                    "fit_status": "skipped",
+                    "fit_message": "insufficient trials or response classes for CV",
+                    "n_trials_fit": n_trials_fit,
+                }
+            )
             return
+
         self.insert1(
             {
                 **key,
-                "n_sessions": len(
-                    {
-                        row["session_name"]
-                        for row in session_rows
-                        if "session_name" in row
-                    }
-                ),
-                "n_trials": int(result["choice_right"].size),
-                "timebins": timebins,
-                "cv_splits": cv_splits,
-                "random_state": random_state,
+                "fit_status": "fit",
+                "n_trials_fit": n_trials_fit,
                 "weights": result["weights"],
                 "weights_mean": np.mean(result["weights"], axis=0),
                 "weights_error": np.mean(result["error"], axis=0),
@@ -233,8 +243,62 @@ class PsychophysicalKernel(dj.Computed):
         )
 
 
+def _trialset_key(key):
+    return {field: key[field] for field in TRIALSET_KEY_FIELDS}
+
+
+def _selected_trialset_keys(key):
+    selection_key = {
+        field: key[field]
+        for field in ("analysis_set_id", "subject_name", "trialset_description")
+    }
+    return list(
+        (BehaviorAnalysisSet.TrialSet() & selection_key).fetch(
+            *TRIALSET_KEY_FIELDS, as_dict=True
+        )
+    )
+
+
 def _fetch_trialset_rows_for_subject(key):
-    trialset_keys = (BehaviorSessionSet.TrialSet() & key).fetch("KEY")
-    if not trialset_keys:
-        return []
+    trialset_keys = _selected_trialset_keys(key)
     return list((DecisionTask.TrialSet() & trialset_keys).fetch(as_dict=True))
+
+
+def _psychometric_fit_payload(row, config):
+    from behavior_analyses.psychometrics import fit_psychometric_labdata
+
+    intensity_values = np.asarray(row["intensity_values"], dtype=float)
+    response_values = np.asarray(row["response_values"], dtype=float)
+    valid_choice = np.isfinite(intensity_values) & np.isin(response_values, [-1, 1])
+    n_choices_fit = int(np.sum(valid_choice))
+    fit = fit_psychometric_labdata(
+        intensity_values,
+        response_values,
+        min_choices=int(config["min_choices"]),
+        min_required_stim_values=int(config["min_stim_values"]),
+    )
+    if fit is None:
+        return {
+            "fit_status": "skipped",
+            "fit_message": "insufficient choices, stimulus values, or fit convergence",
+            "n_choices_fit": n_choices_fit,
+        }
+    return {
+        "fit_status": "fit",
+        "n_choices_fit": n_choices_fit,
+        **{
+            field: fit[field]
+            for field in (
+                "stims",
+                "p_right",
+                "p_right_ci",
+                "n_right",
+                "n_obs",
+                "bias",
+                "sensitivity",
+                "guess_rate",
+                "lapse_rate",
+                "goodness_of_fit",
+            )
+        },
+    }

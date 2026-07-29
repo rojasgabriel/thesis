@@ -1,15 +1,17 @@
 from .analysisschema import (
-    BehaviorSessionSet,
-    LearningSessionMetrics,
-    PsychometricSubjectFit,
+    BehaviorAnalysisSet,
+    PsychometricFitConfig,
     PsychometricSessionFit,
+    PsychometricSubjectFit,
     PsychophysicalKernel,
+    PsychophysicalKernelFitConfig,
 )
 
 __all__ = [
-    "BehaviorSessionSet",
-    "LearningSessionMetrics",
-    "PsychometricSubjectFit",
+    "BehaviorAnalysisSet",
+    "PsychometricFitConfig",
     "PsychometricSessionFit",
+    "PsychometricSubjectFit",
     "PsychophysicalKernel",
+    "PsychophysicalKernelFitConfig",
 ]
