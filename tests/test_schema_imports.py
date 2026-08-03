@@ -71,6 +71,26 @@ class SchemaImportTests(unittest.TestCase):
         self.assertTrue(hasattr(module, "PsychometricFitConfig"))
         self.assertTrue(hasattr(module, "PsychophysicalKernelFitConfig"))
         self.assertTrue(hasattr(module, "PsychophysicalKernel"))
+        self.assertIn(
+            "kernel_fit_config_id                 : int",
+            module.PsychophysicalKernelFitConfig.definition,
+        )
+        self.assertNotIn(
+            "analysis_version",
+            module.PsychophysicalKernelFitConfig.definition,
+        )
+        self.assertNotIn(
+            "kernel_method",
+            module.PsychophysicalKernelFitConfig.definition,
+        )
+        self.assertNotIn(
+            "evidence_encoding",
+            module.PsychophysicalKernelFitConfig.definition,
+        )
+        self.assertEqual(
+            [row[0] for row in module.PsychophysicalKernelFitConfig.contents],
+            [0, 1],
+        )
         self.assertFalse(hasattr(module, "LearningSessionMetrics"))
 
 

@@ -20,17 +20,17 @@ class KernelTimingTests(unittest.TestCase):
                 "stim_events": np.array([0.2, 0.35, 0.7]),
                 "stim_rate_vision": 12.0,
                 "response": 1,
-                "t_sync": 0.0,
-                "t_react": 0.5,
-                "t_response": 0.9,
+                "t_sync": 10.0,
+                "t_react": 10.5,
+                "t_response": 10.9,
             },
             {
                 "trial_num": 1,
                 "rewarded_modality": "visual",
-                "stim_events": np.array([2.2]),
+                "stim_events": np.array([0.2]),
                 "stim_rate_vision": 8.0,
                 "response": 0,
-                "t_sync": 2.0,
+                "t_sync": 12.0,
                 "t_react": None,
                 "t_response": None,
             },
@@ -101,6 +101,37 @@ class KernelTimingTests(unittest.TestCase):
         np.testing.assert_allclose(center["observation_end_times"], [0.5])
         np.testing.assert_allclose(response["observation_end_times"], [0.9])
 
+    def test_bpod_and_nidaq_match_for_aligned_trial(self):
+        from behavior_analyses.kernel_timing import (
+            extract_bpod_kernel_inputs,
+            extract_nidaq_kernel_inputs,
+            resolve_nidaq_event_arrays,
+        )
+
+        mapping_rows, event_rows = self._mapped_event_fixture()
+        aligned = resolve_nidaq_event_arrays(
+            event_rows, mapping_rows, "GRB006", "session"
+        )
+
+        for window in ("center_exit", "response"):
+            bpod = extract_bpod_kernel_inputs(
+                self.trial_rows, "visual", observation_window=window
+            )
+            nidaq = extract_nidaq_kernel_inputs(
+                aligned,
+                self.trial_rows,
+                "visual",
+                observation_window=window,
+            )
+
+            self.assertEqual(bpod["response_values"], nidaq["response_values"])
+            np.testing.assert_allclose(
+                bpod["observation_end_times"], nidaq["observation_end_times"]
+            )
+            np.testing.assert_allclose(
+                bpod["stim_times_per_trial"][0], nidaq["stim_times_per_trial"][0]
+            )
+
     def test_combined_provenance_is_mixed(self):
         from behavior_analyses.kernel_timing import (
             combine_kernel_inputs,
@@ -124,15 +155,15 @@ class KernelTimingTests(unittest.TestCase):
     @staticmethod
     def _mapped_event_fixture():
         sources = {
-            "visual_stim": ("ai0", [0.2, 0.35, 0.7, 2.2], None),
+            "visual_stim": ("ai0", [0.15, 0.2, 0.35, 0.7, 2.2], None),
             "trial_start": ("line0", [0.0, 2.0], [1, 1]),
             "left_port": ("line1", [2.3, 2.4], [1, 0]),
             "center_port": (
                 "line2",
-                [0.1, 0.5, 2.1, 2.5],
-                [1, 0, 1, 0],
+                [0.1, 0.45, 0.499, 0.5, 2.1, 2.5],
+                [1, 0, 1, 0, 1, 0],
             ),
-            "right_port": ("line3", [0.9, 1.0], [1, 0]),
+            "right_port": ("line3", [0.55, 0.56, 0.9, 1.0], [1, 0, 1, 0]),
         }
         mapping_rows = []
         event_rows = []

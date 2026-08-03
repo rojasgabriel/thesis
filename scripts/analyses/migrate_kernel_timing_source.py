@@ -7,38 +7,6 @@ import _bootstrap  # noqa: F401
 
 CONFIG_TABLE = "#psychophysical_kernel_fit_config"
 KERNEL_TABLE = "__psychophysical_kernel"
-CONFIG_COLUMNS = (
-    (
-        "kernel_method",
-        "enum('legacy_variable','fixed_window') NOT NULL DEFAULT 'legacy_variable'",
-        "regularization_c",
-    ),
-    ("bin_width_s", "float DEFAULT NULL", "kernel_method"),
-    (
-        "evidence_encoding",
-        "enum('max_rate','trial_rate') DEFAULT NULL",
-        "bin_width_s",
-    ),
-    ("min_trials_per_bin", "int DEFAULT NULL", "evidence_encoding"),
-    (
-        "observation_window",
-        "enum('center_exit','response') DEFAULT NULL",
-        "min_trials_per_bin",
-    ),
-)
-KERNEL_COLUMNS = (
-    (
-        "timing_source",
-        "enum('nidaq','bpod','mixed') NOT NULL DEFAULT 'bpod'",
-        "fit_message",
-    ),
-    ("n_bins_fit", "int DEFAULT NULL", "n_trials_fit"),
-    ("n_observed_per_bin", "longblob DEFAULT NULL", "n_bins_fit"),
-    ("bin_centers_s", "longblob DEFAULT NULL", "n_observed_per_bin"),
-    ("majority_accuracy", "float DEFAULT NULL", "score_mean"),
-    ("score_above_majority", "float DEFAULT NULL", "majority_accuracy"),
-    ("interpretation", "varchar(32) DEFAULT NULL", "bias_mean"),
-)
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,7 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Alter the live kernel tables and insert fixed-window configs.",
+        help="Recreate the disposable kernel tables with the canonical schema.",
     )
     return parser.parse_args()
 
@@ -58,26 +26,16 @@ def main() -> None:
 
     connection = dj.conn()
     database = f"{labdata_schema.dbase_name}_user"
-    table_columns = {
-        CONFIG_TABLE: CONFIG_COLUMNS,
-        KERNEL_TABLE: KERNEL_COLUMNS,
-    }
-    existing = {
-        table: _existing_columns(connection, database, table) for table in table_columns
-    }
-    statements = [
-        statement
-        for table, columns in table_columns.items()
-        for statement in _missing_column_statements(
-            database, table, columns, existing[table]
-        )
-    ]
+    statements = _reset_statements(database)
 
     if not args.apply:
+        for table in (KERNEL_TABLE, CONFIG_TABLE):
+            count = connection.query(
+                f"SELECT COUNT(*) FROM `{database}`.`{table}`"
+            ).fetchone()[0]
+            print(f"{table}: {count} rows will be deleted")
         for statement in statements:
             print(statement)
-        if not statements:
-            print("Kernel timing-source columns are already present.")
         print("Dry run only. Re-run with --apply after exact live-write approval.")
         return
 
@@ -90,8 +48,15 @@ def main() -> None:
         PsychophysicalKernelFitConfig.contents,
         skip_duplicates=True,
     )
-    _validate_migration(connection, database)
-    print("Kernel timing-source schema migration complete.")
+    _validate_schema(connection, database)
+    print("Kernel schema reset complete.")
+
+
+def _reset_statements(database: str) -> list[str]:
+    return [
+        f"DROP TABLE IF EXISTS `{database}`.`{KERNEL_TABLE}`",
+        f"DROP TABLE IF EXISTS `{database}`.`{CONFIG_TABLE}`",
+    ]
 
 
 def _existing_columns(connection, database: str, table: str) -> set[str]:
@@ -104,40 +69,55 @@ def _existing_columns(connection, database: str, table: str) -> set[str]:
     }
 
 
-def _missing_column_statements(
-    database: str,
-    table: str,
-    columns: tuple[tuple[str, str, str], ...],
-    existing: set[str],
-) -> list[str]:
-    return [
-        f"ALTER TABLE `{database}`.`{table}` ADD COLUMN `{name}` "
-        f"{definition} AFTER `{after}`"
-        for name, definition, after in columns
-        if name not in existing
-    ]
-
-
-def _validate_migration(connection, database: str) -> None:
-    expected = {
-        CONFIG_TABLE: {name for name, _, _ in CONFIG_COLUMNS},
-        KERNEL_TABLE: {name for name, _, _ in KERNEL_COLUMNS},
+def _validate_schema(connection, database: str) -> None:
+    config_columns = _existing_columns(connection, database, CONFIG_TABLE)
+    required_config_columns = {
+        "kernel_fit_config_id",
+        "timebins",
+        "binning_method",
+        "bin_width_s",
+        "observation_window",
+        "evidence_model",
+        "min_trials_per_bin",
+        "cv_splits",
+        "random_state",
+        "regularization_c",
     }
-    missing = {
-        table: sorted(columns - _existing_columns(connection, database, table))
-        for table, columns in expected.items()
-    }
-    missing = {table: columns for table, columns in missing.items() if columns}
-    if missing:
-        raise RuntimeError(f"Kernel timing-source migration incomplete: {missing}")
-
-    invalid_sources = connection.query(
-        f"SELECT COUNT(*) FROM `{database}`.`{KERNEL_TABLE}` "
-        "WHERE timing_source NOT IN ('nidaq','bpod','mixed')"
-    ).fetchone()[0]
-    if invalid_sources:
+    if config_columns != required_config_columns:
         raise RuntimeError(
-            f"Kernel timing-source migration found {invalid_sources} invalid rows"
+            "Kernel config schema mismatch: "
+            f"expected={sorted(required_config_columns)}, "
+            f"found={sorted(config_columns)}"
+        )
+
+    kernel_columns = _existing_columns(connection, database, KERNEL_TABLE)
+    required_kernel_columns = {
+        "timing_source",
+        "n_bins_fit",
+        "n_observed_per_bin",
+        "bin_centers_s",
+        "majority_accuracy",
+        "score_above_majority",
+        "interpretation",
+    }
+    missing_kernel_columns = required_kernel_columns - kernel_columns
+    if missing_kernel_columns:
+        raise RuntimeError(
+            f"Kernel result schema is missing: {sorted(missing_kernel_columns)}"
+        )
+
+    rows = connection.query(
+        "SELECT `kernel_fit_config_id`, `binning_method`, "
+        "`observation_window`, `evidence_model` "
+        f"FROM `{database}`.`{CONFIG_TABLE}` ORDER BY `kernel_fit_config_id`"
+    ).fetchall()
+    expected = [
+        (0, "fixed_width", "center_exit", "trial_rate_residual"),
+        (1, "fixed_width", "response", "trial_rate_residual"),
+    ]
+    if list(rows) != expected:
+        raise RuntimeError(
+            f"Kernel config rows mismatch: expected={expected}, found={rows}"
         )
 
 

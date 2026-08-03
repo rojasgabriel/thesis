@@ -30,7 +30,6 @@ COMPUTED_TABLES = {
     "__psychometric_subject_fit",
     "__psychophysical_kernel",
 }
-EXPECTED_KERNEL_CONFIG = (10, 10, 0)
 TRIALSET_KEY_FIELDS = (
     "subject_name",
     "session_name",
@@ -64,11 +63,9 @@ def main() -> None:
     database = f"{labdata_schema.dbase_name}_user"
     if args.resume:
         _validate_resume_state(connection, database)
-        _validate_kernel_configs(connection, database, archived=True)
         _print_archive_counts(connection, database)
     else:
         _validate_table_state(connection, database)
-        _validate_kernel_configs(connection, database)
         _print_source_counts(connection, database)
         if not args.apply:
             print("Dry run only. Re-run with --apply after exact live-write approval.")
@@ -86,14 +83,9 @@ def main() -> None:
         PsychometricSessionFit,
         PsychometricSubjectFit,
         PsychophysicalKernel,
-        PsychophysicalKernelFitConfig,
     )
 
     PsychometricFitConfig.insert1(("v1", 100, 6, "v1"), skip_duplicates=True)
-    PsychophysicalKernelFitConfig.insert1(
-        ("v1_10bin_10fold", 10, 10, 0, 20.0, 1.0, "v1"),
-        skip_duplicates=True,
-    )
 
     old_master = _archive_table(connection, database, "behavior_session_set")
     BehaviorAnalysisSet.insert(
@@ -166,35 +158,6 @@ def main() -> None:
         allow_direct_insert=True,
     )
 
-    old_kernels = _archive_table(connection, database, "__psychophysical_kernel")
-    PsychophysicalKernel.insert(
-        [
-            {
-                "analysis_set_id": row["session_set_id"],
-                "subject_name": row["subject_name"],
-                "trialset_description": row["trialset_description"],
-                "kernel_fit_config_id": "v1_10bin_10fold",
-                "fit_status": "fit",
-                "n_trials_fit": row["n_trials"],
-                **{
-                    field: row[field]
-                    for field in (
-                        "weights",
-                        "weights_mean",
-                        "weights_error",
-                        "scores",
-                        "score_mean",
-                        "bias",
-                        "bias_mean",
-                    )
-                },
-            }
-            for row in old_kernels.fetch(as_dict=True)
-        ],
-        skip_duplicates=True,
-        allow_direct_insert=True,
-    )
-
     print(f"BehaviorAnalysisSet: {len(BehaviorAnalysisSet())}")
     print(f"BehaviorAnalysisSet.TrialSet: {len(BehaviorAnalysisSet.TrialSet())}")
     print(f"PsychometricSessionFit copied: {len(PsychometricSessionFit())}")
@@ -239,35 +202,6 @@ def _validate_resume_state(connection, database):
             f"missing_targets={sorted(missing_targets)}, "
             f"occupied_sources={sorted(occupied_sources)}"
         )
-
-
-def _validate_kernel_configs(connection, database, *, archived=False):
-    master = (
-        ARCHIVE_TABLES["behavior_session_set"] if archived else "behavior_session_set"
-    )
-    kernel = (
-        ARCHIVE_TABLES["__psychophysical_kernel"]
-        if archived
-        else "__psychophysical_kernel"
-    )
-    queries = {
-        master: (
-            "SELECT DISTINCT kernel_timebins, kernel_cv_splits, "
-            f"kernel_random_state FROM `{database}`.`{master}`"
-        ),
-        kernel: (
-            "SELECT DISTINCT timebins, cv_splits, random_state "
-            f"FROM `{database}`.`{kernel}`"
-        ),
-    }
-    incompatible = {}
-    for table, query in queries.items():
-        configs = {tuple(map(int, row)) for row in connection.query(query).fetchall()}
-        unexpected = configs - {EXPECTED_KERNEL_CONFIG}
-        if unexpected:
-            incompatible[table] = sorted(unexpected)
-    if incompatible:
-        raise RuntimeError(f"Incompatible legacy kernel configs: {incompatible}")
 
 
 def _print_source_counts(connection, database):

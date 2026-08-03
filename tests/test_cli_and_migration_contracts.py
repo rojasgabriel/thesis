@@ -51,19 +51,17 @@ class FakeComputed:
 
 
 class CliContractTests(unittest.TestCase):
-    def test_kernel_timing_migration_only_adds_missing_columns(self):
+    def test_kernel_timing_migration_drops_result_before_config(self):
         module = runpy.run_path(str(SCRIPTS / "migrate_kernel_timing_source.py"))
 
-        statements = module["_missing_column_statements"](
-            "labdata_user",
-            module["KERNEL_TABLE"],
-            module["KERNEL_COLUMNS"],
-            {"timing_source", "n_trials_fit", "fit_message"},
-        )
+        statements = module["_reset_statements"]("labdata_user")
 
-        self.assertEqual(len(statements), len(module["KERNEL_COLUMNS"]) - 1)
-        self.assertTrue(all("timing_source" not in sql for sql in statements))
-        self.assertTrue(all(sql.startswith("ALTER TABLE") for sql in statements))
+        self.assertEqual(len(statements), 2)
+        self.assertIn(module["KERNEL_TABLE"], statements[0])
+        self.assertIn(module["CONFIG_TABLE"], statements[1])
+        self.assertTrue(
+            all(sql.startswith("DROP TABLE IF EXISTS") for sql in statements)
+        )
 
     def test_schema_migration_archive_names_leave_room_for_foreign_keys(self):
         module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
@@ -85,14 +83,6 @@ class CliContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "occupied_targets"):
             module["_validate_table_state"](connection, "labdata_user")
-
-        expected = MagicMock()
-        expected.fetchall.return_value = [(10, 10, 0)]
-        incompatible = MagicMock()
-        incompatible.fetchall.return_value = [(8, 10, 0)]
-        connection.query.side_effect = [expected, incompatible]
-        with self.assertRaisesRegex(RuntimeError, "Incompatible legacy kernel"):
-            module["_validate_kernel_configs"](connection, "labdata_user")
 
     def test_schema_migration_accepts_expected_resume_state(self):
         module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
