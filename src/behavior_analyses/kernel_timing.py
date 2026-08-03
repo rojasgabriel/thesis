@@ -13,6 +13,7 @@ REQUIRED_NIDAQ_EVENTS = (
     "center_port",
     "right_port",
 )
+MAX_NIDAQ_ALIGNMENT_ERROR_S = 0.1
 
 
 def fetch_pooled_kernel_inputs(
@@ -87,15 +88,21 @@ def extract_bpod_kernel_inputs(
             continue
         response = row["response"]
         observation_end = row.get(end_field)
+        trial_sync = row.get("t_sync")
         stims = np.asarray(row.get("stim_events", []), dtype=float)
         stims = stims[np.isfinite(stims)]
         if (
             response not in (-1, 1)
             or observation_end is None
             or not np.isfinite(observation_end)
+            or trial_sync is None
+            or not np.isfinite(trial_sync)
             or stims.size == 0
         ):
             continue
+        # Chipmunk stimulus events are relative to the Bpod sync pulse, while
+        # state-transition timestamps are absolute within the session.
+        observation_end = float(observation_end) - float(trial_sync)
         stims = stims[stims < float(observation_end)]
         if stims.size == 0 or observation_end <= stims[0]:
             continue
@@ -136,7 +143,6 @@ def extract_nidaq_kernel_inputs(
     nidaq_sync = nidaq_sync[order]
 
     stims = np.asarray(aligned_events["visual_stim"], dtype=float)
-    center_entries = np.asarray(aligned_events["center_port"], dtype=float)
     center_exits = np.asarray(aligned_events["center_port_exit"], dtype=float)
     left_entries = np.asarray(aligned_events["left_port"], dtype=float)
     right_entries = np.asarray(aligned_events["right_port"], dtype=float)
@@ -148,16 +154,29 @@ def extract_nidaq_kernel_inputs(
             or row["response"] not in (-1, 1)
             or row.get("t_react") is None
             or not np.isfinite(row["t_react"])
+            or row.get("t_sync") is None
+            or not np.isfinite(row["t_sync"])
         ):
+            continue
+        bpod_stims = np.asarray(row.get("stim_events", []), dtype=float)
+        bpod_stims = bpod_stims[np.isfinite(bpod_stims)]
+        if bpod_stims.size == 0:
             continue
         trial_number = int(row["trial_num"])
         if trial_number >= trial_starts.size:
-            raise ValueError(f"NIDAQ trial_start is missing trial_num={trial_number}")
+            continue
         trial_start = trial_starts[trial_number]
         trial_end = (
             trial_starts[trial_number + 1]
             if trial_number + 1 < trial_starts.size
             else np.inf
+        )
+        interpolated_first_stim = float(
+            np.interp(
+                float(row["t_sync"]) + float(bpod_stims[0]),
+                bpod_sync,
+                nidaq_sync,
+            )
         )
         interpolated_exit = float(
             np.interp(float(row["t_react"]), bpod_sync, nidaq_sync)
@@ -165,37 +184,41 @@ def extract_nidaq_kernel_inputs(
         trial_exits = center_exits[
             (center_exits > trial_start) & (center_exits < trial_end)
         ]
-        if trial_exits.size:
-            center_exit = float(
-                trial_exits[np.argmin(np.abs(trial_exits - interpolated_exit))]
-            )
-        else:
-            center_exit = interpolated_exit
+        center_exit = _nearest_aligned_event(trial_exits, interpolated_exit)
+        if center_exit is None:
+            continue
 
-        center_mask = (
-            (center_entries > trial_start)
-            & (center_entries < center_exit)
-            & (center_entries < trial_end)
-        )
-        if not center_mask.any():
-            raise ValueError(f"No NIDAQ center-port entry for trial_num={trial_number}")
-        center_entry = float(center_entries[center_mask][-1])
-
-        response_entries = right_entries if int(row["response"]) == 1 else left_entries
-        response_mask = (response_entries > center_exit) & (
-            response_entries < trial_end
-        )
-        if not response_mask.any():
-            raise ValueError(
-                f"No NIDAQ response-port entry for trial_num={trial_number}"
+        observation_end = center_exit
+        if observation_window == "response":
+            response_time = row.get("t_response")
+            if response_time is None or not np.isfinite(response_time):
+                continue
+            interpolated_response = float(
+                np.interp(float(response_time), bpod_sync, nidaq_sync)
             )
-        response_entry = float(response_entries[response_mask][0])
-        observation_end = (
-            center_exit if observation_window == "center_exit" else response_entry
-        )
-        trial_stims = stims[(stims >= center_entry) & (stims < observation_end)]
+            response_entries = (
+                right_entries if int(row["response"]) == 1 else left_entries
+            )
+            trial_responses = response_entries[
+                (response_entries > center_exit) & (response_entries < trial_end)
+            ]
+            response_entry = _nearest_aligned_event(
+                trial_responses, interpolated_response
+            )
+            if response_entry is None:
+                continue
+            observation_end = response_entry
+
+        trial_stims = stims[
+            (stims >= trial_start) & (stims < observation_end) & (stims < trial_end)
+        ]
         if trial_stims.size == 0:
             continue
+        # Use the Bpod schedule only to identify the first hardware-timed flash.
+        first_stim = _nearest_aligned_event(trial_stims, interpolated_first_stim)
+        if first_stim is None:
+            continue
+        trial_stims = trial_stims[trial_stims >= first_stim]
         _append_kernel_trial(result, trial_stims, observation_end, row)
     return result
 
@@ -373,6 +396,15 @@ def _append_kernel_trial(
     result["observation_end_times"].append(float(observation_end))
     result["response_values"].append(int(row["response"]))
     result["trial_rate_hz"].append(float(rate))
+
+
+def _nearest_aligned_event(events: np.ndarray, target: float) -> float | None:
+    if events.size == 0:
+        return None
+    event = float(events[np.argmin(np.abs(events - target))])
+    if abs(event - target) > MAX_NIDAQ_ALIGNMENT_ERROR_S:
+        return None
+    return event
 
 
 def _digital_onsets(timestamps: np.ndarray, values: np.ndarray | None) -> np.ndarray:

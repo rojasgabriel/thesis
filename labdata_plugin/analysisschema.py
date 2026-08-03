@@ -148,65 +148,45 @@ class PsychometricSubjectFit(dj.Computed):
 
 @rojasbowe_schema
 class PsychophysicalKernelFitConfig(dj.Lookup):
-    """Versioned settings for pooled psychophysical-kernel fits."""
+    """Settings for pooled psychophysical-kernel fits."""
 
     definition = """
-    kernel_fit_config_id                 : varchar(48)
+    kernel_fit_config_id                 : int
     ---
     timebins                             : int
+    binning_method                       : enum('fixed_width')
+    bin_width_s                          : float
+    observation_window                   : enum('center_exit', 'response')
+    evidence_model                       : enum('trial_rate_residual')  # Odoemene Eq. 5
+    min_trials_per_bin                   : int
     cv_splits                            : int
     random_state                         : int
-    max_rate_hz                          : float  # calibration rate
     regularization_c                     : float
-    kernel_method = 'legacy_variable'    : enum('legacy_variable', 'fixed_window')
-    bin_width_s = NULL                   : float
-    evidence_encoding = NULL             : enum('max_rate', 'trial_rate')
-    min_trials_per_bin = NULL            : int
-    observation_window = NULL            : enum('center_exit', 'response')
-    analysis_version                     : varchar(32)
     """
     contents = [  # noqa: RUF012
         (
-            "v1_10bin_10fold",
-            10,
-            10,
             0,
-            20.0,
-            1.0,
-            "legacy_variable",
-            None,
-            None,
-            None,
-            None,
-            "v1",
-        ),
-        (
-            "v2_100ms_10bin_center_rate",
             10,
-            10,
-            0,
-            20.0,
-            1.0,
-            "fixed_window",
+            "fixed_width",
             0.1,
-            "trial_rate",
-            50,
             "center_exit",
-            "v2",
-        ),
-        (
-            "v2_100ms_10bin_response_rate",
-            10,
+            "trial_rate_residual",
+            50,
             10,
             0,
-            20.0,
             1.0,
-            "fixed_window",
+        ),
+        (
+            1,
+            10,
+            "fixed_width",
             0.1,
-            "trial_rate",
-            50,
             "response",
-            "v2",
+            "trial_rate_residual",
+            50,
+            10,
+            0,
+            1.0,
         ),
     ]
 
@@ -251,10 +231,7 @@ class PsychophysicalKernel(dj.Computed):
     def make(self, key):
         config = (PsychophysicalKernelFitConfig() & key).fetch1()
         trialset_keys = _selected_trialset_keys(key)
-        if config["kernel_method"] == "legacy_variable":
-            payload = _legacy_kernel_payload(key, config, trialset_keys)
-        else:
-            payload = _fixed_kernel_payload(key, config, trialset_keys)
+        payload = _kernel_payload(key, config, trialset_keys)
         self.insert1(
             {
                 **key,
@@ -284,73 +261,11 @@ def _fetch_trialset_rows_for_subject(key):
     return list((DecisionTask.TrialSet() & trialset_keys).fetch(as_dict=True))
 
 
-def _legacy_kernel_payload(key, config, trialset_keys):
-    from behavior_analyses.io import get_chipmunk_table
-    from behavior_analyses.kernels import (
-        fit_psychophysical_kernel,
-        interpret_kernel_weights,
-    )
-
-    Chipmunk = get_chipmunk_table()
-    relation = (
-        Chipmunk() * Chipmunk.Trial() * Chipmunk.TrialParameters()
-        & trialset_keys
-        & {"rewarded_modality": key["trialset_description"]}
-    )
-    stim_events, response_values = relation.fetch("stim_events", "response")
-    result = fit_psychophysical_kernel(
-        stim_events,
-        response_values,
-        timebins=int(config["timebins"]),
-        cv_splits=int(config["cv_splits"]),
-        random_state=int(config["random_state"]),
-        max_rate_hz=float(config["max_rate_hz"]),
-        regularization_c=float(config["regularization_c"]),
-    )
-    n_trials_fit = int(result["choice_right"].size)
-    if result["weights"].size == 0:
-        return {
-            "fit_status": "skipped",
-            "fit_message": "insufficient trials or response classes for CV",
-            "timing_source": "bpod",
-            "n_trials_fit": n_trials_fit,
-            "n_bins_fit": 0,
-        }
-
-    n_observed = np.full(int(config["timebins"]), n_trials_fit, dtype=int)
-    score_mean = float(np.mean(result["scores"]))
-    majority_accuracy = float(
-        max(np.mean(result["choice_right"]), 1.0 - np.mean(result["choice_right"]))
-    )
-    weights_mean = np.mean(result["weights"], axis=0)
-    return {
-        "fit_status": "fit",
-        "timing_source": "bpod",
-        "n_trials_fit": n_trials_fit,
-        "n_bins_fit": int(config["timebins"]),
-        "n_observed_per_bin": n_observed,
-        "weights": result["weights"],
-        "weights_mean": weights_mean,
-        "weights_error": np.mean(result["error"], axis=0),
-        "scores": result["scores"],
-        "score_mean": score_mean,
-        "majority_accuracy": majority_accuracy,
-        "score_above_majority": score_mean - majority_accuracy,
-        "bias": result["bias"],
-        "bias_mean": float(np.mean(result["bias"])),
-        "interpretation": interpret_kernel_weights(
-            weights_mean,
-            n_observed,
-            min_trials_per_bin=int(config["cv_splits"]),
-        ),
-    }
-
-
-def _fixed_kernel_payload(key, config, trialset_keys):
+def _kernel_payload(key, config, trialset_keys):
     from behavior_analyses.kernel_timing import fetch_pooled_kernel_inputs
     from behavior_analyses.kernels import (
-        build_fixed_residual_rate_matrix,
-        fit_fixed_psychophysical_kernel,
+        build_residual_rate_matrix,
+        fit_psychophysical_kernel,
         interpret_kernel_weights,
     )
 
@@ -359,22 +274,18 @@ def _fixed_kernel_payload(key, config, trialset_keys):
         key["trialset_description"],
         observation_window=str(config["observation_window"]),
     )
-    trial_rate_hz = (
-        inputs["trial_rate_hz"] if config["evidence_encoding"] == "trial_rate" else None
-    )
     residual, choices, n_observed, bin_centers, expected_counts = (
-        build_fixed_residual_rate_matrix(
+        build_residual_rate_matrix(
             inputs["stim_times_per_trial"],
             inputs["first_stim_times"],
             inputs["observation_end_times"],
             inputs["response_values"],
             timebins=int(config["timebins"]),
             bin_width_s=float(config["bin_width_s"]),
-            max_rate_hz=float(config["max_rate_hz"]),
-            trial_rate_hz=trial_rate_hz,
+            trial_rate_hz=inputs["trial_rate_hz"],
         )
     )
-    result = fit_fixed_psychophysical_kernel(
+    result = fit_psychophysical_kernel(
         residual,
         choices,
         n_observed_per_bin=n_observed,
@@ -382,9 +293,7 @@ def _fixed_kernel_payload(key, config, trialset_keys):
         random_state=int(config["random_state"]),
         min_trials_per_bin=int(config["min_trials_per_bin"]),
         regularization_c=float(config["regularization_c"]),
-        expected_counts=(
-            expected_counts if config["evidence_encoding"] == "trial_rate" else None
-        ),
+        expected_counts=expected_counts,
     )
     base = {
         "timing_source": inputs["timing_source"],

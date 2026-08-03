@@ -9,100 +9,16 @@ from sklearn.model_selection import StratifiedKFold
 
 
 def build_residual_rate_matrix(
-    stim_events,
-    response_values,
-    *,
-    timebins: int = 10,
-    max_rate_hz: float = 20.0,
-) -> tuple[np.ndarray, np.ndarray]:
-    rows = []
-    choices = []
-    for events, response in zip(stim_events, response_values):
-        if response not in (-1, 1):
-            continue
-        events = np.asarray(events, dtype=float)
-        events = events[np.isfinite(events)]
-        if events.size < 2:
-            continue
-        bins = np.linspace(events[0], events[-1], num=timebins + 1)
-        specific_rate = max_rate_hz / len(bins)
-        instantaneous_rate, _ = np.histogram(events, bins=bins)
-        rows.append(instantaneous_rate - specific_rate)
-        choices.append(response == 1)
-    if not rows:
-        return np.empty((0, timebins)), np.empty((0,), dtype=int)
-    return np.asarray(rows, dtype=float), np.asarray(choices, dtype=int)
-
-
-def fit_psychophysical_kernel(
-    stim_events,
-    response_values,
-    *,
-    timebins: int = 10,
-    cv_splits: int = 10,
-    random_state: int = 0,
-    max_rate_hz: float = 20.0,
-    regularization_c: float = 1.0,
-) -> dict:
-    x, y = build_residual_rate_matrix(
-        stim_events, response_values, timebins=timebins, max_rate_hz=max_rate_hz
-    )
-    if x.shape[0] < cv_splits or np.unique(y).size < 2:
-        return {
-            "design_matrix": x,
-            "choice_right": y,
-            "weights": np.empty((0, timebins)),
-            "scores": np.empty((0,)),
-            "bias": np.empty((0,)),
-            "error": np.empty((0, timebins)),
-        }
-
-    splitter = StratifiedKFold(
-        n_splits=cv_splits, shuffle=True, random_state=random_state
-    )
-    weights = []
-    scores = []
-    biases = []
-    errors = []
-    for train_index, test_index in splitter.split(x, y):
-        x_train, x_test = x[train_index], x[test_index]
-        y_train, y_test = y[train_index], y[test_index]
-        model = LogisticRegression(
-            penalty="l2",
-            solver="liblinear",
-            C=regularization_c,
-            fit_intercept=True,
-        ).fit(x_train, y_train)
-        predict_prob = model.predict_proba(x_train)
-        variance = np.prod(predict_prob, axis=1)
-        covariance = np.linalg.pinv(np.dot(x_train.T * variance, x_train))
-        errors.append(np.sqrt(np.diag(covariance)))
-        weights.append(model.coef_[0])
-        scores.append(model.score(x_test, y_test))
-        biases.append(model.intercept_[0])
-
-    return {
-        "design_matrix": x,
-        "choice_right": y,
-        "weights": np.asarray(weights, dtype=float),
-        "scores": np.asarray(scores, dtype=float),
-        "bias": np.asarray(biases, dtype=float),
-        "error": np.asarray(errors, dtype=float),
-    }
-
-
-def build_fixed_residual_rate_matrix(
     stim_times_per_trial: Sequence[np.ndarray],
     first_stim_times: Sequence[float],
     observation_end_times: Sequence[float],
     response_values: Sequence[Any],
+    trial_rate_hz: Sequence[float],
     *,
     timebins: int = 10,
     bin_width_s: float = 0.1,
-    max_rate_hz: float = 20.0,
-    trial_rate_hz: Sequence[float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Build fixed-width residual flash counts for a timing-aware kernel."""
+    """Build Odoemene Eq. 5 residual counts in fixed-width time bins."""
     if timebins < 1:
         raise ValueError("timebins must be >= 1")
     if bin_width_s <= 0:
@@ -119,14 +35,11 @@ def build_fixed_residual_rate_matrix(
     first_stim = np.asarray(first_stim_times, dtype=float)[choice_mask]
     observation_end = np.asarray(observation_end_times, dtype=float)[choice_mask]
 
-    if trial_rate_hz is None:
-        expected_rates = np.full(choice_mask.shape, max_rate_hz, dtype=float)
-    else:
-        expected_rates = np.asarray(trial_rate_hz, dtype=float)
-        if expected_rates.shape != choice_mask.shape:
-            raise ValueError("trial_rate_hz must match response_values")
-        if np.any(~np.isfinite(expected_rates)) or np.any(expected_rates < 0):
-            raise ValueError("trial_rate_hz must contain finite nonnegative rates")
+    expected_rates = np.asarray(trial_rate_hz, dtype=float)
+    if expected_rates.shape != choice_mask.shape:
+        raise ValueError("trial_rate_hz must match response_values")
+    if np.any(~np.isfinite(expected_rates)) or np.any(expected_rates < 0):
+        raise ValueError("trial_rate_hz must contain finite nonnegative rates")
     expected_rates = expected_rates[choice_mask]
 
     bin_edges = np.arange(timebins + 1, dtype=float) * bin_width_s
@@ -166,18 +79,18 @@ def build_fixed_residual_rate_matrix(
     return residual, choices, n_observed_per_bin, bin_centers_s, expected_counts
 
 
-def fit_fixed_psychophysical_kernel(
+def fit_psychophysical_kernel(
     residual: np.ndarray,
     choice_right: np.ndarray,
     *,
+    expected_counts: np.ndarray,
     n_observed_per_bin: np.ndarray | None = None,
     cv_splits: int = 10,
     random_state: int = 0,
     min_trials_per_bin: int = 50,
     regularization_c: float = 1.0,
-    expected_counts: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Fit an L2 logistic kernel using the longest complete-case bin prefix."""
+    """Fit the Odoemene Eq. 5 kernel over the longest complete-case prefix."""
     residual = np.asarray(residual, dtype=float)
     choice_right = np.asarray(choice_right, dtype=int)
     n_bins = residual.shape[1] if residual.ndim == 2 else 0
@@ -222,7 +135,7 @@ def fit_fixed_psychophysical_kernel(
     if n_splits < 2:
         return empty
 
-    design, coefficient_to_weights = _fixed_kernel_design(
+    design, coefficient_to_weights = _kernel_design(
         residual,
         x,
         complete,
@@ -335,16 +248,13 @@ def _complete_case_prefix(
     return prefix
 
 
-def _fixed_kernel_design(
+def _kernel_design(
     residual: np.ndarray,
     complete_residual: np.ndarray,
     complete: np.ndarray,
     n_bins_fit: int,
-    expected_counts: np.ndarray | None,
+    expected_counts: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    if expected_counts is None:
-        return complete_residual, np.eye(n_bins_fit)
-
     expected_counts = np.asarray(expected_counts, dtype=float)
     if expected_counts.shape != residual.shape:
         raise ValueError("expected_counts must match residual")
