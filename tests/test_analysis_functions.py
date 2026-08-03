@@ -102,6 +102,58 @@ class KernelTests(unittest.TestCase):
         np.testing.assert_allclose(x[0], [1 - 20 / 3, 2 - 20 / 3])
         np.testing.assert_array_equal(y, [1])
 
+    def test_fixed_kernel_keeps_unobserved_late_bins_as_nan(self):
+        from behavior_analyses.kernels import build_fixed_residual_rate_matrix
+
+        residual, choices, n_observed, centers, expected = (
+            build_fixed_residual_rate_matrix(
+                [np.array([1.0, 1.05, 1.12])],
+                [1.0],
+                [1.15],
+                [1],
+                timebins=3,
+                bin_width_s=0.1,
+                trial_rate_hz=[20.0],
+            )
+        )
+
+        np.testing.assert_array_equal(choices, [1])
+        np.testing.assert_array_equal(n_observed, [1, 1, 0])
+        np.testing.assert_allclose(centers, [0.05, 0.15, 0.25])
+        self.assertTrue(np.isnan(residual[0, 2]))
+        self.assertTrue(np.isnan(expected[0, 2]))
+
+    def test_fixed_kernel_fit_is_deterministic(self):
+        from behavior_analyses.kernels import fit_fixed_psychophysical_kernel
+
+        rng = np.random.default_rng(4)
+        residual = rng.normal(size=(120, 4))
+        choices = (residual[:, 0] > 0).astype(int)
+        residual[60:, 3] = np.nan
+        n_observed = np.sum(np.isfinite(residual), axis=0)
+
+        first = fit_fixed_psychophysical_kernel(
+            residual,
+            choices,
+            n_observed_per_bin=n_observed,
+            cv_splits=5,
+            random_state=7,
+            min_trials_per_bin=50,
+        )
+        second = fit_fixed_psychophysical_kernel(
+            residual,
+            choices,
+            n_observed_per_bin=n_observed,
+            cv_splits=5,
+            random_state=7,
+            min_trials_per_bin=50,
+        )
+
+        self.assertTrue(first["fit_converged"])
+        self.assertEqual(first["n_bins_fit"], 4)
+        np.testing.assert_allclose(first["weights_mean"], second["weights_mean"])
+        np.testing.assert_allclose(first["scores"], second["scores"])
+
 
 if __name__ == "__main__":
     unittest.main()
