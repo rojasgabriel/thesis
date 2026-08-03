@@ -8,21 +8,29 @@ import _bootstrap  # noqa: F401
 
 
 ARCHIVE_TABLES = {
-    "behavior_session_set": "archive_lab_tasks_479_behavior_session_set",
-    "behavior_session_set__session": (
-        "archive_lab_tasks_479_behavior_session_set__session"
-    ),
-    "behavior_session_set__trial_set": (
-        "archive_lab_tasks_479_behavior_session_set__trial_set"
-    ),
+    "behavior_session_set": "archive_l479_behavior_set",
+    "behavior_session_set__session": ("archive_l479_behavior_set__session"),
+    "behavior_session_set__trial_set": ("archive_l479_behavior_set__trial_set"),
     "behavior_session_set__subject_trial_set": (
-        "archive_lab_tasks_479_behavior_session_set__subject_trial_set"
+        "archive_l479_behavior_set__subject_trial_set"
     ),
-    "__learning_session_metrics": "archive_lab_tasks_479_learning_session_metrics",
-    "__psychometric_session_fit": ("archive_lab_tasks_479_psychometric_session_fit"),
-    "__psychometric_subject_fit": ("archive_lab_tasks_479_psychometric_subject_fit"),
-    "__psychophysical_kernel": "archive_lab_tasks_479_psychophysical_kernel",
+    "__learning_session_metrics": "archive_l479_learning_session_metrics",
+    "__psychometric_session_fit": "archive_l479_psychometric_session_fit",
+    "__psychometric_subject_fit": "archive_l479_psychometric_subject_fit",
+    "__psychophysical_kernel": "archive_l479_psychophysical_kernel",
 }
+NEW_TABLES = {
+    "#psychometric_fit_config",
+    "#psychophysical_kernel_fit_config",
+    "behavior_analysis_set",
+    "behavior_analysis_set__trial_set",
+}
+COMPUTED_TABLES = {
+    "__psychometric_session_fit",
+    "__psychometric_subject_fit",
+    "__psychophysical_kernel",
+}
+EXPECTED_KERNEL_CONFIG = (10, 10, 0)
 TRIALSET_KEY_FIELDS = (
     "subject_name",
     "session_name",
@@ -33,10 +41,16 @@ TRIALSET_KEY_FIELDS = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--apply",
         action="store_true",
         help="Archive the old tables, activate the locked schema, and copy rows.",
+    )
+    mode.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume copying after the old tables were archived and targets created.",
     )
     return parser.parse_args()
 
@@ -48,17 +62,23 @@ def main() -> None:
 
     connection = dj.conn()
     database = f"{labdata_schema.dbase_name}_user"
-    _validate_table_state(connection, database)
-    _print_source_counts(connection, database)
-    if not args.apply:
-        print("Dry run only. Re-run with --apply after exact live-write approval.")
-        return
+    if args.resume:
+        _validate_resume_state(connection, database)
+        _validate_kernel_configs(connection, database, archived=True)
+        _print_archive_counts(connection, database)
+    else:
+        _validate_table_state(connection, database)
+        _validate_kernel_configs(connection, database)
+        _print_source_counts(connection, database)
+        if not args.apply:
+            print("Dry run only. Re-run with --apply after exact live-write approval.")
+            return
 
-    rename_sql = "RENAME TABLE " + ", ".join(
-        f"`{database}`.`{source}` TO `{database}`.`{archive}`"
-        for source, archive in ARCHIVE_TABLES.items()
-    )
-    connection.query(rename_sql)
+        rename_sql = "RENAME TABLE " + ", ".join(
+            f"`{database}`.`{source}` TO `{database}`.`{archive}`"
+            for source, archive in ARCHIVE_TABLES.items()
+        )
+        connection.query(rename_sql)
 
     from labdata_plugin.analysisschema import (
         BehaviorAnalysisSet,
@@ -123,6 +143,7 @@ def main() -> None:
             )
         ],
         skip_duplicates=True,
+        allow_direct_insert=True,
     )
 
     old_subject_fits = _archive_table(
@@ -142,6 +163,7 @@ def main() -> None:
             for row in old_subject_fits.fetch(as_dict=True)
         ],
         skip_duplicates=True,
+        allow_direct_insert=True,
     )
 
     old_kernels = _archive_table(connection, database, "__psychophysical_kernel")
@@ -170,6 +192,7 @@ def main() -> None:
             for row in old_kernels.fetch(as_dict=True)
         ],
         skip_duplicates=True,
+        allow_direct_insert=True,
     )
 
     print(f"BehaviorAnalysisSet: {len(BehaviorAnalysisSet())}")
@@ -189,11 +212,62 @@ def _validate_table_state(connection, database):
     }
     missing = set(ARCHIVE_TABLES) - existing
     occupied_archives = set(ARCHIVE_TABLES.values()) & existing
-    if missing or occupied_archives:
+    occupied_targets = NEW_TABLES & existing
+    if missing or occupied_archives or occupied_targets:
         raise RuntimeError(
             f"Unsafe table state: missing={sorted(missing)}, "
-            f"occupied_archives={sorted(occupied_archives)}"
+            f"occupied_archives={sorted(occupied_archives)}, "
+            f"occupied_targets={sorted(occupied_targets)}"
         )
+
+
+def _validate_resume_state(connection, database):
+    existing = {
+        row[0]
+        for row in connection.query(
+            "SELECT table_name FROM information_schema.tables "
+            f"WHERE table_schema={database!r}"
+        ).fetchall()
+    }
+    missing_archives = set(ARCHIVE_TABLES.values()) - existing
+    missing_targets = (NEW_TABLES | COMPUTED_TABLES) - existing
+    old_only_tables = set(ARCHIVE_TABLES) - COMPUTED_TABLES
+    occupied_sources = old_only_tables & existing
+    if missing_archives or missing_targets or occupied_sources:
+        raise RuntimeError(
+            f"Unsafe resume state: missing_archives={sorted(missing_archives)}, "
+            f"missing_targets={sorted(missing_targets)}, "
+            f"occupied_sources={sorted(occupied_sources)}"
+        )
+
+
+def _validate_kernel_configs(connection, database, *, archived=False):
+    master = (
+        ARCHIVE_TABLES["behavior_session_set"] if archived else "behavior_session_set"
+    )
+    kernel = (
+        ARCHIVE_TABLES["__psychophysical_kernel"]
+        if archived
+        else "__psychophysical_kernel"
+    )
+    queries = {
+        master: (
+            "SELECT DISTINCT kernel_timebins, kernel_cv_splits, "
+            f"kernel_random_state FROM `{database}`.`{master}`"
+        ),
+        kernel: (
+            "SELECT DISTINCT timebins, cv_splits, random_state "
+            f"FROM `{database}`.`{kernel}`"
+        ),
+    }
+    incompatible = {}
+    for table, query in queries.items():
+        configs = {tuple(map(int, row)) for row in connection.query(query).fetchall()}
+        unexpected = configs - {EXPECTED_KERNEL_CONFIG}
+        if unexpected:
+            incompatible[table] = sorted(unexpected)
+    if incompatible:
+        raise RuntimeError(f"Incompatible legacy kernel configs: {incompatible}")
 
 
 def _print_source_counts(connection, database):
@@ -202,6 +276,14 @@ def _print_source_counts(connection, database):
             f"SELECT COUNT(*) FROM `{database}`.`{source}`"
         ).fetchone()[0]
         print(f"{source}: {count} rows -> {archive}")
+
+
+def _print_archive_counts(connection, database):
+    for archive in ARCHIVE_TABLES.values():
+        count = connection.query(
+            f"SELECT COUNT(*) FROM `{database}`.`{archive}`"
+        ).fetchone()[0]
+        print(f"{archive}: {count} archived rows")
 
 
 def _archive_table(connection, database, source):

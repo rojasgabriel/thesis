@@ -51,6 +51,49 @@ class FakeComputed:
 
 
 class CliContractTests(unittest.TestCase):
+    def test_schema_migration_archive_names_leave_room_for_foreign_keys(self):
+        module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
+
+        self.assertTrue(
+            all(
+                len(f"{name}_ibfk_99") <= 64
+                for name in module["ARCHIVE_TABLES"].values()
+            )
+        )
+
+    def test_schema_migration_rejects_occupied_target_tables(self):
+        module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
+        connection = MagicMock()
+        connection.query.return_value.fetchall.return_value = [
+            *[(name,) for name in module["ARCHIVE_TABLES"]],
+            ("behavior_analysis_set",),
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "occupied_targets"):
+            module["_validate_table_state"](connection, "labdata_user")
+
+        expected = MagicMock()
+        expected.fetchall.return_value = [(10, 10, 0)]
+        incompatible = MagicMock()
+        incompatible.fetchall.return_value = [(8, 10, 0)]
+        connection.query.side_effect = [expected, incompatible]
+        with self.assertRaisesRegex(RuntimeError, "Incompatible legacy kernel"):
+            module["_validate_kernel_configs"](connection, "labdata_user")
+
+    def test_schema_migration_accepts_expected_resume_state(self):
+        module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
+        connection = MagicMock()
+        existing = (
+            set(module["ARCHIVE_TABLES"].values())
+            | module["NEW_TABLES"]
+            | module["COMPUTED_TABLES"]
+        )
+        connection.query.return_value.fetchall.return_value = [
+            (name,) for name in existing
+        ]
+
+        module["_validate_resume_state"](connection, "labdata_user")
+
     def test_schema_migration_deduplicates_direct_trialset_keys(self):
         module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
         rows = [
