@@ -47,14 +47,26 @@ def get_chipmunk_table() -> Any:
 
         return Chipmunk
     except ModuleNotFoundError:
+        registered = _registered_chipmunk_table()
+        if registered is not None:
+            return registered
         plugin_path = _configured_chipmunk_plugin_path()
         if plugin_path is None:
             raise ModuleNotFoundError(
-                "Chipmunk plugin not importable as `chipmunk`, and no "
-                "CHIPMUNK_PLUGIN_PATH / tool.behavior_analyses.chipmunk_plugin_path "
-                "is configured."
+                "Chipmunk plugin is not importable or registered with labdata, "
+                "and no CHIPMUNK_PLUGIN_PATH / "
+                "tool.behavior_analyses.chipmunk_plugin_path is configured."
             ) from None
         return _load_local_chipmunk_plugin(plugin_path).Chipmunk
+
+
+def _registered_chipmunk_table() -> Any | None:
+    import labdata
+
+    try:
+        return labdata.plugins["chipmunk"].Chipmunk
+    except KeyError:
+        return None
 
 
 def _load_local_chipmunk_plugin(plugin_root: Path) -> Any:

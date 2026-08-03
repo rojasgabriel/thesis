@@ -51,6 +51,20 @@ class FakeComputed:
 
 
 class CliContractTests(unittest.TestCase):
+    def test_kernel_timing_migration_only_adds_missing_columns(self):
+        module = runpy.run_path(str(SCRIPTS / "migrate_kernel_timing_source.py"))
+
+        statements = module["_missing_column_statements"](
+            "labdata_user",
+            module["KERNEL_TABLE"],
+            module["KERNEL_COLUMNS"],
+            {"timing_source", "n_trials_fit", "fit_message"},
+        )
+
+        self.assertEqual(len(statements), len(module["KERNEL_COLUMNS"]) - 1)
+        self.assertTrue(all("timing_source" not in sql for sql in statements))
+        self.assertTrue(all(sql.startswith("ALTER TABLE") for sql in statements))
+
     def test_schema_migration_archive_names_leave_room_for_foreign_keys(self):
         module = runpy.run_path(str(SCRIPTS / "migrate_behavior_analysis_schema.py"))
 
@@ -205,6 +219,17 @@ class IoConfigTests(unittest.TestCase):
         with patch.dict("os.environ", {"CHIPMUNK_PLUGIN_PATH": "/tmp/chipmunk-plugin"}):
             path = io_mod._configured_chipmunk_plugin_path()
         self.assertEqual(path, Path("/tmp/chipmunk-plugin"))
+
+    def test_registered_chipmunk_plugin_is_used(self):
+        from behavior_analyses import io as io_mod
+
+        table = object()
+        fake_labdata = types.ModuleType("labdata")
+        fake_labdata.plugins = {"chipmunk": types.SimpleNamespace(Chipmunk=table)}
+        with patch.dict(sys.modules, {"labdata": fake_labdata}):
+            registered = io_mod._registered_chipmunk_table()
+
+        self.assertIs(registered, table)
 
 
 class PsychometricPlotHelperTests(unittest.TestCase):

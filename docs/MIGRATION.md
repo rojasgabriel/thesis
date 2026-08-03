@@ -47,8 +47,8 @@ and **Plan Analysis** v0.5.
 | `PsychometricFitConfig` | Lookup | One versioned psychometric eligibility configuration | none | minimum choices/stimulus values, analysis version |
 | `PsychometricSessionFit` | Computed | One fit for one upstream TrialSet and config | `DecisionTask.TrialSet` + config | status, fit sample size, curve/parameters/diagnostics |
 | `PsychometricSubjectFit` | Computed | One pooled fit for one analysis set, subject, condition, and config | analysis set + `Subject` + config | status, fit sample size, curve/parameters/diagnostics |
-| `PsychophysicalKernelFitConfig` | Lookup | One versioned pooled-kernel configuration | none | bins, CV folds, seed, calibration rate, regularization, version |
-| `PsychophysicalKernel` | Computed | One pooled kernel for one analysis set, subject, condition, and config | analysis set + `Subject` + kernel config | status, fit sample size, weights, held-out scores, bias |
+| `PsychophysicalKernelFitConfig` | Lookup | One versioned pooled-kernel configuration | none | binning method, observation window, evidence encoding, CV, regularization, version |
+| `PsychophysicalKernel` | Computed | One pooled kernel for one analysis set, subject, condition, and config | analysis set + `Subject` + kernel config | status, timing source, fit sample size, weights, held-out scores, bias |
 
 Keep:
 
@@ -130,3 +130,33 @@ sizes, frameless legends, and vector output. Raw figures, commands,
 configuration IDs, and observation-first notes are on the LAB-TASKS-479
 [Results](https://www.notion.so/3b1ecf086b7c814a959aebd29420b453)
 subpage.
+
+## Kernel timing-source extension
+
+The canonical pooled kernel now supports fixed 100 ms windows in addition to
+the migrated variable-width `v1_10bin_10fold` fit. For fixed-window configs,
+each selected session:
+
+1. uses NIDAQ/OneBox visual-flash and port-event times when a `visual_stim`
+   `EventMapping` exists and all required mappings validate;
+2. otherwise uses the equivalent Bpod `stim_events`, `t_react`, and
+   `t_response` timestamps;
+3. raises on incomplete or invalid NIDAQ mappings rather than silently falling
+   back to Bpod.
+
+`PsychophysicalKernel.timing_source` records `nidaq`, `bpod`, or `mixed` for the
+pooled result. Detailed session provenance remains derivable from
+`BehaviorAnalysisSet.TrialSet` and the ephys `EventMapping`; no duplicate
+per-session provenance table is needed.
+
+Before importing this version against the live schema, run:
+
+```bash
+uv run python scripts/analyses/migrate_kernel_timing_source.py
+uv run python scripts/analyses/migrate_kernel_timing_source.py --apply
+```
+
+The first command is read-only and prints the missing `ALTER TABLE` statements.
+The second adds the new nullable/defaulted columns and inserts the two v2
+fixed-window configs while preserving all existing v1 rows as Bpod-timed
+legacy fits.

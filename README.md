@@ -44,8 +44,10 @@ Chipmunk data. Archived `djchurchland` notebooks are under
 ```bash
 uv run python scripts/analyses/seed_behavior_analysis_set.py --help
 uv run python scripts/analyses/migrate_behavior_analysis_schema.py --help
+uv run python scripts/analyses/migrate_kernel_timing_source.py --help
 uv run python scripts/analyses/populate_behavior_tables.py --help
 uv run python scripts/analyses/plot_psychometrics.py --help
 ```
 
-Use `--dry-run` on seed/populate before any database writes.
+Seed and populate support `--dry-run`. Schema migrations print their planned
+changes unless explicitly run with `--apply`.
