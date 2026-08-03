@@ -362,7 +362,7 @@ def extract_trial_kernel_inputs(
     *,
     stim_key: str = "stim_ev",
     observation_window: str = "center_exit",
-) -> dict[str, np.ndarray | list]:
+) -> dict[str, Any]:
     """Per-trial NIDAQ flash times and observation cutoffs for the kernel.
 
     ``observation_window``:

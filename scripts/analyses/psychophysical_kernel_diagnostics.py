@@ -74,7 +74,7 @@ def main() -> None:
                 "session_name": args.session,
                 "kernel_param_id": param_id,
             }
-            SessionPsychophysicalKernel.populate(key, display_progress=True)
+            SessionPsychophysicalKernel().populate(key, display_progress=True)
 
     rows = []
     for param_id in args.kernel_param_id:

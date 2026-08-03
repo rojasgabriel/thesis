@@ -110,7 +110,9 @@ Current expected warnings:
 The session-level table is
 `labdata_plugin.analysisschema.SessionPsychophysicalKernel`. The distinct
 name preserves the existing pooled `behavior_analyses.PsychophysicalKernel`
-table and its rows.
+table and its rows. This table is intentionally ephys-only because its fixed
+windows use NIDAQ `EventMapping`; use the pooled table in `behavior_analyses`
+for kernels that do not require ephys timing.
 
 Locked exploratory specification:
 
