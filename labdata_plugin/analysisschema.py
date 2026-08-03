@@ -224,7 +224,8 @@ class PsychophysicalKernel(dj.Computed):
     def key_source(self):
         subject_conditions = (
             dj.U("analysis_set_id", "subject_name", "trialset_description")
-            & BehaviorAnalysisSet.TrialSet()
+            .aggr(BehaviorAnalysisSet.TrialSet(), n_trialsets="count(*)")
+            .proj()
         )
         return subject_conditions * PsychophysicalKernelFitConfig()
 
