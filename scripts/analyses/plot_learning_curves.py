@@ -18,6 +18,7 @@ def main() -> None:
     import matplotlib
 
     matplotlib.use("Agg")
+    matplotlib.rcParams["font.family"] = "Arial"
     from matplotlib import pyplot as plt
     import pandas as pd
 
@@ -36,7 +37,11 @@ def main() -> None:
     data = pd.DataFrame(rows).sort_values(["subject_name", "session_name"])
     fig, ax = plt.subplots(figsize=(8, 4))
     for subject, subject_df in data.groupby("subject_name"):
-        ax.plot(subject_df["performance_easy"].to_numpy(), marker="o", label=subject)
+        ax.plot(
+            subject_df["performance_easy"].to_numpy(),
+            marker="o",
+            label=f"{subject} (n={len(subject_df)} sessions)",
+        )
     ax.set_xlabel("Session index")
     ax.set_ylabel("Easy performance")
     ax.set_ylim(0, 1)

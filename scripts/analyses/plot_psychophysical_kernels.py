@@ -18,6 +18,7 @@ def main() -> None:
     import matplotlib
 
     matplotlib.use("Agg")
+    matplotlib.rcParams["font.family"] = "Arial"
     from matplotlib import pyplot as plt
     import numpy as np
 

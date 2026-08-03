@@ -11,7 +11,7 @@ merging [PR #8](https://github.com/rojasgabriel/behavior_analyses/pull/8).
 | Surface | Classification | Notes |
 | --- | --- | --- |
 | `src/behavior_analyses/` | migrate (done) | Reusable learning / psychometric / kernel math |
-| `labdata_plugin/` | migrate (local refactor done) | Skill-informed analysis-set/config/fit schema; live activation pending |
+| `labdata_plugin/` | migrate (done) | Skill-informed analysis-set/config/fit schema; live activation completed 2026-08-03 |
 | `scripts/analyses/` | migrate (done) | Seed / populate / plot CLIs |
 | `psychometric_curves/utils.py` | migrate (done) | LabData/Chipmunk plotting helpers |
 | `psychometric_curves/*.ipynb` (old) | archived | Moved under `archive/djchurchland/` |
@@ -69,11 +69,10 @@ Drop or derive:
 - figures in database blobs; maintained plot code produces editable PDF/SVG
   outputs from numerical tables
 
-Open live decision:
+Live state:
 
-- the deployed tables use the old definitions and must be archived before the
-  canonical class names can be activated. This requires a separately approved
-  live migration.
+- the old definitions are preserved under `archive_l479_*` table names and the
+  canonical class names are active; no legacy table was dropped.
 
 ## Live LabData validation
 
@@ -108,21 +107,26 @@ Approved disposable write checks completed on 2026-07-28:
 The repository's Python 3.10 environment has a damaged local SciPy binary, so
 the successful populate ran from the same lockfile under Python 3.11.
 
-## Approval-gated live migration
+## Completed live migration
 
-No live schema write is implied by importing the refactored plugin. Before
-importing it against the shared database, the approved migration must:
+The bounded migration was approved and completed on 2026-08-03. It:
 
-1. archive the eight old behavior tables with dated, plugin-specific names
+1. archived the eight old behavior tables with plugin-specific names
    (no drops);
-2. activate the seven locked relations above and their two default config rows;
-3. copy the two selection masters and 184 TrialSet membership rows;
-4. copy compatible fitted rows under the default config while deduplicating
+2. activated the seven locked relations above and their two default config rows;
+3. copied the two selection masters and 184 TrialSet membership rows;
+4. copied compatible fitted rows under the default config while deduplicating
    session fits by their upstream TrialSet key;
-5. dry-run pending keys, then populate only the two migrated analysis-set IDs;
-6. verify counts/headings and render bounded diagnostic PDF figures.
+5. dry-ran pending keys, then populated only the two migrated analysis-set IDs;
+6. verified counts, statuses, headings, and bounded diagnostic figures.
+
+Final active counts are two analysis sets, 184 memberships, 184 session fits,
+three pooled subject fits, and three pooled kernels. Session results comprise
+128 `fit` rows and 56 explicit `skipped` rows; every pooled subject fit and
+kernel is `fit`. All eight archive tables retain their original counts.
 
 Figures use a plain white canvas, neutral comparison titles, units, sample
-sizes, frameless legends, and vector output. Once produced, raw figures,
-commands, configuration IDs, and observation-first notes belong on the
-LAB-TASKS-479 **Results** subpage in Notion.
+sizes, frameless legends, and vector output. Raw figures, commands,
+configuration IDs, and observation-first notes are on the LAB-TASKS-479
+[Results](https://www.notion.so/3b1ecf086b7c814a959aebd29420b453)
+subpage.

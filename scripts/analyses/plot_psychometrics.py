@@ -18,6 +18,7 @@ def main() -> None:
     import matplotlib
 
     matplotlib.use("Agg")
+    matplotlib.rcParams["font.family"] = "Arial"
     from matplotlib import pyplot as plt
     import numpy as np
 
@@ -48,8 +49,8 @@ def main() -> None:
         p_right = np.asarray(row["p_right"], dtype=float)
         x = np.asarray(sorted(stims), dtype=float)
         label = f"{row['subject_name']} (n={row['n_choices_fit']})"
-        ax.plot(x, cumulative_gaussian(*params, x), label=label)
-        ax.plot(stims, p_right, "o", ms=4)
+        (line,) = ax.plot(x, cumulative_gaussian(*params, x), label=label)
+        ax.plot(stims, p_right, "o", color=line.get_color(), ms=4)
     ax.set_xlabel("Stimulus rate relative to boundary (Hz)")
     ax.set_ylabel("P(right choice)")
     ax.set_ylim(0, 1)
