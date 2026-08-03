@@ -3,9 +3,9 @@ import numpy as np
 from labdata.schema import (
     DatasetEvents,  # noqa: F401
     EphysRecording,
-    Session,  # noqa: F401
+    Session,
     SpikeSorting,
-    UnitCount,  # noqa: F401
+    UnitCount,
     get_user_schema,
 )
 
@@ -153,10 +153,9 @@ class LocomotionPeaks(dj.Computed):
         dpi=300,
     ):
         import matplotlib.pyplot as plt
-        from matplotlib.widgets import Button, RadioButtons, TextBox
         import seaborn as sns
-
         from ephys.src.utils.analysis_stats import mean_and_t_ci
+        from matplotlib.widgets import Button, RadioButtons, TextBox
 
         if subject_sessions is None:
             subject_sessions = [
@@ -290,3 +289,187 @@ class LocomotionPeaks(dj.Computed):
         save_button.on_clicked(save)
         plt.show()
         return fig
+
+
+@rojasbowe_schema
+class PsychophysicalKernelParam(dj.Lookup):
+    """Analysis params for ``PsychophysicalKernel`` (Odoemene-style logistic kernel)."""
+
+    definition = """
+    kernel_param_id                      : varchar(48)
+    ---
+    timebins                             : int
+    bin_width_s                          : float
+    cv_splits                            : int
+    random_state                         : int
+    max_rate_hz                          : float
+    evidence_encoding                    : varchar(32)  # max_rate | trial_rate
+    min_trials_per_bin                   : int
+    regularization_c                     : float
+    observation_window                   : varchar(32)  # center_exit | response
+    analysis_version                     : varchar(32)
+    """
+    contents = [  # noqa: RUF012
+        # Fixation-only: flashes until center-port exit.
+        (
+            "v1_100ms_10bin_center",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "max_rate",
+            50,
+            1.0,
+            "center_exit",
+            "v1",
+        ),
+        # Through response: flashes until chosen response-port poke.
+        (
+            "v1_100ms_10bin_response",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "max_rate",
+            50,
+            1.0,
+            "response",
+            "v1",
+        ),
+        # Locked primary: fixation-only, centered on each trial's generative rate.
+        (
+            "v2_100ms_10bin_center_rate",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "trial_rate",
+            50,
+            1.0,
+            "center_exit",
+            "v2",
+        ),
+        # Window sensitivity: includes movement-period flashes through response.
+        (
+            "v2_100ms_10bin_response_rate",
+            10,
+            0.1,
+            10,
+            0,
+            20.0,
+            "trial_rate",
+            50,
+            1.0,
+            "response",
+            "v2",
+        ),
+    ]
+
+
+@rojasbowe_schema
+class SessionPsychophysicalKernel(dj.Computed):
+    """Session psychophysical kernel (logistic reverse correlation).
+
+    See ``ephys.src.utils.psychophysical_kernel`` and Odoemene et al. 2018
+    doi:10.1523/JNEUROSCI.3478-17.2018. Requires ``EventMapping`` + Chipmunk;
+    missing NIDAQ mappings raise (no Bpod-timestamp fallback).
+    """
+
+    definition = """
+    -> Session
+    -> PsychophysicalKernelParam
+    ---
+    n_trials                             : int
+    n_trials_fit                         : int
+    n_bins_fit                           : int
+    weights                              : longblob  # cv x timebins; kernel folds
+    weights_mean                         : longblob  # psychophysical kernel w(t)
+    weights_error                        : longblob  # approx. SE on w(t)
+    n_observed_per_bin                   : longblob  # trials with finite evidence
+    bin_centers_s                        : longblob  # time from first flash
+    scores                               : longblob  # CV holdout accuracy
+    score_mean                           : float
+    majority_accuracy = NULL             : float
+    score_above_majority = NULL          : float
+    bias                                 : longblob  # CV intercepts β0
+    bias_mean                            : float
+    interpretation                       : varchar(32)  # early/late/flat/failed
+    wait_time_mean                       : float
+    wait_time_std                        : float
+    response_time_mean                   : float
+    response_time_std                    : float
+    fit_converged                        : tinyint
+    """
+
+    @property
+    def key_source(self):
+        return (Session * PsychophysicalKernelParam) & EventMapping.proj()
+
+    def make(self, key):
+        from ephys.src.utils.io_chipmunk_trials import fetch_trial_metadata
+        from ephys.src.utils.io_digital_events import fetch_session_events
+        from ephys.src.utils.psychophysical_kernel import (
+            compute_session_psychophysical_kernel,
+        )
+        from ephys.src.utils.trial_alignment import enrich_chipmunk_trial_table
+
+        params = (PsychophysicalKernelParam() & key).fetch1()
+        subject = key["subject_name"]
+        session = key["session_name"]
+
+        align_ev = fetch_session_events(subject, session)
+        trial_df = fetch_trial_metadata(subject, session, align_ev)
+        if trial_df is None:
+            raise RuntimeError(
+                f"Could not load Chipmunk trial metadata for {subject} {session}."
+            )
+        trial_df = enrich_chipmunk_trial_table(trial_df)
+
+        result = compute_session_psychophysical_kernel(
+            align_ev,
+            trial_df,
+            timebins=int(params["timebins"]),
+            bin_width_s=float(params["bin_width_s"]),
+            max_rate_hz=float(params["max_rate_hz"]),
+            cv_splits=int(params["cv_splits"]),
+            random_state=int(params["random_state"]),
+            min_trials_per_bin=int(params["min_trials_per_bin"]),
+            regularization_C=float(params["regularization_c"]),
+            observation_window=str(params["observation_window"]),
+            evidence_encoding=str(params["evidence_encoding"]),
+        )
+        if not result["fit_converged"]:
+            raise RuntimeError(
+                f"Psychophysical kernel fit failed for {subject} {session} "
+                f"(n_trials={result['n_trials']}, "
+                f"n_observed_per_bin={result['n_observed_per_bin'].tolist()})."
+            )
+
+        self.insert1(
+            {
+                **key,
+                "n_trials": int(result["n_trials"]),
+                "n_trials_fit": int(result["n_trials_fit"]),
+                "n_bins_fit": int(result["n_bins_fit"]),
+                "weights": result["weights"],
+                "weights_mean": result["weights_mean"],
+                "weights_error": result["weights_error"],
+                "n_observed_per_bin": result["n_observed_per_bin"],
+                "bin_centers_s": result["bin_centers_s"],
+                "scores": result["scores"],
+                "score_mean": float(result["score_mean"]),
+                "majority_accuracy": float(result["majority_accuracy"]),
+                "score_above_majority": float(result["score_above_majority"]),
+                "bias": result["bias"],
+                "bias_mean": float(result["bias_mean"]),
+                "interpretation": result["interpretation"],
+                "wait_time_mean": float(result["wait_time_mean"]),
+                "wait_time_std": float(result["wait_time_std"]),
+                "response_time_mean": float(result["response_time_mean"]),
+                "response_time_std": float(result["response_time_std"]),
+                "fit_converged": 1,
+            }
+        )

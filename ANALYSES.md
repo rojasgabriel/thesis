@@ -105,6 +105,59 @@ Current expected warnings:
 - `20260312_134952`: `OBX=236`, `Chipmunk=235`
 - `20260319_131303`: `OBX=219`, `Chipmunk=218`
 
+### Psychophysical kernel (LAB-TASKS-466)
+
+The session-level table is
+`labdata_plugin.analysisschema.SessionPsychophysicalKernel`. The distinct
+name preserves the existing pooled `behavior_analyses.PsychophysicalKernel`
+table and its rows. This table is intentionally ephys-only because its fixed
+windows use NIDAQ `EventMapping`; use the pooled table in `behavior_analyses`
+for kernels that do not require ephys timing.
+
+Locked exploratory specification:
+
+- primary: `v2_100ms_10bin_center_rate` (flashes before center-port exit)
+- window sensitivity: `v2_100ms_10bin_response_rate`
+- evidence: Odoemene et al. 2018 Eq. 5; subtract each trial's generative
+  `stim_rate_vision`, fit zero-sum temporal contrasts plus the mean-rate
+  nuisance regressor
+- fit: 100 ms bins, complete-case prefix, 10-fold stratified CV, `C=1`,
+  `min_trials_per_bin=50`, seed 0
+- report the continuous late/early absolute-weight ratio, CV accuracy, and
+  accuracy relative to the fitted-set majority baseline; the categorical
+  label is descriptive only
+
+Live GRB006 `20240821_121447` result on 2026-07-28:
+
+| Window | Trials (fit) | Bins fit | CV | Majority | Δ majority | Late/early |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| center exit | 291 (91) | 7 | 0.704 | 0.747 | -0.043 | 1.890 |
+| response | 294 (292) | 10 | 0.688 | 0.695 | -0.007 | 0.689 |
+
+The center-window trial set had wait time `0.628 ± 0.077 s` and post-exit
+response time `0.676 ± 0.237 s`; the response-window trial set had
+`0.622 ± 0.099 s` and `0.676 ± 0.237 s`, respectively.
+
+The early/late conclusion is not stable enough for a claim. The center-exit
+label changes from early at `C=0.1` to late at `C=1` and `C=10`; the 50 ms
+fit is flat. Neither locked fit beats its fitted-set majority baseline.
+Therefore the figure is diagnostic, not evidence that GRB006 is an early or
+late integrator, and it should not yet be linked to the V1 category time
+course as a directional result.
+
+Regenerate:
+
+```bash
+PYTHONPATH=.. python scripts/analyses/psychophysical_kernel_diagnostics.py --populate
+```
+
+Writes:
+
+- `figures/psychophysical_kernels/GRB006_20240821_121447_psychophysical_kernel.png`
+
+The expected one-trial alignment warning is `OBX=505`, `Chipmunk=504`;
+the loader truncates to 504 before kernel-specific filtering.
+
 ## Other Scripts
 
 Still usable, but not part of the main figure surface:
