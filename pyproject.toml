@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "behavioral analysis code for my thesis in the Churchland Lab"
 requires-python = ">=3.10"
 dependencies = [
+    "datajoint>=0.14.9,<2.0.0",
     "ipykernel>=6.0.0",
-    "labdata>=0.0.22",
+    "labdata>=0.1.7",
     "matplotlib>=3.0.0",
     "natsort>=8.0.0",
     "numpy>=1.24.0",
@@ -13,18 +14,44 @@ dependencies = [
     "scikit-learn>=1.0.0",
     "scipy>=1.10.0",
     "seaborn>=0.13.0",
+    "statsmodels>=0.14.0",
     "chiCa",
-    "djchurchland",
+    "fit-psychometric",
 ]
 
 [tool.uv]
 package = false
+constraint-dependencies = [
+    "cryptography>=48.0.1",
+    "pillow>=12.3.0",
+    "tornado>=6.5.7",
+    "urllib3>=2.7.0",
+]
 
 [tool.uv.sources]
 chiCa = { git = "https://github.com/churchlandlab/chiCa" }
-djchurchland = { git = "https://github.com/churchlandlab/djchurchland" }
+fit-psychometric = { path = "third_party/fit_psychometric", editable = true }
+
+[tool.behavior_analyses]
+# Optional local Chipmunk plugin checkout. Prefer `from chipmunk import Chipmunk`
+# (labdata plugin entry point). Override with env CHIPMUNK_PLUGIN_PATH.
+chipmunk_plugin_path = ""
 
 [tool.ruff]
 exclude = [
     "psychometric_curves/fit_psychometric.py",
+    "third_party",
+    "archive",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+per-file-ignores = { "*.ipynb" = ["E402", "F401", "F403", "F405"] }
+
+[tool.ruff.format]
+exclude = [
+    "notebooks/stress_test_labdata_migration.ipynb",
+    "stress_test_labdata_migration.ipynb",
+    "archive",
+    "third_party",
 ]

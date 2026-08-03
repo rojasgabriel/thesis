@@ -34,3 +34,6 @@ jobs:
 
       - name: Check formatting
         run: uvx ruff format --check .
+
+      - name: Test
+        run: uv run python -m unittest discover -s tests -v
