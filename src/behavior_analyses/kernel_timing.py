@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from importlib import import_module
 from typing import Any
 
 import numpy as np
@@ -339,18 +338,17 @@ def _fetch_chipmunk_trial_rows(dataset_key: dict[str, Any]) -> list[dict[str, An
 def _fetch_event_mapping_rows(
     session_key: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    try:
-        import labdata
+    import datajoint as dj
+    import labdata
+    from labdata.schema import get_user_schema
 
-        labdata.plugins["gephys"].__file__
-        module = import_module("gephys.analysisschema")
+    try:
+        labdata.plugins["gephys"]
     except KeyError:
         return []
-    except ModuleNotFoundError as error:
-        if error.name in {"gephys", "gephys.analysisschema"}:
-            return []
-        raise
-    return list((module.EventMapping() & session_key).fetch(as_dict=True))
+    schema = get_user_schema()
+    table = dj.FreeTable(schema.connection, f"`{schema.database}`.`event_mapping`")
+    return list((table & session_key).fetch(as_dict=True))
 
 
 def _fetch_mapped_digital_event_rows(
