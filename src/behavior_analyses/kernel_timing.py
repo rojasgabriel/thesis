@@ -23,7 +23,7 @@ def available_timing_sources(trialset_keys: list[dict[str, Any]]) -> list[str]:
     session_keys = {(key["subject_name"], key["session_name"]) for key in trialset_keys}
     sources = ["bpod"]
     if all(
-        has_nidq_visual_timing(
+        has_nidq_timing(
             _fetch_event_mapping_rows(
                 {"subject_name": subject, "session_name": session}
             )
@@ -73,11 +73,11 @@ def fetch_pooled_kernel_inputs(
         }
         mapping_rows = _fetch_event_mapping_rows(session_key)
         if timing_source == "nidq":
-            if not has_nidq_visual_timing(mapping_rows):
+            if not has_nidq_timing(mapping_rows):
                 raise ValueError(
                     f"Session {session_key['subject_name']} "
                     f"{session_key['session_name']} cannot supply nidq timing: "
-                    "no visual_stim EventMapping"
+                    "incomplete EventMapping"
                 )
             event_rows = _fetch_mapped_digital_event_rows(session_key, mapping_rows)
             aligned_events = resolve_nidq_event_arrays(
@@ -254,9 +254,12 @@ def extract_nidq_kernel_inputs(
     return result
 
 
-def has_nidq_visual_timing(mapping_rows: list[dict[str, Any]]) -> bool:
-    """Return whether a session declares a mapped NIDAQ/OneBox visual stream."""
-    return any(row.get("event_name") == "visual_stim" for row in mapping_rows)
+def has_nidq_timing(mapping_rows: list[dict[str, Any]]) -> bool:
+    """Return whether a session has one mapping for every required NIDAQ event."""
+    mapped_names = [row.get("event_name") for row in mapping_rows]
+    return len(mapped_names) == len(set(mapped_names)) and all(
+        name in mapped_names for name in REQUIRED_NIDAQ_EVENTS
+    )
 
 
 def resolve_nidq_event_arrays(

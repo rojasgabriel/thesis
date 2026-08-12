@@ -228,23 +228,28 @@ class PsychophysicalKernel(dj.Computed):
             .proj()
         )
         base = subject_conditions * PsychophysicalKernelFitConfig()
-        parts = []
-        for row in base.fetch(as_dict=True):
-            trialset_keys = _selected_trialset_keys(row)
-            from behavior_analyses.kernel_timing import available_timing_sources
-
-            for timing_source in available_timing_sources(trialset_keys):
-                parts.append({**row, "timing_source": timing_source})
-        if not parts:
-            return base.proj(timing_source="'bpod'") & "0"
-        query = dj.U(*parts)
-        return query.proj(
+        key_fields = (
             "analysis_set_id",
             "subject_name",
             "trialset_description",
             "kernel_fit_config_id",
-            "timing_source",
         )
+        nidq_keys = []
+        for row in base.fetch(as_dict=True):
+            trialset_keys = _selected_trialset_keys(row)
+            from behavior_analyses.kernel_timing import available_timing_sources
+
+            if "nidq" in available_timing_sources(trialset_keys):
+                nidq_keys.append({field: row[field] for field in key_fields})
+
+        key_relation = dj.U(*key_fields, "timing_source")
+        bpod = key_relation & base.proj(*key_fields, timing_source="'bpod'")
+        if not nidq_keys:
+            return bpod
+        nidq = key_relation & (base & nidq_keys).proj(
+            *key_fields, timing_source="'nidq'"
+        )
+        return bpod + nidq
 
     def make(self, key):
         config = (PsychophysicalKernelFitConfig() & key).fetch1()

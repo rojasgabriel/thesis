@@ -164,6 +164,19 @@ class KernelTimingTests(unittest.TestCase):
 
         self.assertEqual(sources, ["bpod"])
 
+    def test_available_timing_sources_require_all_nidq_mappings(self):
+        from behavior_analyses.kernel_timing import available_timing_sources
+
+        mapping_rows, _ = self._mapped_event_fixture()
+        incomplete = [row for row in mapping_rows if row["event_name"] != "right_port"]
+        with patch(
+            "behavior_analyses.kernel_timing._fetch_event_mapping_rows",
+            return_value=incomplete,
+        ):
+            sources = available_timing_sources(self.trialset_keys)
+
+        self.assertEqual(sources, ["bpod"])
+
     def test_fetch_pooled_kernel_inputs_requires_requested_timing_source(self):
         from behavior_analyses.kernel_timing import fetch_pooled_kernel_inputs
 
