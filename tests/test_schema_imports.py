@@ -67,6 +67,69 @@ class SchemaImportTests(unittest.TestCase):
             module = importlib.import_module("labdata_plugin.analysisschema")
             module = importlib.reload(module)
 
+            source = MagicMock()
+            base = MagicMock()
+            bpod = MagicMock()
+            nidq = MagicMock()
+            union = MagicMock()
+            source.aggr.return_value.proj.return_value = base
+            base.__mul__.return_value = base
+            base.fetch.return_value = [
+                {
+                    "analysis_set_id": "set",
+                    "subject_name": "GRB006",
+                    "trialset_description": "visual",
+                    "kernel_fit_config_id": 0,
+                }
+            ]
+            base.proj.return_value = bpod
+            base.__and__.return_value.proj.return_value = nidq
+            key_relation = MagicMock()
+            key_relation.__and__.side_effect = [bpod, nidq]
+            bpod.__add__.return_value = union
+            universal_set = MagicMock(side_effect=[source, key_relation])
+
+            with (
+                patch.object(module.dj, "U", universal_set, create=True),
+                patch.object(
+                    module,
+                    "BehaviorAnalysisSet",
+                    types.SimpleNamespace(TrialSet=MagicMock()),
+                ),
+                patch.object(module, "PsychophysicalKernelFitConfig", MagicMock()),
+                patch.object(
+                    module,
+                    "_selected_trialset_keys",
+                    return_value=[
+                        {
+                            "subject_name": "GRB006",
+                            "session_name": "session",
+                            "dataset_name": "chipmunk",
+                            "trialset_description": "visual",
+                        }
+                    ],
+                ),
+                patch(
+                    "behavior_analyses.kernel_timing.available_timing_sources",
+                    return_value=["nidq", "bpod"],
+                ),
+            ):
+                descriptor = module.PsychophysicalKernel.key_source
+                key_source = descriptor.fget(
+                    object.__new__(module.PsychophysicalKernel)
+                )
+
+            self.assertTrue(
+                all(
+                    isinstance(arg, str)
+                    for call in universal_set.call_args_list
+                    for arg in call.args
+                )
+            )
+            self.assertIn("timing_source", universal_set.call_args_list[-1].args)
+            bpod.__add__.assert_called_once_with(nidq)
+            self.assertIs(key_source, union)
+
         self.assertTrue(hasattr(module, "BehaviorAnalysisSet"))
         self.assertTrue(hasattr(module, "PsychometricFitConfig"))
         self.assertTrue(hasattr(module, "PsychophysicalKernelFitConfig"))
@@ -97,73 +160,6 @@ class SchemaImportTests(unittest.TestCase):
         )
         self.assertNotIn("mixed", module.PsychophysicalKernel.definition)
         self.assertFalse(hasattr(module, "LearningSessionMetrics"))
-
-    def test_kernel_key_source_uses_relation_union_for_nidq_rows(self):
-        module = importlib.import_module("labdata_plugin.analysisschema")
-        source = MagicMock()
-        base = MagicMock()
-        bpod = MagicMock()
-        nidq = MagicMock()
-        union = MagicMock()
-        source.aggr.return_value.proj.return_value = base
-        base.__mul__.return_value = base
-        base.fetch.return_value = [
-            {
-                "analysis_set_id": "set",
-                "subject_name": "GRB006",
-                "trialset_description": "visual",
-                "kernel_fit_config_id": 0,
-            }
-        ]
-        base.proj.return_value = bpod
-        base.__and__.return_value.proj.return_value = nidq
-        key_relation = MagicMock()
-        key_relation.__and__.side_effect = [bpod, nidq]
-        bpod.__add__.return_value = union
-        universal_set = MagicMock(side_effect=[source, key_relation])
-
-        with (
-            patch.object(module.dj, "U", universal_set),
-            patch.object(
-                module,
-                "BehaviorAnalysisSet",
-                types.SimpleNamespace(TrialSet=MagicMock()),
-            ),
-            patch.object(module, "PsychophysicalKernelFitConfig", MagicMock()),
-            patch.object(
-                module,
-                "_selected_trialset_keys",
-                return_value=[
-                    {
-                        "subject_name": "GRB006",
-                        "session_name": "session",
-                        "dataset_name": "chipmunk",
-                        "trialset_description": "visual",
-                    }
-                ],
-            ),
-            patch(
-                "behavior_analyses.kernel_timing.available_timing_sources",
-                return_value=["nidq", "bpod"],
-            ),
-        ):
-            descriptor = module.PsychophysicalKernel.key_source
-            key_source = (
-                descriptor.fget(object.__new__(module.PsychophysicalKernel))
-                if isinstance(descriptor, property)
-                else descriptor
-            )
-
-        self.assertTrue(
-            all(
-                isinstance(arg, str)
-                for call in universal_set.call_args_list
-                for arg in call.args
-            )
-        )
-        self.assertIn("timing_source", universal_set.call_args_list[-1].args)
-        bpod.__add__.assert_called_once_with(nidq)
-        self.assertIs(key_source, union)
 
 
 if __name__ == "__main__":
