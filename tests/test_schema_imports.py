@@ -91,6 +91,11 @@ class SchemaImportTests(unittest.TestCase):
             [row[0] for row in module.PsychophysicalKernelFitConfig.contents],
             [0, 1],
         )
+        self.assertIn(
+            "timing_source                        : enum('nidq', 'bpod')",
+            module.PsychophysicalKernel.definition.split("---")[0],
+        )
+        self.assertNotIn("mixed", module.PsychophysicalKernel.definition)
         self.assertFalse(hasattr(module, "LearningSessionMetrics"))
 
 

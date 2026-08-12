@@ -151,8 +151,8 @@ Within a NIDAQ-timed session, mapped flashes and port edges must agree with the
 Bpod trial alignment within 100 ms. Trials with missing or misaligned hardware
 events are excluded rather than replaced with Bpod timestamps.
 
-`PsychophysicalKernel.timing_source` records `nidaq`, `bpod`, or `mixed` for the
-pooled result. Detailed session provenance remains derivable from
+`PsychophysicalKernel.timing_source` is part of the primary key and records
+`nidq` or `bpod` for the fit. Detailed session provenance remains derivable from
 `BehaviorAnalysisSet.TrialSet` and the ephys `EventMapping`; no duplicate
 per-session provenance table is needed.
 

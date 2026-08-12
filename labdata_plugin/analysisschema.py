@@ -193,17 +193,17 @@ class PsychophysicalKernelFitConfig(dj.Lookup):
 
 @rojasbowe_schema
 class PsychophysicalKernel(dj.Computed):
-    """One pooled kernel per analysis set, subject, condition, and config."""
+    """One pooled kernel per analysis set, subject, condition, config, and clock."""
 
     definition = """
     -> BehaviorAnalysisSet
     -> Subject
     trialset_description                 : varchar(54)
     -> PsychophysicalKernelFitConfig
+    timing_source                        : enum('nidq', 'bpod')
     ---
     fit_status                           : enum('fit', 'skipped')
     fit_message = NULL                   : varchar(256)
-    timing_source = 'bpod'               : enum('nidaq', 'bpod', 'mixed')
     n_trials_fit                         : int
     n_bins_fit = NULL                    : int
     n_observed_per_bin = NULL            : longblob
@@ -227,7 +227,24 @@ class PsychophysicalKernel(dj.Computed):
             .aggr(BehaviorAnalysisSet.TrialSet(), n_trialsets="count(*)")
             .proj()
         )
-        return subject_conditions * PsychophysicalKernelFitConfig()
+        base = subject_conditions * PsychophysicalKernelFitConfig()
+        parts = []
+        for row in base.fetch(as_dict=True):
+            trialset_keys = _selected_trialset_keys(row)
+            from behavior_analyses.kernel_timing import available_timing_sources
+
+            for timing_source in available_timing_sources(trialset_keys):
+                parts.append({**row, "timing_source": timing_source})
+        if not parts:
+            return base.proj(timing_source="'bpod'") & "0"
+        query = dj.U(*parts)
+        return query.proj(
+            "analysis_set_id",
+            "subject_name",
+            "trialset_description",
+            "kernel_fit_config_id",
+            "timing_source",
+        )
 
     def make(self, key):
         config = (PsychophysicalKernelFitConfig() & key).fetch1()
@@ -274,6 +291,7 @@ def _kernel_payload(key, config, trialset_keys):
         trialset_keys,
         key["trialset_description"],
         observation_window=str(config["observation_window"]),
+        timing_source=str(key["timing_source"]),
     )
     residual, choices, n_observed, bin_centers, expected_counts = (
         build_residual_rate_matrix(
@@ -297,7 +315,6 @@ def _kernel_payload(key, config, trialset_keys):
         expected_counts=expected_counts,
     )
     base = {
-        "timing_source": inputs["timing_source"],
         "n_trials_fit": int(result["n_trials_fit"]),
         "n_bins_fit": int(result["n_bins_fit"]),
         "n_observed_per_bin": n_observed,
