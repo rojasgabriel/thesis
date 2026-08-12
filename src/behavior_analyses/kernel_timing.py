@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 
 TRIALSET_DATASET_KEY_FIELDS = ("subject_name", "session_name", "dataset_name")
+TIMING_SOURCES = ("nidq", "bpod")
 REQUIRED_NIDAQ_EVENTS = (
     "visual_stim",
     "trial_start",
@@ -15,17 +16,44 @@ REQUIRED_NIDAQ_EVENTS = (
 MAX_NIDAQ_ALIGNMENT_ERROR_S = 0.1
 
 
+def available_timing_sources(trialset_keys: list[dict[str, Any]]) -> list[str]:
+    """Return timing sources the selected trial sets can supply."""
+    if not trialset_keys:
+        return []
+    session_keys = {(key["subject_name"], key["session_name"]) for key in trialset_keys}
+    sources = ["bpod"]
+    if all(
+        has_nidq_timing(
+            _fetch_event_mapping_rows(
+                {"subject_name": subject, "session_name": session}
+            )
+        )
+        for subject, session in session_keys
+    ):
+        sources.insert(0, "nidq")
+    return sources
+
+
 def fetch_pooled_kernel_inputs(
     trialset_keys: list[dict[str, Any]],
     trialset_description: str,
     *,
     observation_window: str,
+    timing_source: str,
 ) -> dict[str, Any]:
-    """Fetch pooled trial inputs, preferring validated NIDAQ timing per session."""
+    """Fetch pooled trial inputs from one requested timing source."""
     if observation_window not in {"center_exit", "response"}:
         raise ValueError(
             "observation_window must be 'center_exit' or 'response', "
             f"got {observation_window!r}"
+        )
+    if timing_source not in TIMING_SOURCES:
+        raise ValueError(
+            f"timing_source must be one of {TIMING_SOURCES}, got {timing_source!r}"
+        )
+    if timing_source not in available_timing_sources(trialset_keys):
+        raise ValueError(
+            f"Selected trial sets cannot supply timing_source={timing_source!r}"
         )
 
     session_inputs = []
@@ -44,28 +72,32 @@ def fetch_pooled_kernel_inputs(
             field: dataset_key[field] for field in ("subject_name", "session_name")
         }
         mapping_rows = _fetch_event_mapping_rows(session_key)
-        if has_nidaq_visual_timing(mapping_rows):
+        if timing_source == "nidq":
+            if not has_nidq_timing(mapping_rows):
+                raise ValueError(
+                    f"Session {session_key['subject_name']} "
+                    f"{session_key['session_name']} cannot supply nidq timing: "
+                    "incomplete EventMapping"
+                )
             event_rows = _fetch_mapped_digital_event_rows(session_key, mapping_rows)
-            aligned_events = resolve_nidaq_event_arrays(
+            aligned_events = resolve_nidq_event_arrays(
                 event_rows,
                 mapping_rows,
                 session_key["subject_name"],
                 session_key["session_name"],
             )
-            inputs = extract_nidaq_kernel_inputs(
+            inputs = extract_nidq_kernel_inputs(
                 aligned_events,
                 trial_rows,
                 trialset_description,
                 observation_window=observation_window,
             )
-            inputs["timing_source"] = "nidaq"
         else:
             inputs = extract_bpod_kernel_inputs(
                 trial_rows,
                 trialset_description,
                 observation_window=observation_window,
             )
-            inputs["timing_source"] = "bpod"
         session_inputs.append(inputs)
 
     if not session_inputs:
@@ -109,7 +141,7 @@ def extract_bpod_kernel_inputs(
     return result
 
 
-def extract_nidaq_kernel_inputs(
+def extract_nidq_kernel_inputs(
     aligned_events: dict[str, np.ndarray],
     trial_rows: list[dict[str, Any]],
     trialset_description: str,
@@ -134,12 +166,12 @@ def extract_nidaq_kernel_inputs(
             "Insufficient finite Bpod/NIDAQ sync points to interpolate trial timing"
         )
     bpod_sync = np.asarray([row["t_sync"] for row in sync_rows], dtype=float)
-    nidaq_sync = np.asarray(
+    nidq_sync = np.asarray(
         [trial_starts[int(row["trial_num"])] for row in sync_rows], dtype=float
     )
     order = np.argsort(bpod_sync)
     bpod_sync = bpod_sync[order]
-    nidaq_sync = nidaq_sync[order]
+    nidq_sync = nidq_sync[order]
 
     stims = np.asarray(aligned_events["visual_stim"], dtype=float)
     center_exits = np.asarray(aligned_events["center_port_exit"], dtype=float)
@@ -174,11 +206,11 @@ def extract_nidaq_kernel_inputs(
             np.interp(
                 float(row["t_sync"]) + float(bpod_stims[0]),
                 bpod_sync,
-                nidaq_sync,
+                nidq_sync,
             )
         )
         interpolated_exit = float(
-            np.interp(float(row["t_react"]), bpod_sync, nidaq_sync)
+            np.interp(float(row["t_react"]), bpod_sync, nidq_sync)
         )
         trial_exits = center_exits[
             (center_exits > trial_start) & (center_exits < trial_end)
@@ -193,7 +225,7 @@ def extract_nidaq_kernel_inputs(
             if response_time is None or not np.isfinite(response_time):
                 continue
             interpolated_response = float(
-                np.interp(float(response_time), bpod_sync, nidaq_sync)
+                np.interp(float(response_time), bpod_sync, nidq_sync)
             )
             response_entries = (
                 right_entries if int(row["response"]) == 1 else left_entries
@@ -222,12 +254,15 @@ def extract_nidaq_kernel_inputs(
     return result
 
 
-def has_nidaq_visual_timing(mapping_rows: list[dict[str, Any]]) -> bool:
-    """Return whether a session declares a mapped NIDAQ/OneBox visual stream."""
-    return any(row.get("event_name") == "visual_stim" for row in mapping_rows)
+def has_nidq_timing(mapping_rows: list[dict[str, Any]]) -> bool:
+    """Return whether a session has one mapping for every required NIDAQ event."""
+    mapped_names = [row.get("event_name") for row in mapping_rows]
+    return len(mapped_names) == len(set(mapped_names)) and all(
+        name in mapped_names for name in REQUIRED_NIDAQ_EVENTS
+    )
 
 
-def resolve_nidaq_event_arrays(
+def resolve_nidq_event_arrays(
     event_rows: list[dict[str, Any]],
     mapping_rows: list[dict[str, Any]],
     subject: str,
@@ -293,9 +328,7 @@ def resolve_nidaq_event_arrays(
 
 
 def combine_kernel_inputs(session_inputs: list[dict[str, Any]]) -> dict[str, Any]:
-    """Combine per-session inputs and summarize their timing provenance."""
-    sources = {inputs["timing_source"] for inputs in session_inputs}
-    timing_source = next(iter(sources)) if len(sources) == 1 else "mixed"
+    """Combine per-session inputs from one timing source."""
     return {
         "stim_times_per_trial": [
             stims
@@ -310,7 +343,6 @@ def combine_kernel_inputs(session_inputs: list[dict[str, Any]]) -> dict[str, Any
         ),
         "response_values": _concatenate(session_inputs, "response_values", dtype=int),
         "trial_rate_hz": _concatenate(session_inputs, "trial_rate_hz", dtype=float),
-        "timing_source": timing_source,
     }
 
 
