@@ -12,7 +12,7 @@ dependencies = [
     "ipympl>=0.10.0",
     "ipywidgets>=8.1.8",
     "labdata>=0.1.15",
-    "opencv-python-headless>=4.10.0",
+    "opencv-python-headless>=5.0.0.93",
     "pandas==2.3.3",
     "scipy>=1.15.3",
     "SciencePlots>=2.1.1",
