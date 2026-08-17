@@ -60,7 +60,10 @@ def fetch_digital_events_dataframe(subject: str, session: str) -> pd.DataFrame:
 
 def fetch_event_mapping_dataframe(subject: str, session: str) -> pd.DataFrame:
     """Load `EventMapping` table rows for the session; raise if empty."""
-    from labdata_plugin.analysisschema import EventMapping
+    try:
+        from ephys.labdata_plugin.analysisschema import EventMapping
+    except ModuleNotFoundError:
+        from labdata_plugin.analysisschema import EventMapping
 
     mapping = pd.DataFrame(
         (
