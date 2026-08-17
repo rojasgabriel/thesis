@@ -19,6 +19,22 @@ uv run python scripts/analyses/double_peak_responses_across_sessions.py
 
 ## Canonical Entrypoints
 
+### Category and Choice Decoding
+
+GRB006 category, choice, and stimulus-rate decoding:
+
+`scripts/analyses/category_choice_decoding.py`
+
+Writes:
+
+- figures under `figures/category_choice_decoding/`
+- `reports/category_choice_decoding.html`
+
+The analysis uses balanced classes for classifier accuracy. It requires the
+lab database, VPN access, and the synchronized trial-event mappings. Use
+`--quick` only for a smoke test. Do not use quick-run results for scientific
+claims.
+
 ### Locomotion
 
 Primary locomotion analysis:
