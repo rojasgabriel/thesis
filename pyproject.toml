@@ -31,7 +31,8 @@ constraint-dependencies = [
     "tornado>=6.5.7",
     "urllib3>=2.7.0",
     "pygments>=2.20.0",
-    "setuptools>=83.0.0",
+    # DataJoint 0.14 imports pkg_resources; setuptools 81 warns consumers to pin below 81.
+    "setuptools==80.9.0",
 ]
 
 [tool.uv.sources]
