@@ -614,15 +614,8 @@ wheels = [
 [[package]]
 name = "fit-psychometric"
 version = "0.1.0"
-source = { editable = "third_party/fit_psychometric" }
+source = { git = "https://github.com/rojasgabriel/fit_psychometric?rev=fa39c44fef00510cb7e9b8383ad492a56642f14c#fa39c44fef00510cb7e9b8383ad492a56642f14c" }
 dependencies = [
-    { name = "numpy" },
-    { name = "scipy" },
-    { name = "statsmodels" },
-]
-
-[package.metadata]
-requires-dist = [
     { name = "numpy" },
     { name = "scipy" },
     { name = "statsmodels" },
@@ -2277,7 +2270,7 @@ requires-dist = [
     { name = "alive-progress", specifier = ">=3.3.0" },
     { name = "datajoint", specifier = ">=0.14.8,<0.15" },
     { name = "diptest", specifier = ">=0.11.0" },
-    { name = "fit-psychometric", editable = "third_party/fit_psychometric" },
+    { name = "fit-psychometric", git = "https://github.com/rojasgabriel/fit_psychometric?rev=fa39c44fef00510cb7e9b8383ad492a56642f14c" },
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "ipykernel", specifier = ">=7.3.0" },
     { name = "ipympl", specifier = ">=0.10.0" },

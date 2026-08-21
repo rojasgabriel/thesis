@@ -44,21 +44,18 @@ constraint-dependencies = [
 ]
 
 [tool.uv.sources]
-fit-psychometric = { path = "third_party/fit_psychometric", editable = true }
+fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
 spks = { git = "https://github.com/spkware/spks" }
 
 [tool.thesis]
-# Optional local Chipmunk plugin checkout. Prefer the installed LabData plugin.
+# Optional local Chipmunk plugin checkout.
 chipmunk_plugin_path = ""
-
-[tool.ruff]
-exclude = ["third_party"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
-# LabData registers plugins during import.
+# labdata registers plugins during import.
 force-to-top = ["labdata", "labdata.schema"]
 
 [tool.ty.src]
