@@ -2,24 +2,19 @@
 
 Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 
-- Start from the current branch, working tree, scripts, notebooks, and tests.
-- Read `README.md` and `docs/MIGRATION.md` before changing data access or the
-  package surface.
+- Inspect the current branch, working tree, code, notebooks, and tests first.
+- Treat repository code, tests, and docs as technical truth. Use Notion for
+  current priorities and decisions.
+- Read `ANALYSES.md` for the maintained scientific surface.
+- Use `docs/MIGRATION.md` only for merge history and recovery references.
 - Keep reusable code under `src/thesis/behavior/` or `src/thesis/ephys/`.
-- Keep scripts grouped as analyses, diagnostics, or tools.
-- Keep notebooks exploratory. Do not import code from notebooks.
+- Keep scripts under `scripts/analyses`, `scripts/diagnostics`, or
+  `scripts/tools`. Keep notebooks exploratory; do not import from them.
 - Do not add machine-local paths or sibling-checkout dependencies.
-- Use Notion for current priorities and decisions, not as a copy of repository
-  state.
 
-The live plugin schema is intentionally small. `EventMapping` and
-`LocomotionPeaks` are protected. Do not change their definitions or import old
-behavior schema modules. Treat a decorated DataJoint module import as a possible
-database write.
-
-Prefer readable, explicit, and reproducible code. Keep assumptions visible,
-name the scientific comparison, report what ran, and separate results from
-interpretation. Make the smallest change that fully answers the question.
+Keep analysis code explicit and reproducible. State assumptions and the
+scientific comparison. Report what ran, and separate results from
+interpretation. Make the smallest complete change.
 
 Run the narrowest relevant checks, then:
 
