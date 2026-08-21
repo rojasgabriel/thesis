@@ -49,11 +49,11 @@ def load_seed_module(existing_rows=None):
     fake_labdata: Any = types.ModuleType("labdata")
     fake_labdata.schema = fake_schema
 
-    fake_analysisschema: Any = types.ModuleType("labdata_plugin.analysisschema")
+    fake_analysisschema: Any = types.ModuleType("labdata_plugin.schema")
     fake_analysisschema.EventMapping = lambda: object()
 
     fake_labdata_plugin: Any = types.ModuleType("labdata_plugin")
-    fake_labdata_plugin.analysisschema = fake_analysisschema
+    fake_labdata_plugin.schema = fake_analysisschema
 
     with patch.dict(
         sys.modules,
@@ -61,11 +61,11 @@ def load_seed_module(existing_rows=None):
             "labdata": fake_labdata,
             "labdata.schema": fake_schema,
             "labdata_plugin": fake_labdata_plugin,
-            "labdata_plugin.analysisschema": fake_analysisschema,
+            "labdata_plugin.schema": fake_analysisschema,
         },
     ):
-        sys.modules.pop("ephys.scripts.diagnostics.seed_event_mapping", None)
-        import ephys.scripts.diagnostics.seed_event_mapping as seed_event_mapping
+        sys.modules.pop("scripts.diagnostics.seed_event_mapping", None)
+        import scripts.diagnostics.seed_event_mapping as seed_event_mapping
 
         return importlib.reload(seed_event_mapping)
 

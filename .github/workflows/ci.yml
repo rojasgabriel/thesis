@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main]
   push:
-    branches: [main, dev]
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,10 +12,6 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    env:
-      # Imports use `ephys.src.*`; the repo root must be discoverable as package `ephys`
-      # when its parent directory is on PYTHONPATH (matches local setups using ~/lib).
-      PYTHONPATH: ${{ github.workspace }}/..
 
     steps:
       - uses: actions/checkout@v4
@@ -34,13 +30,13 @@ jobs:
         run: uv sync --frozen
 
       - name: Lint
-        run: uvx --from ruff==0.15.0 ruff check .
+        run: uvx --from ruff==0.15.4 ruff check .
 
       - name: Check formatting
-        run: uvx --from ruff==0.15.0 ruff format --check .
+        run: uvx --from ruff==0.15.4 ruff format --check .
 
-      - name: Typecheck (ty)
+      - name: Typecheck
         run: uvx --from ty==0.0.37 ty check
 
       - name: Test
-        run: uv run python -m unittest discover -s tests
+        run: uv run python -m unittest discover -s tests -v

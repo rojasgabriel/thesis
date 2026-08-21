@@ -15,20 +15,18 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from ephys.src.utils.grb006_data import (
+from thesis.ephys.config.typing_params import PopulationPethParams
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.grb006_data import (
     fetch_grb006_spike_times,
     load_grb006_aligned_trial_data,
 )
-from ephys.src.config.typing_params import PopulationPethParams
-from ephys.src.utils.analysis_peth import compute_population_peth
 
 matplotlib.use("Agg")
 
 SUBJECT = "GRB006"
 SESSION = "20240821_121447"
-FIGURE_ROOT = Path(
-    os.environ.get("EPHYS_FIGURE_ROOT", "/Users/gabriel/lib/ephys/figures")
-)
+FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "adaptation"
 FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 

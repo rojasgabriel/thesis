@@ -22,30 +22,32 @@ from matplotlib.backends.backend_pdf import PdfPages
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ephys.src.config.double_peak import (
+from thesis.ephys.config.double_peak import (
     BASELINE_WINDOW,
     MIN_PEAK_HEIGHT_ABS,
     PEAK_KWARGS,
     PETH_KWARGS,
     SELECTIVITY_KWARGS,
 )
-from ephys.src.utils.grb006_data import (
+from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.utils.grb006_data import (
     GRB006_SESSION as SESSION,
+)
+from thesis.ephys.utils.grb006_data import (
     fetch_grb006_spike_times,
     load_grb006_first_stim,
 )
-from ephys.src.utils.peak_classification import (
+from thesis.ephys.utils.peak_classification import (
     baseline_mean,
     mark_peaks,
+)
+from thesis.ephys.utils.peak_classification import (
     plot_mean_sem_trace as plot_trace,
 )
-from ephys.src.utils.analysis_peak_counts import classify_peak_count
-from ephys.src.utils.analysis_peth import compute_population_peth
-from ephys.src.utils.analysis_selectivity import compute_unit_selectivity
 
-FIGURE_ROOT = Path(
-    os.environ.get("EPHYS_FIGURE_ROOT", "/Users/gabriel/lib/ephys/figures")
-)
+FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "grb006_examples.pdf"
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 

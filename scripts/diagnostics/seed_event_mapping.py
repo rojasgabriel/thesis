@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from labdata.schema import DatasetEvents
 
-from labdata_plugin.analysisschema import EventMapping
+from labdata_plugin.schema import EventMapping
 
 GRB006_KEY = {
     "subject_name": "GRB006",

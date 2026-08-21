@@ -2,11 +2,12 @@
 Diagnose sync breakdown at trial 100 in GRB058 / 20260312_134952.
 """
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from scipy.stats import linregress
-from ephys.src.utils.io_chipmunk_trials import fetch_trial_metadata
-from ephys.src.utils.io_digital_events import fetch_session_events
+
+from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
+from thesis.ephys.utils.io_digital_events import fetch_session_events
 
 # Load data
 subject, session = "GRB058", "20260312_134952"
@@ -233,7 +234,7 @@ ax.legend()
 
 plt.tight_layout()
 plt.savefig(
-    "/Users/gabriel/lib/ephys/figures/sync_breakdown_GRB058_20260312.png",
+    "figures/sync_breakdown_GRB058_20260312.png",
     dpi=150,
     bbox_inches="tight",
 )

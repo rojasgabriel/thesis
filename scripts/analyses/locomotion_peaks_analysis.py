@@ -10,27 +10,16 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import sys
-import types
 
 import matplotlib
 import numpy as np
 import pandas as pd
 import seaborn as sns
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if "ephys" not in sys.modules:
-    package = types.ModuleType("ephys")
-    package.__path__ = [str(REPO_ROOT)]
-    sys.modules["ephys"] = package
-sys.path.insert(0, str(REPO_ROOT))
+from thesis.ephys.utils.analysis_stats import mean_and_t_ci
+from thesis.ephys.utils.unit_metrics import fetch_waveform_durations_ms
 
-from ephys.src.utils.analysis_stats import mean_and_t_ci  # noqa: E402
-from ephys.src.utils.unit_metrics import fetch_waveform_durations_ms  # noqa: E402
-
-FIGURE_ROOT = Path(
-    os.environ.get("EPHYS_FIGURE_ROOT", "/Users/gabriel/lib/ephys/figures")
-)
+FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "locomotion"
 
 SUBJECT_SESSIONS = [
@@ -75,7 +64,7 @@ def main() -> None:
         matplotlib.use("Agg")
     from matplotlib import pyplot as plt
 
-    from labdata_plugin.analysisschema import LocomotionPeaks
+    from labdata_plugin.schema import LocomotionPeaks
 
     log_scale = not args.linear_scale
     peak_results = []

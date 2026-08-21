@@ -1,13 +1,13 @@
 #!/usr/bin/env -S uv run --script
 import argparse
-import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import matplotlib.colors as colors
-import matplotlib.widgets as mwidgets
-import seaborn as sns
 import os
 
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
+import matplotlib.widgets as mwidgets
+import pandas as pd
+import seaborn as sns
 
 plt.rcParams["text.usetex"] = False
 plt.rcParams["svg.fonttype"] = "none"

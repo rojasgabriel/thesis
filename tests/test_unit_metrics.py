@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from ephys.src.utils import unit_metrics
+from thesis.ephys.utils import unit_metrics
 
 
 class FetchSpikeDurationTests(unittest.TestCase):

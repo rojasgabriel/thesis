@@ -4,12 +4,12 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from ephys.src.utils import (
+from thesis.ephys.utils import (
     analysis_conditioned_stim,
     analysis_peak_counts,
     analysis_peth,
 )
-from ephys.src.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.analysis_peth import compute_population_peth
 
 
 class ComputePopulationPethTests(unittest.TestCase):

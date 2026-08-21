@@ -1,14 +1,15 @@
-#!/Users/gabriel/miniconda3/bin/python
+#!/usr/bin/env python
 # %% Import libraries
+import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-import matplotlib.pyplot as plt
-from ephys.src.utils.grb006_data import (
+
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.utils.grb006_data import (
     fetch_grb006_spike_times,
     load_grb006_aligned_trial_data,
 )
-from ephys.src.utils.analysis_peth import compute_population_peth
-from ephys.src.utils.analysis_selectivity import compute_unit_selectivity
 
 plt.rcParams["text.usetex"] = False
 plt.rcParams["svg.fonttype"] = "none"

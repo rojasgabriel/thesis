@@ -18,24 +18,24 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from ephys.src.config.locomotion import (
+from thesis.ephys.config.locomotion import (
     PETH_KWARGS,
     RESP_WINDOW,
 )
-from ephys.src.utils.analysis_conditioned_stim import (
+from thesis.ephys.utils.analysis_conditioned_stim import (
     build_trial_stim_classification,
     extract_conditioned_stim_anchors,
 )
-from ephys.src.utils.analysis_peth import compute_population_peth
-from ephys.src.utils.grb006_data import (
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.grb006_data import (
     fetch_grb006_spike_times,
     load_grb006_aligned_trial_data,
 )
-from ephys.src.utils.io_chipmunk_trials import fetch_trial_metadata
-from ephys.src.utils.io_digital_events import fetch_session_events
-from ephys.src.utils.io_session_units import fetch_good_units
+from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
+from thesis.ephys.utils.io_digital_events import fetch_session_events
+from thesis.ephys.utils.io_session_units import fetch_good_units
 
-OUT_PATH = Path("/Users/gabriel/lib/ephys/figures/locomotion/snr_distribution.pdf")
+OUT_PATH = Path("figures/locomotion/snr_distribution.pdf")
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 LEGACY_SNR_THRESHOLD = 3.0
 

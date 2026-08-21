@@ -42,20 +42,20 @@ def load_utils_io(events_rows, mapping_rows):
     fake_labdata: Any = types.ModuleType("labdata")
     fake_labdata.schema = fake_schema
 
-    fake_analysisschema: Any = types.ModuleType("labdata_plugin.analysisschema")
+    fake_analysisschema: Any = types.ModuleType("labdata_plugin.schema")
     fake_analysisschema.EventMapping = lambda: FakeRelation(mapping_rows)
 
     fake_labdata_plugin: Any = types.ModuleType("labdata_plugin")
-    fake_labdata_plugin.analysisschema = fake_analysisschema
+    fake_labdata_plugin.schema = fake_analysisschema
 
     sys.modules["labdata"] = fake_labdata
     sys.modules["labdata.schema"] = fake_schema
     sys.modules["labdata_plugin"] = fake_labdata_plugin
-    sys.modules["labdata_plugin.analysisschema"] = fake_analysisschema
+    sys.modules["labdata_plugin.schema"] = fake_analysisschema
 
-    for name in ("ephys.src.utils.io_digital_events",):
+    for name in ("thesis.ephys.utils.io_digital_events",):
         sys.modules.pop(name, None)
-    import ephys.src.utils.io_digital_events as utils_io
+    import thesis.ephys.utils.io_digital_events as utils_io
 
     return importlib.reload(utils_io)
 

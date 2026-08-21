@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fit-psychometric"
+version = "0.1.0"
+description = "Vendored fit_psychometric helpers (upstream: jcouto/fit_psychometric@665d058)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "statsmodels",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fit_psychometric"]

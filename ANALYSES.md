@@ -1,4 +1,4 @@
-# Ephys Analysis Guide
+# Thesis Analysis Guide
 
 Current analysis surface for this repo.
 
@@ -35,12 +35,12 @@ Current policy:
 - This is the canonical locomotion entrypoint.
 - The maintained comparison is paired last stationary vs first movement.
 - Each condition keeps its own peak latency inside the response window.
-- Peak responses come from `labdata_plugin.analysisschema.LocomotionPeaks`, so populate that computed table before rerunning the figure for new sessions.
+- Peak responses come from `labdata_plugin.schema.LocomotionPeaks`, so populate that computed table before rerunning the figure for new sessions.
 - Use `--show` to open an interactive matplotlib window after saving the figure, or `--show --no-save` to inspect without writing a PDF.
 
 ### Double-Peak
 
-Canonical parameters live in `src/config/double_peak.py`.
+Canonical parameters live in `src/thesis/ephys/config/double_peak.py`.
 
 - PETH: `10 ms` bins, kernel disabled
 - Baseline: `(-0.04, 0.0)` s
@@ -127,7 +127,19 @@ Not part of the current analysis interface:
 - depth-based locomotion figures
 - depth-based double-peak figures
 - removed duplicate stimulus-scatter entrypoints
-- session psychophysical-kernel code, now maintained in `behavior_analyses`
+- the removed session psychophysical-kernel implementation
+
+## Behavior Analysis Library
+
+Reusable behavioral analysis code lives under `src/thesis/behavior/`:
+
+- `learning.py` — trial-set learning summaries
+- `psychometrics.py` — psychometric fits
+- `kernels.py` — psychophysical-kernel math
+- `kernel_timing.py` — Bpod and NIDAQ timing inputs
+
+There is no active behavior schema or schema-backed behavior CLI until the new
+database design is approved.
 
 ## Script Layout
 

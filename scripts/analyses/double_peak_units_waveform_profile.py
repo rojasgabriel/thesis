@@ -10,7 +10,7 @@ Row 0:   FR vs spike_dur     |  FR vs spike_dur
 All good units shown (not just excited). Double-peak units in orange,
 all others in blue. FS/RS boundary line at 0.4 ms (visual reference only).
 
-Classification uses canonical params from src/config/double_peak.py
+Classification uses canonical params from src/thesis/ephys/config/double_peak.py
 (FDR selectivity + 5 sp/s height floor on both peaks).
 
 GRB006 event loading uses EventMapping rows.
@@ -22,22 +22,10 @@ Output
     figures/double_peak/waveform_grid.pdf
 """
 
-# ruff: noqa: E402
-# Imports below follow a repo-root sys.path bootstrap so the script runs with `python scripts/...`.
-
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Allow running as a script (python scripts/analyses/...) without installing the
-# repo as a package. Required so repo-root modules like `labdata_plugin` are
-# importable before `labdata.schema` is imported below.
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 import os
+from pathlib import Path
 
 import matplotlib
 
@@ -48,23 +36,23 @@ import pandas as pd
 from labdata.schema import EphysRecording, SpikeSorting, UnitCount, UnitMetrics
 from matplotlib.backends.backend_pdf import PdfPages
 
-from ephys.src.config.double_peak import (
+from thesis.ephys.config.double_peak import (
     BASELINE_WINDOW,
     MIN_PEAK_HEIGHT_ABS,
     PEAK_KWARGS,
     PETH_KWARGS,
     SELECTIVITY_KWARGS,
 )
-from ephys.src.config.typing_params import PeakCountParams
-from ephys.src.utils.grb006_data import (
+from thesis.ephys.config.typing_params import PeakCountParams
+from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.utils.grb006_data import (
     fetch_grb006_spike_times,
     load_grb006_first_stim,
 )
-from ephys.src.utils.peak_classification import baseline_mean
-from ephys.src.utils.io_digital_events import fetch_session_events
-from ephys.src.utils.analysis_peak_counts import classify_peak_count
-from ephys.src.utils.analysis_peth import compute_population_peth
-from ephys.src.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.utils.io_digital_events import fetch_session_events
+from thesis.ephys.utils.peak_classification import baseline_mean
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -74,11 +62,7 @@ SESSIONS = [
     ("GRB058", "20260312_134952"),
 ]
 
-FIGURE_ROOT = Path(
-    os.environ.get(
-        "EPHYS_FIGURE_ROOT", "/Users/gabriel/lib/ephys/figures/test_refactor"
-    )
-)
+FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "waveform_grid.pdf"
 OUT_PATH_MONO = FIGURE_ROOT / "double_peak" / "waveform_grid_nocolor.pdf"
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

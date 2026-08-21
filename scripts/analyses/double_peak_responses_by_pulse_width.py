@@ -12,7 +12,7 @@ Layout: two rows.
   • Top row — single-peak reference example from GRB058.
   • Bottom row — double-peak units (GRB058, 15 ms + 30 ms overlaid).
 
-Classification uses canonical params from src/config/double_peak.py
+Classification uses canonical params from src/thesis/ephys/config/double_peak.py
 (FDR selectivity + 5 sp/s height floor on both peaks).
 """
 
@@ -26,29 +26,29 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 matplotlib.use("Agg")
 
-from ephys.src.config.double_peak import (
+from thesis.ephys.config.double_peak import (
     BASELINE_WINDOW,
     MIN_PEAK_HEIGHT_ABS,
     PEAK_KWARGS,
     PETH_KWARGS,
     SELECTIVITY_KWARGS,
 )
-from ephys.src.config.typing_params import PeakCountParams
-from ephys.src.utils.peak_classification import (
+from thesis.ephys.config.typing_params import PeakCountParams
+from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.utils.io_digital_events import fetch_session_events
+from thesis.ephys.utils.io_session_units import fetch_good_units
+from thesis.ephys.utils.peak_classification import (
     baseline_mean,
     mark_peaks,
+)
+from thesis.ephys.utils.peak_classification import (
     plot_mean_sem_trace as plot_trace,
 )
-from ephys.src.utils.io_digital_events import fetch_session_events
-from ephys.src.utils.io_session_units import fetch_good_units
-from ephys.src.utils.analysis_peak_counts import classify_peak_count
-from ephys.src.utils.analysis_peth import compute_population_peth
-from ephys.src.utils.analysis_selectivity import compute_unit_selectivity
 
 GRB058_SESSIONS = ["20260312_134952", "20260319_131303"]
-FIGURE_ROOT = Path(
-    os.environ.get("EPHYS_FIGURE_ROOT", "/Users/gabriel/lib/ephys/figures")
-)
+FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "pulse_split.pdf"
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 

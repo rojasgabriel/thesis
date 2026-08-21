@@ -19,30 +19,31 @@ from matplotlib.backends.backend_pdf import PdfPages
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ephys.src.config.double_peak import (
+from thesis.ephys.config.double_peak import (
     BASELINE_WINDOW,
     MIN_PEAK_HEIGHT_ABS,
     PEAK_KWARGS,
     PETH_KWARGS,
     SELECTIVITY_KWARGS,
 )
-from ephys.src.utils.grb006_data import (
+from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
+from thesis.ephys.utils.analysis_peth import compute_population_peth
+from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.utils.grb006_data import (
     GRB006_SESSION,
     fetch_grb006_spike_times,
     load_grb006_first_stim,
 )
-from ephys.src.utils.peak_classification import (
+from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
+from thesis.ephys.utils.io_digital_events import fetch_session_events
+from thesis.ephys.utils.io_session_units import fetch_good_units
+from thesis.ephys.utils.peak_classification import (
     baseline_mean,
     mark_peaks,
+)
+from thesis.ephys.utils.peak_classification import (
     plot_mean_sem_trace as plot_trace,
 )
-from ephys.src.utils.io_chipmunk_trials import fetch_trial_metadata
-from ephys.src.utils.io_digital_events import fetch_session_events
-from ephys.src.utils.io_session_units import fetch_good_units
-from ephys.src.utils.analysis_peak_counts import classify_peak_count
-from ephys.src.utils.analysis_peth import compute_population_peth
-from ephys.src.utils.analysis_selectivity import compute_unit_selectivity
-
 
 GRB006_SHOW_UNITS = [579, 694, 217]
 
@@ -61,9 +62,7 @@ SESSION_SHOW_UNITS = {
     "20260319_131303": [515],
 }
 
-FIGURE_ROOT = Path(
-    os.environ.get("EPHYS_FIGURE_ROOT", "/Users/gabriel/lib/ephys/figures")
-)
+FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "double_peak"
 FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH = FIGURE_DIR / "dario_story.pdf"

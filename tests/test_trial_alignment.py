@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from ephys.src.utils.trial_alignment import (
+from thesis.ephys.utils.trial_alignment import (
     enrich_chipmunk_trial_table,
     map_local_trial_rows_to_chipmunk_trials,
 )
