@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+from typing import Literal, TypedDict
 
 import matplotlib
 import numpy as np
@@ -31,6 +32,17 @@ UNIT_CRITERIA_ID = 1
 FS_RS_BOUNDARY_MS = 0.4
 BACKGROUND_DOT_ALPHA = 0.2
 MEAN_CI_LEVEL = 0.95
+
+
+class PeakResult(TypedDict):
+    subject: str
+    stat_peak: np.ndarray
+    move_peak: np.ndarray
+    fast_spiking_mask: np.ndarray
+    regular_spiking_mask: np.ndarray
+
+
+MaskKey = Literal["all_units", "regular_spiking_mask", "fast_spiking_mask"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,7 +79,7 @@ def main() -> None:
     from labdata_plugin.schema import LocomotionPeaks
 
     log_scale = not args.linear_scale
-    peak_results = []
+    peak_results: list[PeakResult] = []
 
     for subject, session in SUBJECT_SESSIONS:
         print(f"\nLoading LocomotionPeaks rows: {subject} {session}")
@@ -148,7 +160,7 @@ def main() -> None:
         lower_limit = 0.0
         upper_limit = max(5.0, float(np.percentile(all_peak_values, 99) * 1.05))
 
-    marker_specs = (
+    marker_specs: list[tuple[MaskKey, str, str]] = (
         [
             ("regular_spiking_mask", "o", "RS"),
             ("fast_spiking_mask", "^", "FS"),

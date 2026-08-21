@@ -18,10 +18,12 @@ Classification uses canonical params from src/thesis/ephys/config/double_peak.py
 
 import os
 from pathlib import Path
+from typing import TypedDict
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
 matplotlib.use("Agg")
@@ -53,6 +55,27 @@ OUT_PATH = FIGURE_ROOT / "double_peak" / "pulse_split.pdf"
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+class DoublePeakRow(TypedDict):
+    session: str
+    uid: int
+    peth_15: np.ndarray
+    peth_30: np.ndarray
+    n_tr_15: int
+    n_tr_30: int
+    peaks_df_row: pd.Series
+    bin_centers: np.ndarray
+
+
+class SinglePeakRow(TypedDict):
+    subject: str
+    session: str
+    uid: int
+    peth_15: np.ndarray
+    n_tr_15: int
+    peaks_df_row: pd.Series
+    bin_centers: np.ndarray
+
+
 def load_session(subject, session):
     """Return (unit_ids, spike_times, align_ev, peth_15, bin_edges, bin_centers, masks)."""
     st_per_unit = fetch_good_units(subject, session)
@@ -74,7 +97,7 @@ def load_session(subject, session):
 # ---------------------------------------------------------------------------
 # Collect double-peak units (GRB058, both sessions)
 # ---------------------------------------------------------------------------
-dp_rows = []  # list of dicts
+dp_rows: list[DoublePeakRow] = []
 
 for session in GRB058_SESSIONS:
     unit_ids, spike_times, align_ev, peth_15, bin_edges, bin_centers, masks = (
@@ -149,7 +172,7 @@ SP_ANIMAL_SESSIONS = [
     ("GRB058", "20260312_134952"),
 ]
 
-sp_rows = []
+sp_rows: list[SinglePeakRow] = []
 for subject, session in SP_ANIMAL_SESSIONS:
     unit_ids, spike_times, align_ev, peth_15, bin_edges, bin_centers, masks = (
         load_session(subject, session)
