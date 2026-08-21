@@ -13,7 +13,7 @@ all others in blue. FS/RS boundary line at 0.4 ms (visual reference only).
 Classification uses canonical params from src/thesis/ephys/config/double_peak.py
 (FDR selectivity + 5 sp/s height floor on both peaks).
 
-GRB006 event loading uses EventMapping rows.
+GRB006 event loading uses its thresholded NIDQ analog-input events.
 GRB006 spike times use good-unit rows.
 GRB058 uses the same event and spike pipeline.
 

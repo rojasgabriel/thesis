@@ -1,1 +1,1 @@
-"""Behavior-only analyses backed by labdata."""
+"""Behavior-only analyses"""

@@ -1,10 +1,9 @@
-"""Digital behavioral events from labdata: TTL rows, semantic mapping, alignment dict.
+"""Digital behavioral events from labdata: TTL rows and alignment arrays.
 
 **Naming convention (this module)**
 
-- ``fetch_*`` — load rows from labdata / the analysis plugin, or return the full alignment dict.
-- Other top-level functions — pure transforms on in-memory rows/arrays used when building
-  ``fetch_session_events``.
+- ``fetch_*`` — return the full alignment dict.
+- Other top-level functions — pure transforms on event arrays.
 
 For orchestration-only naming, ``load_session_align_event_arrays`` is an alias of
 ``fetch_session_events``.
@@ -15,12 +14,6 @@ from __future__ import annotations
 from typing import Dict
 
 import numpy as np
-import pandas as pd
-from labdata.schema import (
-    Dataset,
-    DatasetEvents,
-    SpikeSorting,
-)
 
 PortEventDict = Dict[str, Dict[str, np.ndarray]]
 REQUIRED_LOGICAL_EVENTS = (
@@ -31,105 +24,75 @@ REQUIRED_LOGICAL_EVENTS = (
     "center_port",
     "right_port",
 )
+STREAM_PRIORITY = ("obx", "nidq")
 
 
-def format_available_event_rows(events: pd.DataFrame) -> list[str]:
-    """Sorted unique `dataset:stream:event` keys from digital event rows (for errors)."""
-    return sorted(
-        {
-            f"{row.dataset_name}:{row.stream_name}:{row.event_name}"
-            for row in events[["dataset_name", "stream_name", "event_name"]].itertuples(
-                index=False
-            )
-        }
-    )
-
-
-def fetch_digital_events_dataframe(subject: str, session: str) -> pd.DataFrame:
-    """Load synced `DatasetEvents.Digital` rows for the session; raise if none."""
-    sess_query = (
-        SpikeSorting() & f'subject_name = "{subject}"' & f'session_name = "{session}"'
-    ).proj()
-    dset = (Dataset() & sess_query).proj()
-    events = pd.DataFrame((DatasetEvents.Digital() & dset).fetch_synced())
-    if events.empty:
-        raise ValueError(f"No DatasetEvents.Digital rows found for {subject} {session}")
-    return events
-
-
-def fetch_event_mapping_dataframe(subject: str, session: str) -> pd.DataFrame:
-    """Load `EventMapping` table rows for the session; raise if empty."""
-    from labdata_plugin.schema import EventMapping
-
-    mapping = pd.DataFrame(
-        (
-            EventMapping()
-            & f'subject_name = "{subject}"'
-            & f'session_name = "{session}"'
-        ).fetch(as_dict=True)
-    )
-    if mapping.empty:
-        raise ValueError(f"No EventMapping rows found for {subject} {session}")
-    return mapping
-
-
-def resolve_logical_event_rows(
-    events: pd.DataFrame,
-    mapping: pd.DataFrame,
+def session_event_keys(
     subject: str,
     session: str,
-) -> dict[str, dict[str, np.ndarray | None]]:
-    """Map each required logical event to timestamps and optional value array.
+) -> dict[str, dict[str, str]]:
+    """Return source keys for the known event set in one ephys recording."""
+    from labdata.schema import DatasetEvents, EphysRecording
 
-    Validates that all `REQUIRED_LOGICAL_EVENTS` exist in mapping, are unique,
-    and each points to an existing digital event row.
-    """
-    mapped_event_names = mapping["event_name"].tolist()
-    missing = [
-        name for name in REQUIRED_LOGICAL_EVENTS if name not in mapped_event_names
-    ]
-    if missing:
-        available_mappings = sorted(set(mapped_event_names))
-        raise ValueError(
-            f"Missing EventMapping rows for {subject} {session}: {missing}. "
-            f"Available mapped names: {available_mappings}"
-        )
+    from labdata_plugin.schema import EventMapping
 
-    duplicates = mapping["event_name"][mapping["event_name"].duplicated()].unique()
-    if duplicates.size:
-        raise ValueError(
-            f"Duplicate EventMapping rows for {subject} {session}: "
-            f"{sorted(duplicates.tolist())}"
+    restriction = {"subject_name": subject, "session_name": session}
+    available = {
+        (row["dataset_name"], row["stream_name"], row["event_name"])
+        for row in (DatasetEvents.Digital() & (EphysRecording() & restriction)).fetch(
+            "dataset_name", "stream_name", "event_name", as_dict=True
         )
+    }
+    mapping_rows = list(EventMapping().fetch(as_dict=True))
 
-    resolved: dict[str, dict[str, np.ndarray | None]] = {}
-    available_rows = format_available_event_rows(events)
-    for logical_name in REQUIRED_LOGICAL_EVENTS:
-        row = mapping.loc[mapping["event_name"] == logical_name].iloc[0]
-        mask = (
-            (events["dataset_name"] == row["source_dataset_name"])
-            & (events["stream_name"] == row["source_stream_name"])
-            & (events["event_name"] == row["source_event_name"])
-        )
-        if not mask.any():
-            raise ValueError(
-                f"Mapped source row is missing for {subject} {session} "
-                f"{logical_name}: {row['source_dataset_name']}:"
-                f"{row['source_stream_name']}:{row['source_event_name']}. "
-                f"Available rows: {available_rows}"
-            )
-        source_row = events.loc[mask].iloc[0]
-        event_values = (
-            None
-            if "event_values" not in source_row.index
-            or source_row["event_values"] is None
-            else np.asarray(source_row["event_values"])
-        )
-        resolved[logical_name] = {
-            "timestamps": np.asarray(source_row["event_timestamps"], dtype=float),
-            "values": event_values,
+    for stream_name in STREAM_PRIORITY:
+        mapping = {
+            row["event_role"]: row["event_name"]
+            for row in mapping_rows
+            if row["stream_name"] == stream_name
+            and row["event_role"] in REQUIRED_LOGICAL_EVENTS
         }
-    return resolved
+        if set(mapping) != set(REQUIRED_LOGICAL_EVENTS):
+            continue
+        datasets = {
+            dataset_name
+            for dataset_name, source_stream, _ in available
+            if source_stream == stream_name
+        }
+        matches = [
+            dataset_name
+            for dataset_name in datasets
+            if all(
+                (dataset_name, stream_name, event_name) in available
+                for event_name in mapping.values()
+            )
+        ]
+        if len(matches) == 1:
+            return {
+                role: {
+                    **restriction,
+                    "dataset_name": matches[0],
+                    "stream_name": stream_name,
+                    "event_name": event_name,
+                }
+                for role, event_name in mapping.items()
+            }
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple ephys datasets contain the required events for "
+                f"{subject} {session}: {matches}"
+            )
+
+    raise ValueError(f"No complete ephys event set found for {subject} {session}")
+
+
+def has_session_events(subject: str, session: str) -> bool:
+    """Return whether one ephys dataset has the known event set."""
+    try:
+        session_event_keys(subject, session)
+    except ValueError:
+        return False
+    return True
 
 
 def extract_digital_onsets(event_row: dict[str, np.ndarray | None]) -> np.ndarray:
@@ -246,9 +209,23 @@ def fetch_session_events(
       - `first_stim_ev_15ms`: first-of-train onsets for 15 ms pulses only
       - `first_stim_ev_30ms`: first-of-train onsets for 30 ms pulses only
     """
-    events = fetch_digital_events_dataframe(subject, session)
-    mapping = fetch_event_mapping_dataframe(subject, session)
-    resolved = resolve_logical_event_rows(events, mapping, subject, session)
+    from labdata.schema import DatasetEvents
+
+    source_keys = session_event_keys(subject, session)
+    rows = list((DatasetEvents.Digital() & list(source_keys.values())).fetch_synced())
+    rows_by_key = {
+        (row["dataset_name"], row["stream_name"], row["event_name"]): row
+        for row in rows
+    }
+    resolved = {}
+    for role, key in source_keys.items():
+        row = rows_by_key[(key["dataset_name"], key["stream_name"], key["event_name"])]
+        timestamps = np.asarray(row["event_timestamps"], dtype=float)
+        values = row.get("event_values")
+        values = None if values is None else np.asarray(values)
+        if values is not None and values.shape != timestamps.shape:
+            raise ValueError(f"Event values do not match timestamps for {role}")
+        resolved[role] = {"timestamps": timestamps, "values": values}
 
     # Trial-start TTLs still arrive as on/off edge pairs, regardless of the
     # physical source row used for this session.

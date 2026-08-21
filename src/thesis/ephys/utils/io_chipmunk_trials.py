@@ -12,7 +12,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from labdata.schema import SpikeSorting
 
 
 def fetch_trial_metadata(
@@ -32,15 +31,8 @@ def fetch_trial_metadata(
     try:
         from chipmunk import Chipmunk
 
-        sess_dicts = (
-            SpikeSorting()
-            & f'subject_name = "{subject}"'
-            & f'session_name = "{session}"'
-        ).fetch("subject_name", "session_name", as_dict=True)
-
         trial_data = (
-            (Chipmunk() & sess_dicts)
-            * Chipmunk.Trial().proj(
+            Chipmunk.trial_query(subject_name=subject, session_name=session).proj(
                 "response",
                 "with_choice",
                 "rewarded",
@@ -53,8 +45,9 @@ def fetch_trial_metadata(
                 "t_react",
                 "t_response",
                 "stim_duration",
+                "stim_rate_vision",
+                "category_boundary",
             )
-            * Chipmunk.TrialParameters().proj("stim_rate_vision", "category_boundary")
         ).fetch(format="frame")
         tdf: pd.DataFrame = trial_data.reset_index(
             level=["subject_name", "session_name", "dataset_name"], drop=True

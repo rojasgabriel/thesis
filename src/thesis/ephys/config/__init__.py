@@ -1,1 +1,1 @@
-"""Canonical analysis parameters. See submodules for details."""
+"""Reusable analysis parameters"""

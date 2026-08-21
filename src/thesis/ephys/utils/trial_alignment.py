@@ -79,9 +79,8 @@ def fetch_chipmunk_trial_table(subject: str, session: str) -> pd.DataFrame:
     from labdata.schema import DecisionTask  # noqa: F401
     from chipmunk import Chipmunk
 
-    restriction = f"subject_name = '{subject}' AND session_name = '{session}'"
     chipmunk_trial_table = pd.DataFrame(
-        (Chipmunk * Chipmunk.Trial * Chipmunk.TrialParameters & restriction).fetch(
+        Chipmunk.trial_query(subject_name=subject, session_name=session).fetch(
             order_by="trial_num"
         )
     )

@@ -6,13 +6,6 @@ import numpy as np
 
 TRIALSET_DATASET_KEY_FIELDS = ("subject_name", "session_name", "dataset_name")
 TIMING_SOURCES = ("nidq", "bpod")
-REQUIRED_NIDAQ_EVENTS = (
-    "visual_stim",
-    "trial_start",
-    "left_port",
-    "center_port",
-    "right_port",
-)
 MAX_NIDAQ_ALIGNMENT_ERROR_S = 0.1
 
 
@@ -22,14 +15,9 @@ def available_timing_sources(trialset_keys: list[dict[str, Any]]) -> list[str]:
         return []
     session_keys = {(key["subject_name"], key["session_name"]) for key in trialset_keys}
     sources = ["bpod"]
-    if all(
-        has_nidq_timing(
-            _fetch_event_mapping_rows(
-                {"subject_name": subject, "session_name": session}
-            )
-        )
-        for subject, session in session_keys
-    ):
+    from thesis.ephys.utils.io_digital_events import has_session_events
+
+    if all(has_session_events(subject, session) for subject, session in session_keys):
         sources.insert(0, "nidq")
     return sources
 
@@ -71,21 +59,10 @@ def fetch_pooled_kernel_inputs(
         session_key = {
             field: dataset_key[field] for field in ("subject_name", "session_name")
         }
-        mapping_rows = _fetch_event_mapping_rows(session_key)
         if timing_source == "nidq":
-            if not has_nidq_timing(mapping_rows):
-                raise ValueError(
-                    f"Session {session_key['subject_name']} "
-                    f"{session_key['session_name']} cannot supply nidq timing: "
-                    "incomplete EventMapping"
-                )
-            event_rows = _fetch_mapped_digital_event_rows(session_key, mapping_rows)
-            aligned_events = resolve_nidq_event_arrays(
-                event_rows,
-                mapping_rows,
-                session_key["subject_name"],
-                session_key["session_name"],
-            )
+            from thesis.ephys.utils.io_digital_events import fetch_session_events
+
+            aligned_events = fetch_session_events(**session_key)
             inputs = extract_nidq_kernel_inputs(
                 aligned_events,
                 trial_rows,
@@ -173,7 +150,7 @@ def extract_nidq_kernel_inputs(
     bpod_sync = bpod_sync[order]
     nidq_sync = nidq_sync[order]
 
-    stims = np.asarray(aligned_events["visual_stim"], dtype=float)
+    stims = np.asarray(aligned_events["stim_ev"], dtype=float)
     center_exits = np.asarray(aligned_events["center_port_exit"], dtype=float)
     left_entries = np.asarray(aligned_events["left_port"], dtype=float)
     right_entries = np.asarray(aligned_events["right_port"], dtype=float)
@@ -254,79 +231,6 @@ def extract_nidq_kernel_inputs(
     return result
 
 
-def has_nidq_timing(mapping_rows: list[dict[str, Any]]) -> bool:
-    """Return whether a session has one mapping for every required NIDAQ event."""
-    mapped_names = [row.get("event_name") for row in mapping_rows]
-    return len(mapped_names) == len(set(mapped_names)) and all(
-        name in mapped_names for name in REQUIRED_NIDAQ_EVENTS
-    )
-
-
-def resolve_nidq_event_arrays(
-    event_rows: list[dict[str, Any]],
-    mapping_rows: list[dict[str, Any]],
-    subject: str,
-    session: str,
-) -> dict[str, np.ndarray]:
-    """Resolve and validate logical NIDAQ event arrays for one session."""
-    mapped_names = [row["event_name"] for row in mapping_rows]
-    missing = [name for name in REQUIRED_NIDAQ_EVENTS if name not in mapped_names]
-    if missing:
-        raise ValueError(
-            f"Missing EventMapping rows for {subject} {session}: {missing}"
-        )
-    duplicates = sorted({name for name in mapped_names if mapped_names.count(name) > 1})
-    if duplicates:
-        raise ValueError(
-            f"Duplicate EventMapping rows for {subject} {session}: {duplicates}"
-        )
-
-    resolved = {}
-    for logical_name in REQUIRED_NIDAQ_EVENTS:
-        mapping = next(row for row in mapping_rows if row["event_name"] == logical_name)
-        matches = [
-            row
-            for row in event_rows
-            if row["dataset_name"] == mapping["source_dataset_name"]
-            and row["stream_name"] == mapping["source_stream_name"]
-            and row["event_name"] == mapping["source_event_name"]
-        ]
-        if len(matches) != 1:
-            raise ValueError(
-                f"Expected one mapped NIDAQ row for {subject} {session} "
-                f"{logical_name}; found {len(matches)}"
-            )
-        timestamps = np.asarray(matches[0]["event_timestamps"], dtype=float)
-        if timestamps.size == 0 or np.any(~np.isfinite(timestamps)):
-            raise ValueError(
-                f"Mapped NIDAQ row is empty or nonfinite for {subject} {session} "
-                f"{logical_name}"
-            )
-        values = matches[0].get("event_values")
-        if values is not None:
-            values = np.asarray(values)
-            if values.shape != timestamps.shape:
-                raise ValueError(
-                    f"NIDAQ event values do not match timestamps for "
-                    f"{subject} {session} {logical_name}"
-                )
-        resolved[logical_name] = (timestamps, values)
-
-    visual_stim = _merge_visual_stim_edges(resolved["visual_stim"][0])
-    if visual_stim.size == 0:
-        raise ValueError(f"No visual flashes found for {subject} {session}")
-    return {
-        "visual_stim": visual_stim,
-        "trial_start": _digital_onsets(*resolved["trial_start"]),
-        "left_port": _port_entries(*resolved["left_port"]),
-        "left_port_exit": _port_exits(*resolved["left_port"]),
-        "center_port": _port_entries(*resolved["center_port"]),
-        "center_port_exit": _port_exits(*resolved["center_port"]),
-        "right_port": _port_entries(*resolved["right_port"]),
-        "right_port_exit": _port_exits(*resolved["right_port"]),
-    }
-
-
 def combine_kernel_inputs(session_inputs: list[dict[str, Any]]) -> dict[str, Any]:
     """Combine per-session inputs from one timing source."""
     return {
@@ -350,7 +254,7 @@ def _fetch_chipmunk_trial_rows(dataset_key: dict[str, Any]) -> list[dict[str, An
     from thesis.behavior.io import get_chipmunk_table
 
     Chipmunk = get_chipmunk_table()
-    relation = Chipmunk() * Chipmunk.Trial() * Chipmunk.TrialParameters() & dataset_key
+    relation = Chipmunk.trial_query(**dataset_key)
     return list(
         relation.fetch(
             "trial_num",
@@ -365,41 +269,6 @@ def _fetch_chipmunk_trial_rows(dataset_key: dict[str, Any]) -> list[dict[str, An
             order_by="trial_num",
         )
     )
-
-
-def _fetch_event_mapping_rows(
-    session_key: dict[str, Any],
-) -> list[dict[str, Any]]:
-    import labdata
-    import datajoint as dj
-    from labdata.schema import get_user_schema
-
-    try:
-        labdata.plugins["gephys"]
-    except KeyError:
-        return []
-    schema = get_user_schema()
-    table = dj.FreeTable(schema.connection, f"`{schema.database}`.`event_mapping`")
-    return list((table & session_key).fetch(as_dict=True))
-
-
-def _fetch_mapped_digital_event_rows(
-    session_key: dict[str, Any],
-    mapping_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    from labdata.schema import DatasetEvents
-
-    source_keys = [
-        {
-            **session_key,
-            "dataset_name": row["source_dataset_name"],
-            "stream_name": row["source_stream_name"],
-            "event_name": row["source_event_name"],
-        }
-        for row in mapping_rows
-        if row["event_name"] in REQUIRED_NIDAQ_EVENTS
-    ]
-    return list((DatasetEvents.Digital() & source_keys).fetch_synced())
 
 
 def _new_kernel_inputs() -> dict[str, Any]:
@@ -435,26 +304,6 @@ def _nearest_aligned_event(events: np.ndarray, target: float) -> float | None:
     if abs(event - target) > MAX_NIDAQ_ALIGNMENT_ERROR_S:
         return None
     return event
-
-
-def _digital_onsets(timestamps: np.ndarray, values: np.ndarray | None) -> np.ndarray:
-    return timestamps[::2] if values is None else timestamps[values == 1]
-
-
-def _port_entries(timestamps: np.ndarray, values: np.ndarray | None) -> np.ndarray:
-    return timestamps if values is None else timestamps[values == 1]
-
-
-def _port_exits(timestamps: np.ndarray, values: np.ndarray | None) -> np.ndarray:
-    return np.array([], dtype=float) if values is None else timestamps[values == 0]
-
-
-def _merge_visual_stim_edges(timestamps: np.ndarray) -> np.ndarray:
-    timestamps = np.sort(np.asarray(timestamps, dtype=float))
-    if timestamps.size == 0:
-        return timestamps
-    split_indices = np.where(np.diff(timestamps) > 0.020)[0] + 1
-    return np.asarray([burst[0] for burst in np.split(timestamps, split_indices)])
 
 
 def _concatenate(

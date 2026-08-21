@@ -13,7 +13,7 @@ Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 
 Keep analysis code explicit and reproducible. State assumptions and the
 scientific comparison. Report what ran, and separate results from
-interpretation. Make the smallest complete change.
+interpretation. Make the smallest complete change. Prefer simple fixes over complex ones. Do not overengineer things. This repo is managed by one person and their thesis project, not a software engineering team with an app in production.
 
 Run the narrowest relevant checks, then:
 
