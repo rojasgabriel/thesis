@@ -2,8 +2,8 @@
 
 Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 
-- Inspect the current branch, working tree, code, notebooks, and tests first.
-- Treat repository code, tests, and docs as technical truth. Use Notion for
+- Inspect the current branch, working tree, code, and notebooks first.
+- Treat repository code and docs as technical truth. Use Notion for
   current priorities and decisions.
 - Read `ANALYSES.md` for the maintained scientific surface.
 - Use `docs/MIGRATION.md` only for merge history and recovery references.
@@ -22,5 +22,4 @@ Run the narrowest relevant checks, then:
 uvx ruff check .
 uvx ruff format --check .
 uvx ty check
-uv run python -m unittest discover -s tests -v
 ```

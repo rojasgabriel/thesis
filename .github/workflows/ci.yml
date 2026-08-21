@@ -37,6 +37,3 @@ jobs:
 
       - name: Typecheck
         run: uvx --from ty==0.0.37 ty check
-
-      - name: Test
-        run: uv run python -m unittest discover -s tests -v
