@@ -22,16 +22,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.config.double_peak import (
-    BASELINE_WINDOW,
-    MIN_PEAK_HEIGHT_ABS,
-    PEAK_KWARGS,
-    PETH_KWARGS,
-    SELECTIVITY_KWARGS,
-)
-from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
-from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
 from thesis.ephys.utils.grb006_data import (
     GRB006_SESSION as SESSION,
 )
@@ -40,7 +30,7 @@ from thesis.ephys.utils.grb006_data import (
     load_grb006_first_stim,
 )
 from thesis.ephys.utils.peak_classification import (
-    baseline_mean,
+    classify_double_peak_units,
     mark_peaks,
 )
 from thesis.ephys.utils.peak_classification import (
@@ -49,7 +39,6 @@ from thesis.ephys.utils.peak_classification import (
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "grb006_examples.pdf"
-OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 N_PANELS = 6
 
@@ -57,47 +46,29 @@ N_PANELS = 6
 def collect_double_peak_rows():
     first_stim = load_grb006_first_stim()
     unit_ids, spike_times = fetch_grb006_spike_times()
-
-    peth, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
-        alignment_times=first_stim,
-        **PETH_KWARGS,
-    )
-    _, masks = compute_unit_selectivity(
-        peth, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
-    )
-
-    exc_idx = np.where(masks["excited"])[0]
-    exc_ids = [unit_ids[i] for i in exc_idx]
-    exc_peth = peth[exc_idx]
-    peaks_df = classify_peak_count(
-        exc_peth, bin_centers, unit_ids=exc_ids, **PEAK_KWARGS
+    double_peak_rows, peth, _, bin_centers, excited_ids = classify_double_peak_units(
+        spike_times, first_stim, unit_ids
     )
 
     rows = []
-    for _, peak_row in peaks_df.loc[peaks_df["n_peaks"] == 2].iterrows():
+    for _, peak_row in double_peak_rows.iterrows():
         uid = int(peak_row["unit"])
-        i = exc_ids.index(uid)
-        base = baseline_mean(exc_peth[i], bin_centers, BASELINE_WINDOW)
-        heights_above = [float(h - base) for h in peak_row["peak_heights"]]
-        if min(heights_above) < MIN_PEAK_HEIGHT_ABS:
-            continue
         rows.append(
             dict(
                 uid=uid,
-                peth=exc_peth[i],
+                peth=peth[unit_ids.index(uid)],
                 n_trials=len(first_stim),
                 peaks_df_row=peak_row,
                 bin_centers=bin_centers,
-                baseline=base,
-                min_above=min(heights_above),
-                max_above=max(heights_above),
+                baseline=peak_row["baseline"],
+                min_above=peak_row["min_peak_height_above_baseline"],
+                max_above=peak_row["max_peak_height_above_baseline"],
                 peak_times=peak_row["peak_times"],
             )
         )
 
     rows.sort(key=lambda row: (row["min_above"], row["max_above"]), reverse=True)
-    return rows, len(unit_ids), len(exc_ids), len(first_stim)
+    return rows, len(unit_ids), len(excited_ids), len(first_stim)
 
 
 def make_figure(rows):
@@ -154,6 +125,7 @@ def main():
         )
 
     fig = make_figure(rows)
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(OUT_PATH) as pdf:
         pdf.savefig(fig, bbox_inches="tight", dpi=300)
     print(f"\nFigure saved: {OUT_PATH}")

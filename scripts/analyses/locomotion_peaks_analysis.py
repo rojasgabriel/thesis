@@ -1,8 +1,7 @@
-"""Run and inspect the table-backed locomotion peak analysis.
+"""Run and inspect the locomotion peak analysis.
 
-This script reads peak responses from `LocomotionPeaks`, writes the canonical
-PDF, and can optionally leave an interactive matplotlib window open for
-inspection.
+This script computes peak responses, writes the canonical PDF, and can
+optionally leave an interactive matplotlib window open for inspection.
 """
 
 from __future__ import annotations
@@ -14,9 +13,9 @@ from typing import Literal, TypedDict
 
 import matplotlib
 import numpy as np
-import pandas as pd
 import seaborn as sns
 
+from thesis.ephys.utils.analysis_locomotion import compute_locomotion_peaks
 from thesis.ephys.utils.analysis_stats import mean_and_t_ci
 from thesis.ephys.utils.unit_metrics import fetch_waveform_durations_ms
 
@@ -76,32 +75,17 @@ def main() -> None:
         matplotlib.use("Agg")
     from matplotlib import pyplot as plt
 
-    from labdata_plugin.schema import LocomotionPeaks
-
     log_scale = not args.linear_scale
     peak_results: list[PeakResult] = []
 
     for subject, session in SUBJECT_SESSIONS:
-        print(f"\nLoading LocomotionPeaks rows: {subject} {session}")
-        relation = (
-            LocomotionPeaks() * LocomotionPeaks.key_source
-            & f'subject_name = "{subject}"'
-            & f'session_name = "{session}"'
-            & f"unit_criteria_id = {UNIT_CRITERIA_ID}"
-            & "passes = 1"
+        print(f"\nComputing locomotion peaks: {subject} {session}")
+        peak_table = compute_locomotion_peaks(
+            subject, session, unit_criteria_id=UNIT_CRITERIA_ID
         )
-        rows = relation.fetch(
-            "unit_id",
-            "stat_peak",
-            "move_peak",
-            "stat_latency",
-            "move_latency",
-            as_dict=True,
-        )
-        peak_table = pd.DataFrame(rows).sort_values("unit_id").reset_index(drop=True)
         if peak_table.empty:
             raise RuntimeError(
-                f"No LocomotionPeaks rows found for {subject} {session} "
+                f"No locomotion peaks found for {subject} {session} "
                 f"with unit_criteria_id={UNIT_CRITERIA_ID} and passes=1."
             )
         for column in ["stat_peak", "move_peak", "stat_latency", "move_latency"]:
@@ -113,7 +97,7 @@ def main() -> None:
 
         unit_ids = peak_table["unit_id"].astype(int).tolist()
         waveform_duration_ms = fetch_waveform_durations_ms(
-            subject, session, unit_ids, strict=True, unit_criteria_id=UNIT_CRITERIA_ID
+            subject, session, unit_ids, unit_criteria_id=UNIT_CRITERIA_ID
         )
         fast_spiking_mask = waveform_duration_ms <= FS_RS_BOUNDARY_MS
         regular_spiking_mask = waveform_duration_ms > FS_RS_BOUNDARY_MS

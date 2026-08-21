@@ -13,7 +13,6 @@ import pandas as pd
 from thesis.ephys.utils.analysis_conditioned_stim import build_trial_stim_classification
 from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
 from thesis.ephys.utils.io_digital_events import fetch_session_events
-from thesis.ephys.utils.trial_alignment import enrich_chipmunk_trial_table
 
 
 def load_session_behavior(
@@ -25,7 +24,6 @@ def load_session_behavior(
     if trial_df is None:
         raise RuntimeError(f"Could not load trial metadata for {subject} {session}")
 
-    trial_df = enrich_chipmunk_trial_table(trial_df)
     trial_ts = build_trial_stim_classification(align_ev, trial_df).reset_index(
         drop=True
     )

@@ -26,13 +26,8 @@ def compute_population_peth(
 
     This is a thin wrapper around `spks.event_aligned.population_peth`.
 
-    `spks.population_peth` has shipped in two common conventions:
-    - returning **counts per bin**, which must be converted to **sp/s**
-      by dividing by bin width
-    - returning **rates (sp/s)** already
-
-    This wrapper auto-detects which convention is in use and ensures the
-    returned `peth` is always in **sp/s**. DO NOT re-divide downstream.
+    The locked `spks` version returns counts per bin. This wrapper converts
+    them to **sp/s**. DO NOT re-divide downstream.
     A runtime assertion catches accidental re-scaling (values > 1000 sp/s
     are implausible for V1).
 
@@ -78,16 +73,7 @@ def compute_population_peth(
         kernel=kernel,
     )
 
-    dt = binwidth_ms / 1000.0
-    peth_if_counts = peth_counts / dt
-
-    # Heuristic: some spks versions return sp/s already (with kernel=None,
-    # values are typically quantized in steps of ~1/dt, e.g. 100 sp/s for
-    # 10 ms bins). Detect that case to avoid double-scaling.
-    pos = peth_counts[peth_counts > 0]
-    min_pos = float(pos.min()) if pos.size else 0.0
-    looks_like_rates = min_pos >= 0.9 * (1.0 / dt)
-    peth = peth_counts if looks_like_rates else peth_if_counts
+    peth = peth_counts / (binwidth_ms / 1000.0)
 
     # Sanity guard: values > 1000 sp/s are implausible for V1 and usually
     # indicate a bad input scale or an extra downstream rescaling.

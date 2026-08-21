@@ -5,8 +5,6 @@
 - ``fetch_*`` — return the full alignment dict.
 - Other top-level functions — pure transforms on event arrays.
 
-For orchestration-only naming, ``load_session_align_event_arrays`` is an alias of
-``fetch_session_events``.
 """
 
 from __future__ import annotations
@@ -243,6 +241,3 @@ def fetch_session_events(
     }
     align_ev.update(derive_merged_stim_pulse_arrays(align_ev["stim"]))
     return align_ev
-
-
-load_session_align_event_arrays = fetch_session_events

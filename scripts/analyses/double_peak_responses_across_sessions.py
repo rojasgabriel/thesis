@@ -20,15 +20,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.config.double_peak import (
-    BASELINE_WINDOW,
-    MIN_PEAK_HEIGHT_ABS,
     PEAK_KWARGS,
     PETH_KWARGS,
-    SELECTIVITY_KWARGS,
 )
 from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
 from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
 from thesis.ephys.utils.grb006_data import (
     GRB006_SESSION,
     fetch_grb006_spike_times,
@@ -38,7 +34,7 @@ from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
 from thesis.ephys.utils.peak_classification import (
-    baseline_mean,
+    classify_double_peak_units,
     mark_peaks,
 )
 from thesis.ephys.utils.peak_classification import (
@@ -64,41 +60,22 @@ SESSION_SHOW_UNITS = {
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "double_peak"
-FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH = FIGURE_DIR / "dario_story.pdf"
 
 
 def collect_grb006():
     first_stim = load_grb006_first_stim()
     unit_ids, spike_times = fetch_grb006_spike_times()
-    peth, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
-        alignment_times=first_stim,
-        **PETH_KWARGS,
-    )
-    _, masks = compute_unit_selectivity(
-        peth, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
-    )
-    exc_idx = np.where(masks["excited"])[0]
-    exc_ids = [unit_ids[i] for i in exc_idx]
-    exc_peth = peth[exc_idx]
-    peaks_df = classify_peak_count(
-        exc_peth, bin_centers, unit_ids=exc_ids, **PEAK_KWARGS
+    double_peak_rows, peth, _, bin_centers, excited_ids = classify_double_peak_units(
+        spike_times, first_stim, unit_ids
     )
 
     rows = {}
-    double_ids = []
-    for _, peak_row in peaks_df.loc[peaks_df["n_peaks"] == 2].iterrows():
+    for _, peak_row in double_peak_rows.iterrows():
         uid = int(peak_row["unit"])
-        i = exc_ids.index(uid)
-        base = baseline_mean(exc_peth[i], bin_centers, BASELINE_WINDOW)
-        heights_above = [float(h - base) for h in peak_row["peak_heights"]]
-        if min(heights_above) < MIN_PEAK_HEIGHT_ABS:
-            continue
-        double_ids.append(uid)
         rows[uid] = dict(
             uid=uid,
-            peth=exc_peth[i],
+            peth=peth[unit_ids.index(uid)],
             bin_centers=bin_centers,
             peaks_df_row=peak_row,
             peak_times_ms=[int(round(1000 * t)) for t in peak_row["peak_times"]],
@@ -107,8 +84,8 @@ def collect_grb006():
     return {
         "session": GRB006_SESSION,
         "n_units": len(unit_ids),
-        "n_excited": len(exc_ids),
-        "n_double": len(double_ids),
+        "n_excited": len(excited_ids),
+        "n_double": len(double_peak_rows),
         "rows": rows,
     }
 
@@ -162,29 +139,10 @@ def collect_grb058_session(session):
 
     unit_ids = list(st_per_unit.keys())
     spike_times = list(st_per_unit.values())
-    peth_15, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
-        alignment_times=align_ev["first_stim_ev_15ms"],
-        **PETH_KWARGS,
+    double_peak_rows, peth_15, _, bin_centers, excited_ids = classify_double_peak_units(
+        spike_times, align_ev["first_stim_ev_15ms"], unit_ids
     )
-    _, masks = compute_unit_selectivity(
-        peth_15, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
-    )
-    exc_idx = np.where(masks["excited"])[0]
-    exc_ids = [unit_ids[i] for i in exc_idx]
-    exc_peth = peth_15[exc_idx]
-    peaks_df_15 = classify_peak_count(
-        exc_peth, bin_centers, unit_ids=exc_ids, **PEAK_KWARGS
-    )
-
-    double_ids = []
-    for _, peak_row in peaks_df_15.loc[peaks_df_15["n_peaks"] == 2].iterrows():
-        uid = int(peak_row["unit"])
-        i = exc_ids.index(uid)
-        base = baseline_mean(exc_peth[i], bin_centers, BASELINE_WINDOW)
-        heights_above = [float(h - base) for h in peak_row["peak_heights"]]
-        if min(heights_above) >= MIN_PEAK_HEIGHT_ABS:
-            double_ids.append(uid)
+    double_ids = double_peak_rows["unit"].astype(int).tolist()
 
     rows = {}
     if double_ids:
@@ -202,10 +160,10 @@ def collect_grb058_session(session):
         for j, uid in enumerate(double_ids):
             rows[uid] = dict(
                 uid=uid,
-                peth_15=exc_peth[exc_ids.index(uid)],
+                peth_15=peth_15[unit_ids.index(uid)],
                 peth_30=peth_30[j],
                 bin_centers=bin_centers,
-                peak_row_15=peaks_df_15[peaks_df_15["unit"] == uid].iloc[0],
+                peak_row_15=double_peak_rows[double_peak_rows["unit"] == uid].iloc[0],
                 peak_row_30=peaks_df_30[peaks_df_30["unit"] == uid].iloc[0],
             )
 
@@ -224,7 +182,7 @@ def collect_grb058_session(session):
         "label": SESSION_LABELS[session],
         "session": session,
         "n_units": len(unit_ids),
-        "n_excited": len(exc_ids),
+        "n_excited": len(excited_ids),
         "n_double": len(double_ids),
         "rows": rows,
         "n_tr_15": len(align_ev["first_stim_ev_15ms"]),
@@ -394,6 +352,7 @@ def main():
     session_0319 = collect_grb058_session("20260319_131303")
     fig = make_figure(grb006, session_0312, session_0319)
 
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(OUT_PATH) as pdf:
         pdf.savefig(fig, bbox_inches="tight", dpi=300)
 

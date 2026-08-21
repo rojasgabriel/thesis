@@ -88,18 +88,3 @@ def fetch_trial_metadata(
     except Exception as e:
         print(f"Could not load Chipmunk trial metadata: {e}")
         return None
-
-
-def trial_start_from_row(row: pd.Series) -> float:
-    """Trial start from `center_port_entries` or `cp_entry`; else NaN."""
-    if "center_port_entries" in row.index:
-        entries = row["center_port_entries"]
-        if entries is None or len(entries) == 0:
-            return np.nan
-        return float(entries[0])
-    if "cp_entry" in row.index:
-        return float(row["cp_entry"]) if np.isfinite(row["cp_entry"]) else np.nan
-    return np.nan
-
-
-fetch_chipmunk_trials_aligned = fetch_trial_metadata

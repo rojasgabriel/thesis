@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
+
+from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
 
 
 def fetch_waveform_durations_ms(
@@ -9,33 +10,15 @@ def fetch_waveform_durations_ms(
     session: str,
     unit_ids: list[int],
     *,
-    strict: bool,
     unit_criteria_id: int = 1,
 ) -> np.ndarray:
-    from labdata.schema import EphysRecording, SpikeSorting, UnitCount, UnitMetrics
-
-    session_query = (
-        SpikeSorting() & f'subject_name = "{subject}"' & f'session_name = "{session}"'
-    ).proj()
-    good_unit_rows = (
-        session_query
-        * (UnitCount.Unit & f"unit_criteria_id = {unit_criteria_id}" & "passes = 1")
-    ).fetch("subject_name", "session_name", "unit_id", as_dict=True)
-    metric_table = pd.DataFrame(
-        ((SpikeSorting.Unit & good_unit_rows) * UnitMetrics).fetch(
-            "unit_id", "spike_duration", as_dict=True
-        )
+    metric_table, sampling_rate_hz = fetch_good_unit_metrics_table(
+        subject, session, unit_criteria_id
     )
     if metric_table.empty:
-        if strict:
-            raise RuntimeError(
-                f"No waveform duration rows returned for {subject} {session}."
-            )
-        return np.full(len(unit_ids), np.nan, dtype=float)
-
-    sampling_rate_hz = float(
-        (EphysRecording.ProbeSetting() & session_query).fetch("sampling_rate")[0]
-    )
+        raise RuntimeError(
+            f"No waveform duration rows returned for {subject} {session}."
+        )
     duration_by_unit = dict(
         zip(
             metric_table["unit_id"].astype(int).tolist(),
@@ -51,7 +34,7 @@ def fetch_waveform_durations_ms(
         for unit_id, duration in zip(unit_ids, raw_durations)
         if not np.isfinite(duration)
     ]
-    if missing_unit_ids and strict:
+    if missing_unit_ids:
         raise RuntimeError(
             f"Missing waveform duration for {subject} {session} units: "
             f"{missing_unit_ids[:10]}"
@@ -77,11 +60,6 @@ def fetch_waveform_durations_ms(
         return raw_durations
     if durations_look_like_samples and not durations_look_like_ms:
         return raw_durations / sampling_rate_hz * 1000.0
-    if not strict:
-        median_duration = np.nanmedian(raw_durations)
-        if median_duration > 100:
-            return raw_durations / sampling_rate_hz * 1000.0
-        return raw_durations
     raise RuntimeError(
         "Waveform duration units are ambiguous. Expected either ms-scale values "
         "or sample counts that convert cleanly to ms."

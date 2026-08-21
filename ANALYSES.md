@@ -18,8 +18,9 @@ uv run python scripts/analyses/double_peak_responses_across_sessions.py
 ### Locomotion
 
 `locomotion_peaks_analysis.py` is the canonical locomotion entrypoint. It reads
-`labdata_plugin.schema.LocomotionPeaks` and compares paired last-stationary and
-first-movement responses. Each condition keeps its own peak latency.
+session data through `compute_locomotion_peaks` and compares paired
+last-stationary and first-movement responses. Each condition keeps its own peak
+latency.
 
 Use `--split-by-waveform` for FS/RS summaries, `--show` for an interactive
 window, and `--no-save` to inspect without writing a PDF.

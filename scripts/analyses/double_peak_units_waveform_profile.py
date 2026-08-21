@@ -33,26 +33,20 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from labdata.schema import EphysRecording, SpikeSorting, UnitCount, UnitMetrics
 from matplotlib.backends.backend_pdf import PdfPages
 
 from thesis.ephys.config.double_peak import (
-    BASELINE_WINDOW,
-    MIN_PEAK_HEIGHT_ABS,
     PEAK_KWARGS,
     PETH_KWARGS,
-    SELECTIVITY_KWARGS,
 )
-from thesis.ephys.config.typing_params import PeakCountParams
-from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
 from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
 from thesis.ephys.utils.grb006_data import (
     fetch_grb006_spike_times,
     load_grb006_first_stim,
 )
 from thesis.ephys.utils.io_digital_events import fetch_session_events
-from thesis.ephys.utils.peak_classification import baseline_mean
+from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
+from thesis.ephys.utils.peak_classification import canonical_double_peak_rows
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -65,7 +59,6 @@ SESSIONS = [
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "waveform_grid.pdf"
 OUT_PATH_MONO = FIGURE_ROOT / "double_peak" / "waveform_grid_nocolor.pdf"
-OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 UNIT_CRITERIA_ID = 1
 NARROW_BROAD_MS = 0.4  # FS/RS boundary, visual reference only
@@ -79,27 +72,7 @@ COL_DOUBLE = "#DD8452"  # orange
 
 
 def fetch_unit_table(subject: str, session: str) -> pd.DataFrame:
-    sess_q = (
-        SpikeSorting() & f'subject_name = "{subject}"' & f'session_name = "{session}"'
-    ).proj()
-
-    good_ids = (
-        sess_q
-        * (UnitCount.Unit & f"unit_criteria_id = {UNIT_CRITERIA_ID}" & "passes = 1")
-    ).fetch("subject_name", "session_name", "unit_id", as_dict=True)
-
-    df = pd.DataFrame(
-        ((SpikeSorting.Unit & good_ids) * UnitMetrics).fetch(
-            "unit_id",
-            "spike_times",
-            "depth",
-            "spike_duration",
-            "firing_rate",
-            as_dict=True,
-        )
-    )
-
-    srate = float((EphysRecording.ProbeSetting() & sess_q).fetch("sampling_rate")[0])
+    df, srate = fetch_good_unit_metrics_table(subject, session, UNIT_CRITERIA_ID)
     if subject == "GRB006":
         spk_map = fetch_grb006_spike_times_map()
         df["spike_times_s"] = df["unit_id"].apply(
@@ -136,36 +109,6 @@ def get_first_stim(subject: str, session: str) -> np.ndarray:
     return align_ev["first_stim_ev_15ms"]
 
 
-def double_peak_ids_from_peth(
-    peth: np.ndarray,
-    bin_edges: np.ndarray,
-    bin_centers: np.ndarray,
-    unit_ids: list[int],
-    *,
-    peak_kwargs: PeakCountParams,
-) -> set[int]:
-    """Return unit_ids that pass the canonical double-peak filters."""
-    _, masks = compute_unit_selectivity(
-        peth, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
-    )
-    excited_indices = np.where(masks["excited"])[0]
-    excited_unit_ids = [unit_ids[i] for i in excited_indices]
-    excited_peth = peth[excited_indices]
-    peak_rows = classify_peak_count(
-        excited_peth, bin_centers, unit_ids=excited_unit_ids, **peak_kwargs
-    )
-
-    double_ids: set[int] = set()
-    for _, peak_row in peak_rows.loc[peak_rows["n_peaks"] == 2].iterrows():
-        unit_id = int(peak_row["unit"])
-        excited_index = excited_unit_ids.index(unit_id)
-        base = baseline_mean(excited_peth[excited_index], bin_centers, BASELINE_WINDOW)
-        heights_above = [float(h - base) for h in peak_row["peak_heights"]]
-        if min(heights_above) >= MIN_PEAK_HEIGHT_ABS:
-            double_ids.add(unit_id)
-    return double_ids
-
-
 def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFrame:
     unit_ids = df["unit_id"].tolist()
     spike_times = df["spike_times_s"].tolist()
@@ -179,9 +122,10 @@ def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFra
         alignment_times=first_stim,
         **PETH_KWARGS,
     )
-    double_ids = double_peak_ids_from_peth(
-        peth, bin_edges, bin_centers, unit_ids, peak_kwargs=PEAK_KWARGS
+    double_peak_rows, _, _ = canonical_double_peak_rows(
+        peth, bin_edges, bin_centers, unit_ids
     )
+    double_ids = set(double_peak_rows["unit"].astype(int))
     df["is_double"] = df["unit_id"].isin(double_ids)
 
     print(f"    double-peak n={len(double_ids)}")
@@ -307,6 +251,7 @@ def main():
         print("\nNo sessions loaded (missing data backend/plugins?). Nothing to plot.")
         return
 
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     fig = make_grid(session_data)
     with PdfPages(OUT_PATH) as pdf:
         pdf.savefig(fig, bbox_inches="tight", dpi=300)
