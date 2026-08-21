@@ -139,24 +139,18 @@ def main() -> None:
     fig, ax = plt.subplots(1, 1, figsize=(6.5, 6.0))
     subject_colors = sns.color_palette("Set1")
 
+    all_peak_values = np.concatenate(
+        [
+            values
+            for result in peak_results
+            for values in (result["stat_peak"], result["move_peak"])
+        ]
+    )
     if log_scale:
-        all_peak_values = np.concatenate(
-            [
-                np.maximum(result[key], 0) + 0.1
-                for result in peak_results
-                for key in ["stat_peak", "move_peak"]
-            ]
-        )
+        all_peak_values = np.maximum(all_peak_values, 0) + 0.1
         lower_limit = 0.1
         upper_limit = max(1.0, float(np.percentile(all_peak_values, 99) * 1.05))
     else:
-        all_peak_values = np.concatenate(
-            [
-                result[key]
-                for result in peak_results
-                for key in ["stat_peak", "move_peak"]
-            ]
-        )
         lower_limit = 0.0
         upper_limit = max(5.0, float(np.percentile(all_peak_values, 99) * 1.05))
 

@@ -71,9 +71,7 @@ UNIT_CRITERIA_ID = 1
 NARROW_BROAD_MS = 0.4  # FS/RS boundary, visual reference only
 
 COL_OTHER = "#4C72B0"
-COL_STILL_DOUBLE = "#DD8452"  # orange
-COL_NEW_DOUBLE = "#55A868"  # green
-COL_LOST_DOUBLE = "#C44E52"  # red
+COL_DOUBLE = "#DD8452"  # orange
 
 # ---------------------------------------------------------------------------
 # Data helpers
@@ -174,9 +172,6 @@ def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFra
 
     if len(first_stim) == 0:
         df["is_double"] = False
-        df["was_double"] = False
-        df["became_double"] = False
-        df["lost_double"] = False
         return df
 
     peth, bin_edges, bin_centers = compute_population_peth(
@@ -184,31 +179,14 @@ def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFra
         alignment_times=first_stim,
         **PETH_KWARGS,
     )
-    double_ids_new = double_peak_ids_from_peth(
+    double_ids = double_peak_ids_from_peth(
         peth, bin_edges, bin_centers, unit_ids, peak_kwargs=PEAK_KWARGS
     )
-    old_peak_kwargs: PeakCountParams = {
-        **PEAK_KWARGS,
-        "search_window": (0.03, 0.12),
-    }
-    double_ids_old = double_peak_ids_from_peth(
-        peth, bin_edges, bin_centers, unit_ids, peak_kwargs=old_peak_kwargs
-    )
+    df["is_double"] = df["unit_id"].isin(double_ids)
 
-    df["is_double"] = df["unit_id"].isin(double_ids_new)
-    df["was_double"] = df["unit_id"].isin(double_ids_old)
-    df["became_double"] = df["is_double"] & ~df["was_double"]
-    df["lost_double"] = ~df["is_double"] & df["was_double"]
-
-    print(f"    double-peak (new) n={len(double_ids_new)}")
-    if double_ids_new:
-        print(f"      unit_ids: {sorted(double_ids_new)}")
-    print(f"    double-peak (old) n={len(double_ids_old)}")
-    if double_ids_old:
-        print(f"      unit_ids: {sorted(double_ids_old)}")
-    print(
-        f"    delta: +{int(df['became_double'].sum())}  -{int(df['lost_double'].sum())}"
-    )
+    print(f"    double-peak n={len(double_ids)}")
+    if double_ids:
+        print(f"      unit_ids: {sorted(double_ids)}")
     return df
 
 
@@ -233,62 +211,32 @@ def make_grid(session_data, color_by_double: bool = True):
         df = sd["df"]
         subj, sess = sd["subject"], sd["session"]
 
-        n_new = int(df["is_double"].sum())
-        n_old = int(df["was_double"].sum()) if "was_double" in df.columns else 0
-        n_plus = int(df["became_double"].sum()) if "became_double" in df.columns else 0
-        n_minus = int(df["lost_double"].sum()) if "lost_double" in df.columns else 0
-        col_title = (
-            f"{subj}  {sess[:8]}\n"
-            f"n={len(df)}  dp(old→new)={n_old}→{n_new}  (Δ +{n_plus}/-{n_minus})"
-        )
+        n_double = int(df["is_double"].sum())
+        col_title = f"{subj}  {sess[:8]}\nn={len(df)}  double-peak={n_double}"
 
         ax = axes[col]
         if color_by_double:
-            never_double = df[(~df["is_double"]) & (~df["was_double"])]
-            still_double = df[df["is_double"] & df["was_double"]]
-            became_double = df[df["became_double"]]
-            lost_double = df[df["lost_double"]]
+            other_units = df[~df["is_double"]]
+            double_units = df[df["is_double"]]
             ax.scatter(
-                never_double["spike_duration_ms"],
-                never_double["firing_rate"],
+                other_units["spike_duration_ms"],
+                other_units["firing_rate"],
                 s=14,
                 alpha=0.40,
                 color=COL_OTHER,
                 rasterized=True,
-                label=f"never double (n={len(never_double)})",
+                label=f"other (n={len(other_units)})",
             )
             ax.scatter(
-                still_double["spike_duration_ms"],
-                still_double["firing_rate"],
+                double_units["spike_duration_ms"],
+                double_units["firing_rate"],
                 s=28,
                 alpha=0.90,
-                color=COL_STILL_DOUBLE,
+                color=COL_DOUBLE,
                 zorder=3,
                 edgecolors="k",
                 linewidths=0.3,
-                label=f"still double (n={len(still_double)})",
-            )
-            ax.scatter(
-                became_double["spike_duration_ms"],
-                became_double["firing_rate"],
-                s=34,
-                alpha=0.95,
-                color=COL_NEW_DOUBLE,
-                zorder=4,
-                edgecolors="k",
-                linewidths=0.3,
-                label=f"became double (n={len(became_double)})",
-            )
-            ax.scatter(
-                lost_double["spike_duration_ms"],
-                lost_double["firing_rate"],
-                s=34,
-                alpha=0.95,
-                color=COL_LOST_DOUBLE,
-                zorder=4,
-                edgecolors="k",
-                linewidths=0.3,
-                label=f"lost double (n={len(lost_double)})",
+                label=f"double-peak (n={len(double_units)})",
             )
             ax.legend(frameon=False, fontsize=8, loc="upper right")
         else:
@@ -309,7 +257,7 @@ def make_grid(session_data, color_by_double: bool = True):
     if color_by_double:
         fig.suptitle(
             "Double-peak waveform profile  ·  all good units shown  ·  "
-            f"peak search old=(0.03, 0.12)s  new={PEAK_KWARGS['search_window']}  ·  "
+            f"peak search={PEAK_KWARGS['search_window']}  ·  "
             f"FS/RS boundary = {NARROW_BROAD_MS} ms",
             fontsize=10,
         )
