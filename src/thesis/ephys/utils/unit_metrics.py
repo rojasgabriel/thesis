@@ -86,11 +86,3 @@ def fetch_waveform_durations_ms(
         "Waveform duration units are ambiguous. Expected either ms-scale values "
         "or sample counts that convert cleanly to ms."
     )
-
-
-def fetch_spike_duration_ms(
-    subject: str, session: str, unit_ids: list[int], *, unit_criteria_id: int = 1
-) -> np.ndarray:
-    return fetch_waveform_durations_ms(
-        subject, session, unit_ids, strict=False, unit_criteria_id=unit_criteria_id
-    )

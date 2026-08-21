@@ -9,27 +9,21 @@ description = "Behavior and electrophysiology analyses for my Churchland Lab the
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "alive-progress>=3.3.0",
     "datajoint>=0.14.8,<0.15",
     "diptest>=0.11.0",
     "fit-psychometric",
-    "h5py>=3.15.1",
     "ipykernel>=7.3.0",
     "ipympl>=0.10.0",
     "ipywidgets>=8.1.8",
     "labdata>=0.1.15",
     "matplotlib>=3.10.0",
     "numpy>=1.26.0",
-    "opencv-python-headless>=5.0.0.93",
     "pandas==2.3.3",
     "scipy>=1.15.3",
-    "SciencePlots>=2.1.1",
     "scikit-learn>=1.7.0",
     "seaborn>=0.13.2",
     "spks",
     "statsmodels>=0.14.6",
-    "torch>=2.13.0",
-    "torchaudio>=2.10.0",
 ]
 
 [tool.uv]
@@ -46,10 +40,6 @@ constraint-dependencies = [
 [tool.uv.sources]
 fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
 spks = { git = "https://github.com/spkware/spks" }
-
-[tool.thesis]
-# Optional local Chipmunk plugin checkout.
-chipmunk_plugin_path = ""
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
