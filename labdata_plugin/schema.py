@@ -4,7 +4,12 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 import datajoint as dj  # noqa: E402
-from labdata.schema import SpikeSorting, UnitCount, get_user_schema  # noqa: E402
+from labdata.schema import (  # noqa: E402
+    EphysRecording,
+    SpikeSorting,
+    UnitCount,
+    get_user_schema,
+)
 
 rojasbowe_schema = get_user_schema()
 
@@ -72,6 +77,82 @@ class StimulusResponsivenessParams(dj.Lookup):
             "min_peak_distance_ms": 20.0,
         }
     ]
+
+
+@rojasbowe_schema
+class UnitStabilityParams(dj.Lookup):
+    definition = """
+    unit_stability_param_id                : tinyint
+    ---
+    n_time_windows                         : tinyint
+    max_amplitude_drift                    : float
+    dip_alpha                              : float
+    max_dip_samples                        : int
+    """
+
+    contents = [
+        {
+            "unit_stability_param_id": 0,
+            "n_time_windows": 5,
+            "max_amplitude_drift": 0.10,
+            "dip_alpha": 0.05,
+            "max_dip_samples": 72_000,
+        }
+    ]
+
+
+@rojasbowe_schema
+class UnitStability(dj.Computed):
+    definition = """
+    -> UnitCount
+    -> UnitStabilityParams
+    """
+
+    class Unit(dj.Part):
+        definition = """
+        -> master
+        -> SpikeSorting.Unit
+        ---
+        amplitude_drift                      : float
+        dip_statistic                        : float
+        dip_p_value                          : float
+        dip_q_value                          : float
+        dip_sample_size                      : int
+        passes_amplitude_stability            : tinyint
+        passes_unimodality                    : tinyint
+        passes                                : tinyint
+        """
+
+    def make(self, key, **_kwargs):
+        from thesis.ephys.unit_stability import compute_unit_stability
+
+        params = (UnitStabilityParams & key).fetch1()
+        unit_keys = (UnitCount.Unit & key & "passes = 1").fetch("KEY")
+        units = sorted(
+            (SpikeSorting.Unit & unit_keys).fetch(
+                "unit_id", "spike_times", "spike_amplitudes", as_dict=True
+            ),
+            key=lambda row: row["unit_id"],
+        )
+        if not units:
+            raise ValueError(f"No passing units for {key}")
+
+        recording_duration, sampling_rate = (
+            EphysRecording * EphysRecording.ProbeSetting & key
+        ).fetch1("recording_duration", "sampling_rate")
+        results = compute_unit_stability(
+            spike_times=[row["spike_times"] for row in units],
+            spike_amplitudes=[row["spike_amplitudes"] for row in units],
+            unit_ids=[row["unit_id"] for row in units],
+            recording_end=float(recording_duration) * float(sampling_rate),
+            n_time_windows=params["n_time_windows"],
+            max_amplitude_drift=params["max_amplitude_drift"],
+            dip_alpha=params["dip_alpha"],
+            max_dip_samples=params["max_dip_samples"],
+        )
+
+        self.insert1(key)
+        self.Unit.insert([{**key, **row} for row in results.to_dict("records")])
 
 
 @rojasbowe_schema
