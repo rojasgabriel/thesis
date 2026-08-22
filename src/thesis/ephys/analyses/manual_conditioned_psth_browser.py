@@ -1,7 +1,7 @@
-"""Standalone interactive browser for last-stationary vs first-movement PSTHs.
+"""Interactive review for the last-stationary vs first-movement analysis.
 
 Usage:
-  uv run python -m thesis.ephys.tools.manual_conditioned_psth_browser --subject GRB058 --session 20260312_134952
+  uv run python -m thesis.ephys.analyses.manual_conditioned_psth_browser -a GRB058 -s 20260312_134952
 
 Controls:
   left/right or j/l : previous/next unit
@@ -69,32 +69,68 @@ Session controls
 
 
 def load_browser_data(
-    subject: str, session: str, unit_criteria_id: int
+    subject: str,
+    session: str,
+    unit_criteria_id: int,
+    stability_param_id: int | None,
 ) -> tuple[dict[int, np.ndarray], np.ndarray, np.ndarray]:
     from thesis.ephys.io_session_units import fetch_good_units
 
-    st_per_unit = fetch_good_units(subject, session, unit_criteria_id)
+    st_per_unit = fetch_good_units(
+        subject, session, unit_criteria_id, stability_param_id
+    )
     trial_ts = load_trial_classification(subject, session)
     paired_last_stat, paired_first_move = extract_paired_stim_anchors(trial_ts)
     return st_per_unit, paired_last_stat, paired_first_move
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Interactive conditioned PSTH browser")
-    parser.add_argument("--subject", required=True)
-    parser.add_argument("--session", required=True)
-    parser.add_argument("--unit-criteria-id", type=int, default=1)
-    parser.add_argument("--pre-seconds", type=float, default=0.04)
-    parser.add_argument("--post-seconds", type=float, default=0.15)
-    parser.add_argument("--binwidth-ms", type=int, default=10)
-    parser.add_argument("--resp-start", type=float, default=0.04)
-    parser.add_argument("--resp-end", type=float, default=0.10)
-    parser.add_argument("--shared-ylim", action="store_true")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(
+        description="Interactive conditioned PSTH browser",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        add_help=False,
+    )
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-a", "--subject", required=True, default=argparse.SUPPRESS, help="Subject name"
+    )
+    required.add_argument(
+        "-s", "--session", required=True, default=argparse.SUPPRESS, help="Session name"
+    )
+    optional = parser.add_argument_group("optional arguments")
+    optional.add_argument("-h", "--help", action="help", help="Show this help message")
+    optional.add_argument(
+        "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
+    )
+    optional.add_argument(
+        "--stability-param-id",
+        type=int,
+        default=None,
+        help="Also require units to pass this stability parameter set",
+    )
+    optional.add_argument(
+        "--pre-seconds", type=float, default=0.04, help="Time shown before the event"
+    )
+    optional.add_argument(
+        "--post-seconds", type=float, default=0.15, help="Time shown after the event"
+    )
+    optional.add_argument(
+        "--binwidth-ms", type=int, default=10, help="PSTH bin width in milliseconds"
+    )
+    optional.add_argument(
+        "--resp-start", type=float, default=0.04, help="Response window start"
+    )
+    optional.add_argument(
+        "--resp-end", type=float, default=0.10, help="Response window end"
+    )
+    optional.add_argument(
+        "--shared-ylim", action="store_true", help="Use one y-axis range for all plots"
+    )
+    optional.add_argument(
         "--state-path",
         type=str,
         default=None,
-        help="Path to JSON file storing picks/labels (default: figures/manual_psth_labels_<subject>_<session>.json)",
+        help="Path to the JSON file that stores picks and labels",
     )
     return parser.parse_args()
 
@@ -104,7 +140,10 @@ def main() -> None:
 
     print("Loading data...")
     st_per_unit, paired_last_stat, paired_first_move = load_browser_data(
-        args.subject, args.session, args.unit_criteria_id
+        args.subject,
+        args.session,
+        args.unit_criteria_id,
+        args.stability_param_id,
     )
 
     unit_ids = list(st_per_unit.keys())

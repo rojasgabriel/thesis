@@ -27,6 +27,8 @@ dependencies = [
     "statsmodels>=0.14.6",
     "torch",
     "torchaudio",
+    "pyqtgraph>=0.14,<0.15",
+    "pyside6-essentials>=6.8,<7",
 ]
 
 [tool.uv]

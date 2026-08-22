@@ -23,6 +23,7 @@ def fetch_good_unit_metrics_table(
     subject: str,
     session: str,
     unit_criteria_id: int = 1,
+    stability_param_id: int | None = None,
 ) -> pd.DataFrame:
     """Return good-unit spike and metric rows, sorted by depth.
 
@@ -37,14 +38,40 @@ def fetch_good_unit_metrics_table(
         SpikeSorting() & f'subject_name = "{subject}"' & f'session_name = "{session}"'
     ).proj()
 
-    good_unit_ids = (
+    unit_key_fields = (
+        "subject_name",
+        "session_name",
+        "dataset_name",
+        "probe_num",
+        "parameter_set_num",
+        "unit_id",
+    )
+    good_unit_keys = (
         sess_query
         * (UnitCount.Unit & f"unit_criteria_id = {unit_criteria_id}" & "passes = 1")
-    ).fetch("subject_name", "session_name", "unit_id", as_dict=True)
+    ).fetch(*unit_key_fields, as_dict=True)
 
-    good_units = pd.DataFrame(
-        (SpikeSorting.Unit() & good_unit_ids).get_spike_times(include_metrics=True)
-    ).rename(columns={"spike_times": "spike_times_s"})
+    unit_query = SpikeSorting.Unit() & good_unit_keys
+    if stability_param_id is not None:
+        from labdata_plugin.schema import UnitStability
+
+        stability_key = {
+            "subject_name": subject,
+            "session_name": session,
+            "unit_criteria_id": unit_criteria_id,
+            "unit_stability_param_id": stability_param_id,
+        }
+        UnitStability().populate(stability_key)
+        stable_unit_keys = (UnitStability.Unit & stability_key & "passes = 1").fetch(
+            *unit_key_fields, as_dict=True
+        )
+        unit_query &= stable_unit_keys
+
+    good_units = pd.DataFrame(unit_query.get_spike_times(include_metrics=True)).rename(
+        columns={"spike_times": "spike_times_s"}
+    )
+    if good_units.empty:
+        raise ValueError(f"No units pass the selected filters for {subject} {session}")
     good_units["spike_duration_ms"] = good_units["spike_duration"].astype(float)
     return good_units.sort_values("depth", ascending=True)
 
@@ -53,10 +80,13 @@ def fetch_good_units(
     subject: str,
     session: str,
     unit_criteria_id: int = 1,
+    stability_param_id: int | None = None,
 ) -> dict[int, np.ndarray]:
     """Fetch spike times (in seconds) for units passing quality criteria.
 
     Returns a dict mapping unit_id → spike_times_seconds, sorted by depth.
     """
-    good_units = fetch_good_unit_metrics_table(subject, session, unit_criteria_id)
+    good_units = fetch_good_unit_metrics_table(
+        subject, session, unit_criteria_id, stability_param_id
+    )
     return dict(zip(good_units["unit_id"], good_units["spike_times_s"], strict=True))

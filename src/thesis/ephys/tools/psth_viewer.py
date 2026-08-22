@@ -1,339 +1,16 @@
-from typing import Literal, Optional
+import argparse
+from typing import Literal, cast
 
-import ipywidgets as widgets
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from IPython.display import clear_output, display
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
+import pyqtgraph as pg
+from PySide6 import QtCore, QtWidgets
 from scipy.stats import sem
-from spks.event_aligned import population_peth
-from spks.utils import alpha_function
-from spks.viz import plot_event_aligned_raster
+from spks.event_aligned import align_raster_to_event, population_peth
 
 
-class PSTHViewer:
-    def __init__(
-        self,
-        subject: Optional[str] = None,
-        session: Optional[str] = None,
-        unit_criteria_id: int = 1,
-        pre_seconds: float = 1,
-        post_seconds: float = 1,
-        binwidth_ms: int = 10,
-        plot_type: Literal["raster", "heatmap", "psth"] = "heatmap",
-        t_rise: Optional[float] = None,
-        t_decay: Optional[float] = None,
-        figure: Optional[Figure] = None,
-        axes: Optional[Axes] = None,
-    ) -> None:
-
-        self.subject = subject
-        self.session = session
-        self.unit_criteria_id = unit_criteria_id
-        self.pre_seconds = pre_seconds
-        self.post_seconds = post_seconds
-        self.binwidth_ms = binwidth_ms
-        self.plot_type = plot_type
-        self.split_by: Optional[str] = None
-        self.sort_by = "peak_latency" if plot_type == "heatmap" else "trial_order"
-        self.fig = figure
-        self.ax = axes
-        self._cax: Optional[Axes] = None  # dedicated axes for colorbar
-        self.kernel = None
-        if t_rise is not None and t_decay is not None:
-            decay_bins = t_decay / (binwidth_ms / 1000)
-            self.kernel = alpha_function(
-                int(decay_bins * 15),
-                t_rise=t_rise,
-                t_decay=decay_bins,
-                srate=1000 / binwidth_ms,
-            )
-
-    def compute(
-        self,
-    ) -> tuple[dict[int, np.ndarray], dict[str, np.ndarray], pd.DataFrame]:
-        """Fetch session data (units, events, trial metadata)."""
-        if self.subject is None or self.session is None:
-            raise ValueError("subject and session must be set before calling compute()")
-        from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
-        from thesis.ephys.io_digital_events import fetch_session_events
-        from thesis.ephys.io_session_units import fetch_good_units
-
-        subject: str = self.subject
-        session: str = self.session
-        st_per_unit = fetch_good_units(subject, session, self.unit_criteria_id)
-        align_ev = fetch_session_events(subject, session)
-        trial_df = fetch_trial_metadata(subject, session, align_ev)
-        return st_per_unit, align_ev, trial_df
-
-    def plot(
-        self,
-        spike_times: np.ndarray,
-        event_times: np.ndarray,
-        all_spike_times: Optional[dict[int, np.ndarray]] = None,
-    ) -> None:
-        """Plot raster, psth, or population heatmap onto self.ax."""
-        if self.ax is None or self.fig is None:
-            return
-        self.ax.cla()
-        # hide colorbar axes by default; heatmap will re-show it
-        if self._cax is not None:
-            self._cax.cla()
-            self._cax.set_visible(False)
-        if self.plot_type == "raster":
-            plot_event_aligned_raster(
-                event_times=event_times,
-                spike_times=spike_times,
-                sorting=(
-                    "time_to_first_spike"
-                    if self.sort_by == "first_spike_latency"
-                    else ""
-                ),
-                pre_seconds=self.pre_seconds,
-                post_seconds=self.post_seconds,
-                ax=self.ax,
-            )
-            self.ax.set_ylim(0, len(event_times))
-            self.ax.vlines(0, 0, len(event_times), colors="r", linestyles="--")
-            self.ax.set_xlabel("time from event (s)")
-            self.ax.set_ylabel("trial")
-
-        elif self.plot_type == "psth":
-            peth, bin_edges, _ = population_peth(
-                all_spike_times=[spike_times],
-                alignment_times=event_times,
-                pre_seconds=self.pre_seconds,
-                post_seconds=self.post_seconds,
-                binwidth_ms=self.binwidth_ms,
-                kernel=self.kernel,
-            )
-            peth = peth / (self.binwidth_ms / 1000)
-            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-            mean_fr = np.mean(peth[0], axis=0)
-            sem_fr = sem(peth[0], axis=0)
-            self.ax.plot(bin_centers, mean_fr, color="k")
-            self.ax.fill_between(
-                bin_centers,
-                mean_fr - sem_fr,
-                mean_fr + sem_fr,
-                alpha=0.3,
-                color="k",
-            )
-            ymin, ymax = self.ax.get_ylim()
-            self.ax.vlines(0, ymin, ymax, colors="r", linestyles="--")
-            self.ax.set_xlabel("time from event (s)")
-            self.ax.set_ylabel("sp/s")
-
-        elif self.plot_type == "heatmap":
-            if all_spike_times is None:
-                return
-            unit_ids = list(all_spike_times.keys())
-            peth, bin_edges, _ = population_peth(
-                all_spike_times=list(all_spike_times.values()),
-                alignment_times=event_times,
-                pre_seconds=self.pre_seconds,
-                post_seconds=self.post_seconds,
-                binwidth_ms=self.binwidth_ms,
-                kernel=self.kernel,
-            )
-            peth = peth / (self.binwidth_ms / 1000)
-            pop_matrix = np.mean(peth, axis=1)
-            if self.sort_by == "peak_latency":
-                bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-                post_event = bin_centers >= 0
-                order = np.argsort(
-                    np.argmax(pop_matrix[:, post_event], axis=1), kind="stable"
-                )
-                pop_matrix = pop_matrix[order]
-                unit_ids = [unit_ids[i] for i in order]
-            n_units = pop_matrix.shape[0]
-            im = self.ax.imshow(
-                pop_matrix,
-                aspect="auto",
-                origin="upper",
-                extent=(-self.pre_seconds, self.post_seconds, float(n_units), 0.0),
-                cmap="viridis",
-            )
-            self.ax.vlines(0, 0, n_units, colors="cyan", linestyles="--", linewidth=0.8)
-            # label y-ticks with real unit IDs
-            tick_step = max(1, n_units // 10)
-            tick_indices = list(range(0, n_units, tick_step))
-            self.ax.set_yticks([i + 0.5 for i in tick_indices])
-            self.ax.set_yticklabels(
-                [str(unit_ids[i]) for i in tick_indices], fontsize=7
-            )
-            self.ax.set_xlabel("time from event (s)")
-            self.ax.set_ylabel(f"unit ID (sorted by {self.sort_by.replace('_', ' ')})")
-            if self._cax is not None:
-                self._cax.set_visible(True)
-                self.fig.colorbar(im, cax=self._cax, label="sp/s")
-
-        if self.fig is not None:
-            self.fig.canvas.draw_idle()
-
-    def plot_split(
-        self,
-        spike_times: np.ndarray,
-        all_spike_times: dict,
-        trial_df: pd.DataFrame,
-        split_col: str,
-        event_times: np.ndarray,
-        fig: Figure | None = None,
-    ) -> Figure:
-        """Plot one subplot per category value of split_col."""
-        # -- Assign each event to a trial via trial_start_ts -----------
-        trial_starts = np.asarray(trial_df["trial_start_ts"])
-        trial_idx = np.searchsorted(trial_starts, event_times, side="right") - 1
-        valid = (trial_idx >= 0) & (trial_idx < len(trial_df))
-        event_times = event_times[valid]
-        trial_idx = trial_idx[valid]
-
-        cats = trial_df[split_col].values[trial_idx]
-        ev_df = pd.DataFrame({"event_time": event_times, "category": cats}).dropna(
-            subset=["category"]
-        )
-
-        groups = ev_df.groupby("category", sort=True, observed=True)
-        group_keys = list(groups.groups.keys())
-        n_groups = len(group_keys)
-        n_cols = min(n_groups, 3)
-        n_rows = int(np.ceil(n_groups / n_cols))
-
-        fig_w = 4 * n_cols
-        fig_h = (4 if self.plot_type == "heatmap" else 3) * n_rows
-        if fig is None:
-            fig = plt.figure(figsize=(fig_w, fig_h))
-        else:
-            fig.clear()
-            fig.set_size_inches(fig_w, fig_h)
-        axes = fig.subplots(
-            n_rows,
-            n_cols,
-            sharey=self.plot_type != "raster",
-            squeeze=False,
-        )
-
-        heatmap_order = None
-        if self.plot_type == "heatmap" and self.sort_by == "peak_latency":
-            sort_peth, bin_edges, _ = population_peth(
-                all_spike_times=list(all_spike_times.values()),
-                alignment_times=event_times,
-                pre_seconds=self.pre_seconds,
-                post_seconds=self.post_seconds,
-                binwidth_ms=self.binwidth_ms,
-                kernel=self.kernel,
-            )
-            sort_matrix = np.mean(sort_peth / (self.binwidth_ms / 1000), axis=1)
-            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-            post_event = bin_centers >= 0
-            heatmap_order = np.argsort(
-                np.argmax(sort_matrix[:, post_event], axis=1), kind="stable"
-            )
-
-        for col_idx, key in enumerate(group_keys):
-            row, col = divmod(col_idx, n_cols)
-            ax = axes[row, col]
-            grp = groups.get_group(key)
-            grp_event_times = grp["event_time"].values
-
-            if self.plot_type == "raster":
-                plot_event_aligned_raster(
-                    event_times=grp_event_times,
-                    spike_times=spike_times,
-                    sorting=(
-                        "time_to_first_spike"
-                        if self.sort_by == "first_spike_latency"
-                        else ""
-                    ),
-                    pre_seconds=self.pre_seconds,
-                    post_seconds=self.post_seconds,
-                    ax=ax,
-                )
-                ax.set_ylim(0, len(grp_event_times))
-                ax.vlines(0, 0, len(grp_event_times), colors="r", linestyles="--")
-                ax.set_xlabel("time (s)")
-                if col == 0:
-                    ax.set_ylabel("trial")
-
-            elif self.plot_type == "psth":
-                peth, bin_edges, _ = population_peth(
-                    all_spike_times=[spike_times],
-                    alignment_times=grp_event_times,
-                    pre_seconds=self.pre_seconds,
-                    post_seconds=self.post_seconds,
-                    binwidth_ms=self.binwidth_ms,
-                    kernel=self.kernel,
-                )
-                peth = peth / (self.binwidth_ms / 1000)
-                bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-                mean_fr = np.mean(peth[0], axis=0)
-                sem_fr = sem(peth[0], axis=0)
-                ax.plot(bin_centers, mean_fr, color="k")
-                ax.fill_between(
-                    bin_centers,
-                    mean_fr - sem_fr,
-                    mean_fr + sem_fr,
-                    alpha=0.3,
-                    color="k",
-                )
-                ymin, ymax = ax.get_ylim()
-                ax.vlines(0, ymin, ymax, colors="r", linestyles="--")
-                ax.set_xlabel("time (s)")
-                if col == 0:
-                    ax.set_ylabel("sp/s")
-
-            elif self.plot_type == "heatmap":
-                peth, _, _ = population_peth(
-                    all_spike_times=list(all_spike_times.values()),
-                    alignment_times=grp_event_times,
-                    pre_seconds=self.pre_seconds,
-                    post_seconds=self.post_seconds,
-                    binwidth_ms=self.binwidth_ms,
-                    kernel=self.kernel,
-                )
-                peth = peth / (self.binwidth_ms / 1000)
-                pop_matrix = np.mean(peth, axis=1)
-                unit_ids = list(all_spike_times.keys())
-                if heatmap_order is not None:
-                    pop_matrix = pop_matrix[heatmap_order]
-                    unit_ids = [unit_ids[i] for i in heatmap_order]
-                n_units = pop_matrix.shape[0]
-                im = ax.imshow(
-                    pop_matrix,
-                    aspect="auto",
-                    origin="upper",
-                    extent=(-self.pre_seconds, self.post_seconds, float(n_units), 0.0),
-                    cmap="viridis",
-                )
-                ax.vlines(0, 0, n_units, colors="cyan", linestyles="--", linewidth=0.8)
-                tick_step = max(1, n_units // 8)
-                tick_indices = list(range(0, n_units, tick_step))
-                ax.set_yticks([i + 0.5 for i in tick_indices])
-                ax.set_yticklabels([str(unit_ids[i]) for i in tick_indices], fontsize=6)
-                ax.set_xlabel("time (s)")
-                if col == 0:
-                    ax.set_ylabel(f"unit ID ({self.sort_by.replace('_', ' ')})")
-                fig.colorbar(im, ax=ax, label="sp/s", shrink=0.6)
-
-            title_val = f"{key:.0f}" if isinstance(key, float) else str(key)
-            n_events = len(grp_event_times)
-            ax.set_title(f"{split_col}={title_val}\n(n={n_events})", fontsize=9)
-
-        # hide any unused axes in the last row
-        for empty_idx in range(n_groups, n_rows * n_cols):
-            row, col = divmod(empty_idx, n_cols)
-            axes[row, col].set_visible(False)
-
-        fig.suptitle(f"Split by: {split_col}", fontsize=10)
-        fig.tight_layout(rect=(0, 0, 1, 0.95))
-        fig.canvas.draw_idle()
-        return fig
-
-
-class PSTHWidget:
-    SPLIT_OPTIONS = [
+class PSTHViewer(QtWidgets.QMainWindow):
+    SPLIT_OPTIONS = (
         "none",
         "stim_category",
         "stim_rate_vision",
@@ -341,181 +18,392 @@ class PSTHWidget:
         "response",
         "prev_rewarded",
         "prev_response",
-    ]
+    )
     SORT_OPTIONS = {
-        "raster": [
-            ("trial order", "trial_order"),
-            ("first-spike latency", "first_spike_latency"),
-        ],
-        "psth": [("not applicable", "none")],
-        "heatmap": [
-            ("peak latency", "peak_latency"),
-            ("unit depth", "unit_depth"),
-        ],
+        "heatmap": ("Peak latency", "Unit depth"),
+        "raster": ("Trial order", "First-spike latency"),
+        "psth": ("Not applicable",),
     }
 
-    def __init__(self, viewer: PSTHViewer) -> None:
-        self.viewer = viewer
+    def __init__(
+        self,
+        subject: str,
+        session: str,
+        unit_criteria_id: int = 1,
+        stability_param_id: int | None = None,
+        pre_seconds: float = 0.1,
+        post_seconds: float = 0.15,
+        binwidth_ms: int = 10,
+        plot_type: Literal["heatmap", "raster", "psth"] = "heatmap",
+    ) -> None:
+        super().__init__()
+        self.pre_seconds = pre_seconds
+        self.post_seconds = post_seconds
+        self.binwidth_ms = binwidth_ms
 
-        # fetch data once on init
-        self.st_per_unit, self.align_ev, self.trial_df = viewer.compute()
+        from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
+        from thesis.ephys.io_digital_events import fetch_session_events
+        from thesis.ephys.io_session_units import fetch_good_units
 
-        # build widgets
-        self.unit_slider = widgets.SelectionSlider(
-            options=list(self.st_per_unit.keys()),
-            value=list(self.st_per_unit.keys())[0],
-            description="Unit ID:",
-            continuous_update=False,
-            layout=widgets.Layout(width="440px", margin="0 16px 0 0"),
-            style={"description_width": "60px"},
+        self.units = fetch_good_units(
+            subject, session, unit_criteria_id, stability_param_id
         )
-        self.event_dropdown = widgets.Dropdown(
-            options=list(self.align_ev.keys()),
-            value="first_stim_ev",
-            description="Event:",
-            layout=widgets.Layout(width="360px"),
-            style={"description_width": "65px"},
+        self.events = fetch_session_events(subject, session)
+        self.trials = fetch_trial_metadata(subject, session, self.events)
+        self.unit_ids = list(self.units)
+        if not self.unit_ids:
+            raise RuntimeError("No units pass the selected filters.")
+
+        self.setWindowTitle(f"PSTH viewer — {subject} {session}")
+        self.resize(1280, 760)
+        self._build_ui(plot_type)
+        self._draw()
+
+    def _build_ui(self, plot_type: str) -> None:
+        pg.setConfigOption("background", "white")
+        pg.setConfigOption("foreground", "#222222")
+        pg.setConfigOption("imageAxisOrder", "row-major")
+        self.color_map = pg.colormap.get("viridis", source="matplotlib")
+
+        central = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(central)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+        self.setCentralWidget(central)
+
+        self.graphics = pg.GraphicsLayoutWidget()
+        layout.addWidget(self.graphics, stretch=1)
+
+        controls = QtWidgets.QGroupBox("Display options")
+        controls.setFixedWidth(280)
+        form = QtWidgets.QFormLayout(controls)
+        form.setContentsMargins(18, 24, 18, 18)
+        form.setSpacing(14)
+        form.setFieldGrowthPolicy(
+            QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
-        self.plot_type_toggle = widgets.RadioButtons(
-            options=["heatmap", "raster", "psth"],
-            value=self.viewer.plot_type,
-            description="Plot type:",
-            layout=widgets.Layout(width="170px"),
-            style={"description_width": "70px"},
+
+        self.event_combo = QtWidgets.QComboBox()
+        self.event_combo.addItems(list(self.events))
+        if "first_stim_ev" in self.events:
+            self.event_combo.setCurrentText("first_stim_ev")
+        form.addRow("Event", self.event_combo)
+
+        self.plot_combo = QtWidgets.QComboBox()
+        self.plot_combo.addItems(("heatmap", "raster", "psth"))
+        self.plot_combo.setCurrentText(plot_type)
+        form.addRow("Plot", self.plot_combo)
+
+        self.split_combo = QtWidgets.QComboBox()
+        self.split_combo.addItems(self.SPLIT_OPTIONS)
+        form.addRow("Split", self.split_combo)
+
+        self.sort_combo = QtWidgets.QComboBox()
+        form.addRow("Sort", self.sort_combo)
+
+        unit_control = QtWidgets.QWidget()
+        unit_layout = QtWidgets.QHBoxLayout(unit_control)
+        unit_layout.setContentsMargins(0, 0, 0, 0)
+        self.unit_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.unit_slider.setRange(0, len(self.unit_ids) - 1)
+        self.unit_label = QtWidgets.QLabel()
+        self.unit_label.setMinimumWidth(45)
+        unit_layout.addWidget(self.unit_slider)
+        unit_layout.addWidget(self.unit_label)
+        form.addRow("Unit", unit_control)
+        layout.addWidget(controls)
+
+        controls.setStyleSheet(
+            "QGroupBox { font-weight: 600; border: 1px solid #d5d5d5; "
+            "border-radius: 8px; margin-top: 10px; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 12px; "
+            "padding: 0 5px; }"
+            "QComboBox { min-height: 30px; padding: 2px 8px; }"
         )
-        split_opts = self.SPLIT_OPTIONS if self.trial_df is not None else ["none"]
-        self.split_dropdown = widgets.Dropdown(
-            options=split_opts,
-            value="none",
-            description="Split by:",
-            layout=widgets.Layout(width="360px"),
-            style={"description_width": "65px"},
+
+        self._update_sort_options()
+        self.event_combo.currentTextChanged.connect(self._draw)
+        self.plot_combo.currentTextChanged.connect(self._plot_type_changed)
+        self.split_combo.currentTextChanged.connect(self._draw)
+        self.sort_combo.currentTextChanged.connect(self._draw)
+        self.unit_slider.valueChanged.connect(self._draw)
+
+    def _plot_type_changed(self) -> None:
+        self._update_sort_options()
+        self._draw()
+
+    def _update_sort_options(self) -> None:
+        plot_type = self.plot_combo.currentText()
+        self.sort_combo.blockSignals(True)
+        self.sort_combo.clear()
+        self.sort_combo.addItems(self.SORT_OPTIONS[plot_type])
+        self.sort_combo.setEnabled(plot_type != "psth")
+        self.unit_slider.setEnabled(plot_type != "heatmap")
+        self.sort_combo.blockSignals(False)
+
+    def _event_groups(self) -> list[tuple[str, np.ndarray]]:
+        event_times = np.asarray(self.events[self.event_combo.currentText()])
+        trial_starts = np.asarray(self.trials["trial_start_ts"])
+        trial_idx = np.searchsorted(trial_starts, event_times, side="right") - 1
+        valid = (trial_idx >= 0) & (trial_idx < len(self.trials))
+        valid[valid] &= np.isin(
+            self.trials["response"].to_numpy()[trial_idx[valid]], (-1, 1)
         )
-        sort_options = self.SORT_OPTIONS[self.viewer.plot_type]
-        self.viewer.sort_by = sort_options[0][1]
-        self.sort_dropdown = widgets.Dropdown(
-            options=sort_options,
-            value=self.viewer.sort_by,
-            description="Sort by:",
-            disabled=self.viewer.plot_type == "psth",
-            layout=widgets.Layout(width="360px"),
-            style={"description_width": "65px"},
-        )
+        event_times = event_times[valid]
+        trial_idx = trial_idx[valid]
 
-        self._split_fig: Figure | None = None
+        split_col = self.split_combo.currentText()
+        if split_col == "none":
+            return [("", event_times)]
 
-        # wire up callbacks
-        self.unit_slider.observe(self._update, names="value")
-        self.event_dropdown.observe(self._update, names="value")
-        self.plot_type_toggle.observe(self._on_plot_type_change, names="value")
-        self.split_dropdown.observe(self._on_split_change, names="value")
-        self.sort_dropdown.observe(self._on_sort_change, names="value")
+        categories = self.trials[split_col].to_numpy()[trial_idx]
+        grouped = pd.DataFrame(
+            {"event_time": event_times, "category": categories}
+        ).dropna(subset=["category"])
+        if split_col == "stim_category":
+            grouped["category"] = pd.Categorical(
+                grouped["category"],
+                categories=("low_rate", "boundary", "high_rate"),
+                ordered=True,
+            )
+        elif split_col in ("response", "prev_response"):
+            grouped["category"] = pd.Categorical(
+                grouped["category"], categories=(-1, 1), ordered=True
+            )
+            grouped = grouped.dropna(subset=["category"])
+        return [
+            (
+                f"{split_col} = {category}  (n={len(group)})",
+                group["event_time"].to_numpy(),
+            )
+            for category, group in grouped.groupby("category", sort=True, observed=True)
+        ]
 
-    def _on_plot_type_change(self, change: object) -> None:
-        self.viewer.plot_type = self.plot_type_toggle.value
-        is_heatmap = self.viewer.plot_type == "heatmap"
-        self.unit_slider.disabled = is_heatmap
-        sort_options = self.SORT_OPTIONS[self.viewer.plot_type]
-        self.sort_dropdown.options = sort_options
-        self.sort_dropdown.value = sort_options[0][1]
-        self.sort_dropdown.disabled = self.viewer.plot_type == "psth"
-        self.viewer.sort_by = self.sort_dropdown.value
-        self._update(None)
+    def _draw(self) -> None:
+        if not hasattr(self, "graphics"):
+            return
+        self.graphics.ci.clear()
+        unit_id = self.unit_ids[self.unit_slider.value()]
+        self.unit_label.setText(str(unit_id))
+        groups = self._event_groups()
+        if not groups:
+            self.graphics.ci.addLabel("No events match this split.")
+            return
 
-    def _on_split_change(self, change: object) -> None:
-        split_val = self.split_dropdown.value
-        self.viewer.split_by = None if split_val == "none" else split_val
-        # in split mode, unit slider only relevant for raster/psth
-        self._update(None)
-
-    def _on_sort_change(self, change: object) -> None:
-        self.viewer.sort_by = self.sort_dropdown.value
-        self._update(None)
-
-    def _update(self, change: object) -> None:
-        unit_id = self.unit_slider.value
-        event = self.event_dropdown.value
-        event_times = self.align_ev[event]
-
-        if self.viewer.split_by is not None and self.trial_df is not None:
-            self._out.layout.display = "none"
-            self._split_out.layout.display = ""
-            with plt.ioff():
-                fig = self.viewer.plot_split(
-                    spike_times=self.st_per_unit[unit_id],
-                    all_spike_times=self.st_per_unit,
-                    trial_df=self.trial_df,
-                    split_col=self.viewer.split_by,
-                    event_times=event_times,
-                    fig=self._split_fig,
-                )
-            if self._split_fig is None:
-                self._split_fig = fig
-                with self._split_out:
-                    display(fig.canvas)
-        else:
-            self._out.layout.display = ""
-            self._split_out.layout.display = "none"
-            # close any lingering split figure
-            if self._split_fig is not None:
-                plt.close(self._split_fig)
-                self._split_fig = None
-            with self._split_out:
-                clear_output(wait=False)
-            self.viewer.plot(
-                spike_times=self.st_per_unit[unit_id],
-                event_times=event_times,
-                all_spike_times=self.st_per_unit,
+        plot_type = self.plot_combo.currentText()
+        sort_order = None
+        if plot_type == "heatmap" and self.sort_combo.currentText() == "Peak latency":
+            sort_order = self._peak_latency_order(
+                np.concatenate([event_times for _, event_times in groups])
             )
 
-    def show(self) -> None:
-        if self.viewer.fig is None:
-            with plt.ioff():
-                self.viewer.fig = plt.figure(figsize=(6, 5))
-                gs = self.viewer.fig.add_gridspec(
-                    1, 2, width_ratios=[20, 1], wspace=0.05
+        n_cols = min(3, len(groups))
+        first_plot = None
+        heatmaps = []
+        for index, (title, event_times) in enumerate(groups):
+            plot = self.graphics.ci.addPlot(
+                row=index // n_cols, col=index % n_cols, title=title
+            )
+            if first_plot is None:
+                first_plot = plot
+            else:
+                plot.setYLink(first_plot)
+            if plot_type == "heatmap":
+                heatmaps.append(
+                    (plot, *self._draw_heatmap(plot, event_times, sort_order))
                 )
-                self.viewer.ax = self.viewer.fig.add_subplot(gs[0])
-                self.viewer._cax = self.viewer.fig.add_subplot(gs[1])
-                self.viewer._cax.set_visible(False)
-                if hasattr(self.viewer.fig.canvas, "header_visible"):
-                    setattr(self.viewer.fig.canvas, "header_visible", False)
+            elif plot_type == "raster":
+                self._draw_raster(plot, self.units[unit_id], event_times)
+            else:
+                self._draw_psth(plot, self.units[unit_id], event_times)
+            if index:
+                plot.hideAxis("left")
 
-        self._out = widgets.Output()
-        with self._out:
-            display(self.viewer.fig.canvas)
+        if heatmaps:
+            vmax = max(1.0, *(maximum for _, _, maximum in heatmaps))
+            for _, image, _ in heatmaps:
+                image.setLevels((0, vmax))
+            heatmaps[-1][0].addColorBar(
+                heatmaps[-1][1],
+                colorMap=self.color_map,
+                values=(0, vmax),
+                label="sp/s",
+            )
 
-        self._split_out = widgets.Output()
-        self._split_out.layout.display = "none"
+    def _peth(
+        self, spike_times: list[np.ndarray], event_times: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        peth, bin_edges, _ = population_peth(
+            all_spike_times=spike_times,
+            alignment_times=event_times,
+            pre_seconds=self.pre_seconds,
+            post_seconds=self.post_seconds,
+            binwidth_ms=self.binwidth_ms,
+        )
+        return (
+            peth / (self.binwidth_ms / 1000),
+            (bin_edges[:-1] + bin_edges[1:]) / 2,
+        )
 
-        controls = widgets.HBox(
+    def _peak_latency_order(self, event_times: np.ndarray) -> np.ndarray:
+        peth, bin_centers = self._peth(list(self.units.values()), event_times)
+        rates = np.mean(peth, axis=1)
+        return np.argsort(np.argmax(rates[:, bin_centers >= 0], axis=1), kind="stable")
+
+    def _prepare_plot(self, plot: pg.PlotItem, ylabel: str) -> None:
+        plot.getAxis("bottom").enableAutoSIPrefix(False)
+        plot.setLabel("bottom", "time from event (s)")
+        plot.setLabel("left", ylabel)
+        plot.getViewBox().setXRange(-self.pre_seconds, self.post_seconds, padding=0)
+        plot.addItem(
+            pg.InfiniteLine(
+                pos=0,
+                angle=90,
+                pen=pg.mkPen("#00a7b5", width=1, style=QtCore.Qt.PenStyle.DashLine),
+            )
+        )
+
+    def _draw_heatmap(
+        self, plot: pg.PlotItem, event_times: np.ndarray, order: np.ndarray | None
+    ) -> tuple[pg.ImageItem, float]:
+        peth, _ = self._peth(list(self.units.values()), event_times)
+        rates = np.mean(peth, axis=1)
+        unit_ids = self.unit_ids
+        if order is not None:
+            rates = rates[order]
+            unit_ids = [unit_ids[index] for index in order]
+
+        image = pg.ImageItem(rates.astype(np.float32), axisOrder="row-major")
+        image.setRect(
+            QtCore.QRectF(
+                -self.pre_seconds,
+                0,
+                self.pre_seconds + self.post_seconds,
+                len(unit_ids),
+            )
+        )
+        image.setColorMap(self.color_map)
+        plot.addItem(image)
+        plot.getViewBox().invertY(True)
+        plot.getViewBox().setYRange(0, len(unit_ids), padding=0)
+        tick_step = max(1, len(unit_ids) // 10)
+        plot.getAxis("left").setTicks(
             [
-                self.unit_slider,
-                widgets.VBox(
-                    [
-                        self.event_dropdown,
-                        self.split_dropdown,
-                        self.sort_dropdown,
-                    ],
-                    layout=widgets.Layout(margin="0 16px 0 0"),
-                ),
-                self.plot_type_toggle,
-            ],
-            layout=widgets.Layout(
-                align_items="flex-start",
-                border="1px solid #d9d9d9",
-                padding="12px 16px",
-                width="fit-content",
-            ),
-        )
-
-        display(
-            widgets.VBox(
                 [
-                    controls,
-                    self._out,
-                    self._split_out,
+                    (index + 0.5, str(unit_ids[index]))
+                    for index in range(0, len(unit_ids), tick_step)
                 ]
-            )
+            ]
         )
-        self._update(None)
+        self._prepare_plot(
+            plot, f"unit ID (sorted by {self.sort_combo.currentText().lower()})"
+        )
+        return image, float(np.nanmax(rates))
+
+    def _draw_raster(
+        self, plot: pg.PlotItem, spike_times: np.ndarray, event_times: np.ndarray
+    ) -> None:
+        rasters = align_raster_to_event(
+            event_times,
+            spike_times,
+            self.pre_seconds,
+            self.post_seconds,
+        )
+        if self.sort_combo.currentText() == "First-spike latency":
+            first_spikes = [
+                next((spike for spike in raster if spike > 0), np.inf)
+                for raster in rasters
+            ]
+            rasters = [
+                rasters[index] for index in np.argsort(first_spikes, kind="stable")
+            ]
+
+        n_spikes = sum(len(raster) for raster in rasters)
+        x = np.full(n_spikes * 3, np.nan)
+        y = np.full(n_spikes * 3, np.nan)
+        offset = 0
+        for trial, raster in enumerate(rasters):
+            stop = offset + len(raster) * 3
+            x[offset:stop:3] = raster
+            x[offset + 1 : stop : 3] = raster
+            y[offset:stop:3] = trial - 0.4
+            y[offset + 1 : stop : 3] = trial + 0.4
+            offset = stop
+        plot.plot(x, y, pen=pg.mkPen("#222222", width=1), connect="finite")
+        plot.getViewBox().setYRange(-0.5, max(0.5, len(rasters) - 0.5), padding=0)
+        self._prepare_plot(plot, "trial")
+
+    def _draw_psth(
+        self, plot: pg.PlotItem, spike_times: np.ndarray, event_times: np.ndarray
+    ) -> None:
+        peth, bin_centers = self._peth([spike_times], event_times)
+        mean_rate = np.mean(peth[0], axis=0)
+        sem_rate = sem(peth[0], axis=0)
+        upper = plot.plot(bin_centers, mean_rate + sem_rate, pen=None)
+        lower = plot.plot(bin_centers, mean_rate - sem_rate, pen=None)
+        plot.addItem(pg.FillBetweenItem(upper, lower, brush=(30, 30, 30, 45)))
+        plot.plot(bin_centers, mean_rate, pen=pg.mkPen("#222222", width=2))
+        self._prepare_plot(plot, "sp/s")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Browse event-aligned neural activity",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        add_help=False,
+    )
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-a", "--subject", required=True, default=argparse.SUPPRESS, help="Subject name"
+    )
+    required.add_argument(
+        "-s", "--session", required=True, default=argparse.SUPPRESS, help="Session name"
+    )
+    optional = parser.add_argument_group("optional arguments")
+    optional.add_argument("-h", "--help", action="help", help="Show this help message")
+    optional.add_argument(
+        "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
+    )
+    optional.add_argument(
+        "--stability-param-id",
+        type=int,
+        default=None,
+        help="Also require units to pass this stability parameter set",
+    )
+    optional.add_argument(
+        "--pre-seconds", type=float, default=0.1, help="Time shown before the event"
+    )
+    optional.add_argument(
+        "--post-seconds", type=float, default=0.15, help="Time shown after the event"
+    )
+    optional.add_argument(
+        "--binwidth-ms", type=int, default=10, help="PSTH bin width in milliseconds"
+    )
+    optional.add_argument(
+        "--plot-type",
+        choices=("heatmap", "raster", "psth"),
+        default="heatmap",
+        help="Initial plot type",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    app = pg.mkQApp("PSTH viewer")
+    viewer = PSTHViewer(
+        subject=args.subject,
+        session=args.session,
+        unit_criteria_id=args.unit_criteria_id,
+        stability_param_id=args.stability_param_id,
+        pre_seconds=args.pre_seconds,
+        post_seconds=args.post_seconds,
+        binwidth_ms=args.binwidth_ms,
+        plot_type=cast(Literal["heatmap", "raster", "psth"], args.plot_type),
+    )
+    viewer.show()
+    raise SystemExit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

@@ -25,6 +25,12 @@ latency.
 Use `--split-by-waveform` for FS/RS summaries, `--show` for an interactive
 window, and `--no-save` to inspect without writing a PDF.
 
+The analysis-specific manual review is available with:
+
+```bash
+uv run python -m thesis.ephys.analyses.manual_conditioned_psth_browser -a GRB058 -s SESSION
+```
+
 ### Double peaks
 
 `double_peak_responses_across_sessions.py` is the collaborator-facing summary.
@@ -56,6 +62,18 @@ events. Neither fit is stored in a derived table.
 ## Ephys module roles
 
 - `src/thesis/ephys/analyses/` answers scientific questions and writes figures.
-- `src/thesis/ephys/tools/` contains interactive browsers and notebook tools.
+- `src/thesis/ephys/tools/` contains reusable standalone interactive browsers.
 - Shared data access and scientific operations live directly under
   `src/thesis/ephys/`.
+
+## Interactive tools
+
+```bash
+uv run python -m thesis.ephys.tools.psth_viewer -a GRB058 -s SESSION
+uv run python -m thesis.ephys.tools.unit_stability_browser -a GRB058 -s SESSION
+uv run python -m thesis.ephys.tools.stimulus_responsiveness_browser -a GRB058 -s SESSION
+uv run python -m thesis.ephys.tools.survey_map_browser -f SURVEY_MAP.csv
+```
+
+Add `--stability-param-id 0` to a unit-based browser to require units to pass
+both its selected quality criteria and stability parameter set 0.
