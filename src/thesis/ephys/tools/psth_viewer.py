@@ -22,7 +22,7 @@ class PSTHViewer:
         pre_seconds: float = 1,
         post_seconds: float = 1,
         binwidth_ms: int = 10,
-        plot_type: Literal["raster", "heatmap", "psth"] = "raster",
+        plot_type: Literal["raster", "heatmap", "psth"] = "heatmap",
         t_rise: Optional[float] = None,
         t_decay: Optional[float] = None,
         figure: Optional[Figure] = None,
@@ -37,6 +37,7 @@ class PSTHViewer:
         self.binwidth_ms = binwidth_ms
         self.plot_type = plot_type
         self.split_by: Optional[str] = None
+        self.sort_by = "peak_latency" if plot_type == "heatmap" else "trial_order"
         self.fig = figure
         self.ax = axes
         self._cax: Optional[Axes] = None  # dedicated axes for colorbar
@@ -85,12 +86,17 @@ class PSTHViewer:
             plot_event_aligned_raster(
                 event_times=event_times,
                 spike_times=spike_times,
+                sorting=(
+                    "time_to_first_spike"
+                    if self.sort_by == "first_spike_latency"
+                    else ""
+                ),
                 pre_seconds=self.pre_seconds,
                 post_seconds=self.post_seconds,
                 ax=self.ax,
             )
-            ymin, ymax = self.ax.get_ylim()
-            self.ax.vlines(0, ymin, ymax, colors="r", linestyles="--")
+            self.ax.set_ylim(0, len(event_times))
+            self.ax.vlines(0, 0, len(event_times), colors="r", linestyles="--")
             self.ax.set_xlabel("time from event (s)")
             self.ax.set_ylabel("trial")
 
@@ -124,7 +130,7 @@ class PSTHViewer:
             if all_spike_times is None:
                 return
             unit_ids = list(all_spike_times.keys())
-            peth, _, _ = population_peth(
+            peth, bin_edges, _ = population_peth(
                 all_spike_times=list(all_spike_times.values()),
                 alignment_times=event_times,
                 pre_seconds=self.pre_seconds,
@@ -134,13 +140,21 @@ class PSTHViewer:
             )
             peth = peth / (self.binwidth_ms / 1000)
             pop_matrix = np.mean(peth, axis=1)
+            if self.sort_by == "peak_latency":
+                bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                post_event = bin_centers >= 0
+                order = np.argsort(
+                    np.argmax(pop_matrix[:, post_event], axis=1), kind="stable"
+                )
+                pop_matrix = pop_matrix[order]
+                unit_ids = [unit_ids[i] for i in order]
             n_units = pop_matrix.shape[0]
             im = self.ax.imshow(
                 pop_matrix,
                 aspect="auto",
                 origin="upper",
                 extent=(-self.pre_seconds, self.post_seconds, float(n_units), 0.0),
-                cmap="afmhot_r",
+                cmap="viridis",
             )
             self.ax.vlines(0, 0, n_units, colors="cyan", linestyles="--", linewidth=0.8)
             # label y-ticks with real unit IDs
@@ -151,7 +165,7 @@ class PSTHViewer:
                 [str(unit_ids[i]) for i in tick_indices], fontsize=7
             )
             self.ax.set_xlabel("time from event (s)")
-            self.ax.set_ylabel("unit ID (sorted by depth)")
+            self.ax.set_ylabel(f"unit ID (sorted by {self.sort_by.replace('_', ' ')})")
             if self._cax is not None:
                 self._cax.set_visible(True)
                 self.fig.colorbar(im, cax=self._cax, label="sp/s")
@@ -166,8 +180,9 @@ class PSTHViewer:
         trial_df: pd.DataFrame,
         split_col: str,
         event_times: np.ndarray,
+        fig: Figure | None = None,
     ) -> Figure:
-        """Create a fresh figure with one subplot per category value of split_col."""
+        """Plot one subplot per category value of split_col."""
         # -- Assign each event to a trial via trial_start_ts -----------
         trial_starts = np.asarray(trial_df["trial_start_ts"])
         trial_idx = np.searchsorted(trial_starts, event_times, side="right") - 1
@@ -180,7 +195,7 @@ class PSTHViewer:
             subset=["category"]
         )
 
-        groups = ev_df.groupby("category", sort=True)
+        groups = ev_df.groupby("category", sort=True, observed=True)
         group_keys = list(groups.groups.keys())
         n_groups = len(group_keys)
         n_cols = min(n_groups, 3)
@@ -188,13 +203,34 @@ class PSTHViewer:
 
         fig_w = 4 * n_cols
         fig_h = (4 if self.plot_type == "heatmap" else 3) * n_rows
-        fig, axes = plt.subplots(
+        if fig is None:
+            fig = plt.figure(figsize=(fig_w, fig_h))
+        else:
+            fig.clear()
+            fig.set_size_inches(fig_w, fig_h)
+        axes = fig.subplots(
             n_rows,
             n_cols,
-            figsize=(fig_w, fig_h),
-            sharey=True,
+            sharey=self.plot_type != "raster",
             squeeze=False,
         )
+
+        heatmap_order = None
+        if self.plot_type == "heatmap" and self.sort_by == "peak_latency":
+            sort_peth, bin_edges, _ = population_peth(
+                all_spike_times=list(all_spike_times.values()),
+                alignment_times=event_times,
+                pre_seconds=self.pre_seconds,
+                post_seconds=self.post_seconds,
+                binwidth_ms=self.binwidth_ms,
+                kernel=self.kernel,
+            )
+            sort_matrix = np.mean(sort_peth / (self.binwidth_ms / 1000), axis=1)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            post_event = bin_centers >= 0
+            heatmap_order = np.argsort(
+                np.argmax(sort_matrix[:, post_event], axis=1), kind="stable"
+            )
 
         for col_idx, key in enumerate(group_keys):
             row, col = divmod(col_idx, n_cols)
@@ -206,12 +242,17 @@ class PSTHViewer:
                 plot_event_aligned_raster(
                     event_times=grp_event_times,
                     spike_times=spike_times,
+                    sorting=(
+                        "time_to_first_spike"
+                        if self.sort_by == "first_spike_latency"
+                        else ""
+                    ),
                     pre_seconds=self.pre_seconds,
                     post_seconds=self.post_seconds,
                     ax=ax,
                 )
-                ymin, ymax = ax.get_ylim()
-                ax.vlines(0, ymin, ymax, colors="r", linestyles="--")
+                ax.set_ylim(0, len(grp_event_times))
+                ax.vlines(0, 0, len(grp_event_times), colors="r", linestyles="--")
                 ax.set_xlabel("time (s)")
                 if col == 0:
                     ax.set_ylabel("trial")
@@ -254,14 +295,17 @@ class PSTHViewer:
                 )
                 peth = peth / (self.binwidth_ms / 1000)
                 pop_matrix = np.mean(peth, axis=1)
-                n_units = pop_matrix.shape[0]
                 unit_ids = list(all_spike_times.keys())
+                if heatmap_order is not None:
+                    pop_matrix = pop_matrix[heatmap_order]
+                    unit_ids = [unit_ids[i] for i in heatmap_order]
+                n_units = pop_matrix.shape[0]
                 im = ax.imshow(
                     pop_matrix,
                     aspect="auto",
                     origin="upper",
                     extent=(-self.pre_seconds, self.post_seconds, float(n_units), 0.0),
-                    cmap="afmhot_r",
+                    cmap="viridis",
                 )
                 ax.vlines(0, 0, n_units, colors="cyan", linestyles="--", linewidth=0.8)
                 tick_step = max(1, n_units // 8)
@@ -270,7 +314,7 @@ class PSTHViewer:
                 ax.set_yticklabels([str(unit_ids[i]) for i in tick_indices], fontsize=6)
                 ax.set_xlabel("time (s)")
                 if col == 0:
-                    ax.set_ylabel("unit ID (depth)")
+                    ax.set_ylabel(f"unit ID ({self.sort_by.replace('_', ' ')})")
                 fig.colorbar(im, ax=ax, label="sp/s", shrink=0.6)
 
             title_val = f"{key:.0f}" if isinstance(key, float) else str(key)
@@ -284,6 +328,7 @@ class PSTHViewer:
 
         fig.suptitle(f"Split by: {split_col}", fontsize=10)
         fig.tight_layout(rect=(0, 0, 1, 0.95))
+        fig.canvas.draw_idle()
         return fig
 
 
@@ -297,6 +342,17 @@ class PSTHWidget:
         "prev_rewarded",
         "prev_response",
     ]
+    SORT_OPTIONS = {
+        "raster": [
+            ("trial order", "trial_order"),
+            ("first-spike latency", "first_spike_latency"),
+        ],
+        "psth": [("not applicable", "none")],
+        "heatmap": [
+            ("peak latency", "peak_latency"),
+            ("unit depth", "unit_depth"),
+        ],
+    }
 
     def __init__(self, viewer: PSTHViewer) -> None:
         self.viewer = viewer
@@ -310,22 +366,40 @@ class PSTHWidget:
             value=list(self.st_per_unit.keys())[0],
             description="Unit ID:",
             continuous_update=False,
+            layout=widgets.Layout(width="440px", margin="0 16px 0 0"),
+            style={"description_width": "60px"},
         )
         self.event_dropdown = widgets.Dropdown(
             options=list(self.align_ev.keys()),
             value="first_stim_ev",
             description="Event:",
+            layout=widgets.Layout(width="360px"),
+            style={"description_width": "65px"},
         )
         self.plot_type_toggle = widgets.RadioButtons(
-            options=["raster", "psth", "heatmap"],
+            options=["heatmap", "raster", "psth"],
             value=self.viewer.plot_type,
             description="Plot type:",
+            layout=widgets.Layout(width="170px"),
+            style={"description_width": "70px"},
         )
         split_opts = self.SPLIT_OPTIONS if self.trial_df is not None else ["none"]
         self.split_dropdown = widgets.Dropdown(
             options=split_opts,
             value="none",
             description="Split by:",
+            layout=widgets.Layout(width="360px"),
+            style={"description_width": "65px"},
+        )
+        sort_options = self.SORT_OPTIONS[self.viewer.plot_type]
+        self.viewer.sort_by = sort_options[0][1]
+        self.sort_dropdown = widgets.Dropdown(
+            options=sort_options,
+            value=self.viewer.sort_by,
+            description="Sort by:",
+            disabled=self.viewer.plot_type == "psth",
+            layout=widgets.Layout(width="360px"),
+            style={"description_width": "65px"},
         )
 
         self._split_fig: Figure | None = None
@@ -335,11 +409,17 @@ class PSTHWidget:
         self.event_dropdown.observe(self._update, names="value")
         self.plot_type_toggle.observe(self._on_plot_type_change, names="value")
         self.split_dropdown.observe(self._on_split_change, names="value")
+        self.sort_dropdown.observe(self._on_sort_change, names="value")
 
     def _on_plot_type_change(self, change: object) -> None:
         self.viewer.plot_type = self.plot_type_toggle.value
         is_heatmap = self.viewer.plot_type == "heatmap"
         self.unit_slider.disabled = is_heatmap
+        sort_options = self.SORT_OPTIONS[self.viewer.plot_type]
+        self.sort_dropdown.options = sort_options
+        self.sort_dropdown.value = sort_options[0][1]
+        self.sort_dropdown.disabled = self.viewer.plot_type == "psth"
+        self.viewer.sort_by = self.sort_dropdown.value
         self._update(None)
 
     def _on_split_change(self, change: object) -> None:
@@ -348,45 +428,40 @@ class PSTHWidget:
         # in split mode, unit slider only relevant for raster/psth
         self._update(None)
 
+    def _on_sort_change(self, change: object) -> None:
+        self.viewer.sort_by = self.sort_dropdown.value
+        self._update(None)
+
     def _update(self, change: object) -> None:
         unit_id = self.unit_slider.value
         event = self.event_dropdown.value
         event_times = self.align_ev[event]
 
         if self.viewer.split_by is not None and self.trial_df is not None:
-            # close previous split figure if any
-            if self._split_fig is not None:
-                plt.close(self._split_fig)
-                self._split_fig = None
-
-            # split view: new figure rendered into _split_out via clear_output
-            with self._split_out:
-                clear_output(wait=True)
-                with plt.ioff():
-                    fig = self.viewer.plot_split(
-                        spike_times=self.st_per_unit[unit_id],
-                        all_spike_times=self.st_per_unit,
-                        trial_df=self.trial_df,
-                        split_col=self.viewer.split_by,
-                        event_times=event_times,
-                    )
+            self._out.layout.display = "none"
+            self._split_out.layout.display = ""
+            with plt.ioff():
+                fig = self.viewer.plot_split(
+                    spike_times=self.st_per_unit[unit_id],
+                    all_spike_times=self.st_per_unit,
+                    trial_df=self.trial_df,
+                    split_col=self.viewer.split_by,
+                    event_times=event_times,
+                    fig=self._split_fig,
+                )
+            if self._split_fig is None:
                 self._split_fig = fig
-                display(fig.canvas)
-            # clear the single-plot output
-            with self._out:
-                clear_output(wait=False)
+                with self._split_out:
+                    display(fig.canvas)
         else:
+            self._out.layout.display = ""
+            self._split_out.layout.display = "none"
             # close any lingering split figure
             if self._split_fig is not None:
                 plt.close(self._split_fig)
                 self._split_fig = None
-            # single-plot view — re-display canvas in case it was cleared
             with self._split_out:
                 clear_output(wait=False)
-            with self._out:
-                clear_output(wait=True)
-                if self.viewer.fig is not None:
-                    display(self.viewer.fig.canvas)
             self.viewer.plot(
                 spike_times=self.st_per_unit[unit_id],
                 event_times=event_times,
@@ -403,24 +478,41 @@ class PSTHWidget:
                 self.viewer.ax = self.viewer.fig.add_subplot(gs[0])
                 self.viewer._cax = self.viewer.fig.add_subplot(gs[1])
                 self.viewer._cax.set_visible(False)
+                if hasattr(self.viewer.fig.canvas, "header_visible"):
+                    setattr(self.viewer.fig.canvas, "header_visible", False)
 
         self._out = widgets.Output()
         with self._out:
             display(self.viewer.fig.canvas)
 
         self._split_out = widgets.Output()
+        self._split_out.layout.display = "none"
+
+        controls = widgets.HBox(
+            [
+                self.unit_slider,
+                widgets.VBox(
+                    [
+                        self.event_dropdown,
+                        self.split_dropdown,
+                        self.sort_dropdown,
+                    ],
+                    layout=widgets.Layout(margin="0 16px 0 0"),
+                ),
+                self.plot_type_toggle,
+            ],
+            layout=widgets.Layout(
+                align_items="flex-start",
+                border="1px solid #d9d9d9",
+                padding="12px 16px",
+                width="fit-content",
+            ),
+        )
 
         display(
             widgets.VBox(
                 [
-                    widgets.HBox(
-                        [
-                            self.unit_slider,
-                            self.event_dropdown,
-                            self.plot_type_toggle,
-                            self.split_dropdown,
-                        ]
-                    ),
+                    controls,
                     self._out,
                     self._split_out,
                 ]

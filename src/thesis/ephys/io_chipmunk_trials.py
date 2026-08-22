@@ -52,11 +52,6 @@ def fetch_trial_metadata(
             f"OBX trial_start pulses={n_obx}, Chipmunk trials={n_chipmunk}. "
             "Refusing to silently truncate."
         )
-    if mismatch == 1:
-        print(
-            f"Warning: {subject} {session} has a 1-trial OBX/Chipmunk mismatch "
-            f"(OBX={n_obx}, Chipmunk={n_chipmunk}); truncating to {n}."
-        )
 
     trial_df = trial_df.iloc[:n].copy()
     trial_df["trial_start_ts"] = trial_starts[:n]

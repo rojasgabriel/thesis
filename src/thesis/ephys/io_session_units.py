@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from labdata.schema import EphysRecording, SpikeSorting, UnitCount, UnitMetrics
+from labdata.schema import SpikeSorting, UnitCount
 
 
 def fetch_good_unit_metrics_table(
@@ -37,22 +37,8 @@ def fetch_good_unit_metrics_table(
     ).fetch("subject_name", "session_name", "unit_id", as_dict=True)
 
     good_units = pd.DataFrame(
-        ((SpikeSorting.Unit & good_unit_ids) * UnitMetrics).fetch(
-            "unit_id",
-            "spike_times",
-            "depth",
-            "spike_duration",
-            "firing_rate",
-            as_dict=True,
-        )
-    )
-
-    srate = float(
-        (EphysRecording.ProbeSetting() & sess_query).fetch("sampling_rate")[0]
-    )
-    good_units["spike_times_s"] = good_units["spike_times"].apply(
-        lambda spike_times: np.asarray(spike_times, dtype=float) / srate
-    )
+        (SpikeSorting.Unit() & good_unit_ids).get_spike_times(include_metrics=True)
+    ).rename(columns={"spike_times": "spike_times_s"})
     good_units["spike_duration_ms"] = good_units["spike_duration"].astype(float)
     return good_units.sort_values("depth", ascending=True)
 

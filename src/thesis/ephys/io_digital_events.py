@@ -211,7 +211,9 @@ def fetch_session_events(
     from labdata.schema import DatasetEvents
 
     source_keys = session_event_keys(subject, session)
-    rows = list((DatasetEvents.Digital() & list(source_keys.values())).fetch_synced())
+    rows = list(
+        (DatasetEvents.Digital() & list(source_keys.values())).fetch(as_dict=True)
+    )
     rows_by_key = {
         (row["dataset_name"], row["stream_name"], row["event_name"]): row
         for row in rows
