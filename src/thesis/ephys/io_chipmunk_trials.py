@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
+
+# Silence the setuptools pkg_resources deprecation notice
+warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 
 def fetch_trial_metadata(

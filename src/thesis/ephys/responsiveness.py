@@ -1,4 +1,4 @@
-"""Per-unit baseline vs response selectivity from aligned PETHs.
+"""Per-unit baseline versus stimulus responsiveness from aligned PETHs.
 
 **Naming convention**
 
@@ -15,7 +15,7 @@ import scipy.stats as stats
 from statsmodels.stats.multitest import multipletests
 
 
-def compute_unit_selectivity(
+def compute_unit_responsiveness(
     peth: np.ndarray,
     bin_edges: np.ndarray,
     unit_ids: Sequence,
@@ -26,7 +26,7 @@ def compute_unit_selectivity(
     alpha: float = 0.05,
     min_delta_abs: Optional[float] = None,
 ) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
-    """Compute baseline vs response selectivity per unit.
+    """Compute baseline versus response modulation per unit.
 
     The test compares **per-trial mean rates** in the response window to
     per-trial mean rates in the baseline window (paired). This is NOT a
@@ -56,7 +56,7 @@ def compute_unit_selectivity(
 
     Returns:
         results_df: DataFrame with per-unit stats
-        masks: dict with boolean masks (excited, suppressed, selective)
+        masks: dict with boolean masks (excited, suppressed, responsive)
     """
     n_units, n_trials, _n_time = peth.shape
     if len(unit_ids) != n_units:
@@ -114,7 +114,7 @@ def compute_unit_selectivity(
         magnitude_mask = np.abs(deltas) >= min_delta_abs
         excited &= magnitude_mask
         suppressed &= magnitude_mask
-    selective_any = excited | suppressed
+    responsive = excited | suppressed
 
     results_df = pd.DataFrame(
         {
@@ -128,12 +128,12 @@ def compute_unit_selectivity(
             "q": qvals,
             "excited": excited,
             "suppressed": suppressed,
-            "selective": selective_any,
+            "responsive": responsive,
         }
     )
 
     return results_df, {
         "excited": excited,
         "suppressed": suppressed,
-        "selective": selective_any,
+        "responsive": responsive,
     }

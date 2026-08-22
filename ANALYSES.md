@@ -36,7 +36,7 @@ Supporting analyses are:
 
 Canonical parameters live beside the classifier in
 `src/thesis/ephys/peak_classification.py`. The analysis uses 10 ms bins
-without smoothing, Wilcoxon selectivity with FDR, and a 5 sp/s minimum height
+without smoothing, Wilcoxon responsiveness with FDR, and a 5 sp/s minimum height
 above baseline for both peaks.
 
 `spks.event_aligned.population_peth` returns counts per bin. Each caller

@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.signal import find_peaks, peak_prominences
 from spks.event_aligned import population_peth
 
-from thesis.ephys.selectivity import compute_unit_selectivity
+from thesis.ephys.responsiveness import compute_unit_responsiveness
 
 PETH_PRE_SECONDS = 0.1
 PETH_POST_SECONDS = 0.15
@@ -94,7 +94,7 @@ def classify_double_peak_units(
     )
     peth = peth / (PETH_BINWIDTH_MS / 1000)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    _, masks = compute_unit_selectivity(
+    _, masks = compute_unit_responsiveness(
         peth,
         bin_edges,
         unit_ids=unit_ids,

@@ -8,9 +8,15 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
-from labdata.schema import SpikeSorting, UnitCount
+
+# Silence the setuptools pkg_resources deprecation notice
+warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
+
+from labdata.schema import SpikeSorting, UnitCount  # noqa: E402
 
 
 def fetch_good_unit_metrics_table(

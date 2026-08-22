@@ -9,8 +9,14 @@
 
 from __future__ import annotations
 
-import datajoint as dj
+import warnings
+
 import numpy as np
+
+# Silence the setuptools pkg_resources deprecation notice
+warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
+
+import datajoint as dj  # noqa: E402
 
 REQUIRED_LOGICAL_EVENTS = (
     "visual_stim",
