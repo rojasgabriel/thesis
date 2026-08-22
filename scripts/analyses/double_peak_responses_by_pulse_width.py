@@ -12,7 +12,7 @@ Layout: two rows.
   • Top row — single-peak reference example from GRB058.
   • Bottom row — double-peak units (GRB058, 15 ms + 30 ms overlaid).
 
-Classification uses canonical params from src/thesis/ephys/config/double_peak.py
+Classification uses the canonical parameters in peak_classification.py
 (FDR selectivity + 5 sp/s height floor on both peaks).
 """
 
@@ -29,16 +29,13 @@ from spks.event_aligned import population_peth
 
 matplotlib.use("Agg")
 
-from thesis.ephys.config.double_peak import (
-    BASELINE_WINDOW,
-    PEAK_KWARGS,
-    PETH_KWARGS,
-)
-from thesis.ephys.config.typing_params import PeakCountParams
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
 from thesis.ephys.utils.peak_classification import (
-    baseline_mean,
+    BASELINE_WINDOW,
+    PETH_BINWIDTH_MS,
+    PETH_POST_SECONDS,
+    PETH_PRE_SECONDS,
     classify_double_peak_units,
     classify_peak_count,
     mark_peaks,
@@ -119,9 +116,11 @@ def main() -> None:
         peth_30_all, _, _ = population_peth(
             all_spike_times=dp_spike_times,
             alignment_times=align_ev["first_stim_ev_30ms"],
-            **PETH_KWARGS,
+            pre_seconds=PETH_PRE_SECONDS,
+            post_seconds=PETH_POST_SECONDS,
+            binwidth_ms=PETH_BINWIDTH_MS,
         )
-        peth_30_all = peth_30_all / (PETH_KWARGS["binwidth_ms"] / 1000)
+        peth_30_all = peth_30_all / (PETH_BINWIDTH_MS / 1000)
 
         for j, uid in enumerate(double_ids):
             dp_rows.append(
@@ -143,20 +142,14 @@ def main() -> None:
         raise RuntimeError(f"Reference session {REFERENCE_SESSION} was not loaded.")
     unit_ids, peth_15, bin_centers, excited_ids, n_tr_15 = reference_data
     excited_peth = peth_15[[unit_ids.index(unit_id) for unit_id in excited_ids]]
-    peaks_df = classify_peak_count(
-        excited_peth, bin_centers, unit_ids=excited_ids, **PEAK_KWARGS
-    )
+    peaks_df = classify_peak_count(excited_peth, bin_centers, excited_ids)
     single_ids = peaks_df.loc[peaks_df["n_peaks"] == 1, "unit"].tolist()
 
-    sensitive_peak_kwargs: PeakCountParams = {
-        **PEAK_KWARGS,
-        "min_prominence_frac": 0.10,
-    }
     sensitive_peaks = classify_peak_count(
         excited_peth,
         bin_centers,
-        unit_ids=excited_ids,
-        **sensitive_peak_kwargs,
+        excited_ids,
+        min_prominence_frac=0.10,
     )
     robust_single_ids = [
         unit_id
@@ -168,11 +161,11 @@ def main() -> None:
         robust_single_ids,
         key=lambda unit_id: (
             excited_peth[excited_ids.index(unit_id)].mean(0).max()
-            - baseline_mean(
-                excited_peth[excited_ids.index(unit_id)],
-                bin_centers,
-                BASELINE_WINDOW,
-            )
+            - excited_peth[excited_ids.index(unit_id)]
+            .mean(axis=0)[
+                (bin_centers >= BASELINE_WINDOW[0]) & (bin_centers < BASELINE_WINDOW[1])
+            ]
+            .mean()
         ),
     )
     best_index = excited_ids.index(best)
@@ -233,8 +226,7 @@ def main() -> None:
         peak_df_30 = classify_peak_count(
             row["peth_30"][np.newaxis, :, :],
             bc,
-            unit_ids=[row["uid"]],
-            **PEAK_KWARGS,
+            [row["uid"]],
         )
         if not peak_df_30.empty:
             mark_peaks(ax, peak_df_30.iloc[0], color="tab:orange")

@@ -7,22 +7,21 @@ import pandas as pd
 from scipy.signal import find_peaks, peak_prominences
 from spks.event_aligned import population_peth
 
-from thesis.ephys.config.double_peak import (
-    BASELINE_WINDOW,
-    MIN_PEAK_HEIGHT_ABS,
-    PEAK_KWARGS,
-    PETH_KWARGS,
-    SELECTIVITY_KWARGS,
-)
 from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+
+PETH_PRE_SECONDS = 0.1
+PETH_POST_SECONDS = 0.15
+PETH_BINWIDTH_MS = 10
+BASELINE_WINDOW = (-0.04, 0.0)
+PEAK_SEARCH_WINDOW = (0.0, 0.12)
 
 
 def classify_peak_count(
     peth: np.ndarray,
     bin_centers: np.ndarray,
     unit_ids: Sequence,
-    search_window: tuple[float, float] = (0.0, 0.15),
-    baseline_window: tuple[float, float] = (-0.1, 0.0),
+    search_window: tuple[float, float] = PEAK_SEARCH_WINDOW,
+    baseline_window: tuple[float, float] = BASELINE_WINDOW,
     min_prominence_frac: float = 0.25,
     min_prominence_abs: float = 1.0,
     min_distance_ms: float = 20.0,
@@ -83,46 +82,45 @@ def classify_peak_count(
     return pd.DataFrame(records)
 
 
-def baseline_mean(
-    peth_trials: np.ndarray,
-    bin_centers: np.ndarray,
-    baseline_window: tuple[float, float],
-) -> float:
-    mask = (bin_centers >= baseline_window[0]) & (bin_centers < baseline_window[1])
-    return float(peth_trials.mean(axis=0)[mask].mean())
-
-
 def classify_double_peak_units(
     spike_times: list[np.ndarray], alignment_times: np.ndarray, unit_ids: list[int]
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
     peth, bin_edges, _ = population_peth(
         all_spike_times=spike_times,
         alignment_times=alignment_times,
-        **PETH_KWARGS,
+        pre_seconds=PETH_PRE_SECONDS,
+        post_seconds=PETH_POST_SECONDS,
+        binwidth_ms=PETH_BINWIDTH_MS,
     )
-    peth = peth / (PETH_KWARGS["binwidth_ms"] / 1000)
+    peth = peth / (PETH_BINWIDTH_MS / 1000)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     _, masks = compute_unit_selectivity(
-        peth, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
+        peth,
+        bin_edges,
+        unit_ids=unit_ids,
+        base_window=BASELINE_WINDOW,
+        resp_window=(0.03, 0.12),
+        test="wilcoxon",
+        correction="fdr_bh",
+        alpha=0.05,
     )
     excited_indices = np.where(masks["excited"])[0]
     excited_unit_ids = [unit_ids[i] for i in excited_indices]
     excited_peth = peth[excited_indices]
-    peak_rows = classify_peak_count(
-        excited_peth, bin_centers, unit_ids=excited_unit_ids, **PEAK_KWARGS
-    )
+    peak_rows = classify_peak_count(excited_peth, bin_centers, excited_unit_ids)
 
     double_rows = []
     for _, peak_row in peak_rows.loc[peak_rows["n_peaks"] == 2].iterrows():
         unit_id = int(peak_row["unit"])
         excited_index = excited_unit_ids.index(unit_id)
-        baseline = baseline_mean(
-            excited_peth[excited_index], bin_centers, BASELINE_WINDOW
+        baseline_mask = (bin_centers >= BASELINE_WINDOW[0]) & (
+            bin_centers < BASELINE_WINDOW[1]
         )
+        baseline = float(excited_peth[excited_index].mean(axis=0)[baseline_mask].mean())
         heights_above = [
             float(height - baseline) for height in peak_row["peak_heights"]
         ]
-        if min(heights_above) < MIN_PEAK_HEIGHT_ABS:
+        if min(heights_above) < 5.0:
             continue
         row = peak_row.copy()
         row["baseline"] = baseline

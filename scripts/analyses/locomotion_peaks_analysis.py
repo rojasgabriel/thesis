@@ -13,11 +13,19 @@ from typing import Literal, TypedDict
 
 import matplotlib
 import numpy as np
+import pandas as pd
 import seaborn as sns
 from scipy import stats
+from spks.event_aligned import population_peth
 
-from thesis.ephys.utils.analysis_locomotion import compute_locomotion_peaks
-from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
+from thesis.ephys.utils.analysis_locomotion import (
+    extract_paired_stim_anchors,
+    load_trial_classification,
+)
+from thesis.ephys.utils.io_session_units import (
+    fetch_good_unit_metrics_table,
+    fetch_good_units,
+)
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "locomotion"
@@ -31,6 +39,63 @@ UNIT_CRITERIA_ID = 1
 FS_RS_BOUNDARY_MS = 0.4
 BACKGROUND_DOT_ALPHA = 0.2
 MEAN_CI_LEVEL = 0.95
+
+
+def compute_locomotion_peaks(
+    subject: str, session: str, unit_criteria_id: int = 1
+) -> pd.DataFrame:
+    """Return stationary and movement peaks for all good units in one session."""
+    stationary_events, movement_events = extract_paired_stim_anchors(
+        load_trial_classification(subject, session)
+    )
+    if stationary_events.size == 0 or movement_events.size == 0:
+        raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
+
+    spike_times_by_unit = fetch_good_units(subject, session, unit_criteria_id)
+    unit_ids = sorted(spike_times_by_unit)
+    if not unit_ids:
+        raise RuntimeError(f"No good units found for {subject} {session}.")
+    spike_times = [spike_times_by_unit[unit_id] for unit_id in unit_ids]
+
+    stationary_peth, bin_edges, _ = population_peth(
+        all_spike_times=spike_times,
+        alignment_times=stationary_events,
+        pre_seconds=0.1,
+        post_seconds=0.15,
+        binwidth_ms=10,
+    )
+    stationary_peth = stationary_peth / 0.01
+    movement_peth, _, _ = population_peth(
+        all_spike_times=spike_times,
+        alignment_times=movement_events,
+        pre_seconds=0.1,
+        post_seconds=0.15,
+        binwidth_ms=10,
+    )
+    movement_peth = movement_peth / 0.01
+
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    stationary_mean = stationary_peth.mean(axis=1)
+    movement_mean = movement_peth.mean(axis=1)
+    baseline_mask = (bin_centers >= -0.04) & (bin_centers < 0.0)
+    response_mask = (bin_centers >= 0.03) & (bin_centers < 0.12)
+    baseline = stationary_mean[:, baseline_mask].mean(axis=1)
+    stationary_response = stationary_mean[:, response_mask] - baseline[:, None]
+    movement_response = movement_mean[:, response_mask] - baseline[:, None]
+    stationary_peak_idx = np.argmax(stationary_response, axis=1)
+    movement_peak_idx = np.argmax(movement_response, axis=1)
+    unit_index = np.arange(len(unit_ids))
+    response_times = bin_centers[response_mask]
+
+    return pd.DataFrame(
+        {
+            "unit_id": unit_ids,
+            "stat_peak": stationary_response[unit_index, stationary_peak_idx],
+            "stat_latency": response_times[stationary_peak_idx],
+            "move_peak": movement_response[unit_index, movement_peak_idx],
+            "move_latency": response_times[movement_peak_idx],
+        }
+    )
 
 
 class PeakResult(TypedDict):

@@ -34,9 +34,10 @@ Supporting analyses are:
 - `double_peak_responses_by_pulse_width.py` — 15 ms versus 30 ms control
 - `double_peak_units_waveform_profile.py` — firing rate and spike duration
 
-Canonical parameters live in `src/thesis/ephys/config/double_peak.py`. The
-analysis uses 10 ms bins without smoothing, Wilcoxon selectivity with FDR, and
-a 5 sp/s minimum height above baseline for both peaks.
+Canonical parameters live beside the classifier in
+`src/thesis/ephys/utils/peak_classification.py`. The analysis uses 10 ms bins
+without smoothing, Wilcoxon selectivity with FDR, and a 5 sp/s minimum height
+above baseline for both peaks.
 
 `spks.event_aligned.population_peth` returns counts per bin. Each caller
 converts those counts to spikes per second by dividing by its bin width.

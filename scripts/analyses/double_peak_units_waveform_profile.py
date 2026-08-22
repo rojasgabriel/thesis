@@ -10,7 +10,7 @@ Row 0:   FR vs spike_dur     |  FR vs spike_dur
 All good units shown (not just excited). Double-peak units in orange,
 all others in blue. FS/RS boundary line at 0.4 ms (visual reference only).
 
-Classification uses canonical params from src/thesis/ephys/config/double_peak.py
+Classification uses the canonical parameters in peak_classification.py
 (FDR selectivity + 5 sp/s height floor on both peaks).
 
 GRB006 event loading uses its thresholded NIDQ analog-input events.
@@ -35,10 +35,12 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from thesis.ephys.config.double_peak import PEAK_KWARGS
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
-from thesis.ephys.utils.peak_classification import classify_double_peak_units
+from thesis.ephys.utils.peak_classification import (
+    PEAK_SEARCH_WINDOW,
+    classify_double_peak_units,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -154,7 +156,7 @@ def make_grid(session_data, color_by_double: bool = True):
     if color_by_double:
         fig.suptitle(
             "Double-peak waveform profile  ·  all good units shown  ·  "
-            f"peak search={PEAK_KWARGS['search_window']}  ·  "
+            f"peak search={PEAK_SEARCH_WINDOW}  ·  "
             f"FS/RS boundary = {NARROW_BROAD_MS} ms",
             fontsize=10,
         )
