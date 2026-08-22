@@ -8,9 +8,9 @@ from IPython.display import clear_output, display
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from scipy.stats import sem
+from spks.event_aligned import population_peth
+from spks.utils import alpha_function
 from spks.viz import plot_event_aligned_raster
-
-from thesis.ephys.utils.analysis_peth import compute_population_peth
 
 
 class PSTHViewer:
@@ -40,8 +40,15 @@ class PSTHViewer:
         self.fig = figure
         self.ax = axes
         self._cax: Optional[Axes] = None  # dedicated axes for colorbar
-        self.t_rise = t_rise
-        self.t_decay = t_decay
+        self.kernel = None
+        if t_rise is not None and t_decay is not None:
+            decay_bins = t_decay / (binwidth_ms / 1000)
+            self.kernel = alpha_function(
+                int(decay_bins * 15),
+                t_rise=t_rise,
+                t_decay=decay_bins,
+                srate=1000 / binwidth_ms,
+            )
 
     def compute(
         self,
@@ -59,20 +66,6 @@ class PSTHViewer:
         align_ev = fetch_session_events(subject, session)
         trial_df = fetch_trial_metadata(subject, session, align_ev)
         return st_per_unit, align_ev, trial_df
-
-    def _compute_peth(
-        self, spike_times: list[np.ndarray], event_times: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        peth, _, bin_centers = compute_population_peth(
-            spike_times,
-            event_times,
-            pre_seconds=self.pre_seconds,
-            post_seconds=self.post_seconds,
-            binwidth_ms=self.binwidth_ms,
-            t_rise=self.t_rise,
-            t_decay=self.t_decay,
-        )
-        return peth, bin_centers
 
     def plot(
         self,
@@ -102,7 +95,16 @@ class PSTHViewer:
             self.ax.set_ylabel("trial")
 
         elif self.plot_type == "psth":
-            peth, bin_centers = self._compute_peth([spike_times], event_times)
+            peth, bin_edges, _ = population_peth(
+                all_spike_times=[spike_times],
+                alignment_times=event_times,
+                pre_seconds=self.pre_seconds,
+                post_seconds=self.post_seconds,
+                binwidth_ms=self.binwidth_ms,
+                kernel=self.kernel,
+            )
+            peth = peth / (self.binwidth_ms / 1000)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             mean_fr = np.mean(peth[0], axis=0)
             sem_fr = sem(peth[0], axis=0)
             self.ax.plot(bin_centers, mean_fr, color="k")
@@ -122,7 +124,15 @@ class PSTHViewer:
             if all_spike_times is None:
                 return
             unit_ids = list(all_spike_times.keys())
-            peth, _ = self._compute_peth(list(all_spike_times.values()), event_times)
+            peth, _, _ = population_peth(
+                all_spike_times=list(all_spike_times.values()),
+                alignment_times=event_times,
+                pre_seconds=self.pre_seconds,
+                post_seconds=self.post_seconds,
+                binwidth_ms=self.binwidth_ms,
+                kernel=self.kernel,
+            )
+            peth = peth / (self.binwidth_ms / 1000)
             pop_matrix = np.mean(peth, axis=1)
             n_units = pop_matrix.shape[0]
             im = self.ax.imshow(
@@ -207,7 +217,16 @@ class PSTHViewer:
                     ax.set_ylabel("trial")
 
             elif self.plot_type == "psth":
-                peth, bin_centers = self._compute_peth([spike_times], grp_event_times)
+                peth, bin_edges, _ = population_peth(
+                    all_spike_times=[spike_times],
+                    alignment_times=grp_event_times,
+                    pre_seconds=self.pre_seconds,
+                    post_seconds=self.post_seconds,
+                    binwidth_ms=self.binwidth_ms,
+                    kernel=self.kernel,
+                )
+                peth = peth / (self.binwidth_ms / 1000)
+                bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
                 mean_fr = np.mean(peth[0], axis=0)
                 sem_fr = sem(peth[0], axis=0)
                 ax.plot(bin_centers, mean_fr, color="k")
@@ -225,9 +244,15 @@ class PSTHViewer:
                     ax.set_ylabel("sp/s")
 
             elif self.plot_type == "heatmap":
-                peth, _ = self._compute_peth(
-                    list(all_spike_times.values()), grp_event_times
+                peth, _, _ = population_peth(
+                    all_spike_times=list(all_spike_times.values()),
+                    alignment_times=grp_event_times,
+                    pre_seconds=self.pre_seconds,
+                    post_seconds=self.post_seconds,
+                    binwidth_ms=self.binwidth_ms,
+                    kernel=self.kernel,
                 )
+                peth = peth / (self.binwidth_ms / 1000)
                 pop_matrix = np.mean(peth, axis=1)
                 n_units = pop_matrix.shape[0]
                 unit_ids = list(all_spike_times.keys())

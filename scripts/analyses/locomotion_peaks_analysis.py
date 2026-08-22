@@ -14,9 +14,9 @@ from typing import Literal, TypedDict
 import matplotlib
 import numpy as np
 import seaborn as sns
+from scipy import stats
 
 from thesis.ephys.utils.analysis_locomotion import compute_locomotion_peaks
-from thesis.ephys.utils.analysis_stats import mean_and_t_ci
 from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
@@ -179,18 +179,26 @@ def main() -> None:
                 label="_nolegend_",
                 zorder=2,
             )
-            mean_x, lower_x, upper_x = mean_and_t_ci(
-                plotted_stat[unit_mask],
-                log_scale=log_scale,
-                ci_level=MEAN_CI_LEVEL,
-                drop_nonfinite=False,
-            )
-            mean_y, lower_y, upper_y = mean_and_t_ci(
-                plotted_move[unit_mask],
-                log_scale=log_scale,
-                ci_level=MEAN_CI_LEVEL,
-                drop_nonfinite=False,
-            )
+            summaries = []
+            for values in (plotted_stat[unit_mask], plotted_move[unit_mask]):
+                scale_values = np.log(values) if log_scale else values
+                mean = float(scale_values.mean())
+                lower, upper = (
+                    (mean, mean)
+                    if values.size == 1
+                    else stats.t.interval(
+                        MEAN_CI_LEVEL,
+                        df=values.size - 1,
+                        loc=mean,
+                        scale=stats.sem(scale_values),
+                    )
+                )
+                summaries.append(
+                    np.exp([mean, lower, upper])
+                    if log_scale
+                    else np.array([mean, lower, upper])
+                )
+            (mean_x, lower_x, upper_x), (mean_y, lower_y, upper_y) = summaries
             ax.errorbar(
                 mean_x,
                 mean_y,

@@ -32,12 +32,12 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.widgets import Button
 from scipy.stats import sem
+from spks.event_aligned import population_peth
 
-from thesis.ephys.utils.analysis_conditioned_stim import (
+from thesis.ephys.utils.analysis_locomotion import (
     extract_paired_stim_anchors,
     load_trial_classification,
 )
-from thesis.ephys.utils.analysis_peth import compute_population_peth
 
 SHORTCUT_HELP = """\
 Navigation
@@ -110,20 +110,23 @@ def main() -> None:
     unit_ids = list(st_per_unit.keys())
     spike_times = list(st_per_unit.values())
 
-    peth_stat, _, bc = compute_population_peth(
-        spike_times,
-        paired_last_stat,
+    peth_stat, bin_edges, _ = population_peth(
+        all_spike_times=spike_times,
+        alignment_times=paired_last_stat,
         pre_seconds=args.pre_seconds,
         post_seconds=args.post_seconds,
         binwidth_ms=args.binwidth_ms,
     )
-    peth_move, _, _ = compute_population_peth(
-        spike_times,
-        paired_first_move,
+    peth_stat = peth_stat / (args.binwidth_ms / 1000)
+    bc = (bin_edges[:-1] + bin_edges[1:]) / 2
+    peth_move, _, _ = population_peth(
+        all_spike_times=spike_times,
+        alignment_times=paired_first_move,
         pre_seconds=args.pre_seconds,
         post_seconds=args.post_seconds,
         binwidth_ms=args.binwidth_ms,
     )
+    peth_move = peth_move / (args.binwidth_ms / 1000)
 
     if not unit_ids:
         raise RuntimeError("No units found for this session/criteria.")

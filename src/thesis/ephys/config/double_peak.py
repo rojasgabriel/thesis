@@ -29,8 +29,6 @@ PETH_KWARGS: PopulationPethParams = dict(
     pre_seconds=0.1,
     post_seconds=0.15,
     binwidth_ms=10,
-    t_rise=None,  # disable kernel
-    t_decay=None,  # default merges 30-45 ms peaks
 )
 
 BASELINE_WINDOW = (-0.04, 0.0)  # TODO: extend to -0.05

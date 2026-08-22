@@ -38,8 +38,8 @@ Canonical parameters live in `src/thesis/ephys/config/double_peak.py`. The
 analysis uses 10 ms bins without smoothing, Wilcoxon selectivity with FDR, and
 a 5 sp/s minimum height above baseline for both peaks.
 
-`compute_population_peth` returns spikes per second. Do not scale its output
-again.
+`spks.event_aligned.population_peth` returns counts per bin. Each caller
+converts those counts to spikes per second by dividing by its bin width.
 
 The pulse-width control argues against a simple pulse-offset explanation. It
 does not establish a mechanism for the second peak.

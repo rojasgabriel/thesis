@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
 import pandas as pd
+from scipy.signal import find_peaks, peak_prominences
+from spks.event_aligned import population_peth
 
 from thesis.ephys.config.double_peak import (
     BASELINE_WINDOW,
@@ -10,9 +14,73 @@ from thesis.ephys.config.double_peak import (
     PETH_KWARGS,
     SELECTIVITY_KWARGS,
 )
-from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
-from thesis.ephys.utils.analysis_peth import compute_population_peth
 from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+
+
+def classify_peak_count(
+    peth: np.ndarray,
+    bin_centers: np.ndarray,
+    unit_ids: Sequence,
+    search_window: tuple[float, float] = (0.0, 0.15),
+    baseline_window: tuple[float, float] = (-0.1, 0.0),
+    min_prominence_frac: float = 0.25,
+    min_prominence_abs: float = 1.0,
+    min_distance_ms: float = 20.0,
+    binwidth_ms: float = 10.0,
+    mode: str = "peaks",
+) -> pd.DataFrame:
+    """Classify units by peaks or dips in their trial-averaged PETH."""
+    if mode not in ("peaks", "dips"):
+        raise ValueError("mode must be 'peaks' or 'dips'")
+    if len(unit_ids) != peth.shape[0]:
+        raise ValueError(
+            f"len(unit_ids)={len(unit_ids)} != peth n_units={peth.shape[0]}"
+        )
+
+    base_mask = (bin_centers >= baseline_window[0]) & (bin_centers < baseline_window[1])
+    search_mask = (bin_centers >= search_window[0]) & (bin_centers < search_window[1])
+    search_idx = np.where(search_mask)[0]
+    if not search_idx.size:
+        raise ValueError("search_window does not overlap available bins.")
+
+    records = []
+    for unit_index, unit_id in enumerate(unit_ids):
+        mean_peth = peth[unit_index].mean(axis=0)
+        baseline = mean_peth[base_mask].mean() if base_mask.any() else 0.0
+        excess = mean_peth - baseline
+        signal = -excess if mode == "dips" else excess
+        max_signal = float(signal[search_mask].max())
+        prominence = max(min_prominence_frac * max_signal, min_prominence_abs)
+        detected, _ = find_peaks(
+            signal,
+            prominence=prominence,
+            distance=max(1, round(min_distance_ms / binwidth_ms)),
+        )
+        detected = detected[search_mask[detected]]
+        detected = detected[
+            excess[detected] < 0 if mode == "dips" else excess[detected] > 0
+        ]
+
+        if not detected.size and max_signal > 0:
+            best_idx = int(search_idx[np.argmax(signal[search_mask])])
+            if (
+                0 < best_idx < len(signal) - 1
+                and signal[best_idx] > signal[best_idx - 1]
+                and signal[best_idx] > signal[best_idx + 1]
+                and peak_prominences(signal, [best_idx])[0][0] >= prominence
+            ):
+                detected = np.array([best_idx])
+
+        records.append(
+            {
+                "unit": unit_id,
+                "n_peaks": len(detected),
+                "peak_times": bin_centers[detected].tolist(),
+                "peak_heights": mean_peth[detected].tolist(),
+            }
+        )
+
+    return pd.DataFrame(records)
 
 
 def baseline_mean(
@@ -27,11 +95,13 @@ def baseline_mean(
 def classify_double_peak_units(
     spike_times: list[np.ndarray], alignment_times: np.ndarray, unit_ids: list[int]
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
-    peth, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
+    peth, bin_edges, _ = population_peth(
+        all_spike_times=spike_times,
         alignment_times=alignment_times,
         **PETH_KWARGS,
     )
+    peth = peth / (PETH_KWARGS["binwidth_ms"] / 1000)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     _, masks = compute_unit_selectivity(
         peth, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
     )

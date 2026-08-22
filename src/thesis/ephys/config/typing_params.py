@@ -9,8 +9,6 @@ class PopulationPethParams(TypedDict):
     pre_seconds: float
     post_seconds: float
     binwidth_ms: int
-    t_rise: float | None
-    t_decay: float | None
 
 
 class UnitSelectivityParams(TypedDict):

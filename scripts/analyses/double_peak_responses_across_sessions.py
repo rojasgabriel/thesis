@@ -15,6 +15,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
+from spks.event_aligned import population_peth
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -23,13 +24,12 @@ from thesis.ephys.config.double_peak import (
     PEAK_KWARGS,
     PETH_KWARGS,
 )
-from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
-from thesis.ephys.utils.analysis_peth import compute_population_peth
 from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
 from thesis.ephys.utils.peak_classification import (
     classify_double_peak_units,
+    classify_peak_count,
     mark_peaks,
 )
 from thesis.ephys.utils.peak_classification import (
@@ -142,13 +142,12 @@ def collect_grb058_session(session):
 
     rows = {}
     if double_ids:
-        peth_30, _, _ = compute_population_peth(
-            spike_times_per_unit=[
-                spike_times[unit_ids.index(uid)] for uid in double_ids
-            ],
+        peth_30, _, _ = population_peth(
+            all_spike_times=[spike_times[unit_ids.index(uid)] for uid in double_ids],
             alignment_times=align_ev["first_stim_ev_30ms"],
             **PETH_KWARGS,
         )
+        peth_30 = peth_30 / (PETH_KWARGS["binwidth_ms"] / 1000)
         peaks_df_30 = classify_peak_count(
             peth_30, bin_centers, unit_ids=double_ids, **PEAK_KWARGS
         )

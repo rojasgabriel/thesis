@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
+from spks.event_aligned import population_peth
 
 matplotlib.use("Agg")
 
@@ -34,13 +35,12 @@ from thesis.ephys.config.double_peak import (
     PETH_KWARGS,
 )
 from thesis.ephys.config.typing_params import PeakCountParams
-from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
-from thesis.ephys.utils.analysis_peth import compute_population_peth
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
 from thesis.ephys.utils.peak_classification import (
     baseline_mean,
     classify_double_peak_units,
+    classify_peak_count,
     mark_peaks,
 )
 from thesis.ephys.utils.peak_classification import (
@@ -116,11 +116,12 @@ def main() -> None:
         dp_peth_15 = peth_15[dp_idx]
         dp_spike_times = [spike_times[i] for i in dp_idx]
 
-        peth_30_all, _, _ = compute_population_peth(
-            spike_times_per_unit=dp_spike_times,
+        peth_30_all, _, _ = population_peth(
+            all_spike_times=dp_spike_times,
             alignment_times=align_ev["first_stim_ev_30ms"],
             **PETH_KWARGS,
         )
+        peth_30_all = peth_30_all / (PETH_KWARGS["binwidth_ms"] / 1000)
 
         for j, uid in enumerate(double_ids):
             dp_rows.append(
