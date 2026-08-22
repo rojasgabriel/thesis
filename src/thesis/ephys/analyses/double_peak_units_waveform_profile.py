@@ -35,9 +35,9 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from thesis.ephys.utils.io_digital_events import fetch_session_events
-from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
-from thesis.ephys.utils.peak_classification import (
+from thesis.ephys.io_digital_events import fetch_session_events
+from thesis.ephys.io_session_units import fetch_good_unit_metrics_table
+from thesis.ephys.peak_classification import (
     PEAK_SEARCH_WINDOW,
     classify_double_peak_units,
 )

@@ -52,12 +52,12 @@ select = ["E4", "E7", "E9", "F", "I"]
 force-to-top = ["labdata", "labdata.schema"]
 
 [tool.ty.src]
-include = ["src", "scripts", "notebooks"]
+include = ["src", "notebooks"]
 
 [tool.ty.environment]
 extra-paths = ["typings"]
 
 [tool.pyright]
-include = ["src", "scripts", "notebooks"]
+include = ["src", "notebooks"]
 extraPaths = ["typings"]
 reportMissingModuleSource = "none"

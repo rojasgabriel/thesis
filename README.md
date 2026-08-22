@@ -10,7 +10,7 @@ Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 
 ```bash
 git clone https://github.com/rojasgabriel/ephys.git
-cd thesis
+cd ephys
 uv sync
 ```
 

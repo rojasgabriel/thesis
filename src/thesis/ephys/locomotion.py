@@ -8,8 +8,8 @@ import pandas as pd
 
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
     """Load the conditioned-stim classification for one session."""
-    from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
-    from thesis.ephys.utils.io_digital_events import fetch_session_events
+    from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
+    from thesis.ephys.io_digital_events import fetch_session_events
 
     align_ev = fetch_session_events(subject, session)
     trial_df = fetch_trial_metadata(subject, session, align_ev)

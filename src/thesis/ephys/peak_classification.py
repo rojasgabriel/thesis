@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.signal import find_peaks, peak_prominences
 from spks.event_aligned import population_peth
 
-from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
+from thesis.ephys.selectivity import compute_unit_selectivity
 
 PETH_PRE_SECONDS = 0.1
 PETH_POST_SECONDS = 0.15

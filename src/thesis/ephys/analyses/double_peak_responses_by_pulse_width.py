@@ -29,9 +29,9 @@ from spks.event_aligned import population_peth
 
 matplotlib.use("Agg")
 
-from thesis.ephys.utils.io_digital_events import fetch_session_events
-from thesis.ephys.utils.io_session_units import fetch_good_units
-from thesis.ephys.utils.peak_classification import (
+from thesis.ephys.io_digital_events import fetch_session_events
+from thesis.ephys.io_session_units import fetch_good_units
+from thesis.ephys.peak_classification import (
     BASELINE_WINDOW,
     PETH_BINWIDTH_MS,
     PETH_POST_SECONDS,
@@ -40,7 +40,7 @@ from thesis.ephys.utils.peak_classification import (
     classify_peak_count,
     mark_peaks,
 )
-from thesis.ephys.utils.peak_classification import (
+from thesis.ephys.peak_classification import (
     plot_mean_sem_trace as plot_trace,
 )
 

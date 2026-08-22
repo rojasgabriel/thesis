@@ -21,5 +21,19 @@ class Chipmunk(metaclass=ChipmunkMeta):
         min_required_stim_values: int = 6,
         **key: Any,
     ) -> dict[str, Any] | None: ...
+    @classmethod
+    def trial_events(
+        cls,
+        is_nidq: bool = False,
+        observation_window: str = "center_exit",
+        **key: Any,
+    ) -> list[dict[str, Any]]: ...
+    @classmethod
+    def fit_psychophysical_kernel(
+        cls,
+        is_nidq: bool = False,
+        observation_window: str = "center_exit",
+        **key: Any,
+    ) -> dict[str, Any] | None: ...
     def __and__(self, other: Any) -> Any: ...
     def __mul__(self, other: Any) -> Any: ...

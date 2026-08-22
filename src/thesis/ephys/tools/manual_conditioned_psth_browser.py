@@ -1,7 +1,7 @@
 """Standalone interactive browser for last-stationary vs first-movement PSTHs.
 
 Usage:
-  python scripts/tools/manual_conditioned_psth_browser.py --subject GRB058 --session 20260312_134952
+  uv run python -m thesis.ephys.tools.manual_conditioned_psth_browser --subject GRB058 --session 20260312_134952
 
 Controls:
   left/right or j/l : previous/next unit
@@ -34,7 +34,7 @@ from matplotlib.widgets import Button
 from scipy.stats import sem
 from spks.event_aligned import population_peth
 
-from thesis.ephys.utils.analysis_locomotion import (
+from thesis.ephys.locomotion import (
     extract_paired_stim_anchors,
     load_trial_classification,
 )
@@ -71,7 +71,7 @@ Session controls
 def load_browser_data(
     subject: str, session: str, unit_criteria_id: int
 ) -> tuple[dict[int, np.ndarray], np.ndarray, np.ndarray]:
-    from thesis.ephys.utils.io_session_units import fetch_good_units
+    from thesis.ephys.io_session_units import fetch_good_units
 
     st_per_unit = fetch_good_units(subject, session, unit_criteria_id)
     trial_ts = load_trial_classification(subject, session)

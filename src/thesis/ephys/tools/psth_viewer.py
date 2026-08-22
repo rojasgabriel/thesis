@@ -56,9 +56,9 @@ class PSTHViewer:
         """Fetch session data (units, events, trial metadata)."""
         if self.subject is None or self.session is None:
             raise ValueError("subject and session must be set before calling compute()")
-        from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
-        from thesis.ephys.utils.io_digital_events import fetch_session_events
-        from thesis.ephys.utils.io_session_units import fetch_good_units
+        from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
+        from thesis.ephys.io_digital_events import fetch_session_events
+        from thesis.ephys.io_session_units import fetch_good_units
 
         subject: str = self.subject
         session: str = self.session

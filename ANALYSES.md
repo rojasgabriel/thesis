@@ -1,9 +1,9 @@
 # Thesis analysis guide
 
-Run scripts from the repository root:
+Run analysis modules from the repository root:
 
 ```bash
-uv run python scripts/<group>/<script_name>.py
+uv run python -m thesis.ephys.<group>.<module_name>
 ```
 
 Figures go under `figures/`. Set `THESIS_FIGURE_ROOT` to change that root.
@@ -11,8 +11,8 @@ Figures go under `figures/`. Set `THESIS_FIGURE_ROOT` to change that root.
 ## Main figures
 
 ```bash
-uv run python scripts/analyses/locomotion_peaks_analysis.py
-uv run python scripts/analyses/double_peak_responses_across_sessions.py
+uv run python -m thesis.ephys.analyses.locomotion_peaks_analysis
+uv run python -m thesis.ephys.analyses.double_peak_responses_across_sessions
 ```
 
 ### Locomotion
@@ -35,7 +35,7 @@ Supporting analyses are:
 - `double_peak_units_waveform_profile.py` — firing rate and spike duration
 
 Canonical parameters live beside the classifier in
-`src/thesis/ephys/utils/peak_classification.py`. The analysis uses 10 ms bins
+`src/thesis/ephys/peak_classification.py`. The analysis uses 10 ms bins
 without smoothing, Wilcoxon selectivity with FDR, and a 5 sp/s minimum height
 above baseline for both peaks.
 
@@ -45,20 +45,17 @@ converts those counts to spikes per second by dividing by its bin width.
 The pulse-width control argues against a simple pulse-offset explanation. It
 does not establish a mechanism for the second peak.
 
-## Behavior library
+## Behavior
 
-Reusable behavior code lives under `src/thesis/behavior/`:
+Cheap analyses derived from stored trials live on the Chipmunk table. Use
+`Chipmunk.fit_psychometric(**key)` or
+`Chipmunk.fit_psychophysical_kernel(is_nidq=False, **key)`. Kernel fits use
+Bpod timing by default; pass `is_nidq=True` to use synchronized hardware
+events. Neither fit is stored in a derived table.
 
-- `learning.py` — trial-set summaries
-- `psychometrics.py` — psychometric fits
-- `kernels.py` — psychophysical-kernel math
-- `kernel_timing.py` — Bpod and NIDAQ timing inputs
+## Ephys module roles
 
-There is no active behavior schema or schema-backed behavior command-line
-interface. A new schema needs separate approval.
-
-## Script roles
-
-- `scripts/analyses/` answers scientific questions and writes figures.
-- `scripts/diagnostics/` checks data quality and assumptions.
-- `scripts/tools/` contains interactive browsers and utilities.
+- `src/thesis/ephys/analyses/` answers scientific questions and writes figures.
+- `src/thesis/ephys/tools/` contains interactive browsers and notebook tools.
+- Shared data access and scientific operations live directly under
+  `src/thesis/ephys/`.

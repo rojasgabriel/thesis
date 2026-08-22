@@ -18,13 +18,13 @@ import seaborn as sns
 from scipy import stats
 from spks.event_aligned import population_peth
 
-from thesis.ephys.utils.analysis_locomotion import (
-    extract_paired_stim_anchors,
-    load_trial_classification,
-)
-from thesis.ephys.utils.io_session_units import (
+from thesis.ephys.io_session_units import (
     fetch_good_unit_metrics_table,
     fetch_good_units,
+)
+from thesis.ephys.locomotion import (
+    extract_paired_stim_anchors,
+    load_trial_classification,
 )
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))

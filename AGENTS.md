@@ -6,9 +6,11 @@ Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 - Treat repository code and docs as technical truth. Use Notion for
   current priorities and decisions.
 - Read `ANALYSES.md` for the maintained scientific surface.
-- Keep reusable code under `src/thesis/behavior/` or `src/thesis/ephys/`.
-- Keep scripts under `scripts/analyses`, `scripts/diagnostics`, or
-  `scripts/tools`. Keep notebooks exploratory; do not import from them.
+- Keep domain code under `src/thesis/<domain>/`; do not keep empty domain
+  folders.
+- Keep complete ephys workflows under `src/thesis/ephys/analyses/` and
+  interactive entry points under `src/thesis/ephys/tools/`. Run them as
+  modules with `python -m`. Keep notebooks exploratory; do not import from them.
 - Do not add machine-local paths or sibling-checkout dependencies.
 
 Keep analysis code explicit and reproducible. State assumptions and the
