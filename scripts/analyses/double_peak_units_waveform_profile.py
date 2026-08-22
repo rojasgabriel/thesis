@@ -35,18 +35,10 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from thesis.ephys.config.double_peak import (
-    PEAK_KWARGS,
-    PETH_KWARGS,
-)
-from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.grb006_data import (
-    fetch_grb006_spike_times,
-    load_grb006_first_stim,
-)
+from thesis.ephys.config.double_peak import PEAK_KWARGS
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
-from thesis.ephys.utils.peak_classification import canonical_double_peak_rows
+from thesis.ephys.utils.peak_classification import classify_double_peak_units
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -72,41 +64,9 @@ COL_DOUBLE = "#DD8452"  # orange
 
 
 def fetch_unit_table(subject: str, session: str) -> pd.DataFrame:
-    df, srate = fetch_good_unit_metrics_table(subject, session, UNIT_CRITERIA_ID)
-    if subject == "GRB006":
-        spk_map = fetch_grb006_spike_times_map()
-        df["spike_times_s"] = df["unit_id"].apply(
-            lambda uid: spk_map.get(int(uid), np.array([]))
-        )
-    else:
-        df["spike_times_s"] = df["spike_times"].apply(
-            lambda st: np.asarray(st, dtype=float) / srate
-        )
-
-    med = df["spike_duration"].dropna()
-    if len(med):
-        df["spike_duration_ms"] = (
-            df["spike_duration"] / srate * 1000.0
-            if med.median() > 100
-            else df["spike_duration"]
-        )
-    else:
-        df["spike_duration_ms"] = np.nan
-
-    return df.sort_values("depth", ascending=True).reset_index(drop=True)
-
-
-def fetch_grb006_spike_times_map() -> dict:
-    """Return {unit_id: spike_times_s} from good-unit rows."""
-    unit_ids, spike_times = fetch_grb006_spike_times()
-    return dict(zip(unit_ids, spike_times))
-
-
-def get_first_stim(subject: str, session: str) -> np.ndarray:
-    if subject == "GRB006":
-        return load_grb006_first_stim()
-    align_ev = fetch_session_events(subject, session)
-    return align_ev["first_stim_ev_15ms"]
+    return fetch_good_unit_metrics_table(
+        subject, session, UNIT_CRITERIA_ID
+    ).reset_index(drop=True)
 
 
 def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFrame:
@@ -117,14 +77,7 @@ def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFra
         df["is_double"] = False
         return df
 
-    peth, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
-        alignment_times=first_stim,
-        **PETH_KWARGS,
-    )
-    double_peak_rows, _, _ = canonical_double_peak_rows(
-        peth, bin_edges, bin_centers, unit_ids
-    )
+    double_peak_rows, *_ = classify_double_peak_units(spike_times, first_stim, unit_ids)
     double_ids = set(double_peak_rows["unit"].astype(int))
     df["is_double"] = df["unit_id"].isin(double_ids)
 
@@ -235,7 +188,7 @@ def main():
         print(f"  units: {len(df)}")
 
         try:
-            first_stim = get_first_stim(subject, session)
+            first_stim = fetch_session_events(subject, session)["first_stim_ev_15ms"]
         except Exception as e:
             print(f"  ✗ events: {e}")
             continue

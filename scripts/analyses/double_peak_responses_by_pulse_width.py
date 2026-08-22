@@ -32,12 +32,10 @@ from thesis.ephys.config.double_peak import (
     BASELINE_WINDOW,
     PEAK_KWARGS,
     PETH_KWARGS,
-    SELECTIVITY_KWARGS,
 )
 from thesis.ephys.config.typing_params import PeakCountParams
 from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
 from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.analysis_selectivity import compute_unit_selectivity
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
 from thesis.ephys.utils.peak_classification import (
@@ -50,6 +48,7 @@ from thesis.ephys.utils.peak_classification import (
 )
 
 GRB058_SESSIONS = ["20260312_134952", "20260319_131303"]
+REFERENCE_SESSION = "20260312_134952"
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "pulse_split.pdf"
 
@@ -75,29 +74,12 @@ class SinglePeakRow(TypedDict):
     bin_centers: np.ndarray
 
 
-def load_session(subject, session):
-    """Return (unit_ids, spike_times, align_ev, peth_15, bin_edges, bin_centers, masks)."""
-    st_per_unit = fetch_good_units(subject, session)
-    align_ev = fetch_session_events(subject, session)
-    unit_ids = list(st_per_unit.keys())
-    spike_times = list(st_per_unit.values())
-
-    peth_15, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
-        alignment_times=align_ev["first_stim_ev_15ms"],
-        **PETH_KWARGS,
-    )
-    _, masks = compute_unit_selectivity(
-        peth_15, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
-    )
-    return unit_ids, spike_times, align_ev, peth_15, bin_edges, bin_centers, masks
-
-
 # ---------------------------------------------------------------------------
 # Collect double-peak units (GRB058, both sessions)
 # ---------------------------------------------------------------------------
 def main() -> None:
     dp_rows: list[DoublePeakRow] = []
+    reference_data = None
 
     for session in GRB058_SESSIONS:
         spike_times_by_unit = fetch_good_units("GRB058", session)
@@ -107,9 +89,19 @@ def main() -> None:
         n_tr_15 = len(align_ev["first_stim_ev_15ms"])
         n_tr_30 = len(align_ev["first_stim_ev_30ms"])
 
-        double_peak_rows, peth_15, _, bin_centers, _ = classify_double_peak_units(
-            spike_times, align_ev["first_stim_ev_15ms"], unit_ids
+        double_peak_rows, peth_15, bin_centers, excited_ids = (
+            classify_double_peak_units(
+                spike_times, align_ev["first_stim_ev_15ms"], unit_ids
+            )
         )
+        if session == REFERENCE_SESSION:
+            reference_data = (
+                unit_ids,
+                peth_15,
+                bin_centers,
+                excited_ids,
+                n_tr_15,
+            )
         double_ids = double_peak_rows["unit"].astype(int).tolist()
 
         print(
@@ -146,76 +138,55 @@ def main() -> None:
                 )
             )
 
-    # ---------------------------------------------------------------------------
-    # Collect single-peak reference examples — one per animal (GRB058/059/060),
-    # best single-peak excited unit chosen by response amplitude above baseline.
-    # Using one per animal ensures all recorded subjects appear in the figure.
-    # ---------------------------------------------------------------------------
-    SP_ANIMAL_SESSIONS = [
-        ("GRB058", "20260312_134952"),
-    ]
+    if reference_data is None:
+        raise RuntimeError(f"Reference session {REFERENCE_SESSION} was not loaded.")
+    unit_ids, peth_15, bin_centers, excited_ids, n_tr_15 = reference_data
+    excited_peth = peth_15[[unit_ids.index(unit_id) for unit_id in excited_ids]]
+    peaks_df = classify_peak_count(
+        excited_peth, bin_centers, unit_ids=excited_ids, **PEAK_KWARGS
+    )
+    single_ids = peaks_df.loc[peaks_df["n_peaks"] == 1, "unit"].tolist()
 
-    sp_rows: list[SinglePeakRow] = []
-    for subject, session in SP_ANIMAL_SESSIONS:
-        unit_ids, spike_times, align_ev, peth_15, bin_edges, bin_centers, masks = (
-            load_session(subject, session)
-        )
-        n_tr_15 = len(align_ev["first_stim_ev_15ms"])
-
-        exc_idx = np.where(masks["excited"])[0]
-        exc_peth = peth_15[exc_idx]
-        exc_ids = [unit_ids[i] for i in exc_idx]
-
-        peaks_df = classify_peak_count(
-            exc_peth, bin_centers, unit_ids=exc_ids, **PEAK_KWARGS
-        )
-        single_ids = peaks_df.loc[peaks_df["n_peaks"] == 1, "unit"].tolist()
-
-        # Stability check: exclude units that grow a second peak when the
-        # prominence threshold is relaxed to 10 %.  Those units have a
-        # borderline secondary bump and would be misleading as "single-peak"
-        # reference examples.
-        sensitive_peak_kwargs: PeakCountParams = {
-            **PEAK_KWARGS,
-            "min_prominence_frac": 0.10,
-        }
-        sensitive_peaks = classify_peak_count(
-            exc_peth,
-            bin_centers,
-            unit_ids=exc_ids,
-            **sensitive_peak_kwargs,
-        )
-        robust_single_ids = [
-            uid
-            for uid in single_ids
-            if sensitive_peaks.loc[sensitive_peaks["unit"] == uid, "n_peaks"].iloc[0]
-            == 1
-        ]
-        if not robust_single_ids:
-            robust_single_ids = single_ids  # fallback if all have secondary bumps
-
-        best = max(
-            robust_single_ids,
-            key=lambda uid: (
-                exc_peth[exc_ids.index(uid)].mean(0).max()
-                - baseline_mean(
-                    exc_peth[exc_ids.index(uid)], bin_centers, BASELINE_WINDOW
-                )
-            ),
-        )
-        i = exc_ids.index(best)
-        sp_rows.append(
-            dict(
-                subject=subject,
-                session=session,
-                uid=best,
-                peth_15=exc_peth[i],
-                n_tr_15=n_tr_15,
-                peaks_df_row=peaks_df[peaks_df["unit"] == best].iloc[0],
-                bin_centers=bin_centers,
+    sensitive_peak_kwargs: PeakCountParams = {
+        **PEAK_KWARGS,
+        "min_prominence_frac": 0.10,
+    }
+    sensitive_peaks = classify_peak_count(
+        excited_peth,
+        bin_centers,
+        unit_ids=excited_ids,
+        **sensitive_peak_kwargs,
+    )
+    robust_single_ids = [
+        unit_id
+        for unit_id in single_ids
+        if sensitive_peaks.loc[sensitive_peaks["unit"] == unit_id, "n_peaks"].iloc[0]
+        == 1
+    ] or single_ids
+    best = max(
+        robust_single_ids,
+        key=lambda unit_id: (
+            excited_peth[excited_ids.index(unit_id)].mean(0).max()
+            - baseline_mean(
+                excited_peth[excited_ids.index(unit_id)],
+                bin_centers,
+                BASELINE_WINDOW,
             )
-        )
-        print(f"\nSingle-peak reference  {subject}/{session[:8]}  unit={best}")
+        ),
+    )
+    best_index = excited_ids.index(best)
+    sp_rows: list[SinglePeakRow] = [
+        {
+            "subject": "GRB058",
+            "session": REFERENCE_SESSION,
+            "uid": best,
+            "peth_15": excited_peth[best_index],
+            "n_tr_15": n_tr_15,
+            "peaks_df_row": peaks_df[peaks_df["unit"] == best].iloc[0],
+            "bin_centers": bin_centers,
+        }
+    ]
+    print(f"\nSingle-peak reference  GRB058/{REFERENCE_SESSION[:8]}  unit={best}")
 
     # ---------------------------------------------------------------------------
     # Figure — 2 rows × N columns (N = number of double-peak units found)

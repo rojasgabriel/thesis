@@ -22,13 +22,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.utils.grb006_data import (
-    GRB006_SESSION as SESSION,
-)
-from thesis.ephys.utils.grb006_data import (
-    fetch_grb006_spike_times,
-    load_grb006_first_stim,
-)
+from thesis.ephys.utils.io_digital_events import fetch_session_events
+from thesis.ephys.utils.io_session_units import fetch_good_units
 from thesis.ephys.utils.peak_classification import (
     classify_double_peak_units,
     mark_peaks,
@@ -40,13 +35,17 @@ from thesis.ephys.utils.peak_classification import (
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "grb006_examples.pdf"
 
+SUBJECT = "GRB006"
+SESSION = "20240821_121447"
 N_PANELS = 6
 
 
 def collect_double_peak_rows():
-    first_stim = load_grb006_first_stim()
-    unit_ids, spike_times = fetch_grb006_spike_times()
-    double_peak_rows, peth, _, bin_centers, excited_ids = classify_double_peak_units(
+    first_stim = fetch_session_events(SUBJECT, SESSION)["first_stim_ev_15ms"]
+    spike_times_by_unit = fetch_good_units(SUBJECT, SESSION)
+    unit_ids = list(spike_times_by_unit)
+    spike_times = list(spike_times_by_unit.values())
+    double_peak_rows, peth, bin_centers, excited_ids = classify_double_peak_units(
         spike_times, first_stim, unit_ids
     )
 

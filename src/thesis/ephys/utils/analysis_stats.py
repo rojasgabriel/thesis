@@ -27,21 +27,14 @@ def mean_and_t_ci(
         mean_value = float(values[0])
         return mean_value, mean_value, mean_value
 
+    scale_values = np.log(values) if log_scale else values
+    mean_value = float(np.mean(scale_values))
+    lower, upper = stats.t.interval(
+        ci_level,
+        df=values.size - 1,
+        loc=mean_value,
+        scale=stats.sem(scale_values),
+    )
     if log_scale:
-        log_values = np.log(values)
-        mean_log = float(np.mean(log_values))
-        dof = values.size - 1
-        t_crit = float(stats.t.ppf((1.0 + ci_level) / 2.0, dof))
-        sem_log = float(np.std(log_values, ddof=1)) / np.sqrt(values.size)
-        lower = float(np.exp(mean_log - t_crit * sem_log))
-        upper = float(np.exp(mean_log + t_crit * sem_log))
-        mean_value = float(np.exp(mean_log))
-        return mean_value, lower, upper
-
-    mean_value = float(np.mean(values))
-    dof = values.size - 1
-    t_crit = float(stats.t.ppf((1.0 + ci_level) / 2.0, dof))
-    sem_value = float(np.std(values, ddof=1)) / np.sqrt(values.size)
-    lower = mean_value - t_crit * sem_value
-    upper = mean_value + t_crit * sem_value
-    return mean_value, lower, upper
+        mean_value, lower, upper = np.exp([mean_value, lower, upper])
+    return float(mean_value), float(lower), float(upper)

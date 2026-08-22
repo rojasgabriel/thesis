@@ -24,12 +24,14 @@ def baseline_mean(
     return float(peth_trials.mean(axis=0)[mask].mean())
 
 
-def canonical_double_peak_rows(
-    peth: np.ndarray,
-    bin_edges: np.ndarray,
-    bin_centers: np.ndarray,
-    unit_ids: list[int],
-) -> tuple[pd.DataFrame, np.ndarray, list[int]]:
+def classify_double_peak_units(
+    spike_times: list[np.ndarray], alignment_times: np.ndarray, unit_ids: list[int]
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
+    peth, bin_edges, bin_centers = compute_population_peth(
+        spike_times_per_unit=spike_times,
+        alignment_times=alignment_times,
+        **PETH_KWARGS,
+    )
     _, masks = compute_unit_selectivity(
         peth, bin_edges, unit_ids=unit_ids, **SELECTIVITY_KWARGS
     )
@@ -69,21 +71,7 @@ def canonical_double_peak_rows(
                 "max_peak_height_above_baseline",
             ]
         )
-    return double_peak_rows, excited_indices, excited_unit_ids
-
-
-def classify_double_peak_units(
-    spike_times: list[np.ndarray], alignment_times: np.ndarray, unit_ids: list[int]
-) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, list[int]]:
-    peth, bin_edges, bin_centers = compute_population_peth(
-        spike_times_per_unit=spike_times,
-        alignment_times=alignment_times,
-        **PETH_KWARGS,
-    )
-    double_peak_rows, excited_indices, excited_unit_ids = canonical_double_peak_rows(
-        peth, bin_edges, bin_centers, unit_ids
-    )
-    return double_peak_rows, peth, bin_edges, bin_centers, excited_unit_ids
+    return double_peak_rows, peth, bin_centers, excited_unit_ids
 
 
 def plot_mean_sem_trace(

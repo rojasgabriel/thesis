@@ -7,12 +7,10 @@ import pandas as pd
 
 from thesis.ephys.config.locomotion import BASELINE_WINDOW, PETH_KWARGS, RESP_WINDOW
 from thesis.ephys.utils.analysis_conditioned_stim import (
-    build_trial_stim_classification,
-    extract_conditioned_stim_anchors,
+    extract_paired_stim_anchors,
+    load_trial_classification,
 )
 from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
-from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
 
 
@@ -22,15 +20,10 @@ def compute_locomotion_peaks(
     unit_criteria_id: int = 1,
 ) -> pd.DataFrame:
     """Return stationary and movement peaks for all good units in one session."""
-    aligned_events = fetch_session_events(subject, session)
-    trial_table = fetch_trial_metadata(subject, session, aligned_events)
-    if trial_table is None:
-        raise RuntimeError(f"Could not load trial metadata for {subject} {session}.")
-
-    trial_classification = build_trial_stim_classification(aligned_events, trial_table)
-    anchors = extract_conditioned_stim_anchors(trial_classification)
-    stationary_event_times = anchors["paired_last_stationary"]
-    movement_event_times = anchors["paired_first_movement"]
+    trial_classification = load_trial_classification(subject, session)
+    stationary_event_times, movement_event_times = extract_paired_stim_anchors(
+        trial_classification
+    )
     if stationary_event_times.size == 0 or movement_event_times.size == 0:
         raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
 

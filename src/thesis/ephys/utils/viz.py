@@ -6,15 +6,11 @@ import numpy as np
 import pandas as pd
 from IPython.display import clear_output, display
 from matplotlib.axes import Axes
-from matplotlib.colorbar import Colorbar
 from matplotlib.figure import Figure
 from scipy.stats import sem
-from spks.event_aligned import population_peth
 from spks.viz import plot_event_aligned_raster
 
-from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
-from thesis.ephys.utils.io_digital_events import fetch_session_events
-from thesis.ephys.utils.io_session_units import fetch_good_units
+from thesis.ephys.utils.analysis_peth import compute_population_peth
 
 
 class PSTHViewer:
@@ -44,38 +40,39 @@ class PSTHViewer:
         self.fig = figure
         self.ax = axes
         self._cax: Optional[Axes] = None  # dedicated axes for colorbar
-        self._colorbar: Optional[Colorbar] = None
-
-        self._kernel = None
-        if t_rise is not None and t_decay is not None:
-            from spks.utils import alpha_function
-
-            decay_bins = t_decay / (binwidth_ms / 1000)
-            self._kernel = alpha_function(
-                int(decay_bins * 15),
-                t_rise=t_rise,
-                t_decay=decay_bins,
-                srate=1.0 / (binwidth_ms / 1000),
-            )
-
-        # to be filled by compute()
-        self.peth = None  # (units, trials, timebins)
-        self.mean_peth = None  # (units, timebins)
-        self.sem_peth = None  # (units, timebins)
-        self.bin_centers = None  # (timebins,)
+        self.t_rise = t_rise
+        self.t_decay = t_decay
 
     def compute(
         self,
-    ) -> tuple[dict[int, np.ndarray], dict[str, np.ndarray], Optional[pd.DataFrame]]:
+    ) -> tuple[dict[int, np.ndarray], dict[str, np.ndarray], pd.DataFrame]:
         """Fetch session data (units, events, trial metadata)."""
         if self.subject is None or self.session is None:
             raise ValueError("subject and session must be set before calling compute()")
+        from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
+        from thesis.ephys.utils.io_digital_events import fetch_session_events
+        from thesis.ephys.utils.io_session_units import fetch_good_units
+
         subject: str = self.subject
         session: str = self.session
         st_per_unit = fetch_good_units(subject, session, self.unit_criteria_id)
         align_ev = fetch_session_events(subject, session)
         trial_df = fetch_trial_metadata(subject, session, align_ev)
         return st_per_unit, align_ev, trial_df
+
+    def _compute_peth(
+        self, spike_times: list[np.ndarray], event_times: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        peth, _, bin_centers = compute_population_peth(
+            spike_times,
+            event_times,
+            pre_seconds=self.pre_seconds,
+            post_seconds=self.post_seconds,
+            binwidth_ms=self.binwidth_ms,
+            t_rise=self.t_rise,
+            t_decay=self.t_decay,
+        )
+        return peth, bin_centers
 
     def plot(
         self,
@@ -91,8 +88,6 @@ class PSTHViewer:
         if self._cax is not None:
             self._cax.cla()
             self._cax.set_visible(False)
-        binwidth_s = self.binwidth_ms / 1000.0
-
         if self.plot_type == "raster":
             plot_event_aligned_raster(
                 event_times=event_times,
@@ -107,20 +102,9 @@ class PSTHViewer:
             self.ax.set_ylabel("trial")
 
         elif self.plot_type == "psth":
-            peth, timebin_edges, _ = population_peth(
-                all_spike_times=[spike_times],
-                alignment_times=event_times,
-                pre_seconds=self.pre_seconds,
-                post_seconds=self.post_seconds,
-                binwidth_ms=self.binwidth_ms,
-                kernel=self._kernel,
-                pad=0,
-            )
-            # peth returns spike counts per bin — divide by bin width to get sp/s
-            # peth shape: (1, n_trials, n_timebins)
-            mean_fr = np.mean(peth[0], axis=0) / binwidth_s
-            sem_fr = sem(peth[0], axis=0) / binwidth_s
-            bin_centers = (timebin_edges[:-1] + timebin_edges[1:]) / 2.0
+            peth, bin_centers = self._compute_peth([spike_times], event_times)
+            mean_fr = np.mean(peth[0], axis=0)
+            sem_fr = sem(peth[0], axis=0)
             self.ax.plot(bin_centers, mean_fr, color="k")
             self.ax.fill_between(
                 bin_centers,
@@ -138,18 +122,8 @@ class PSTHViewer:
             if all_spike_times is None:
                 return
             unit_ids = list(all_spike_times.keys())
-            peth, timebin_edges, _ = population_peth(
-                all_spike_times=list(all_spike_times.values()),
-                alignment_times=event_times,
-                pre_seconds=self.pre_seconds,
-                post_seconds=self.post_seconds,
-                binwidth_ms=self.binwidth_ms,
-                kernel=self._kernel,
-                pad=0,
-            )
-            # peth shape: (n_units, n_trials, n_timebins)
-            # average across trials and convert to sp/s
-            pop_matrix = np.mean(peth, axis=1) / binwidth_s  # (n_units, n_timebins)
+            peth, _ = self._compute_peth(list(all_spike_times.values()), event_times)
+            pop_matrix = np.mean(peth, axis=1)
             n_units = pop_matrix.shape[0]
             im = self.ax.imshow(
                 pop_matrix,
@@ -170,7 +144,7 @@ class PSTHViewer:
             self.ax.set_ylabel("unit ID (sorted by depth)")
             if self._cax is not None:
                 self._cax.set_visible(True)
-                self._colorbar = self.fig.colorbar(im, cax=self._cax, label="sp/s")
+                self.fig.colorbar(im, cax=self._cax, label="sp/s")
 
         if self.fig is not None:
             self.fig.canvas.draw_idle()
@@ -184,8 +158,6 @@ class PSTHViewer:
         event_times: np.ndarray,
     ) -> Figure:
         """Create a fresh figure with one subplot per category value of split_col."""
-        binwidth_s = self.binwidth_ms / 1000.0
-
         # -- Assign each event to a trial via trial_start_ts -----------
         trial_starts = np.asarray(trial_df["trial_start_ts"])
         trial_idx = np.searchsorted(trial_starts, event_times, side="right") - 1
@@ -235,18 +207,9 @@ class PSTHViewer:
                     ax.set_ylabel("trial")
 
             elif self.plot_type == "psth":
-                peth, timebin_edges, _ = population_peth(
-                    all_spike_times=[spike_times],
-                    alignment_times=grp_event_times,
-                    pre_seconds=self.pre_seconds,
-                    post_seconds=self.post_seconds,
-                    binwidth_ms=self.binwidth_ms,
-                    kernel=self._kernel,
-                    pad=0,
-                )
-                mean_fr = np.mean(peth[0], axis=0) / binwidth_s
-                sem_fr = sem(peth[0], axis=0) / binwidth_s
-                bin_centers = (timebin_edges[:-1] + timebin_edges[1:]) / 2.0
+                peth, bin_centers = self._compute_peth([spike_times], grp_event_times)
+                mean_fr = np.mean(peth[0], axis=0)
+                sem_fr = sem(peth[0], axis=0)
                 ax.plot(bin_centers, mean_fr, color="k")
                 ax.fill_between(
                     bin_centers,
@@ -262,16 +225,10 @@ class PSTHViewer:
                     ax.set_ylabel("sp/s")
 
             elif self.plot_type == "heatmap":
-                peth, timebin_edges, _ = population_peth(
-                    all_spike_times=list(all_spike_times.values()),
-                    alignment_times=grp_event_times,
-                    pre_seconds=self.pre_seconds,
-                    post_seconds=self.post_seconds,
-                    binwidth_ms=self.binwidth_ms,
-                    kernel=self._kernel,
-                    pad=0,
+                peth, _ = self._compute_peth(
+                    list(all_spike_times.values()), grp_event_times
                 )
-                pop_matrix = np.mean(peth, axis=1) / binwidth_s
+                pop_matrix = np.mean(peth, axis=1)
                 n_units = pop_matrix.shape[0]
                 unit_ids = list(all_spike_times.keys())
                 im = ax.imshow(

@@ -25,11 +25,6 @@ from thesis.ephys.config.double_peak import (
 )
 from thesis.ephys.utils.analysis_peak_counts import classify_peak_count
 from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.grb006_data import (
-    GRB006_SESSION,
-    fetch_grb006_spike_times,
-    load_grb006_first_stim,
-)
 from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
 from thesis.ephys.utils.io_digital_events import fetch_session_events
 from thesis.ephys.utils.io_session_units import fetch_good_units
@@ -42,6 +37,8 @@ from thesis.ephys.utils.peak_classification import (
 )
 
 GRB006_SHOW_UNITS = [579, 694, 217]
+GRB006_SUBJECT = "GRB006"
+GRB006_SESSION = "20240821_121447"
 
 GRB058_SUBJECT = "GRB058"
 SESSION_ORDER = ["20260312_134952", "20260319_131303"]
@@ -64,9 +61,12 @@ OUT_PATH = FIGURE_DIR / "dario_story.pdf"
 
 
 def collect_grb006():
-    first_stim = load_grb006_first_stim()
-    unit_ids, spike_times = fetch_grb006_spike_times()
-    double_peak_rows, peth, _, bin_centers, excited_ids = classify_double_peak_units(
+    align_ev = fetch_session_events(GRB006_SUBJECT, GRB006_SESSION)
+    spike_times_by_unit = fetch_good_units(GRB006_SUBJECT, GRB006_SESSION)
+    first_stim = align_ev["first_stim_ev_15ms"]
+    unit_ids = list(spike_times_by_unit)
+    spike_times = list(spike_times_by_unit.values())
+    double_peak_rows, peth, bin_centers, excited_ids = classify_double_peak_units(
         spike_times, first_stim, unit_ids
     )
 
@@ -132,14 +132,10 @@ def collect_grb058_session(session):
     st_per_unit = fetch_good_units(GRB058_SUBJECT, session)
     align_ev = fetch_session_events(GRB058_SUBJECT, session)
     trial_df = fetch_trial_metadata(GRB058_SUBJECT, session, align_ev)
-    if trial_df is None:
-        raise RuntimeError(
-            f"Could not load trial metadata for {GRB058_SUBJECT} {session}"
-        )
 
     unit_ids = list(st_per_unit.keys())
     spike_times = list(st_per_unit.values())
-    double_peak_rows, peth_15, _, bin_centers, excited_ids = classify_double_peak_units(
+    double_peak_rows, peth_15, bin_centers, excited_ids = classify_double_peak_units(
         spike_times, align_ev["first_stim_ev_15ms"], unit_ids
     )
     double_ids = double_peak_rows["unit"].astype(int).tolist()

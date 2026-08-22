@@ -17,7 +17,7 @@ import seaborn as sns
 
 from thesis.ephys.utils.analysis_locomotion import compute_locomotion_peaks
 from thesis.ephys.utils.analysis_stats import mean_and_t_ci
-from thesis.ephys.utils.unit_metrics import fetch_waveform_durations_ms
+from thesis.ephys.utils.io_session_units import fetch_good_unit_metrics_table
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "locomotion"
@@ -96,9 +96,14 @@ def main() -> None:
                 )
 
         unit_ids = peak_table["unit_id"].astype(int).tolist()
-        waveform_duration_ms = fetch_waveform_durations_ms(
-            subject, session, unit_ids, unit_criteria_id=UNIT_CRITERIA_ID
+        unit_metrics = fetch_good_unit_metrics_table(subject, session, UNIT_CRITERIA_ID)
+        waveform_duration_ms = (
+            unit_metrics.set_index("unit_id")
+            .reindex(unit_ids)["spike_duration_ms"]
+            .to_numpy()
         )
+        if np.any(~np.isfinite(waveform_duration_ms) | (waveform_duration_ms <= 0)):
+            raise RuntimeError(f"Invalid waveform duration for {subject} {session}.")
         fast_spiking_mask = waveform_duration_ms <= FS_RS_BOUNDARY_MS
         regular_spiking_mask = waveform_duration_ms > FS_RS_BOUNDARY_MS
         if not np.all(fast_spiking_mask | regular_spiking_mask):

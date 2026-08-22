@@ -34,15 +34,10 @@ from matplotlib.widgets import Button
 from scipy.stats import sem
 
 from thesis.ephys.utils.analysis_conditioned_stim import (
-    build_trial_stim_classification,
-    extract_conditioned_stim_anchors,
+    extract_paired_stim_anchors,
+    load_trial_classification,
 )
 from thesis.ephys.utils.analysis_peth import compute_population_peth
-from thesis.ephys.utils.grb006_data import (
-    GRB006_SESSION,
-    GRB006_SUBJECT,
-    load_grb006_session_inputs,
-)
 
 SHORTCUT_HELP = """\
 Navigation
@@ -73,39 +68,14 @@ Session controls
 """
 
 
-def load_grb006_downloads_data() -> tuple[
-    dict[int, np.ndarray], np.ndarray, np.ndarray
-]:
-    unit_ids, spike_times, trial_df, trial_ts = load_grb006_session_inputs()
-    st_per_unit = dict(zip(unit_ids, spike_times))
-    anchors = extract_conditioned_stim_anchors(trial_ts)
-    paired_last_stat = np.asarray(anchors["paired_last_stationary"], dtype=float)
-    paired_first_move = np.asarray(anchors["paired_first_movement"], dtype=float)
-    return st_per_unit, paired_last_stat, paired_first_move
-
-
 def load_browser_data(
     subject: str, session: str, unit_criteria_id: int
 ) -> tuple[dict[int, np.ndarray], np.ndarray, np.ndarray]:
-    if subject == GRB006_SUBJECT and session == GRB006_SESSION:
-        return load_grb006_downloads_data()
-
-    from thesis.ephys.utils.io_chipmunk_trials import fetch_trial_metadata
-    from thesis.ephys.utils.io_digital_events import fetch_session_events
     from thesis.ephys.utils.io_session_units import fetch_good_units
 
     st_per_unit = fetch_good_units(subject, session, unit_criteria_id)
-    align_ev = fetch_session_events(subject, session)
-    trial_df = fetch_trial_metadata(subject, session, align_ev)
-    if trial_df is None:
-        raise RuntimeError(
-            "Chipmunk trial metadata is required for conditioned browsing."
-        )
-
-    trial_ts = build_trial_stim_classification(align_ev, trial_df)
-    anchors = extract_conditioned_stim_anchors(trial_ts)
-    paired_last_stat = np.asarray(anchors["paired_last_stationary"], dtype=float)
-    paired_first_move = np.asarray(anchors["paired_first_movement"], dtype=float)
+    trial_ts = load_trial_classification(subject, session)
+    paired_last_stat, paired_first_move = extract_paired_stim_anchors(trial_ts)
     return st_per_unit, paired_last_stat, paired_first_move
 
 

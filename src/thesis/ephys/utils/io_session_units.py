@@ -1,9 +1,9 @@
-"""Good-unit spike data from labdata (quality table + spike times in seconds).
+"""Good-unit spike data and metrics from labdata.
 
 **Naming convention**
 
 - ``fetch_*`` — read from labdata / join tables.
-- ``fetch_good_unit_metrics_table`` — DataFrame with spike times in **samples** plus probe ``srate``.
+- ``fetch_good_unit_metrics_table`` — DataFrame with normalized spike times and durations.
 """
 
 from __future__ import annotations
@@ -17,14 +17,15 @@ def fetch_good_unit_metrics_table(
     subject: str,
     session: str,
     unit_criteria_id: int = 1,
-) -> tuple[pd.DataFrame, float]:
+) -> pd.DataFrame:
     """Return good-unit spike and metric rows, sorted by depth.
 
     `unit_criteria_id=1` is the project's standard quality criterion set
     (amplitude / SNR / contamination thresholds defined upstream in labdata).
     Don't change without reason — most downstream analyses assume criterion 1.
 
-    Spike times in the frame are in **samples**; divide by ``srate`` for seconds.
+    Adds ``spike_times_s`` and ``spike_duration_ms`` columns. The upstream
+    waveform metric already stores spike duration in milliseconds.
     """
     sess_query = (
         SpikeSorting() & f'subject_name = "{subject}"' & f'session_name = "{session}"'
@@ -49,8 +50,11 @@ def fetch_good_unit_metrics_table(
     srate = float(
         (EphysRecording.ProbeSetting() & sess_query).fetch("sampling_rate")[0]
     )
-    good_units = good_units.sort_values("depth", ascending=True)
-    return good_units, srate
+    good_units["spike_times_s"] = good_units["spike_times"].apply(
+        lambda spike_times: np.asarray(spike_times, dtype=float) / srate
+    )
+    good_units["spike_duration_ms"] = good_units["spike_duration"].astype(float)
+    return good_units.sort_values("depth", ascending=True)
 
 
 def fetch_good_units(
@@ -62,10 +66,5 @@ def fetch_good_units(
 
     Returns a dict mapping unit_id → spike_times_seconds, sorted by depth.
     """
-    good_units, srate = fetch_good_unit_metrics_table(
-        subject, session, unit_criteria_id
-    )
-    st_per_unit = {
-        row["unit_id"]: row["spike_times"] / srate for _, row in good_units.iterrows()
-    }
-    return st_per_unit
+    good_units = fetch_good_unit_metrics_table(subject, session, unit_criteria_id)
+    return dict(zip(good_units["unit_id"], good_units["spike_times_s"], strict=True))
