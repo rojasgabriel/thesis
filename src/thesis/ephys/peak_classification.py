@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Collection, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks, peak_prominences
 from spks.event_aligned import population_peth
-
-from thesis.ephys.responsiveness import compute_unit_responsiveness
 
 PETH_PRE_SECONDS = 0.1
 PETH_POST_SECONDS = 0.15
@@ -83,7 +81,10 @@ def classify_peak_count(
 
 
 def classify_double_peak_units(
-    spike_times: list[np.ndarray], alignment_times: np.ndarray, unit_ids: list[int]
+    spike_times: list[np.ndarray],
+    alignment_times: np.ndarray,
+    unit_ids: list[int],
+    excited_unit_ids: Collection[int],
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
     peth, bin_edges, _ = population_peth(
         all_spike_times=spike_times,
@@ -94,19 +95,30 @@ def classify_double_peak_units(
     )
     peth = peth / (PETH_BINWIDTH_MS / 1000)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    _, masks = compute_unit_responsiveness(
-        peth,
-        bin_edges,
-        unit_ids=unit_ids,
-        base_window=BASELINE_WINDOW,
-        resp_window=(0.03, 0.12),
-        test="wilcoxon",
-        correction="fdr_bh",
-        alpha=0.05,
+    excited_set = set(excited_unit_ids)
+    excited_indices = np.array(
+        [index for index, unit_id in enumerate(unit_ids) if unit_id in excited_set],
+        dtype=int,
     )
-    excited_indices = np.where(masks["excited"])[0]
-    excited_unit_ids = [unit_ids[i] for i in excited_indices]
+    excited_unit_ids = [unit_ids[index] for index in excited_indices]
     excited_peth = peth[excited_indices]
+    if not excited_unit_ids:
+        return (
+            pd.DataFrame(
+                {
+                    "unit": [],
+                    "n_peaks": [],
+                    "peak_times": [],
+                    "peak_heights": [],
+                    "baseline": [],
+                    "min_peak_height_above_baseline": [],
+                    "max_peak_height_above_baseline": [],
+                }
+            ),
+            peth,
+            bin_centers,
+            [],
+        )
     peak_rows = classify_peak_count(excited_peth, bin_centers, excited_unit_ids)
 
     double_rows = []

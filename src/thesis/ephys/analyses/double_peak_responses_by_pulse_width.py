@@ -12,8 +12,8 @@ Layout: two rows.
   • Top row — single-peak reference example from GRB058.
   • Bottom row — double-peak units (GRB058, 15 ms + 30 ms overlaid).
 
-Classification uses the canonical parameters in peak_classification.py
-(FDR selectivity + 5 sp/s height floor on both peaks).
+Excited units come from the stored stimulus-responsiveness results. Peak shape
+uses the 15 ms trials and a 5 sp/s height floor on both peaks.
 """
 
 import os
@@ -30,7 +30,10 @@ from spks.event_aligned import population_peth
 matplotlib.use("Agg")
 
 from thesis.ephys.io_digital_events import fetch_session_events
-from thesis.ephys.io_session_units import fetch_good_units
+from thesis.ephys.io_session_units import (
+    fetch_good_units,
+    fetch_stimulus_excited_unit_ids,
+)
 from thesis.ephys.peak_classification import (
     BASELINE_WINDOW,
     PETH_BINWIDTH_MS,
@@ -48,6 +51,9 @@ GRB058_SESSIONS = ["20260312_134952", "20260319_131303"]
 REFERENCE_SESSION = "20260312_134952"
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "pulse_split.pdf"
+UNIT_CRITERIA_ID = 1
+STABILITY_PARAM_ID = 0
+RESPONSIVENESS_PARAM_ID = 0
 
 
 class DoublePeakRow(TypedDict):
@@ -79,16 +85,32 @@ def main() -> None:
     reference_data = None
 
     for session in GRB058_SESSIONS:
-        spike_times_by_unit = fetch_good_units("GRB058", session)
-        align_ev = fetch_session_events("GRB058", session)
+        spike_times_by_unit = fetch_good_units(
+            "GRB058", session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
+        )
+        excited_unit_ids = fetch_stimulus_excited_unit_ids(
+            "GRB058", session, UNIT_CRITERIA_ID, RESPONSIVENESS_PARAM_ID
+        )
+        _, stimulus_pulses = fetch_session_events("GRB058", session)
+        first_15ms = stimulus_pulses.loc[
+            stimulus_pulses["first_in_train"] & stimulus_pulses["width_ms"].eq(15),
+            "timestamp",
+        ].to_numpy(dtype=float)
+        first_30ms = stimulus_pulses.loc[
+            stimulus_pulses["first_in_train"] & stimulus_pulses["width_ms"].eq(30),
+            "timestamp",
+        ].to_numpy(dtype=float)
         unit_ids = list(spike_times_by_unit)
         spike_times = list(spike_times_by_unit.values())
-        n_tr_15 = len(align_ev["first_stim_ev_15ms"])
-        n_tr_30 = len(align_ev["first_stim_ev_30ms"])
+        n_tr_15 = len(first_15ms)
+        n_tr_30 = len(first_30ms)
 
         double_peak_rows, peth_15, bin_centers, excited_ids = (
             classify_double_peak_units(
-                spike_times, align_ev["first_stim_ev_15ms"], unit_ids
+                spike_times,
+                first_15ms,
+                unit_ids,
+                excited_unit_ids,
             )
         )
         if session == REFERENCE_SESSION:
@@ -115,7 +137,7 @@ def main() -> None:
 
         peth_30_all, _, _ = population_peth(
             all_spike_times=dp_spike_times,
-            alignment_times=align_ev["first_stim_ev_30ms"],
+            alignment_times=first_30ms,
             pre_seconds=PETH_PRE_SECONDS,
             post_seconds=PETH_POST_SECONDS,
             binwidth_ms=PETH_BINWIDTH_MS,

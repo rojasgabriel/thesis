@@ -10,8 +10,9 @@ Row 0:   FR vs spike_dur     |  FR vs spike_dur
 All good units shown (not just excited). Double-peak units in orange,
 all others in blue. FS/RS boundary line at 0.4 ms (visual reference only).
 
-Classification uses the canonical parameters in peak_classification.py
-(FDR selectivity + 5 sp/s height floor on both peaks).
+Excited units come from the stored stimulus-responsiveness results. Peak shape
+uses the 15 ms trials in mixed-width sessions and a 5 sp/s height floor on both
+peaks.
 
 GRB006 event loading uses its thresholded NIDQ analog-input events.
 GRB006 spike times use good-unit rows.
@@ -36,7 +37,10 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
 from thesis.ephys.io_digital_events import fetch_session_events
-from thesis.ephys.io_session_units import fetch_good_unit_metrics_table
+from thesis.ephys.io_session_units import (
+    fetch_good_unit_metrics_table,
+    fetch_stimulus_excited_unit_ids,
+)
 from thesis.ephys.peak_classification import (
     PEAK_SEARCH_WINDOW,
     classify_double_peak_units,
@@ -55,6 +59,8 @@ OUT_PATH = FIGURE_ROOT / "double_peak" / "waveform_grid.pdf"
 OUT_PATH_MONO = FIGURE_ROOT / "double_peak" / "waveform_grid_nocolor.pdf"
 
 UNIT_CRITERIA_ID = 1
+STABILITY_PARAM_ID = 0
+RESPONSIVENESS_PARAM_ID = 0
 NARROW_BROAD_MS = 0.4  # FS/RS boundary, visual reference only
 
 COL_OTHER = "#4C72B0"
@@ -67,11 +73,15 @@ COL_DOUBLE = "#DD8452"  # orange
 
 def fetch_unit_table(subject: str, session: str) -> pd.DataFrame:
     return fetch_good_unit_metrics_table(
-        subject, session, UNIT_CRITERIA_ID
+        subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
     ).reset_index(drop=True)
 
 
-def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFrame:
+def classify_double_peak(
+    df: pd.DataFrame,
+    first_stim: np.ndarray,
+    excited_unit_ids: set[int],
+) -> pd.DataFrame:
     unit_ids = df["unit_id"].tolist()
     spike_times = df["spike_times_s"].tolist()
 
@@ -79,7 +89,9 @@ def classify_double_peak(df: pd.DataFrame, first_stim: np.ndarray) -> pd.DataFra
         df["is_double"] = False
         return df
 
-    double_peak_rows, *_ = classify_double_peak_units(spike_times, first_stim, unit_ids)
+    double_peak_rows, *_ = classify_double_peak_units(
+        spike_times, first_stim, unit_ids, excited_unit_ids
+    )
     double_ids = set(double_peak_rows["unit"].astype(int))
     df["is_double"] = df["unit_id"].isin(double_ids)
 
@@ -190,13 +202,21 @@ def main():
         print(f"  units: {len(df)}")
 
         try:
-            first_stim = fetch_session_events(subject, session)["first_stim_ev_15ms"]
+            _, stimulus_pulses = fetch_session_events(subject, session)
+            widths = stimulus_pulses["width_ms"].dropna()
+            first_pulses = stimulus_pulses[stimulus_pulses["first_in_train"]]
+            if widths.nunique() > 1:
+                first_pulses = first_pulses[first_pulses["width_ms"].eq(15)]
+            first_stim = first_pulses["timestamp"].to_numpy(dtype=float)
+            excited_unit_ids = fetch_stimulus_excited_unit_ids(
+                subject, session, UNIT_CRITERIA_ID, RESPONSIVENESS_PARAM_ID
+            )
         except Exception as e:
             print(f"  ✗ events: {e}")
             continue
         print(f"  first_stim events: {len(first_stim)}")
 
-        df = classify_double_peak(df, first_stim)
+        df = classify_double_peak(df, first_stim, excited_unit_ids)
         n_dp = int(df["is_double"].sum())
         print(f"  double-peak: {n_dp}")
 

@@ -69,8 +69,3 @@ exclude = ["src/labdata_plugin"]
 
 [tool.ty.environment]
 extra-paths = ["typings"]
-
-[tool.pyright]
-include = ["src", "notebooks"]
-extraPaths = ["typings"]
-reportMissingModuleSource = "none"

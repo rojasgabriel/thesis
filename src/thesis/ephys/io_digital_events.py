@@ -12,6 +12,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pandas as pd
 
 # Silence the setuptools pkg_resources deprecation notice
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
@@ -130,19 +131,8 @@ def extract_port_poke_exits(event_row: dict[str, np.ndarray | None]) -> np.ndarr
     return timestamps[values == 0]
 
 
-def first_timestamp_per_train(ev_array: np.ndarray, sep_s: float = 1.0) -> np.ndarray:
-    """Keep the first timestamp in each run separated by more than `sep_s` seconds."""
-    if ev_array.size == 0:
-        return ev_array
-    keep = np.r_[True, np.diff(ev_array) > sep_s]
-    return ev_array[keep]
-
-
-def derive_merged_stim_pulse_arrays(stim: np.ndarray) -> dict[str, np.ndarray]:
-    """Merge raw stim TTL edges into bursts, label 15/30 ms, build stim_ev* arrays.
-
-    See ``fetch_session_events`` for key meanings (`stim_ev`, `first_stim_ev_*`, etc.).
-    """
+def build_stimulus_pulses(stim: np.ndarray) -> pd.DataFrame:
+    """Merge raw stimulus TTL edges into one row per pulse."""
     stim = np.asarray(stim, dtype=float)
 
     max_within_pulse_gap_s = 0.020
@@ -161,58 +151,41 @@ def derive_merged_stim_pulse_arrays(stim: np.ndarray) -> dict[str, np.ndarray]:
     if durations.size and np.allclose(durations, 0.0):
         # Historical GRB006 repairs insert onset-only visual events instead of
         # raw TTL edges, so treat the mapped row as a 15 ms-only stim stream.
-        labels = np.full(durations.shape, "15ms", dtype=object)
+        widths = np.full(durations.shape, 15.0)
     else:
         diff_15 = np.abs(durations - 0.015)
         diff_30 = np.abs(durations - 0.030)
         is_15 = diff_15 <= tol_s
         is_30 = diff_30 <= tol_s
-        labels = np.where(is_15, "15ms", np.where(is_30, "30ms", "unknown"))
+        widths = np.where(is_15, 15.0, np.where(is_30, 30.0, np.nan))
 
-    stim_ev = onsets
-    stim_ev_15ms = onsets[labels == "15ms"]
-    stim_ev_30ms = onsets[labels == "30ms"]
-
-    return {
-        "stim_ev": stim_ev,
-        "first_stim_ev": first_timestamp_per_train(stim_ev),
-        "stim_ev_15ms": stim_ev_15ms,
-        "stim_ev_30ms": stim_ev_30ms,
-        "first_stim_ev_15ms": first_timestamp_per_train(stim_ev_15ms),
-        "first_stim_ev_30ms": first_timestamp_per_train(stim_ev_30ms),
-    }
+    first_in_train = (
+        np.r_[True, np.diff(onsets) > 1.0] if onsets.size else np.array([], dtype=bool)
+    )
+    return pd.DataFrame(
+        {
+            "timestamp": onsets,
+            "width_ms": widths,
+            "first_in_train": first_in_train,
+        }
+    )
 
 
 def fetch_session_events(
     subject: str,
     session: str,
-) -> dict[str, np.ndarray]:
-    """Fetch digital events for a session and derive stimulus event arrays.
+) -> tuple[dict[str, np.ndarray], pd.DataFrame]:
+    """Fetch digital event arrays and the processed stimulus-pulse table.
 
     Raw digital edges on the stim channel are noisy: a single logical pulse
     toggles many times. They are merged into discrete bursts by splitting on
     any gap > 20 ms, then each burst's duration is classified against the two
     expected pulse widths (15 ms and 30 ms, ±2 ms tolerance). Bursts that
     match neither are labeled "unknown" and excluded from the width-specific
-    streams but still appear in `stim_ev` / `first_stim_ev`.
+    streams but remain in the pulse table with a missing `width_ms` value.
 
-    `first_*` variants keep only the first onset within each 1 s window, so
-    they approximate the first pulse of each stimulus train — the cleaner
-    alignment event when comparing single-pulse responses (e.g. for the
-    double-peak analysis).
-
-    Returns a dict with the following keys (all np.ndarray of timestamps in
-    seconds, possibly empty):
-      - `stim`              : raw stim edges (no merging)
-      - `trial_start`, `frames`, `left_port`, `center_port`, `right_port`
-      - `left_port_exit`, `center_port_exit`, `right_port_exit` when DB
-        `event_values` are available
-      - `stim_ev`           : onsets of all merged pulses (any width)
-      - `first_stim_ev`     : first-of-train onsets across all widths
-      - `stim_ev_15ms`      : onsets of pulses classified as 15 ms
-      - `stim_ev_30ms`      : onsets of pulses classified as 30 ms
-      - `first_stim_ev_15ms`: first-of-train onsets for 15 ms pulses only
-      - `first_stim_ev_30ms`: first-of-train onsets for 30 ms pulses only
+    The pulse table has `timestamp`, `width_ms`, and `first_in_train` columns.
+    `first_in_train` marks the first pulse after a gap longer than one second.
     """
     from labdata.schema import DatasetEvents
 
@@ -248,5 +221,4 @@ def fetch_session_events(
         "center_port_exit": extract_port_poke_exits(resolved["center_port"]),
         "right_port_exit": extract_port_poke_exits(resolved["right_port"]),
     }
-    align_ev.update(derive_merged_stim_pulse_arrays(align_ev["stim"]))
-    return align_ev
+    return align_ev, build_stimulus_pulses(align_ev["stim"])

@@ -13,7 +13,6 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from spks.event_aligned import population_peth
 
@@ -22,7 +21,10 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
 from thesis.ephys.io_digital_events import fetch_session_events
-from thesis.ephys.io_session_units import fetch_good_units
+from thesis.ephys.io_session_units import (
+    fetch_good_units,
+    fetch_stimulus_excited_unit_ids,
+)
 from thesis.ephys.peak_classification import (
     PETH_BINWIDTH_MS,
     PETH_POST_SECONDS,
@@ -57,16 +59,29 @@ SESSION_SHOW_UNITS = {
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "double_peak"
 OUT_PATH = FIGURE_DIR / "dario_story.pdf"
+UNIT_CRITERIA_ID = 1
+STABILITY_PARAM_ID = 0
+RESPONSIVENESS_PARAM_ID = 0
 
 
 def collect_grb006():
-    align_ev = fetch_session_events(GRB006_SUBJECT, GRB006_SESSION)
-    spike_times_by_unit = fetch_good_units(GRB006_SUBJECT, GRB006_SESSION)
-    first_stim = align_ev["first_stim_ev_15ms"]
+    _, stimulus_pulses = fetch_session_events(GRB006_SUBJECT, GRB006_SESSION)
+    spike_times_by_unit = fetch_good_units(
+        GRB006_SUBJECT, GRB006_SESSION, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
+    )
+    excited_unit_ids = fetch_stimulus_excited_unit_ids(
+        GRB006_SUBJECT,
+        GRB006_SESSION,
+        UNIT_CRITERIA_ID,
+        RESPONSIVENESS_PARAM_ID,
+    )
+    first_stim = stimulus_pulses.loc[
+        stimulus_pulses["first_in_train"], "timestamp"
+    ].to_numpy(dtype=float)
     unit_ids = list(spike_times_by_unit)
     spike_times = list(spike_times_by_unit.values())
     double_peak_rows, peth, bin_centers, excited_ids = classify_double_peak_units(
-        spike_times, first_stim, unit_ids
+        spike_times, first_stim, unit_ids, excited_unit_ids
     )
 
     rows = {}
@@ -89,24 +104,11 @@ def collect_grb006():
     }
 
 
-def classify_first_stim_widths_by_trial(align_ev, trial_df):
-    first15 = pd.DataFrame(
-        {
-            "stim_onset": np.asarray(align_ev["first_stim_ev_15ms"], dtype=float),
-            "width_ms": 15,
-        }
-    )
-    first30 = pd.DataFrame(
-        {
-            "stim_onset": np.asarray(align_ev["first_stim_ev_30ms"], dtype=float),
-            "width_ms": 30,
-        }
-    )
-    first = (
-        pd.concat([first15, first30], ignore_index=True)
-        .sort_values("stim_onset")
-        .reset_index(drop=True)
-    )
+def classify_first_stim_widths_by_trial(stimulus_pulses, trial_df):
+    first = stimulus_pulses.loc[
+        stimulus_pulses["first_in_train"] & stimulus_pulses["width_ms"].notna(),
+        ["timestamp", "width_ms"],
+    ].rename(columns={"timestamp": "stim_onset"})
 
     trial_starts = trial_df["trial_start_ts"].to_numpy(dtype=float)
     trial_idx = (
@@ -128,14 +130,27 @@ def classify_first_stim_widths_by_trial(align_ev, trial_df):
 
 
 def collect_grb058_session(session):
-    st_per_unit = fetch_good_units(GRB058_SUBJECT, session)
-    align_ev = fetch_session_events(GRB058_SUBJECT, session)
+    st_per_unit = fetch_good_units(
+        GRB058_SUBJECT, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
+    )
+    excited_unit_ids = fetch_stimulus_excited_unit_ids(
+        GRB058_SUBJECT, session, UNIT_CRITERIA_ID, RESPONSIVENESS_PARAM_ID
+    )
+    align_ev, stimulus_pulses = fetch_session_events(GRB058_SUBJECT, session)
     trial_df = fetch_trial_metadata(GRB058_SUBJECT, session, align_ev)
+    first_15ms = stimulus_pulses.loc[
+        stimulus_pulses["first_in_train"] & stimulus_pulses["width_ms"].eq(15),
+        "timestamp",
+    ].to_numpy(dtype=float)
+    first_30ms = stimulus_pulses.loc[
+        stimulus_pulses["first_in_train"] & stimulus_pulses["width_ms"].eq(30),
+        "timestamp",
+    ].to_numpy(dtype=float)
 
     unit_ids = list(st_per_unit.keys())
     spike_times = list(st_per_unit.values())
     double_peak_rows, peth_15, bin_centers, excited_ids = classify_double_peak_units(
-        spike_times, align_ev["first_stim_ev_15ms"], unit_ids
+        spike_times, first_15ms, unit_ids, excited_unit_ids
     )
     double_ids = double_peak_rows["unit"].astype(int).tolist()
 
@@ -143,7 +158,7 @@ def collect_grb058_session(session):
     if double_ids:
         peth_30, _, _ = population_peth(
             all_spike_times=[spike_times[unit_ids.index(uid)] for uid in double_ids],
-            alignment_times=align_ev["first_stim_ev_30ms"],
+            alignment_times=first_30ms,
             pre_seconds=PETH_PRE_SECONDS,
             post_seconds=PETH_POST_SECONDS,
             binwidth_ms=PETH_BINWIDTH_MS,
@@ -161,7 +176,7 @@ def collect_grb058_session(session):
                 peak_row_30=peaks_df_30[peaks_df_30["unit"] == uid].iloc[0],
             )
 
-    classified_trial_df = classify_first_stim_widths_by_trial(align_ev, trial_df)
+    classified_trial_df = classify_first_stim_widths_by_trial(stimulus_pulses, trial_df)
     rate4 = classified_trial_df[
         (classified_trial_df["has_classified_first_stim"])
         & (classified_trial_df["stim_rate_vision"] == 4)
@@ -179,8 +194,8 @@ def collect_grb058_session(session):
         "n_excited": len(excited_ids),
         "n_double": len(double_ids),
         "rows": rows,
-        "n_tr_15": len(align_ev["first_stim_ev_15ms"]),
-        "n_tr_30": len(align_ev["first_stim_ev_30ms"]),
+        "n_tr_15": len(first_15ms),
+        "n_tr_30": len(first_30ms),
         "n_4hz_total": n_4hz_total,
         "n_4hz_classified": n_4hz_classified,
         "n_4hz_15": n_4hz_15,

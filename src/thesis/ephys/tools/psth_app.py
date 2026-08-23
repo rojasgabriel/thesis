@@ -48,7 +48,13 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.units = fetch_good_units(
             subject, session, unit_criteria_id, stability_param_id
         )
-        self.events = fetch_session_events(subject, session)
+        self.events, stimulus_pulses = fetch_session_events(subject, session)
+        self.events["stimulus_pulse"] = stimulus_pulses["timestamp"].to_numpy(
+            dtype=float
+        )
+        self.events["first_stimulus"] = stimulus_pulses.loc[
+            stimulus_pulses["first_in_train"], "timestamp"
+        ].to_numpy(dtype=float)
         self.trials = fetch_trial_metadata(subject, session, self.events)
         self.unit_ids = list(self.units)
         if not self.unit_ids:
@@ -85,8 +91,7 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         self.event_combo = QtWidgets.QComboBox()
         self.event_combo.addItems(list(self.events))
-        if "first_stim_ev" in self.events:
-            self.event_combo.setCurrentText("first_stim_ev")
+        self.event_combo.setCurrentText("first_stimulus")
         form.addRow("Event", self.event_combo)
 
         self.plot_combo = QtWidgets.QComboBox()

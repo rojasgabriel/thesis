@@ -36,13 +36,17 @@ SUBJECT_SESSIONS = [
 ]
 
 UNIT_CRITERIA_ID = 1
+STABILITY_PARAM_ID = 0
 FS_RS_BOUNDARY_MS = 0.4
 BACKGROUND_DOT_ALPHA = 0.2
 MEAN_CI_LEVEL = 0.95
 
 
 def compute_locomotion_peaks(
-    subject: str, session: str, unit_criteria_id: int = 1
+    subject: str,
+    session: str,
+    unit_criteria_id: int = 1,
+    stability_param_id: int | None = 0,
 ) -> pd.DataFrame:
     """Return stationary and movement peaks for all good units in one session."""
     stationary_events, movement_events = extract_paired_stim_anchors(
@@ -51,7 +55,9 @@ def compute_locomotion_peaks(
     if stationary_events.size == 0 or movement_events.size == 0:
         raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
 
-    spike_times_by_unit = fetch_good_units(subject, session, unit_criteria_id)
+    spike_times_by_unit = fetch_good_units(
+        subject, session, unit_criteria_id, stability_param_id
+    )
     unit_ids = sorted(spike_times_by_unit)
     if not unit_ids:
         raise RuntimeError(f"No good units found for {subject} {session}.")
@@ -146,7 +152,10 @@ def main() -> None:
     for subject, session in SUBJECT_SESSIONS:
         print(f"\nComputing locomotion peaks: {subject} {session}")
         peak_table = compute_locomotion_peaks(
-            subject, session, unit_criteria_id=UNIT_CRITERIA_ID
+            subject,
+            session,
+            unit_criteria_id=UNIT_CRITERIA_ID,
+            stability_param_id=STABILITY_PARAM_ID,
         )
         if peak_table.empty:
             raise RuntimeError(
@@ -161,7 +170,9 @@ def main() -> None:
                 )
 
         unit_ids = peak_table["unit_id"].astype(int).tolist()
-        unit_metrics = fetch_good_unit_metrics_table(subject, session, UNIT_CRITERIA_ID)
+        unit_metrics = fetch_good_unit_metrics_table(
+            subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
+        )
         waveform_duration_ms = (
             unit_metrics.set_index("unit_id")
             .reindex(unit_ids)["spike_duration_ms"]

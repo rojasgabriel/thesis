@@ -11,14 +11,20 @@ def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
     from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
     from thesis.ephys.io_digital_events import fetch_session_events
 
-    align_ev = fetch_session_events(subject, session)
+    align_ev, stimulus_pulses = fetch_session_events(subject, session)
     trial_df = fetch_trial_metadata(subject, session, align_ev)
-    return build_trial_stim_classification(align_ev, trial_df).reset_index(drop=True)
+    return build_trial_stim_classification(
+        align_ev, stimulus_pulses, trial_df
+    ).reset_index(drop=True)
 
 
-def build_trial_stim_classification(align_ev: dict, trial_df) -> pd.DataFrame:
+def build_trial_stim_classification(
+    align_ev: dict, stimulus_pulses: pd.DataFrame, trial_df
+) -> pd.DataFrame:
     """Classify 15 ms pulses as stationary or movement for each trial."""
-    stim_times = np.asarray(align_ev["stim_ev_15ms"])
+    stim_times = stimulus_pulses.loc[
+        stimulus_pulses["width_ms"].eq(15), "timestamp"
+    ].to_numpy(dtype=float)
     cp_entries = np.asarray(align_ev["center_port"])
     cp_exits = np.asarray(align_ev.get("center_port_exit", []), dtype=float)
     left_entries = np.asarray(align_ev["left_port"])

@@ -90,3 +90,27 @@ def fetch_good_units(
         subject, session, unit_criteria_id, stability_param_id
     )
     return dict(zip(good_units["unit_id"], good_units["spike_times_s"], strict=True))
+
+
+def fetch_stimulus_excited_unit_ids(
+    subject: str,
+    session: str,
+    unit_criteria_id: int = 1,
+    responsiveness_param_id: int = 0,
+) -> set[int]:
+    """Return unit IDs classified as excited by the stored responsiveness table."""
+    from labdata_plugin.schema import StimulusResponsiveness
+
+    key = {
+        "subject_name": subject,
+        "session_name": session,
+        "unit_criteria_id": unit_criteria_id,
+        "responsiveness_param_id": responsiveness_param_id,
+    }
+    StimulusResponsiveness().populate(key)
+    return {
+        int(unit_id)
+        for unit_id in (
+            StimulusResponsiveness.Unit & key & 'response_type = "excited"'
+        ).fetch("unit_id")
+    }

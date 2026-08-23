@@ -25,12 +25,6 @@ latency.
 Use `--split-by-waveform` for FS/RS summaries, `--show` for an interactive
 window, and `--no-save` to inspect without writing a PDF.
 
-The analysis-specific manual review is available with:
-
-```bash
-uv run python -m thesis.ephys.analyses.manual_conditioned_psth_browser -a GRB058 -s SESSION
-```
-
 ### Double peaks
 
 `double_peak_responses_across_sessions.py` is the collaborator-facing summary.
@@ -40,10 +34,11 @@ Supporting analyses are:
 - `double_peak_responses_by_pulse_width.py` — 15 ms versus 30 ms control
 - `double_peak_units_waveform_profile.py` — firing rate and spike duration
 
-Canonical parameters live beside the classifier in
-`src/thesis/ephys/peak_classification.py`. The analysis uses 10 ms bins
-without smoothing, Wilcoxon responsiveness with FDR, and a 5 sp/s minimum height
-above baseline for both peaks.
+The maintained analyses use unit quality criteria 1 and stability parameter set
+0. General excited-unit selection comes from `StimulusResponsiveness` parameter
+set 0, which uses all first-stimulus events. Peak shape uses 15 ms events only in
+the mixed-width sessions. The classifier uses 10 ms bins without smoothing and
+a 5 sp/s minimum height above baseline for both peaks.
 
 `spks.event_aligned.population_peth` returns counts per bin. Each caller
 converts those counts to spikes per second by dividing by its bin width.

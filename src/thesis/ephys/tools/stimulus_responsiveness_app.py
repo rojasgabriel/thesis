@@ -45,7 +45,10 @@ def load_data(
     rows = rows[rows["unit_id"].isin(spikes_by_unit)]
     if rows.empty:
         raise RuntimeError("No responsive units pass the selected filters")
-    first_stimulus = fetch_session_events(subject, session)["first_stim_ev"]
+    _, stimulus_pulses = fetch_session_events(subject, session)
+    first_stimulus = stimulus_pulses.loc[
+        stimulus_pulses["first_in_train"], "timestamp"
+    ].to_numpy(dtype=float)
     unit_ids = list(spikes_by_unit)
     peth, bin_edges, _ = population_peth(
         all_spike_times=list(spikes_by_unit.values()),

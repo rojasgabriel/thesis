@@ -193,9 +193,12 @@ class StimulusResponsiveness(dj.Computed):
             raise ValueError(f"No passing units for {key}")
 
         unit_ids = [row["unit_id"] for row in units]
-        first_stimulus = fetch_session_events(key["subject_name"], key["session_name"])[
-            "first_stim_ev"
-        ]
+        _, stimulus_pulses = fetch_session_events(
+            key["subject_name"], key["session_name"]
+        )
+        first_stimulus = stimulus_pulses.loc[
+            stimulus_pulses["first_in_train"], "timestamp"
+        ].to_numpy(dtype=float)
         if first_stimulus.size == 0:
             raise ValueError(f"No first-stimulus events for {key}")
 

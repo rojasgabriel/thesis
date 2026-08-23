@@ -23,7 +23,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.io_digital_events import fetch_session_events
-from thesis.ephys.io_session_units import fetch_good_units
+from thesis.ephys.io_session_units import (
+    fetch_good_units,
+    fetch_stimulus_excited_unit_ids,
+)
 from thesis.ephys.peak_classification import (
     classify_double_peak_units,
     mark_peaks,
@@ -38,15 +41,26 @@ OUT_PATH = FIGURE_ROOT / "double_peak" / "grb006_examples.pdf"
 SUBJECT = "GRB006"
 SESSION = "20240821_121447"
 N_PANELS = 6
+UNIT_CRITERIA_ID = 1
+STABILITY_PARAM_ID = 0
+RESPONSIVENESS_PARAM_ID = 0
 
 
 def collect_double_peak_rows():
-    first_stim = fetch_session_events(SUBJECT, SESSION)["first_stim_ev_15ms"]
-    spike_times_by_unit = fetch_good_units(SUBJECT, SESSION)
+    _, stimulus_pulses = fetch_session_events(SUBJECT, SESSION)
+    first_stim = stimulus_pulses.loc[
+        stimulus_pulses["first_in_train"], "timestamp"
+    ].to_numpy(dtype=float)
+    spike_times_by_unit = fetch_good_units(
+        SUBJECT, SESSION, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
+    )
+    excited_unit_ids = fetch_stimulus_excited_unit_ids(
+        SUBJECT, SESSION, UNIT_CRITERIA_ID, RESPONSIVENESS_PARAM_ID
+    )
     unit_ids = list(spike_times_by_unit)
     spike_times = list(spike_times_by_unit.values())
     double_peak_rows, peth, bin_centers, excited_ids = classify_double_peak_units(
-        spike_times, first_stim, unit_ids
+        spike_times, first_stim, unit_ids, excited_unit_ids
     )
 
     rows = []
