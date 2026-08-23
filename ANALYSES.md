@@ -69,10 +69,10 @@ events. Neither fit is stored in a derived table.
 ## Interactive tools
 
 ```bash
-uv run python -m thesis.ephys.tools.psth_viewer -a GRB058 -s SESSION
-uv run python -m thesis.ephys.tools.unit_stability_browser -a GRB058 -s SESSION
-uv run python -m thesis.ephys.tools.stimulus_responsiveness_browser -a GRB058 -s SESSION
-uv run python -m thesis.ephys.tools.survey_map_browser -f SURVEY_MAP.csv
+uv run psth -a GRB058 -s SESSION
+uv run unit-stability -a GRB058 -s SESSION
+uv run stimulus-responsiveness -a GRB058 -s SESSION
+uv run survey-map -f SURVEY_MAP.csv
 ```
 
 Add `--stability-param-id 0` to a unit-based browser to require units to pass

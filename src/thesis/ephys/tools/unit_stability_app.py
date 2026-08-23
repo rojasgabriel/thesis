@@ -10,10 +10,6 @@ from PySide6 import QtWidgets
 
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
-from labdata.schema import EphysRecording, SpikeSorting, UnitCount  # noqa: E402
-
-from labdata_plugin.schema import UnitStability, UnitStabilityParams  # noqa: E402
-
 FILTERS = (
     "All",
     "Fails amplitude",
@@ -26,10 +22,13 @@ FILTERS = (
 def load_data(
     subject: str,
     session: str,
-    liberal_criteria_id: int,
     unit_criteria_id: int,
     stability_param_id: int,
-) -> tuple[dict[int, pd.DataFrame], dict[str, float]]:
+) -> dict[int, pd.DataFrame]:
+    from labdata.schema import EphysRecording, SpikeSorting
+
+    from labdata_plugin.schema import UnitStability, UnitStabilityParams
+
     key = {
         "subject_name": subject,
         "session_name": session,
@@ -41,16 +40,6 @@ def load_data(
     data = {}
 
     for master_key in (UnitStability & key).fetch("KEY"):
-        sorting_key = {
-            field: master_key[field]
-            for field in (
-                "subject_name",
-                "session_name",
-                "dataset_name",
-                "probe_num",
-                "parameter_set_num",
-            )
-        }
         rows = pd.DataFrame((UnitStability.Unit & master_key).fetch(as_dict=True))
         unit_keys = (UnitStability.Unit & master_key).fetch("KEY")
         raw_units = (SpikeSorting.Unit & unit_keys).fetch(
@@ -73,29 +62,17 @@ def load_data(
             ]
         rows["chunks"] = rows["unit_id"].map(chunks)
         rows = rows.sort_values("unit_id").reset_index(drop=True)
-
-        liberal_count = (
-            UnitCount & sorting_key & {"unit_criteria_id": liberal_criteria_id}
-        ).fetch1("sua")
-        rows.attrs["counts"] = (
-            liberal_count,
-            len(rows),
-            int(rows["passes"].sum()),
-        )
         data[master_key["probe_num"]] = rows
 
     if not data:
         raise RuntimeError(f"No unit stability rows for {subject} {session}")
-    return data, params
+    return data
 
 
-class UnitStabilityBrowser(QtWidgets.QMainWindow):
-    def __init__(
-        self, data: dict[int, pd.DataFrame], params: dict, n_bins: int = 50
-    ) -> None:
+class UnitStabilityApp(QtWidgets.QMainWindow):
+    def __init__(self, data: dict[int, pd.DataFrame], n_bins: int = 50) -> None:
         super().__init__()
         self.data = data
-        self.params = params
         self.n_bins = n_bins
         self.position = 0
 
@@ -110,16 +87,9 @@ class UnitStabilityBrowser(QtWidgets.QMainWindow):
         layout.setSpacing(12)
         self.setCentralWidget(central)
 
-        plots = QtWidgets.QWidget()
-        plot_layout = QtWidgets.QVBoxLayout(plots)
-        plot_layout.setContentsMargins(0, 0, 0, 0)
         self.hist_plot = pg.PlotWidget()
         self.hist_plot.addLegend()
-        self.count_plot = pg.PlotWidget()
-        self.count_plot.setMaximumHeight(220)
-        plot_layout.addWidget(self.hist_plot, stretch=1)
-        plot_layout.addWidget(self.count_plot)
-        layout.addWidget(plots, stretch=1)
+        layout.addWidget(self.hist_plot, stretch=1)
 
         controls = QtWidgets.QGroupBox("Browse units")
         controls.setFixedWidth(270)
@@ -187,22 +157,9 @@ class UnitStabilityBrowser(QtWidgets.QMainWindow):
             self.position = (self.position + amount) % len(rows)
             self._draw()
 
-    def _draw_counts(self) -> None:
-        self.count_plot.clear()
-        counts = self.data[self.probe].attrs["counts"]
-        self.count_plot.addItem(
-            pg.BarGraphItem(x=(0, 1, 2), height=counts, width=0.65, brush="#4c78a8")
-        )
-        self.count_plot.getAxis("bottom").setTicks(
-            [[(0, "Liberal"), (1, "Standard"), (2, "Stable")]]
-        )
-        self.count_plot.setTitle(f"imec{self.probe} unit counts")
-        self.count_plot.setLabel("left", "units")
-
     def _draw(self) -> None:
         rows = self._filtered()
         self.hist_plot.clear()
-        self._draw_counts()
         if rows.empty:
             self.hist_plot.addItem(pg.TextItem("No units match this filter"))
             self.unit_label.setText("none")
@@ -246,12 +203,6 @@ def parse_args() -> argparse.Namespace:
     optional = parser.add_argument_group("optional arguments")
     optional.add_argument("-h", "--help", action="help", help="Show this help message")
     optional.add_argument(
-        "--liberal-criteria-id",
-        type=int,
-        default=0,
-        help="Liberal unit criteria used for comparison",
-    )
-    optional.add_argument(
         "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
     )
     optional.add_argument(
@@ -265,15 +216,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    data, params = load_data(
+    data = load_data(
         args.subject,
         args.session,
-        args.liberal_criteria_id,
         args.unit_criteria_id,
         args.stability_param_id,
     )
     app = pg.mkQApp("Unit stability browser")
-    browser = UnitStabilityBrowser(data, params, args.bins)
+    browser = UnitStabilityApp(data, args.bins)
     browser.show()
     raise SystemExit(app.exec())
 

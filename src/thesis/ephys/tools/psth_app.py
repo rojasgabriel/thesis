@@ -9,7 +9,7 @@ from scipy.stats import sem
 from spks.event_aligned import align_raster_to_event, population_peth
 
 
-class PSTHViewer(QtWidgets.QMainWindow):
+class PSTHApp(QtWidgets.QMainWindow):
     SPLIT_OPTIONS = (
         "none",
         "stim_category",
@@ -391,7 +391,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     app = pg.mkQApp("PSTH viewer")
-    viewer = PSTHViewer(
+    viewer = PSTHApp(
         subject=args.subject,
         session=args.session,
         unit_criteria_id=args.unit_criteria_id,

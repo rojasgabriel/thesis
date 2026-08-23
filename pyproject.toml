@@ -31,6 +31,16 @@ dependencies = [
     "pyside6-essentials>=6.8,<7",
 ]
 
+[project.scripts]
+populate-unit-counts = "thesis.ephys.tools.populate_unit_counts:main"
+psth = "thesis.ephys.tools.psth_app:main"
+stimulus-responsiveness = "thesis.ephys.tools.stimulus_responsiveness_app:main"
+survey-map = "thesis.ephys.tools.survey_map_app:main"
+unit-stability = "thesis.ephys.tools.unit_stability_app:main"
+
+[tool.uv.build-backend]
+module-name = ["thesis", "labdata_plugin"]
+
 [tool.uv]
 constraint-dependencies = [
     "cryptography>=48.0.1",
@@ -55,6 +65,7 @@ force-to-top = ["labdata", "labdata.schema"]
 
 [tool.ty.src]
 include = ["src", "notebooks"]
+exclude = ["src/labdata_plugin"]
 
 [tool.ty.environment]
 extra-paths = ["typings"]

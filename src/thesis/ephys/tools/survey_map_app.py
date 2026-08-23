@@ -17,7 +17,7 @@ def load_survey_map(path: Path) -> pd.DataFrame:
     raise ValueError("Survey map must be a .txt or .csv file")
 
 
-class SurveyMapBrowser(QtWidgets.QMainWindow):
+class SurveyMapApp(QtWidgets.QMainWindow):
     def __init__(self, survey_map: pd.DataFrame) -> None:
         super().__init__()
         self.survey_map = survey_map
@@ -132,7 +132,7 @@ def main() -> None:
     args = parse_args()
     survey_map = load_survey_map(args.file)
     app = pg.mkQApp("Survey map browser")
-    browser = SurveyMapBrowser(survey_map)
+    browser = SurveyMapApp(survey_map)
     browser.show()
     raise SystemExit(app.exec())
 

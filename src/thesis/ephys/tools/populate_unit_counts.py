@@ -1,16 +1,10 @@
 """Insert unit-quality criteria and populate unit counts."""
 
+import argparse
 import warnings
 
 # Silence the setuptools pkg_resources deprecation notice
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
-
-from labdata.schema import (  # noqa: E402
-    SpikeSorting,
-    UnitCount,
-    UnitCountCriteria,
-    UnitMetrics,
-)
 
 CRITERIA = [
     {
@@ -32,6 +26,12 @@ CRITERIA = [
 
 
 def main() -> None:
+    argparse.ArgumentParser(
+        description="Insert unit-quality criteria and populate unit counts"
+    ).parse_args()
+
+    from labdata.schema import SpikeSorting, UnitCount, UnitCountCriteria, UnitMetrics
+
     UnitCountCriteria().insert(CRITERIA, skip_duplicates=True)
 
     missing_metrics = SpikeSorting.Unit - UnitMetrics

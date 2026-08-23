@@ -11,13 +11,6 @@ from spks.event_aligned import population_peth
 
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
-from labdata_plugin.schema import (  # noqa: E402
-    StimulusResponsiveness,
-    StimulusResponsivenessParams,
-)
-from thesis.ephys.io_digital_events import fetch_session_events  # noqa: E402
-from thesis.ephys.io_session_units import fetch_good_units  # noqa: E402
-
 
 def load_data(
     subject: str,
@@ -26,6 +19,13 @@ def load_data(
     responsiveness_param_id: int,
     stability_param_id: int | None,
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, dict]:
+    from labdata_plugin.schema import (
+        StimulusResponsiveness,
+        StimulusResponsivenessParams,
+    )
+    from thesis.ephys.io_digital_events import fetch_session_events
+    from thesis.ephys.io_session_units import fetch_good_units
+
     key = {
         "subject_name": subject,
         "session_name": session,
@@ -66,7 +66,7 @@ def load_data(
     )
 
 
-class StimulusResponsivenessBrowser(QtWidgets.QMainWindow):
+class StimulusResponsivenessApp(QtWidgets.QMainWindow):
     def __init__(
         self, rows: pd.DataFrame, peth: np.ndarray, bins: np.ndarray, params: dict
     ) -> None:
@@ -273,7 +273,7 @@ def main() -> None:
         args.stability_param_id,
     )
     app = pg.mkQApp("Stimulus responsiveness browser")
-    browser = StimulusResponsivenessBrowser(rows, peth, bins, params)
+    browser = StimulusResponsivenessApp(rows, peth, bins, params)
     browser.show()
     raise SystemExit(app.exec())
 
