@@ -1985,6 +1985,18 @@ wheels = [
 ]
 
 [[package]]
+name = "scienceplots"
+version = "2.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/50/05/73a19270d548caadf145b0fc8ab94a8c716faeca528c254a4192676e048b/scienceplots-2.2.2.tar.gz", hash = "sha256:d46ce7170b4160265c777a48f73a0db1fdff8460f59a0ded0e364acb139ab115", size = 19692, upload-time = "2026-06-23T07:32:50.693Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/ff/6469a5cabf230ebc94f927246874136098dde1aacc9328bc40dceb24ba13/scienceplots-2.2.2-py3-none-any.whl", hash = "sha256:f63d04e6ec11fe2036ec120feb6c2f1d84b7c38e96cc7edcde7208064653af98", size = 33394, upload-time = "2026-06-23T07:32:49.594Z" },
+]
+
+[[package]]
 name = "scikit-learn"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2232,6 +2244,7 @@ dependencies = [
     { name = "pandas" },
     { name = "pyqtgraph" },
     { name = "pyside6-essentials" },
+    { name = "scienceplots" },
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "seaborn" },
@@ -2256,6 +2269,7 @@ requires-dist = [
     { name = "pandas", specifier = "==2.3.3" },
     { name = "pyqtgraph", specifier = ">=0.14,<0.15" },
     { name = "pyside6-essentials", specifier = ">=6.8,<7" },
+    { name = "scienceplots", specifier = ">=2.2.2" },
     { name = "scikit-learn", specifier = ">=1.7.0" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "seaborn", specifier = ">=0.13.2" },

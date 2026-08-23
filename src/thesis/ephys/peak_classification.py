@@ -160,15 +160,16 @@ def plot_mean_sem_trace(
     peth_trials: np.ndarray,
     color: str,
     label: str | None = None,
+    linestyle: str = "-",
 ) -> None:
     mean = peth_trials.mean(axis=0)
     sem = peth_trials.std(axis=0) / np.sqrt(peth_trials.shape[0])
-    ax.plot(bin_centers, mean, color=color, linewidth=1.5, label=label)
+    ax.plot(
+        bin_centers,
+        mean,
+        color=color,
+        linewidth=1.5,
+        linestyle=linestyle,
+        label=label,
+    )
     ax.fill_between(bin_centers, mean - sem, mean + sem, alpha=0.25, color=color)
-
-
-def mark_peaks(ax, peak_row, color: str, marker: str = "v", markersize: float = 7):
-    for peak_time, peak_height in zip(peak_row["peak_times"], peak_row["peak_heights"]):
-        ax.plot(
-            peak_time, peak_height, marker, color=color, markersize=markersize, zorder=5
-        )

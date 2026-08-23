@@ -29,6 +29,7 @@ dependencies = [
     "torchaudio",
     "pyqtgraph>=0.14,<0.15",
     "pyside6-essentials>=6.8,<7",
+    "scienceplots>=2.2.2",
 ]
 
 [project.scripts]

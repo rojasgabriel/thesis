@@ -12,7 +12,7 @@ Figures go under `figures/`. Set `THESIS_FIGURE_ROOT` to change that root.
 
 ```bash
 uv run python -m thesis.ephys.analyses.locomotion_peaks_analysis
-uv run python -m thesis.ephys.analyses.double_peak_responses_across_sessions
+uv run python -m thesis.ephys.analyses.double_peak_analysis
 ```
 
 ### Locomotion
@@ -27,12 +27,12 @@ window, and `--no-save` to inspect without writing a PDF.
 
 ### Double peaks
 
-`double_peak_responses_across_sessions.py` is the collaborator-facing summary.
-Supporting analyses are:
-
-- `grb006_double_peak_example_units.py` — GRB006 examples
-- `double_peak_responses_by_pulse_width.py` — 15 ms versus 30 ms control
-- `double_peak_units_waveform_profile.py` — firing rate and spike duration
+`double_peak_analysis.py` builds a possible supplemental figure for a future
+paper. It asks whether double peaks reflect separate stimulus-onset and
+stimulus-offset responses. If so, increasing pulse duration should leave the
+first-peak latency unchanged and delay the second peak by the same amount. The
+same figure shows whether double-peak units cluster by waveform duration or
+recording depth.
 
 The maintained analyses use unit quality criteria 1 and stability parameter set
 0. General excited-unit selection comes from `StimulusResponsiveness` parameter
@@ -43,8 +43,11 @@ a 5 sp/s minimum height above baseline for both peaks.
 `spks.event_aligned.population_peth` returns counts per bin. Each caller
 converts those counts to spikes per second by dividing by its bin width.
 
-The pulse-width control argues against a simple pulse-offset explanation. It
-does not establish a mechanism for the second peak.
+Double-peak units are selected using all 15 ms first pulses. The pulse-duration
+comparison then uses only trials without another pulse during the 120 ms peak
+search window and measures the response maximum in fixed windows around the
+expected peaks. The result is descriptive because only two stable double-peak
+units currently have both 15 ms and 30 ms trials.
 
 ## Behavior
 

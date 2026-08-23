@@ -26,6 +26,7 @@ from thesis.ephys.locomotion import (
     extract_paired_stim_anchors,
     load_trial_classification,
 )
+from thesis.plotting import separate_axes
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "locomotion"
@@ -291,26 +292,36 @@ def main() -> None:
                 capsize=2.5,
                 alpha=0.95,
                 zorder=5,
-                label=(
-                    f"{result['subject']} {cell_class}"
-                    if args.split_by_waveform
-                    else result["subject"]
-                ),
+            )
+            label = (
+                f"{result['subject']} {cell_class}"
+                if args.split_by_waveform
+                else result["subject"]
+            )
+            ax.annotate(
+                label,
+                (mean_x, mean_y),
+                xytext=(4, 4 if cell_class != "FS" else -9),
+                textcoords="offset points",
+                color=color,
+                fontsize=7,
             )
 
     ax.plot(
         [lower_limit, upper_limit], [lower_limit, upper_limit], "k--", alpha=0.4, lw=0.8
     )
-    ax.set_xlim(lower_limit, upper_limit)
-    ax.set_ylim(lower_limit, upper_limit)
+    display_lower_limit = lower_limit / 1.25 if log_scale else lower_limit
+    ax.set_xlim(display_lower_limit, upper_limit)
+    ax.set_ylim(display_lower_limit, upper_limit)
     if log_scale:
         ax.set_xscale("log")
         ax.set_yscale("log")
     ax.set_aspect("equal")
     ax.set_xlabel("Stationary peak (baseline-corrected sp/s)")
     ax.set_ylabel("Movement peak (baseline-corrected sp/s)")
-    ax.legend(frameon=False, fontsize=8, loc="upper left")
     fig.subplots_adjust(left=0.14, right=0.98, bottom=0.12, top=0.98)
+    if log_scale:
+        separate_axes(ax)
 
     if not args.no_save:
         FIGURE_DIR.mkdir(parents=True, exist_ok=True)
