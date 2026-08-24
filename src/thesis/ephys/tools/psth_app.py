@@ -42,10 +42,13 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.binwidth_ms = binwidth_ms
 
         from thesis.ephys.trials import TRIAL_EV_COLUMNS, build_trial_table
-        from thesis.ephys.units import fetch_good_units
+        from thesis.ephys.units import fetch_unit_table
 
-        self.units = fetch_good_units(
+        unit_table = fetch_unit_table(
             subject, session, unit_criteria_id, stability_param_id
+        )
+        self.units = dict(
+            zip(unit_table["unit_id"], unit_table["spike_times_s"], strict=True)
         )
         self.trials = build_trial_table(subject, session)
         self.event_names = ("trial_start_s", *TRIAL_EV_COLUMNS)

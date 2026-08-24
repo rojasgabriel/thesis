@@ -8,6 +8,7 @@ synchronized to the behavioral-event clock before alignment.
 """
 
 import os
+from collections.abc import Collection
 from pathlib import Path
 
 import matplotlib
@@ -19,19 +20,9 @@ from spks.event_aligned import population_peth
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from labdata_plugin.schema import StimulusResponsiveness
 from thesis.ephys.events import fetch_session_events
-from thesis.ephys.peaks import (
-    PEAK_SEARCH_WINDOW,
-    PETH_BINWIDTH_MS,
-    PETH_POST_SECONDS,
-    PETH_PRE_SECONDS,
-    classify_double_peak_units,
-    plot_mean_sem_trace,
-)
-from thesis.ephys.units import (
-    fetch_good_unit_metrics_table,
-    fetch_stimulus_excited_unit_ids,
-)
+from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import separate_axes
 
 DISCOVERY_SESSIONS = [
@@ -42,6 +33,14 @@ PULSE_WIDTH_SESSION = ("GRB058", "20260312_134952")
 UNIT_CRITERIA_ID = 1
 STABILITY_PARAM_ID = 0
 RESPONSIVENESS_PARAM_ID = 0
+PETH_PRE_SECONDS = 0.1
+PETH_POST_SECONDS = 0.15
+PETH_BINWIDTH_MS = 10
+BASELINE_WINDOW = (-0.04, 0.0)
+PEAK_SEARCH_WINDOW = (0.0, 0.12)
+MIN_PROMINENCE_FRACTION = 0.25
+MIN_PROMINENCE_SPIKES_PER_SECOND = 1.0
+MIN_PEAK_DISTANCE_MS = 20.0
 NARROW_BROAD_MS = 0.4
 PULSE_COLORS = {15: "#0072B2", 30: "#D55E00"}
 DISCOVERY_COLOR = "0.25"
@@ -68,11 +67,109 @@ def window_maximum(
     return float(bin_centers[index]), float(mean_peth[index])
 
 
+def classify_double_peak_units(
+    spike_times: list[np.ndarray],
+    alignment_times: np.ndarray,
+    unit_ids: list[int],
+    excited_unit_ids: Collection[int],
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
+    peth, bin_edges, _ = population_peth(
+        all_spike_times=spike_times,
+        alignment_times=alignment_times,
+        pre_seconds=PETH_PRE_SECONDS,
+        post_seconds=PETH_POST_SECONDS,
+        binwidth_ms=PETH_BINWIDTH_MS,
+    )
+    peth = peth / (PETH_BINWIDTH_MS / 1000)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    excited_unit_set = set(excited_unit_ids)
+    excited_indices = np.array(
+        [
+            index
+            for index, unit_id in enumerate(unit_ids)
+            if unit_id in excited_unit_set
+        ],
+        dtype=int,
+    )
+    excited_unit_ids = [unit_ids[index] for index in excited_indices]
+    excited_peth = peth[excited_indices]
+    if not excited_unit_ids:
+        return (
+            pd.DataFrame(
+                {
+                    "unit": [],
+                    "n_peaks": [],
+                    "peak_times": [],
+                    "peak_heights": [],
+                    "baseline": [],
+                    "min_peak_height_above_baseline": [],
+                    "max_peak_height_above_baseline": [],
+                }
+            ),
+            peth,
+            bin_centers,
+            [],
+        )
+    peak_rows = StimulusResponsiveness.classify_components(
+        excited_peth,
+        bin_centers,
+        excited_unit_ids,
+        search_window=PEAK_SEARCH_WINDOW,
+        baseline_window=BASELINE_WINDOW,
+        min_prominence_fraction=MIN_PROMINENCE_FRACTION,
+        min_prominence_spikes_per_second=MIN_PROMINENCE_SPIKES_PER_SECOND,
+        min_peak_distance_ms=MIN_PEAK_DISTANCE_MS,
+        binwidth_ms=PETH_BINWIDTH_MS,
+    )
+
+    double_peak_rows = []
+    for _, peak_row in peak_rows.loc[peak_rows["n_peaks"] == 2].iterrows():
+        unit_id = int(peak_row["unit"])
+        excited_index = excited_unit_ids.index(unit_id)
+        baseline_bins = (bin_centers >= BASELINE_WINDOW[0]) & (
+            bin_centers < BASELINE_WINDOW[1]
+        )
+        baseline = float(excited_peth[excited_index].mean(axis=0)[baseline_bins].mean())
+        peak_heights_above_baseline = [
+            float(height - baseline) for height in peak_row["peak_heights"]
+        ]
+        if min(peak_heights_above_baseline) < 5.0:
+            continue
+        double_peak_row = peak_row.copy()
+        double_peak_row["baseline"] = baseline
+        double_peak_row["min_peak_height_above_baseline"] = min(
+            peak_heights_above_baseline
+        )
+        double_peak_row["max_peak_height_above_baseline"] = max(
+            peak_heights_above_baseline
+        )
+        double_peak_rows.append(double_peak_row)
+
+    double_peak_rows = pd.DataFrame(double_peak_rows)
+    if double_peak_rows.empty:
+        double_peak_rows = peak_rows.iloc[0:0].reindex(
+            columns=list(peak_rows.columns)
+            + [
+                "baseline",
+                "min_peak_height_above_baseline",
+                "max_peak_height_above_baseline",
+            ]
+        )
+    return double_peak_rows, peth, bin_centers, excited_unit_ids
+
+
+def plot_mean_sem_trace(ax, bin_centers, peth_trials, color) -> None:
+    mean = peth_trials.mean(axis=0)
+    sem = peth_trials.std(axis=0) / np.sqrt(peth_trials.shape[0])
+    ax.plot(bin_centers, mean, color=color, linewidth=1.5)
+    ax.fill_between(bin_centers, mean - sem, mean + sem, alpha=0.25, color=color)
+
+
 def collect_session(subject: str, session: str) -> dict:
-    units = fetch_good_unit_metrics_table(
+    units = fetch_unit_table(
         subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
     ).reset_index(drop=True)
-    excited_ids = fetch_stimulus_excited_unit_ids(
+    excited_ids = StimulusResponsiveness.fetch_excited_unit_ids(
         subject, session, UNIT_CRITERIA_ID, RESPONSIVENESS_PARAM_ID
     )
     _, pulses = fetch_session_events(subject, session)

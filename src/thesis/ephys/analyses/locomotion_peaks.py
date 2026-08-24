@@ -16,11 +16,9 @@ import pandas as pd
 from scipy import stats
 from spks.event_aligned import population_peth
 
+from labdata_plugin.schema import StimulusResponsiveness
 from thesis.ephys.trials import build_trial_table
-from thesis.ephys.units import (
-    fetch_good_unit_metrics_table,
-    fetch_stimulus_excited_unit_ids,
-)
+from thesis.ephys.units import fetch_unit_table
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 FIGURE_DIR = FIGURE_ROOT / "locomotion"
@@ -120,10 +118,8 @@ def compute_locomotion_peaks(
     if stationary_events.size == 0 or movement_events.size == 0:
         raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
 
-    units = fetch_good_unit_metrics_table(
-        subject, session, unit_criteria_id, stability_param_id
-    )
-    excited_unit_ids = fetch_stimulus_excited_unit_ids(
+    units = fetch_unit_table(subject, session, unit_criteria_id, stability_param_id)
+    excited_unit_ids = StimulusResponsiveness.fetch_excited_unit_ids(
         subject, session, unit_criteria_id, responsiveness_param_id
     )
     units = units[units["unit_id"].isin(excited_unit_ids)].sort_values("unit_id")

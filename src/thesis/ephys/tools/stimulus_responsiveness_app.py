@@ -24,7 +24,7 @@ def load_data(
         StimulusResponsivenessParams,
     )
     from thesis.ephys.events import fetch_session_events
-    from thesis.ephys.units import fetch_good_units
+    from thesis.ephys.units import fetch_unit_table
 
     key = {
         "subject_name": subject,
@@ -39,8 +39,11 @@ def load_data(
             as_dict=True
         )
     ).sort_values(["response_type", "n_response_components", "unit_id"])
-    spikes_by_unit = fetch_good_units(
+    unit_table = fetch_unit_table(
         subject, session, unit_criteria_id, stability_param_id
+    )
+    spikes_by_unit = dict(
+        zip(unit_table["unit_id"], unit_table["spike_times_s"], strict=True)
     )
     rows = rows[rows["unit_id"].isin(spikes_by_unit)]
     if rows.empty:

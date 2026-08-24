@@ -48,7 +48,7 @@ def _find_sess_ev_sources(
             DatasetEvents.Digital() & (EphysRecording() & sess_restriction)
         ).fetch("dataset_name", "stream_name", "event_name", as_dict=True)
     }
-    ev_mappings = list(EventMapping.fetch(as_dict=True))
+    ev_mappings = list(EventMapping().fetch(as_dict=True))
 
     for stream_name in EV_STREAM_PRIORITY:
         ev_names_by_role = {
