@@ -17,7 +17,7 @@ import pandas as pd
 # Silence the setuptools pkg_resources deprecation notice
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
-REQUIRED_LOGICAL_EVENTS = (
+REQUIRED_EV_ROLES = (
     "visual_stim",
     "trial_start",
     "frames",
@@ -25,143 +25,114 @@ REQUIRED_LOGICAL_EVENTS = (
     "center_port",
     "right_port",
 )
-STREAM_PRIORITY = ("obx", "nidq")
+EV_STREAM_PRIORITY = ("obx", "nidq")
 
 
-def session_event_keys(
+def _find_sess_ev_sources(
     subject: str,
-    session: str,
+    sess: str,
 ) -> dict[str, dict[str, str]]:
     """Return source keys for the known event set in one ephys recording."""
     from labdata.schema import DatasetEvents, EphysRecording
 
     from labdata_plugin.schema import EventMapping
 
-    restriction = {"subject_name": subject, "session_name": session}
-    available = {
-        (row["dataset_name"], row["stream_name"], row["event_name"])
-        for row in (DatasetEvents.Digital() & (EphysRecording() & restriction)).fetch(
-            "dataset_name", "stream_name", "event_name", as_dict=True
+    sess_restriction = {"subject_name": subject, "session_name": sess}
+    available_ev_sources = {
+        (
+            digital_ev["dataset_name"],
+            digital_ev["stream_name"],
+            digital_ev["event_name"],
         )
+        for digital_ev in (
+            DatasetEvents.Digital() & (EphysRecording() & sess_restriction)
+        ).fetch("dataset_name", "stream_name", "event_name", as_dict=True)
     }
-    mapping_rows = list(EventMapping.fetch(as_dict=True))
+    ev_mappings = list(EventMapping.fetch(as_dict=True))
 
-    for stream_name in STREAM_PRIORITY:
-        mapping = {
-            row["event_role"]: row["event_name"]
-            for row in mapping_rows
-            if row["stream_name"] == stream_name
-            and row["event_role"] in REQUIRED_LOGICAL_EVENTS
+    for stream_name in EV_STREAM_PRIORITY:
+        ev_names_by_role = {
+            ev_mapping["event_role"]: ev_mapping["event_name"]
+            for ev_mapping in ev_mappings
+            if ev_mapping["stream_name"] == stream_name
+            and ev_mapping["event_role"] in REQUIRED_EV_ROLES
         }
-        if set(mapping) != set(REQUIRED_LOGICAL_EVENTS):
+        if set(ev_names_by_role) != set(REQUIRED_EV_ROLES):
             continue
-        datasets = {
-            dataset_name
-            for dataset_name, source_stream, _ in available
-            if source_stream == stream_name
+        candidate_dsets = {
+            dset_name
+            for dset_name, ev_stream, _ in available_ev_sources
+            if ev_stream == stream_name
         }
-        matches = [
-            dataset_name
-            for dataset_name in datasets
+        matching_dsets = [
+            dset_name
+            for dset_name in candidate_dsets
             if all(
-                (dataset_name, stream_name, event_name) in available
-                for event_name in mapping.values()
+                (dset_name, stream_name, ev_name) in available_ev_sources
+                for ev_name in ev_names_by_role.values()
             )
         ]
-        if len(matches) == 1:
+        if len(matching_dsets) == 1:
             return {
-                role: {
-                    **restriction,
-                    "dataset_name": matches[0],
+                ev_role: {
+                    **sess_restriction,
+                    "dataset_name": matching_dsets[0],
                     "stream_name": stream_name,
-                    "event_name": event_name,
+                    "event_name": ev_name,
                 }
-                for role, event_name in mapping.items()
+                for ev_role, ev_name in ev_names_by_role.items()
             }
-        if len(matches) > 1:
+        if len(matching_dsets) > 1:
             raise ValueError(
                 f"Multiple ephys datasets contain the required events for "
-                f"{subject} {session}: {matches}"
+                f"{subject} {sess}: {matching_dsets}"
             )
 
-    raise ValueError(f"No complete ephys event set found for {subject} {session}")
+    raise ValueError(f"No complete ephys event set found for {subject} {sess}")
 
 
-def has_session_events(subject: str, session: str) -> bool:
-    """Return whether one ephys dataset has the known event set."""
-    try:
-        session_event_keys(subject, session)
-    except ValueError:
-        return False
-    return True
-
-
-def extract_digital_onsets(event_row: dict[str, np.ndarray | None]) -> np.ndarray:
-    """Rising-edge onsets: timestamps where value==1, or every other if no values."""
-    timestamps = np.asarray(event_row["timestamps"], dtype=float)
-    values = event_row["values"]
-    if values is None:
-        return timestamps[::2]
-    values = np.asarray(values)
-    return timestamps[values == 1]
-
-
-def extract_port_poke_onsets(event_row: dict[str, np.ndarray | None]) -> np.ndarray:
-    """Port poke onsets: value==1, or all timestamps if no value column."""
-    timestamps = np.asarray(event_row["timestamps"], dtype=float)
-    values = event_row["values"]
-    if values is None:
-        return timestamps
-    values = np.asarray(values)
-    return timestamps[values == 1]
-
-
-def extract_port_poke_exits(event_row: dict[str, np.ndarray | None]) -> np.ndarray:
-    """Port exit times (value==0); empty array if no `event_values` on the row."""
-    timestamps = np.asarray(event_row["timestamps"], dtype=float)
-    values = event_row["values"]
-    if values is None:
-        return np.array([])
-    values = np.asarray(values)
-    return timestamps[values == 0]
-
-
-def build_stimulus_pulses(stim: np.ndarray) -> pd.DataFrame:
+def build_stimulus_pulses(stim_edges: np.ndarray) -> pd.DataFrame:
     """Merge raw stimulus TTL edges into one row per pulse."""
-    stim = np.asarray(stim, dtype=float)
+    stim_edges = np.asarray(stim_edges, dtype=float)
 
     max_within_pulse_gap_s = 0.020
-    if stim.size > 0:
-        stim_sorted = np.sort(stim)
-        split_idx = np.where(np.diff(stim_sorted) > max_within_pulse_gap_s)[0] + 1
-        bursts = np.split(stim_sorted, split_idx)
+    if stim_edges.size > 0:
+        sorted_stim_edges = np.sort(stim_edges)
+        pulse_boundaries = (
+            np.where(np.diff(sorted_stim_edges) > max_within_pulse_gap_s)[0] + 1
+        )
+        pulse_edge_groups = np.split(sorted_stim_edges, pulse_boundaries)
 
-        onsets = np.array([b[0] for b in bursts])
-        durations = np.array([b[-1] - b[0] for b in bursts])
+        pulse_onsets = np.array([pulse_edges[0] for pulse_edges in pulse_edge_groups])
+        pulse_durations_s = np.array(
+            [pulse_edges[-1] - pulse_edges[0] for pulse_edges in pulse_edge_groups]
+        )
     else:
-        onsets = np.array([])
-        durations = np.array([])
+        pulse_onsets = np.array([])
+        pulse_durations_s = np.array([])
 
-    tol_s = 2e-3
-    if durations.size and np.allclose(durations, 0.0):
+    width_tolerance_s = 2e-3
+    if pulse_durations_s.size and np.allclose(pulse_durations_s, 0.0):
         # Historical GRB006 repairs insert onset-only visual events instead of
         # raw TTL edges, so treat the mapped row as a 15 ms-only stim stream.
-        widths = np.full(durations.shape, 15.0)
+        pulse_widths_ms = np.full(pulse_durations_s.shape, 15.0)
     else:
-        diff_15 = np.abs(durations - 0.015)
-        diff_30 = np.abs(durations - 0.030)
-        is_15 = diff_15 <= tol_s
-        is_30 = diff_30 <= tol_s
-        widths = np.where(is_15, 15.0, np.where(is_30, 30.0, np.nan))
+        distance_from_15_ms_s = np.abs(pulse_durations_s - 0.015)
+        distance_from_30_ms_s = np.abs(pulse_durations_s - 0.030)
+        is_15_ms = distance_from_15_ms_s <= width_tolerance_s
+        is_30_ms = distance_from_30_ms_s <= width_tolerance_s
+        pulse_widths_ms = np.where(is_15_ms, 15.0, np.where(is_30_ms, 30.0, np.nan))
 
-    first_in_train = (
-        np.r_[True, np.diff(onsets) > 1.0] if onsets.size else np.array([], dtype=bool)
+    is_first_in_train = (
+        np.r_[True, np.diff(pulse_onsets) > 1.0]
+        if pulse_onsets.size
+        else np.array([], dtype=bool)
     )
     return pd.DataFrame(
         {
-            "timestamp": onsets,
-            "width_ms": widths,
-            "first_in_train": first_in_train,
+            "timestamp": pulse_onsets,
+            "width_ms": pulse_widths_ms,
+            "first_in_train": is_first_in_train,
         }
     )
 
@@ -184,36 +155,57 @@ def fetch_session_events(
     """
     from labdata.schema import DatasetEvents
 
-    source_keys = session_event_keys(subject, session)
-    rows = list(
-        (DatasetEvents.Digital() & list(source_keys.values())).fetch(as_dict=True)
+    ev_sources = _find_sess_ev_sources(subject, session)
+    digital_ev_records = list(
+        (DatasetEvents.Digital() & list(ev_sources.values())).fetch(as_dict=True)
     )
-    rows_by_key = {
-        (row["dataset_name"], row["stream_name"], row["event_name"]): row
-        for row in rows
+    digital_ev_by_source = {
+        (
+            digital_ev["dataset_name"],
+            digital_ev["stream_name"],
+            digital_ev["event_name"],
+        ): digital_ev
+        for digital_ev in digital_ev_records
     }
-    resolved = {}
-    for role, key in source_keys.items():
-        row = rows_by_key[(key["dataset_name"], key["stream_name"], key["event_name"])]
-        timestamps = np.asarray(row["event_timestamps"], dtype=float)
-        values = row.get("event_values")
-        values = None if values is None else np.asarray(values)
-        if values is not None and values.shape != timestamps.shape:
-            raise ValueError(f"Event values do not match timestamps for {role}")
-        resolved[role] = {"timestamps": timestamps, "values": values}
+    ev_data_by_role = {}
+    for ev_role, ev_source in ev_sources.items():
+        digital_ev = digital_ev_by_source[
+            (
+                ev_source["dataset_name"],
+                ev_source["stream_name"],
+                ev_source["event_name"],
+            )
+        ]
+        ev_timestamps = np.asarray(digital_ev["event_timestamps"], dtype=float)
+        ev_values = digital_ev.get("event_values")
+        ev_values = None if ev_values is None else np.asarray(ev_values)
+        if ev_values is not None and ev_values.shape != ev_timestamps.shape:
+            raise ValueError(f"Event values do not match timestamps for {ev_role}")
+        ev_data_by_role[ev_role] = {
+            "timestamps": ev_timestamps,
+            "values": ev_values,
+        }
 
-    # Trial-start TTLs still arrive as on/off edge pairs, regardless of the
-    # physical source row used for this session.
-    trial_start = extract_digital_onsets(resolved["trial_start"])
-    align_ev: dict[str, np.ndarray] = {
-        "stim": np.asarray(resolved["visual_stim"]["timestamps"], dtype=float),
-        "trial_start": trial_start,
-        "frames": extract_digital_onsets(resolved["frames"]),
-        "left_port": extract_port_poke_onsets(resolved["left_port"]),
-        "center_port": extract_port_poke_onsets(resolved["center_port"]),
-        "right_port": extract_port_poke_onsets(resolved["right_port"]),
-        "left_port_exit": extract_port_poke_exits(resolved["left_port"]),
-        "center_port_exit": extract_port_poke_exits(resolved["center_port"]),
-        "right_port_exit": extract_port_poke_exits(resolved["right_port"]),
+    sess_ev: dict[str, np.ndarray] = {
+        "stim": np.asarray(ev_data_by_role["visual_stim"]["timestamps"], dtype=float),
     }
-    return align_ev, build_stimulus_pulses(align_ev["stim"])
+    for ev_role in ("trial_start", "frames"):
+        ev_timestamps = np.asarray(ev_data_by_role[ev_role]["timestamps"], dtype=float)
+        ev_values = ev_data_by_role[ev_role]["values"]
+        sess_ev[ev_role] = (
+            ev_timestamps[::2] if ev_values is None else ev_timestamps[ev_values == 1]
+        )
+
+    for port_role in ("left_port", "center_port", "right_port"):
+        ev_timestamps = np.asarray(
+            ev_data_by_role[port_role]["timestamps"], dtype=float
+        )
+        ev_values = ev_data_by_role[port_role]["values"]
+        if ev_values is None:
+            sess_ev[port_role] = ev_timestamps
+            sess_ev[f"{port_role}_exit"] = np.array([])
+        else:
+            sess_ev[port_role] = ev_timestamps[ev_values == 1]
+            sess_ev[f"{port_role}_exit"] = ev_timestamps[ev_values == 0]
+
+    return sess_ev, build_stimulus_pulses(sess_ev["stim"])

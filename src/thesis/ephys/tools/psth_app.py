@@ -13,7 +13,7 @@ class PSTHApp(QtWidgets.QMainWindow):
     SPLIT_OPTIONS = (
         "none",
         "stim_category",
-        "stim_rate_vision",
+        "visual_stim_rate_hz",
         "rewarded",
         "response",
         "prev_rewarded",
@@ -41,14 +41,14 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.post_seconds = post_seconds
         self.binwidth_ms = binwidth_ms
 
-        from thesis.ephys.trials import TRIAL_EVENT_COLUMNS, build_trial_table
+        from thesis.ephys.trials import TRIAL_EV_COLUMNS, build_trial_table
         from thesis.ephys.units import fetch_good_units
 
         self.units = fetch_good_units(
             subject, session, unit_criteria_id, stability_param_id
         )
         self.trials = build_trial_table(subject, session)
-        self.event_names = ("trial_start", *TRIAL_EVENT_COLUMNS)
+        self.event_names = ("trial_start_s", *TRIAL_EV_COLUMNS)
         self.unit_ids = list(self.units)
         if not self.unit_ids:
             raise RuntimeError("No units pass the selected filters.")
@@ -84,7 +84,7 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         self.event_combo = QtWidgets.QComboBox()
         self.event_combo.addItems(self.event_names)
-        self.event_combo.setCurrentText("first_stimulus")
+        self.event_combo.setCurrentText("first_stim_times_s")
         form.addRow("Event", self.event_combo)
 
         self.plot_combo = QtWidgets.QComboBox()
@@ -147,8 +147,8 @@ class PSTHApp(QtWidgets.QMainWindow):
             if trial["response"] not in (-1, 1):
                 continue
             event_times = (
-                [trial["event_trial_start_s"]]
-                if event_name == "trial_start"
+                [trial["trial_start_s"]]
+                if event_name == "trial_start_s"
                 else trial[event_name]
             )
             if event_times:

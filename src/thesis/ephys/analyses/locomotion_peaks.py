@@ -59,8 +59,8 @@ def build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
             [
                 timestamp
                 for timestamp, width_ms in zip(
-                    trial["stimulus_pulse"],
-                    trial["stimulus_width_ms"],
+                    trial["stim_pulse_times_s"],
+                    trial["stim_pulse_widths_ms"],
                     strict=True,
                 )
                 if width_ms == 15
@@ -83,7 +83,8 @@ def build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
                     "stationary_stims": stationary_stims,
                     "movement_stims": movement_stims,
                     "n_cp_entries": sum(
-                        timestamp < cp_exit for timestamp in trial["center_port"]
+                        timestamp < cp_exit
+                        for timestamp in trial["center_port_entry_times_s"]
                     ),
                 }
             )
