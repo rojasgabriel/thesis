@@ -1,4 +1,4 @@
-"""Good-unit spike data and metrics from labdata.
+"""Unit spike data and metrics from labdata.
 
 **Naming convention**
 
@@ -33,6 +33,9 @@ def fetch_good_unit_metrics_table(
 
     Adds ``spike_times_s`` and ``spike_duration_ms`` columns. The upstream
     waveform metric already stores spike duration in milliseconds.
+
+    If ``stability_param_id`` is set, this populates missing UnitStability
+    rows before applying the stability filter.
     """
     sess_query = (
         SpikeSorting() & f'subject_name = "{subject}"' & f'session_name = "{session}"'
@@ -98,7 +101,7 @@ def fetch_stimulus_excited_unit_ids(
     unit_criteria_id: int = 1,
     responsiveness_param_id: int = 0,
 ) -> set[int]:
-    """Return unit IDs classified as excited by the stored responsiveness table."""
+    """Populate responsiveness and return unit IDs classified as excited."""
     from labdata_plugin.schema import StimulusResponsiveness
 
     key = {

@@ -17,8 +17,6 @@ import pandas as pd
 # Silence the setuptools pkg_resources deprecation notice
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
-import datajoint as dj  # noqa: E402
-
 REQUIRED_LOGICAL_EVENTS = (
     "visual_stim",
     "trial_start",
@@ -35,7 +33,9 @@ def session_event_keys(
     session: str,
 ) -> dict[str, dict[str, str]]:
     """Return source keys for the known event set in one ephys recording."""
-    from labdata.schema import DatasetEvents, EphysRecording, get_user_schema
+    from labdata.schema import DatasetEvents, EphysRecording
+
+    from labdata_plugin.schema import EventMapping
 
     restriction = {"subject_name": subject, "session_name": session}
     available = {
@@ -44,12 +44,7 @@ def session_event_keys(
             "dataset_name", "stream_name", "event_name", as_dict=True
         )
     }
-    user_schema = get_user_schema()
-    event_mapping = dj.FreeTable(
-        user_schema.connection,
-        f"`{user_schema.database}`.`#event_mapping`",
-    )
-    mapping_rows = list(event_mapping.fetch(as_dict=True))
+    mapping_rows = list(EventMapping.fetch(as_dict=True))
 
     for stream_name in STREAM_PRIORITY:
         mapping = {

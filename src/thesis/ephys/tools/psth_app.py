@@ -41,21 +41,14 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.post_seconds = post_seconds
         self.binwidth_ms = binwidth_ms
 
-        from thesis.ephys.io_chipmunk_trials import fetch_trial_metadata
-        from thesis.ephys.io_digital_events import fetch_session_events
-        from thesis.ephys.io_session_units import fetch_good_units
+        from thesis.ephys.trials import TRIAL_EVENT_COLUMNS, build_trial_table
+        from thesis.ephys.units import fetch_good_units
 
         self.units = fetch_good_units(
             subject, session, unit_criteria_id, stability_param_id
         )
-        self.events, stimulus_pulses = fetch_session_events(subject, session)
-        self.events["stimulus_pulse"] = stimulus_pulses["timestamp"].to_numpy(
-            dtype=float
-        )
-        self.events["first_stimulus"] = stimulus_pulses.loc[
-            stimulus_pulses["first_in_train"], "timestamp"
-        ].to_numpy(dtype=float)
-        self.trials = fetch_trial_metadata(subject, session, self.events)
+        self.trials = build_trial_table(subject, session)
+        self.event_names = ("trial_start", *TRIAL_EVENT_COLUMNS)
         self.unit_ids = list(self.units)
         if not self.unit_ids:
             raise RuntimeError("No units pass the selected filters.")
@@ -90,7 +83,7 @@ class PSTHApp(QtWidgets.QMainWindow):
         )
 
         self.event_combo = QtWidgets.QComboBox()
-        self.event_combo.addItems(list(self.events))
+        self.event_combo.addItems(self.event_names)
         self.event_combo.setCurrentText("first_stimulus")
         form.addRow("Event", self.event_combo)
 
@@ -147,15 +140,24 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.sort_combo.blockSignals(False)
 
     def _event_groups(self) -> list[tuple[str, np.ndarray]]:
-        event_times = np.asarray(self.events[self.event_combo.currentText()])
-        trial_starts = np.asarray(self.trials["trial_start_ts"])
-        trial_idx = np.searchsorted(trial_starts, event_times, side="right") - 1
-        valid = (trial_idx >= 0) & (trial_idx < len(self.trials))
-        valid[valid] &= np.isin(
-            self.trials["response"].to_numpy()[trial_idx[valid]], (-1, 1)
-        )
-        event_times = event_times[valid]
-        trial_idx = trial_idx[valid]
+        event_name = self.event_combo.currentText()
+        event_chunks = []
+        trial_indices = []
+        for trial_index, trial in self.trials.iterrows():
+            if trial["response"] not in (-1, 1):
+                continue
+            event_times = (
+                [trial["event_trial_start_s"]]
+                if event_name == "trial_start"
+                else trial[event_name]
+            )
+            if event_times:
+                event_chunks.append(np.asarray(event_times, dtype=float))
+                trial_indices.extend([trial_index] * len(event_times))
+        if not event_chunks:
+            return []
+        event_times = np.concatenate(event_chunks)
+        trial_idx = np.asarray(trial_indices, dtype=int)
 
         split_col = self.split_combo.currentText()
         if split_col == "none":

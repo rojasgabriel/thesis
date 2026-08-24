@@ -1,3 +1,5 @@
+"""Classify and plot stimulus-response peaks."""
+
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence

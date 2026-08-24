@@ -182,8 +182,8 @@ class StimulusResponsiveness(dj.Computed):
         import numpy as np
         from spks.event_aligned import population_peth
 
-        from thesis.ephys.io_digital_events import fetch_session_events
-        from thesis.ephys.peak_classification import classify_peak_count
+        from thesis.ephys.events import fetch_session_events
+        from thesis.ephys.peaks import classify_peak_count
         from thesis.ephys.responsiveness import compute_unit_responsiveness
 
         params = (StimulusResponsivenessParams & key).fetch1()

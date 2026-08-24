@@ -16,13 +16,10 @@ import pandas as pd
 from scipy import stats
 from spks.event_aligned import population_peth
 
-from thesis.ephys.io_session_units import (
+from thesis.ephys.trials import build_trial_table
+from thesis.ephys.units import (
     fetch_good_unit_metrics_table,
     fetch_stimulus_excited_unit_ids,
-)
-from thesis.ephys.locomotion import (
-    extract_paired_stim_anchors,
-    load_trial_classification,
 )
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
@@ -40,6 +37,72 @@ PETH_BINWIDTH_MS = 10
 SCATTER_MAX_RATE = 60.0
 BACKGROUND_DOT_ALPHA = 0.2
 SUBJECT_COLORS = ("#E41A1C", "#377EB8")
+
+
+def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
+    """Load the conditioned-stim classification for one session."""
+    return build_trial_stim_classification(
+        build_trial_table(subject, session)
+    ).reset_index(drop=True)
+
+
+def build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
+    """Classify 15 ms pulses as stationary or movement for each trial."""
+    rows = []
+    for trial_index, trial in trial_df.iterrows():
+        cp_entry = trial["center_entry_s"]
+        cp_exit = trial["center_exit_s"]
+        rp_entry = trial["response_port_entry_s"]
+        if not all(np.isfinite([cp_entry, cp_exit, rp_entry])):
+            continue
+        stim_times = np.asarray(
+            [
+                timestamp
+                for timestamp, width_ms in zip(
+                    trial["stimulus_pulse"],
+                    trial["stimulus_width_ms"],
+                    strict=True,
+                )
+                if width_ms == 15
+            ],
+            dtype=float,
+        )
+        stationary_stims = stim_times[
+            (stim_times >= cp_entry) & (stim_times < cp_exit)
+        ].tolist()
+        movement_stims = stim_times[
+            (stim_times >= cp_exit) & (stim_times <= rp_entry)
+        ].tolist()
+        if stationary_stims and movement_stims:
+            rows.append(
+                {
+                    "trial_idx": trial_index,
+                    "cp_entry": cp_entry,
+                    "cp_exit": cp_exit,
+                    "rp_entry": rp_entry,
+                    "stationary_stims": stationary_stims,
+                    "movement_stims": movement_stims,
+                    "n_cp_entries": sum(
+                        timestamp < cp_exit for timestamp in trial["center_port"]
+                    ),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def extract_paired_stim_anchors(
+    trial_ts: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return last-stationary and first-movement stimulus times."""
+    paired = trial_ts[
+        trial_ts["stationary_stims"].str.len().gt(0)
+        & trial_ts["movement_stims"].str.len().gt(0)
+    ]
+    return (
+        np.asarray([stims[-1] for stims in paired["stationary_stims"]], dtype=float),
+        np.asarray([stims[0] for stims in paired["movement_stims"]], dtype=float),
+    )
 
 
 def compute_locomotion_peaks(

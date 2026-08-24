@@ -23,8 +23,8 @@ def load_data(
         StimulusResponsiveness,
         StimulusResponsivenessParams,
     )
-    from thesis.ephys.io_digital_events import fetch_session_events
-    from thesis.ephys.io_session_units import fetch_good_units
+    from thesis.ephys.events import fetch_session_events
+    from thesis.ephys.units import fetch_good_units
 
     key = {
         "subject_name": subject,

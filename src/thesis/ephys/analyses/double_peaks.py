@@ -19,18 +19,18 @@ from spks.event_aligned import population_peth
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.io_digital_events import fetch_session_events
-from thesis.ephys.io_session_units import (
-    fetch_good_unit_metrics_table,
-    fetch_stimulus_excited_unit_ids,
-)
-from thesis.ephys.peak_classification import (
+from thesis.ephys.events import fetch_session_events
+from thesis.ephys.peaks import (
     PEAK_SEARCH_WINDOW,
     PETH_BINWIDTH_MS,
     PETH_POST_SECONDS,
     PETH_PRE_SECONDS,
     classify_double_peak_units,
     plot_mean_sem_trace,
+)
+from thesis.ephys.units import (
+    fetch_good_unit_metrics_table,
+    fetch_stimulus_excited_unit_ids,
 )
 from thesis.plotting import separate_axes
 
