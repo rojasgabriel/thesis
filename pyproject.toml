@@ -1,28 +1,45 @@
+[build-system]
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"
+
 [project]
-name = "ephys"
-version = "0.2.0"
-description = "code for analyzing my ephys data in the Churchland Lab"
+name = "thesis"
+version = "0.1.0"
+description = "Behavior and electrophysiology analyses for my Churchland Lab thesis"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "alive-progress>=3.3.0",
+    "datajoint>=0.14.8,<0.15",
     "diptest>=0.11.0",
-    "h5py>=3.15.1",
+    "fit-psychometric",
+    "h5py",
     "ipykernel>=7.3.0",
     "ipympl>=0.10.0",
     "ipywidgets>=8.1.8",
     "labdata>=0.1.15",
-    "opencv-python-headless>=5.0.0.93",
+    "matplotlib>=3.10.0",
+    "numpy>=1.26.0",
     "pandas==2.3.3",
     "scipy>=1.15.3",
-    "SciencePlots>=2.1.1",
     "scikit-learn>=1.7.0",
-    "seaborn>=0.13.2",
     "spks",
     "statsmodels>=0.14.6",
-    "torch>=2.13.0",
-    "torchaudio>=2.10.0",
+    "torch",
+    "torchaudio",
+    "pyqtgraph>=0.14,<0.15",
+    "pyside6-essentials>=6.8,<7",
+    "scienceplots>=2.2.2",
 ]
+
+[project.scripts]
+populate-unit-counts = "thesis.ephys.tools.populate_unit_counts:main"
+psth = "thesis.ephys.tools.psth_app:main"
+stimulus-response = "thesis.ephys.tools.stimulus_response_app:main"
+survey-map = "thesis.ephys.tools.survey_map_app:main"
+unit-stability = "thesis.ephys.tools.unit_stability_app:main"
+
+[tool.uv.build-backend]
+module-name = ["thesis", "labdata_plugin"]
 
 [tool.uv]
 constraint-dependencies = [
@@ -31,19 +48,26 @@ constraint-dependencies = [
     "tornado>=6.5.7",
     "urllib3>=2.7.0",
     "pygments>=2.20.0",
-    "setuptools>=83.0.0",
+    # DataJoint 0.14 still imports pkg_resources, removed in setuptools 81+.
+    "setuptools>=79.0.1,<81",
 ]
 
 [tool.uv.sources]
-spks = { git = "https://github.com/spkware/spks" }
+fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
+spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
+
+[tool.ruff.lint]
+# Check basic Python errors and import ordering.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+# labdata registers plugins during import.
+force-to-top = ["labdata", "labdata.schema"]
 
 [tool.ty.src]
-include = ["src", "tests", "scripts", "notebooks"]
+include = ["src", "notebooks"]
+exclude = ["src/labdata_plugin"]
 
 [tool.ty.environment]
+# Type stubs for the runtime-loaded Chipmunk plugin.
 extra-paths = ["typings"]
-
-[tool.pyright]
-include = ["src", "scripts", "notebooks", "tests"]
-extraPaths = ["typings"]
-reportMissingModuleSource = "none"
