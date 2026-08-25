@@ -120,7 +120,11 @@ def compute_locomotion_peaks(
 
     units = fetch_unit_table(subject, session, unit_criteria_id, stability_param_id)
     excited_unit_ids = StimulusResponsiveness.fetch_excited_unit_ids(
-        subject, session, unit_criteria_id, responsiveness_param_id
+        subject,
+        session,
+        unit_criteria_id,
+        responsiveness_param_id,
+        stability_param_id,
     )
     units = units[units["unit_id"].isin(excited_unit_ids)].sort_values("unit_id")
     if units.empty:

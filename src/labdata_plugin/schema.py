@@ -416,8 +416,9 @@ class StimulusResponsiveness(dj.Computed):
         session,
         unit_criteria_id=1,
         responsiveness_param_id=0,
+        stability_param_id=None,
     ):
-        """Return stored unit IDs classified as stimulus excited."""
+        """Return a set of stored unit IDs classified as stimulus excited."""
         responsiveness_query = {
             "subject_name": subject,
             "session_name": session,
@@ -429,12 +430,21 @@ class StimulusResponsiveness(dj.Computed):
                 "StimulusResponsiveness has not been populated for "
                 f"{responsiveness_query}"
             )
-        unit_ids = [
-            int(unit_id)
-            for unit_id in (
-                cls.Unit & responsiveness_query & {"response_type": "excited"}
-            ).fetch("unit_id")
-        ]
+        excited_units = cls.Unit & responsiveness_query & {"response_type": "excited"}
+        if stability_param_id is not None:
+            stability_query = {
+                "subject_name": subject,
+                "session_name": session,
+                "unit_criteria_id": unit_criteria_id,
+                "unit_stability_param_id": stability_param_id,
+            }
+            if len(UnitStability & stability_query) == 0:
+                raise ValueError(
+                    f"UnitStability has not been populated for {stability_query}"
+                )
+            excited_units &= UnitStability.Unit & stability_query & {"passes": 1}
+
+        unit_ids = [int(unit_id) for unit_id in excited_units.fetch("unit_id")]
         if len(unit_ids) != len(set(unit_ids)):
             raise ValueError("Unit IDs are not unique across this session")
         return set(unit_ids)

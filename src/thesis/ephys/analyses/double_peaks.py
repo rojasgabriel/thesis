@@ -170,7 +170,11 @@ def collect_session(subject: str, session: str) -> dict:
         subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
     ).reset_index(drop=True)
     excited_ids = StimulusResponsiveness.fetch_excited_unit_ids(
-        subject, session, UNIT_CRITERIA_ID, RESPONSIVENESS_PARAM_ID
+        subject,
+        session,
+        UNIT_CRITERIA_ID,
+        RESPONSIVENESS_PARAM_ID,
+        STABILITY_PARAM_ID,
     )
     _, pulses = fetch_session_events(subject, session)
     pulses = pulses.copy()

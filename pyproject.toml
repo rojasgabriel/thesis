@@ -54,9 +54,10 @@ constraint-dependencies = [
 
 [tool.uv.sources]
 fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
-spks = { git = "https://github.com/spkware/spks" }
+spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
 
 [tool.ruff.lint]
+# Check basic Python errors and import ordering.
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
@@ -68,4 +69,5 @@ include = ["src", "notebooks"]
 exclude = ["src/labdata_plugin"]
 
 [tool.ty.environment]
+# Type stubs for the runtime-loaded Chipmunk plugin.
 extra-paths = ["typings"]

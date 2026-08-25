@@ -2145,7 +2145,7 @@ wheels = [
 [[package]]
 name = "spks"
 version = "0.0b0"
-source = { git = "https://github.com/spkware/spks#451691a558650c80696a6871377f33986f3abb2f" }
+source = { git = "https://github.com/spkware/spks?rev=451691a558650c80696a6871377f33986f3abb2f#451691a558650c80696a6871377f33986f3abb2f" }
 
 [[package]]
 name = "stack-data"
@@ -2257,7 +2257,7 @@ requires-dist = [
     { name = "scienceplots", specifier = ">=2.2.2" },
     { name = "scikit-learn", specifier = ">=1.7.0" },
     { name = "scipy", specifier = ">=1.15.3" },
-    { name = "spks", git = "https://github.com/spkware/spks" },
+    { name = "spks", git = "https://github.com/spkware/spks?rev=451691a558650c80696a6871377f33986f3abb2f" },
     { name = "statsmodels", specifier = ">=0.14.6" },
     { name = "torch" },
     { name = "torchaudio" },
