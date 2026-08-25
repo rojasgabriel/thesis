@@ -11,7 +11,7 @@ import pandas as pd
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 
-TRIAL_EV_COLUMNS = (
+ALIGNMENT_EV_COLUMNS = (
     "first_stim_times_s",
     "stim_pulse_times_s",
     "frame_times_s",

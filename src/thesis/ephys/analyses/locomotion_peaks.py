@@ -16,7 +16,7 @@ import pandas as pd
 from scipy import stats
 from spks.event_aligned import population_peth
 
-from labdata_plugin.schema import StimulusResponsiveness
+from labdata_plugin.schema import StimulusResponse
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
@@ -30,7 +30,7 @@ SUBJECT_SESSIONS = [
 
 UNIT_CRITERIA_ID = 1
 STABILITY_PARAM_ID = 0
-RESPONSIVENESS_PARAM_ID = 0
+STIM_RESPONSE_PARAM_ID = 0
 PETH_BINWIDTH_MS = 10
 SCATTER_MAX_RATE = 60.0
 BACKGROUND_DOT_ALPHA = 0.2
@@ -39,14 +39,14 @@ SUBJECT_COLORS = ("#E41A1C", "#377EB8")
 
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
     """Load the conditioned-stim classification for one session."""
-    return build_trial_stim_classification(
+    return _build_trial_stim_classification(
         build_trial_table(subject, session)
     ).reset_index(drop=True)
 
 
-def build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
+def _build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
     """Classify 15 ms pulses as stationary or movement for each trial."""
-    rows = []
+    classification_records = []
     for trial_index, trial in trial_df.iterrows():
         cp_entry = trial["center_entry_s"]
         cp_exit = trial["center_exit_s"]
@@ -72,7 +72,7 @@ def build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
             (stim_times >= cp_exit) & (stim_times <= rp_entry)
         ].tolist()
         if stationary_stims and movement_stims:
-            rows.append(
+            classification_records.append(
                 {
                     "trial_idx": trial_index,
                     "cp_entry": cp_entry,
@@ -87,20 +87,24 @@ def build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
                 }
             )
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(classification_records)
 
 
 def extract_paired_stim_anchors(
-    trial_ts: pd.DataFrame,
+    trial_classification: pd.DataFrame,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return last-stationary and first-movement stimulus times."""
-    paired = trial_ts[
-        trial_ts["stationary_stims"].str.len().gt(0)
-        & trial_ts["movement_stims"].str.len().gt(0)
+    paired_trials = trial_classification[
+        trial_classification["stationary_stims"].str.len().gt(0)
+        & trial_classification["movement_stims"].str.len().gt(0)
     ]
     return (
-        np.asarray([stims[-1] for stims in paired["stationary_stims"]], dtype=float),
-        np.asarray([stims[0] for stims in paired["movement_stims"]], dtype=float),
+        np.asarray(
+            [stims[-1] for stims in paired_trials["stationary_stims"]], dtype=float
+        ),
+        np.asarray(
+            [stims[0] for stims in paired_trials["movement_stims"]], dtype=float
+        ),
     )
 
 
@@ -109,7 +113,7 @@ def compute_locomotion_peaks(
     session: str,
     unit_criteria_id: int = 1,
     stability_param_id: int | None = 0,
-    responsiveness_param_id: int = 0,
+    stim_response_param_id: int = 0,
 ) -> pd.DataFrame:
     """Return stationary and movement peaks for stable stimulus-excited units."""
     stationary_events, movement_events = extract_paired_stim_anchors(
@@ -119,13 +123,14 @@ def compute_locomotion_peaks(
         raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
 
     units = fetch_unit_table(subject, session, unit_criteria_id, stability_param_id)
-    excited_unit_ids = StimulusResponsiveness.fetch_excited_unit_ids(
-        subject,
-        session,
-        unit_criteria_id,
-        responsiveness_param_id,
-        stability_param_id,
-    )
+    response_query = {
+        "subject_name": subject,
+        "session_name": session,
+        "unit_criteria_id": unit_criteria_id,
+        "stim_response_param_id": stim_response_param_id,
+        "response_type": "excited",
+    }
+    excited_unit_ids = set((StimulusResponse.Unit & response_query).fetch("unit_id"))
     units = units[units["unit_id"].isin(excited_unit_ids)].sort_values("unit_id")
     if units.empty:
         raise RuntimeError(
@@ -177,7 +182,7 @@ def compute_locomotion_peaks(
     )
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--show",
@@ -193,7 +198,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
+    args = _parse_args()
     if not args.show:
         matplotlib.use("Agg")
     from matplotlib import pyplot as plt
@@ -207,7 +212,7 @@ def main() -> None:
             session,
             unit_criteria_id=UNIT_CRITERIA_ID,
             stability_param_id=STABILITY_PARAM_ID,
-            responsiveness_param_id=RESPONSIVENESS_PARAM_ID,
+            stim_response_param_id=STIM_RESPONSE_PARAM_ID,
         )
         for column in ["stat_peak", "move_peak", "stat_latency", "move_latency"]:
             values = peak_table[column].to_numpy(dtype=float)
@@ -231,10 +236,10 @@ def main() -> None:
     all_peak_values = np.concatenate(
         [
             values
-            for _, result in peak_results
+            for _, peak_table in peak_results
             for values in (
-                result["stat_peak"].to_numpy(dtype=float),
-                result["move_peak"].to_numpy(dtype=float),
+                peak_table["stat_peak"].to_numpy(dtype=float),
+                peak_table["move_peak"].to_numpy(dtype=float),
             )
         ]
     )
@@ -243,10 +248,10 @@ def main() -> None:
     lower_limit -= padding
 
     rng = np.random.default_rng(0)
-    for subject_index, (subject, result) in enumerate(peak_results):
+    for subject_index, (subject, peak_table) in enumerate(peak_results):
         color = SUBJECT_COLORS[subject_index]
-        stat_peak = result["stat_peak"].to_numpy(dtype=float)
-        move_peak = result["move_peak"].to_numpy(dtype=float)
+        stat_peak = peak_table["stat_peak"].to_numpy(dtype=float)
+        move_peak = peak_table["move_peak"].to_numpy(dtype=float)
         ax.scatter(
             stat_peak,
             move_peak,

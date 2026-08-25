@@ -12,16 +12,16 @@ from spks.event_aligned import population_peth
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 
-def load_data(
+def _load_data(
     subject: str,
     session: str,
     unit_criteria_id: int,
-    responsiveness_param_id: int,
+    stim_response_param_id: int,
     stability_param_id: int | None,
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, dict]:
     from labdata_plugin.schema import (
-        StimulusResponsiveness,
-        StimulusResponsivenessParams,
+        StimulusResponse,
+        StimulusResponseParam,
     )
     from thesis.ephys.events import fetch_session_events
     from thesis.ephys.units import fetch_unit_table
@@ -30,15 +30,13 @@ def load_data(
         "subject_name": subject,
         "session_name": session,
         "unit_criteria_id": unit_criteria_id,
-        "responsiveness_param_id": responsiveness_param_id,
+        "stim_response_param_id": stim_response_param_id,
     }
-    StimulusResponsiveness().populate(key)
-    params = (StimulusResponsivenessParams & key).fetch1()
+    StimulusResponse().populate(key)
+    params = (StimulusResponseParam & key).fetch1()
     rows = pd.DataFrame(
-        (StimulusResponsiveness.Unit & key & 'response_type != "none"').fetch(
-            as_dict=True
-        )
-    ).sort_values(["response_type", "n_response_components", "unit_id"])
+        (StimulusResponse.Unit & key & 'response_type != "none"').fetch(as_dict=True)
+    ).sort_values(["response_type", "n_components", "unit_id"])
     unit_table = fetch_unit_table(
         subject, session, unit_criteria_id, stability_param_id
     )
@@ -72,7 +70,7 @@ def load_data(
     )
 
 
-class StimulusResponsivenessApp(QtWidgets.QMainWindow):
+class StimulusResponseApp(QtWidgets.QMainWindow):
     def __init__(
         self, rows: pd.DataFrame, peth: np.ndarray, bins: np.ndarray, params: dict
     ) -> None:
@@ -85,7 +83,7 @@ class StimulusResponsivenessApp(QtWidgets.QMainWindow):
 
         pg.setConfigOption("background", "white")
         pg.setConfigOption("foreground", "#222222")
-        self.setWindowTitle("Stimulus responsiveness browser")
+        self.setWindowTitle("Stimulus response browser")
         self.resize(1100, 700)
 
         central = QtWidgets.QWidget()
@@ -157,7 +155,7 @@ class StimulusResponsivenessApp(QtWidgets.QMainWindow):
         self.summary_plot.clear()
         legend = self.summary_plot.addLegend()
         counts = (
-            self.rows.groupby(["n_response_components", "response_type"])
+            self.rows.groupby(["n_components", "response_type"])
             .size()
             .unstack(fill_value=0)
         )
@@ -217,8 +215,8 @@ class StimulusResponsivenessApp(QtWidgets.QMainWindow):
         )
         self.trace_plot.plot(self.bins, trace, pen=pg.mkPen("#222222", width=2))
         self.trace_plot.plot(
-            row["response_component_times"],
-            row["response_component_rates"],
+            row["component_latencies_s"],
+            row["component_rates"],
             pen=None,
             symbol="o",
             symbolBrush=color,
@@ -228,15 +226,14 @@ class StimulusResponsivenessApp(QtWidgets.QMainWindow):
         unit_id = int(row["unit_id"])
         self.unit_label.setText(f"{unit_id}  ({self.position + 1}/{len(rows)})")
         self.trace_plot.setTitle(
-            f"Unit {unit_id}: {response_type}, "
-            f"{int(row['n_response_components'])} component(s)"
+            f"Unit {unit_id}: {response_type}, {int(row['n_components'])} component(s)"
         )
         self.trace_plot.setLabel("bottom", "time from first stimulus (s)")
         self.trace_plot.setLabel("left", "firing rate (sp/s)")
         self.trace_plot.getAxis("bottom").enableAutoSIPrefix(False)
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Browse stimulus-responsive units",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -255,10 +252,10 @@ def parse_args() -> argparse.Namespace:
         "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
     )
     optional.add_argument(
-        "--responsiveness-param-id",
+        "--stim-response-param-id",
         type=int,
         default=0,
-        help="Stimulus responsiveness parameters",
+        help="Stimulus response parameters",
     )
     optional.add_argument(
         "--stability-param-id",
@@ -270,16 +267,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
-    rows, peth, bins, params = load_data(
+    args = _parse_args()
+    rows, peth, bins, params = _load_data(
         args.subject,
         args.session,
         args.unit_criteria_id,
-        args.responsiveness_param_id,
+        args.stim_response_param_id,
         args.stability_param_id,
     )
-    app = pg.mkQApp("Stimulus responsiveness browser")
-    browser = StimulusResponsivenessApp(rows, peth, bins, params)
+    app = pg.mkQApp("Stimulus response browser")
+    browser = StimulusResponseApp(rows, peth, bins, params)
     browser.show()
     raise SystemExit(app.exec())
 

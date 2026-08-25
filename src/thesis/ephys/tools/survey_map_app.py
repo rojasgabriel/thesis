@@ -9,7 +9,7 @@ import pyqtgraph as pg
 from PySide6 import QtWidgets
 
 
-def load_survey_map(path: Path) -> pd.DataFrame:
+def _load_survey_map(path: Path) -> pd.DataFrame:
     if path.suffix == ".txt":
         return pd.read_csv(path, sep="\t")
     if path.suffix == ".csv":
@@ -108,7 +108,7 @@ class SurveyMapApp(QtWidgets.QMainWindow):
         self.color_legend.setLabels({str(self.vmax.value()): 1.0, str(self.vmin): 0.0})
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Browse a survey map",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -129,8 +129,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
-    survey_map = load_survey_map(args.file)
+    args = _parse_args()
+    survey_map = _load_survey_map(args.file)
     app = pg.mkQApp("Survey map browser")
     browser = SurveyMapApp(survey_map)
     browser.show()

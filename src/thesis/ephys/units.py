@@ -42,7 +42,7 @@ def fetch_unit_table(
         stability_query = {
             **session_query,
             "unit_criteria_id": unit_criteria_id,
-            "unit_stability_param_id": stability_param_id,
+            "stability_param_id": stability_param_id,
         }
         if len(UnitStability & stability_query) == 0:
             raise ValueError(

@@ -1,11 +1,4 @@
-"""Digital behavioral events from labdata: TTL rows and alignment arrays.
-
-**Naming convention (this module)**
-
-- ``fetch_*`` — return the full alignment dict.
-- Other top-level functions — pure transforms on event arrays.
-
-"""
+"""Digital behavioral events from labdata."""
 
 from __future__ import annotations
 
@@ -91,7 +84,7 @@ def _find_sess_ev_sources(
     raise ValueError(f"No complete ephys event set found for {subject} {sess}")
 
 
-def build_stimulus_pulses(stim_edges: np.ndarray) -> pd.DataFrame:
+def _build_stimulus_pulses(stim_edges: np.ndarray) -> pd.DataFrame:
     """Merge raw stimulus TTL edges into one row per pulse."""
     stim_edges = np.asarray(stim_edges, dtype=float)
 
@@ -208,4 +201,4 @@ def fetch_session_events(
             sess_ev[port_role] = ev_timestamps[ev_values == 1]
             sess_ev[f"{port_role}_exit"] = ev_timestamps[ev_values == 0]
 
-    return sess_ev, build_stimulus_pulses(sess_ev["stim"])
+    return sess_ev, _build_stimulus_pulses(sess_ev["stim"])

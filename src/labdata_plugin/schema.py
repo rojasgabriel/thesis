@@ -40,59 +40,19 @@ class EventMapping(dj.Lookup):
 
 
 @rojasbowe_schema
-class StimulusResponsivenessParams(dj.Lookup):
+class UnitStabilityParam(dj.Lookup):
     definition = """
-    responsiveness_param_id               : tinyint
+    stability_param_id                     : tinyint
     ---
-    baseline_start                         : float  # seconds from first stimulus
-    baseline_end                           : float
-    response_start                         : float
-    response_end                           : float
-    peth_pre_seconds                       : float
-    peth_post_seconds                      : float
-    binwidth_ms                            : float
-    alpha                                  : float
-    peak_search_start                      : float
-    peak_search_end                        : float
-    min_prominence_fraction                : float
-    min_prominence_spikes_per_second       : float
-    min_peak_distance_ms                   : float
+    n_time_windows                         : tinyint  # equal recording windows used to measure amplitude drift
+    max_amplitude_drift                    : float    # maximum fractional range of window-mean amplitudes
+    dip_alpha                              : float    # FDR threshold for the amplitude dip test
+    max_dip_samples                        : int      # maximum spike amplitudes sampled per unit
     """
 
     contents = [
         {
-            "responsiveness_param_id": 0,
-            "baseline_start": -0.04,
-            "baseline_end": 0.0,
-            "response_start": 0.03,
-            "response_end": 0.12,
-            "peth_pre_seconds": 0.1,
-            "peth_post_seconds": 0.15,
-            "binwidth_ms": 10.0,
-            "alpha": 0.05,
-            "peak_search_start": 0.0,
-            "peak_search_end": 0.12,
-            "min_prominence_fraction": 0.25,
-            "min_prominence_spikes_per_second": 1.0,
-            "min_peak_distance_ms": 20.0,
-        }
-    ]
-
-
-@rojasbowe_schema
-class UnitStabilityParams(dj.Lookup):
-    definition = """
-    unit_stability_param_id                : tinyint
-    ---
-    n_time_windows                         : tinyint
-    max_amplitude_drift                    : float
-    dip_alpha                              : float
-    max_dip_samples                        : int
-    """
-
-    contents = [
-        {
-            "unit_stability_param_id": 0,
+            "stability_param_id": 0,
             "n_time_windows": 5,
             "max_amplitude_drift": 0.10,
             "dip_alpha": 0.05,
@@ -105,7 +65,7 @@ class UnitStabilityParams(dj.Lookup):
 class UnitStability(dj.Computed):
     definition = """
     -> UnitCount
-    -> UnitStabilityParams
+    -> UnitStabilityParam
     """
 
     class Unit(dj.Part):
@@ -113,14 +73,14 @@ class UnitStability(dj.Computed):
         -> master
         -> SpikeSorting.Unit
         ---
-        amplitude_drift                      : float
-        dip_statistic                        : float
-        dip_p_value                          : float
-        dip_q_value                          : float
-        dip_sample_size                      : int
-        passes_amplitude_stability            : tinyint
-        passes_unimodality                    : tinyint
-        passes                                : tinyint
+        amplitude_drift                    : float    # range of window-mean amplitudes divided by the overall mean
+        dip_statistic                      : float    # Hartigan dip statistic for spike amplitudes
+        dip_p_value                        : float    # dip-test p-value
+        dip_q_value                        : float    # FDR-adjusted dip-test p-value
+        dip_sample_size                    : int      # spike amplitudes included in the dip test
+        amplitude_stable                   : tinyint  # amplitude drift is within the configured limit
+        amplitude_unimodal                 : tinyint  # dip q-value is at or above the configured alpha
+        passes                             : tinyint  # amplitude is stable and unimodal
         """
 
     @staticmethod
@@ -135,7 +95,10 @@ class UnitStability(dj.Computed):
         dip_alpha=0.05,
         max_dip_samples=72_000,
     ):
-        """Return amplitude-stability and unimodality results for each unit."""
+        """Return amplitude-stability and unimodality results for each unit.
+
+        Adapted from code provided by Michael Ryan, Ph.D.
+        """
         import numpy as np
         import pandas as pd
         from diptest import diptest
@@ -196,53 +159,98 @@ class UnitStability(dj.Computed):
         _, stability_results["dip_q_value"], _, _ = multipletests(
             stability_results["dip_p_value"], alpha=dip_alpha, method="fdr_bh"
         )
-        stability_results["passes_amplitude_stability"] = np.isfinite(
+        stability_results["amplitude_stable"] = np.isfinite(
             stability_results["amplitude_drift"]
         ) & (stability_results["amplitude_drift"] <= max_amplitude_drift)
-        stability_results["passes_unimodality"] = (
+        stability_results["amplitude_unimodal"] = (
             stability_results["dip_q_value"] >= dip_alpha
         )
         stability_results["passes"] = (
-            stability_results["passes_amplitude_stability"]
-            & stability_results["passes_unimodality"]
+            stability_results["amplitude_stable"]
+            & stability_results["amplitude_unimodal"]
         )
         return stability_results
 
     def make(self, key, **_kwargs):
-        params = (UnitStabilityParams & key).fetch1()
+        stability_param = (UnitStabilityParam & key).fetch1()
         unit_keys = (UnitCount.Unit & key & "passes = 1").fetch("KEY")
-        units = sorted(
+        unit_records = sorted(
             (SpikeSorting.Unit & unit_keys).fetch(
                 "unit_id", "spike_times", "spike_amplitudes", as_dict=True
             ),
-            key=lambda row: row["unit_id"],
+            key=lambda unit_record: unit_record["unit_id"],
         )
-        if not units:
+        if not unit_records:
             raise ValueError(f"No passing units for {key}")
 
         recording_duration, sampling_rate = (
             EphysRecording * EphysRecording.ProbeSetting & key
         ).fetch1("recording_duration", "sampling_rate")
-        results = self.compute(
-            spike_times=[row["spike_times"] for row in units],
-            spike_amplitudes=[row["spike_amplitudes"] for row in units],
-            unit_ids=[row["unit_id"] for row in units],
+        stability_table = self.compute(
+            spike_times=[record["spike_times"] for record in unit_records],
+            spike_amplitudes=[record["spike_amplitudes"] for record in unit_records],
+            unit_ids=[record["unit_id"] for record in unit_records],
             recording_end=float(recording_duration) * float(sampling_rate),
-            n_time_windows=params["n_time_windows"],
-            max_amplitude_drift=params["max_amplitude_drift"],
-            dip_alpha=params["dip_alpha"],
-            max_dip_samples=params["max_dip_samples"],
+            n_time_windows=stability_param["n_time_windows"],
+            max_amplitude_drift=stability_param["max_amplitude_drift"],
+            dip_alpha=stability_param["dip_alpha"],
+            max_dip_samples=stability_param["max_dip_samples"],
         )
 
         self.insert1(key)
-        self.Unit.insert([{**key, **row} for row in results.to_dict("records")])
+        self.Unit.insert(
+            [
+                {**key, **stability_record}
+                for stability_record in stability_table.to_dict("records")
+            ]
+        )
 
 
 @rojasbowe_schema
-class StimulusResponsiveness(dj.Computed):
+class StimulusResponseParam(dj.Lookup):
+    definition = """
+    stim_response_param_id                 : tinyint
+    ---
+    baseline_start                         : float  # seconds from first stimulus
+    baseline_end                           : float
+    response_start                         : float
+    response_end                           : float
+    peth_pre_seconds                       : float
+    peth_post_seconds                      : float
+    binwidth_ms                            : float
+    alpha                                  : float
+    peak_search_start                      : float
+    peak_search_end                        : float
+    min_prominence_fraction                : float
+    min_prominence_spikes_per_second       : float
+    min_peak_distance_ms                   : float
+    """
+
+    contents = [
+        {
+            "stim_response_param_id": 0,
+            "baseline_start": -0.04,
+            "baseline_end": 0.0,
+            "response_start": 0.03,
+            "response_end": 0.12,
+            "peth_pre_seconds": 0.1,
+            "peth_post_seconds": 0.15,
+            "binwidth_ms": 10.0,
+            "alpha": 0.05,
+            "peak_search_start": 0.0,
+            "peak_search_end": 0.12,
+            "min_prominence_fraction": 0.25,
+            "min_prominence_spikes_per_second": 1.0,
+            "min_peak_distance_ms": 20.0,
+        }
+    ]
+
+
+@rojasbowe_schema
+class StimulusResponse(dj.Computed):
     definition = """
     -> UnitCount
-    -> StimulusResponsivenessParams
+    -> StimulusResponseParam
     """
 
     class Unit(dj.Part):
@@ -250,15 +258,15 @@ class StimulusResponsiveness(dj.Computed):
         -> master
         -> SpikeSorting.Unit
         ---
-        mean_baseline_rate                 : float  # spikes per second
-        mean_response_rate                 : float  # spikes per second
-        response_delta                     : float  # response minus baseline
-        response_p_value                   : float
-        response_q_value                   : float
+        baseline_rate                      : float  # mean baseline rate in spikes per second
+        response_rate                      : float  # mean response rate in spikes per second
+        rate_delta                         : float  # response rate minus baseline rate
+        p_value                            : float  # paired baseline-response test p-value
+        q_value                            : float  # FDR-adjusted p-value
         response_type                      : enum('none', 'excited', 'suppressed')
-        n_response_components              : tinyint
-        response_component_times           : blob   # seconds from first stimulus
-        response_component_rates           : blob   # spikes per second
+        n_components                       : tinyint # response peaks or dips
+        component_latencies_s              : blob    # seconds from first stimulus
+        component_rates                    : blob    # spikes per second at each component
         """
 
     @staticmethod
@@ -317,12 +325,12 @@ class StimulusResponsiveness(dj.Computed):
         suppressed = (q_values < alpha) & (mean_response_deltas < 0)
         return pd.DataFrame(
             {
-                "unit": unit_ids,
-                "mean_base": mean_baseline_rates,
-                "mean_resp": mean_response_rates,
-                "delta": mean_response_deltas,
-                "p": p_values,
-                "q": q_values,
+                "unit_id": unit_ids,
+                "baseline_rate": mean_baseline_rates,
+                "response_rate": mean_response_rates,
+                "rate_delta": mean_response_deltas,
+                "p_value": p_values,
+                "q_value": q_values,
             }
         ), {"excited": excited, "suppressed": suppressed}
 
@@ -400,54 +408,14 @@ class StimulusResponsiveness(dj.Computed):
 
             component_rows.append(
                 {
-                    "unit": unit_id,
-                    "n_peaks": len(component_indices),
-                    "peak_times": bin_centers[component_indices].tolist(),
-                    "peak_heights": mean_peth[component_indices].tolist(),
+                    "unit_id": unit_id,
+                    "n_components": len(component_indices),
+                    "component_latencies_s": bin_centers[component_indices].tolist(),
+                    "component_rates": mean_peth[component_indices].tolist(),
                 }
             )
 
         return pd.DataFrame(component_rows)
-
-    @classmethod
-    def fetch_excited_unit_ids(
-        cls,
-        subject,
-        session,
-        unit_criteria_id=1,
-        responsiveness_param_id=0,
-        stability_param_id=None,
-    ):
-        """Return a set of stored unit IDs classified as stimulus excited."""
-        responsiveness_query = {
-            "subject_name": subject,
-            "session_name": session,
-            "unit_criteria_id": unit_criteria_id,
-            "responsiveness_param_id": responsiveness_param_id,
-        }
-        if len(cls & responsiveness_query) == 0:
-            raise ValueError(
-                "StimulusResponsiveness has not been populated for "
-                f"{responsiveness_query}"
-            )
-        excited_units = cls.Unit & responsiveness_query & {"response_type": "excited"}
-        if stability_param_id is not None:
-            stability_query = {
-                "subject_name": subject,
-                "session_name": session,
-                "unit_criteria_id": unit_criteria_id,
-                "unit_stability_param_id": stability_param_id,
-            }
-            if len(UnitStability & stability_query) == 0:
-                raise ValueError(
-                    f"UnitStability has not been populated for {stability_query}"
-                )
-            excited_units &= UnitStability.Unit & stability_query & {"passes": 1}
-
-        unit_ids = [int(unit_id) for unit_id in excited_units.fetch("unit_id")]
-        if len(unit_ids) != len(set(unit_ids)):
-            raise ValueError("Unit IDs are not unique across this session")
-        return set(unit_ids)
 
     def make(self, key, **_kwargs):
         import numpy as np
@@ -455,13 +423,13 @@ class StimulusResponsiveness(dj.Computed):
 
         from thesis.ephys.events import fetch_session_events
 
-        params = (StimulusResponsivenessParams & key).fetch1()
+        response_param = (StimulusResponseParam & key).fetch1()
         unit_keys = (UnitCount.Unit & key & "passes = 1").fetch("KEY")
-        units = (SpikeSorting.Unit & unit_keys).get_spike_times()
-        if not units:
+        unit_records = (SpikeSorting.Unit & unit_keys).get_spike_times()
+        if not unit_records:
             raise ValueError(f"No passing units for {key}")
 
-        unit_ids = [row["unit_id"] for row in units]
+        unit_ids = [unit_record["unit_id"] for unit_record in unit_records]
         _, stimulus_pulses = fetch_session_events(
             key["subject_name"], key["session_name"]
         )
@@ -472,75 +440,84 @@ class StimulusResponsiveness(dj.Computed):
             raise ValueError(f"No first-stimulus events for {key}")
 
         peth, bin_edges, _ = population_peth(
-            all_spike_times=[row["spike_times"] for row in units],
+            all_spike_times=[record["spike_times"] for record in unit_records],
             alignment_times=first_stimulus,
-            pre_seconds=params["peth_pre_seconds"],
-            post_seconds=params["peth_post_seconds"],
-            binwidth_ms=params["binwidth_ms"],
+            pre_seconds=response_param["peth_pre_seconds"],
+            post_seconds=response_param["peth_post_seconds"],
+            binwidth_ms=response_param["binwidth_ms"],
         )
-        peth = peth / (params["binwidth_ms"] / 1000)
+        peth = peth / (response_param["binwidth_ms"] / 1000)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
         response_stats, masks = self.compute(
             peth,
             bin_edges,
             unit_ids,
-            baseline_window=(params["baseline_start"], params["baseline_end"]),
-            response_window=(params["response_start"], params["response_end"]),
-            alpha=params["alpha"],
+            baseline_window=(
+                response_param["baseline_start"],
+                response_param["baseline_end"],
+            ),
+            response_window=(
+                response_param["response_start"],
+                response_param["response_end"],
+            ),
+            alpha=response_param["alpha"],
         )
 
         components = {}
         for response_type, mode in (("excited", "peaks"), ("suppressed", "dips")):
             indices = np.flatnonzero(masks[response_type])
-            rows = self.classify_components(
+            component_table = self.classify_components(
                 peth[indices],
                 bin_centers,
                 [unit_ids[index] for index in indices],
                 search_window=(
-                    params["peak_search_start"],
-                    params["peak_search_end"],
+                    response_param["peak_search_start"],
+                    response_param["peak_search_end"],
                 ),
-                baseline_window=(params["baseline_start"], params["baseline_end"]),
-                min_prominence_fraction=params["min_prominence_fraction"],
-                min_prominence_spikes_per_second=params[
+                baseline_window=(
+                    response_param["baseline_start"],
+                    response_param["baseline_end"],
+                ),
+                min_prominence_fraction=response_param["min_prominence_fraction"],
+                min_prominence_spikes_per_second=response_param[
                     "min_prominence_spikes_per_second"
                 ],
-                min_peak_distance_ms=params["min_peak_distance_ms"],
-                binwidth_ms=params["binwidth_ms"],
+                min_peak_distance_ms=response_param["min_peak_distance_ms"],
+                binwidth_ms=response_param["binwidth_ms"],
                 mode=mode,
             )
             components.update(
                 {
-                    row["unit"]: (
+                    component_record["unit_id"]: (
                         response_type,
-                        row["n_peaks"],
-                        row["peak_times"],
-                        row["peak_heights"],
+                        component_record["n_components"],
+                        component_record["component_latencies_s"],
+                        component_record["component_rates"],
                     )
-                    for row in rows.to_dict("records")
+                    for component_record in component_table.to_dict("records")
                 }
             )
 
-        part_rows = []
-        for row in response_stats.to_dict("records"):
+        unit_response_records = []
+        for response_record in response_stats.to_dict("records"):
             response_type, count, times, rates = components.get(
-                row["unit"], ("none", 0, [], [])
+                response_record["unit_id"], ("none", 0, [], [])
             )
-            part_rows.append(
+            unit_response_records.append(
                 {
                     **key,
-                    "unit_id": row["unit"],
-                    "mean_baseline_rate": row["mean_base"],
-                    "mean_response_rate": row["mean_resp"],
-                    "response_delta": row["delta"],
-                    "response_p_value": row["p"],
-                    "response_q_value": row["q"],
+                    "unit_id": response_record["unit_id"],
+                    "baseline_rate": response_record["baseline_rate"],
+                    "response_rate": response_record["response_rate"],
+                    "rate_delta": response_record["rate_delta"],
+                    "p_value": response_record["p_value"],
+                    "q_value": response_record["q_value"],
                     "response_type": response_type,
-                    "n_response_components": count,
-                    "response_component_times": np.asarray(times, dtype=float),
-                    "response_component_rates": np.asarray(rates, dtype=float),
+                    "n_components": count,
+                    "component_latencies_s": np.asarray(times, dtype=float),
+                    "component_rates": np.asarray(rates, dtype=float),
                 }
             )
 
         self.insert1(key)
-        self.Unit.insert(part_rows)
+        self.Unit.insert(unit_response_records)

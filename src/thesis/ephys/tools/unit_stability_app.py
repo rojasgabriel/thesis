@@ -19,7 +19,7 @@ FILTERS = (
 )
 
 
-def load_data(
+def _load_data(
     subject: str,
     session: str,
     unit_criteria_id: int,
@@ -27,16 +27,16 @@ def load_data(
 ) -> dict[int, pd.DataFrame]:
     from labdata.schema import EphysRecording, SpikeSorting
 
-    from labdata_plugin.schema import UnitStability, UnitStabilityParams
+    from labdata_plugin.schema import UnitStability, UnitStabilityParam
 
     key = {
         "subject_name": subject,
         "session_name": session,
         "unit_criteria_id": unit_criteria_id,
-        "unit_stability_param_id": stability_param_id,
+        "stability_param_id": stability_param_id,
     }
     UnitStability().populate(key)
-    params = (UnitStabilityParams & key).fetch1()
+    params = (UnitStabilityParam & key).fetch1()
     data = {}
 
     for master_key in (UnitStability & key).fetch("KEY"):
@@ -135,13 +135,13 @@ class UnitStabilityApp(QtWidgets.QMainWindow):
         rows = self.data[self.probe]
         filter_name = self.filter_combo.currentText()
         if filter_name == "Fails amplitude":
-            return rows[~rows["passes_amplitude_stability"].astype(bool)]
+            return rows[~rows["amplitude_stable"].astype(bool)]
         if filter_name == "Fails unimodality":
-            return rows[~rows["passes_unimodality"].astype(bool)]
+            return rows[~rows["amplitude_unimodal"].astype(bool)]
         if filter_name == "Fails both":
             return rows[
-                ~rows["passes_amplitude_stability"].astype(bool)
-                & ~rows["passes_unimodality"].astype(bool)
+                ~rows["amplitude_stable"].astype(bool)
+                & ~rows["amplitude_unimodal"].astype(bool)
             ]
         if filter_name == "Passes selection":
             return rows[rows["passes"].astype(bool)]
@@ -187,7 +187,7 @@ class UnitStabilityApp(QtWidgets.QMainWindow):
         self.hist_plot.setLabel("left", "count")
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Browse stored unit stability metrics",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -215,8 +215,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
-    data = load_data(
+    args = _parse_args()
+    data = _load_data(
         args.subject,
         args.session,
         args.unit_criteria_id,

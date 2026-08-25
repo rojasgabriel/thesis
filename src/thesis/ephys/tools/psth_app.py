@@ -41,7 +41,7 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.post_seconds = post_seconds
         self.binwidth_ms = binwidth_ms
 
-        from thesis.ephys.trials import TRIAL_EV_COLUMNS, build_trial_table
+        from thesis.ephys.trials import ALIGNMENT_EV_COLUMNS, build_trial_table
         from thesis.ephys.units import fetch_unit_table
 
         unit_table = fetch_unit_table(
@@ -51,7 +51,7 @@ class PSTHApp(QtWidgets.QMainWindow):
             zip(unit_table["unit_id"], unit_table["spike_times_s"], strict=True)
         )
         self.trials = build_trial_table(subject, session)
-        self.event_names = ("trial_start_s", *TRIAL_EV_COLUMNS)
+        self.event_names = ("trial_start_s", *ALIGNMENT_EV_COLUMNS)
         self.unit_ids = list(self.units)
         if not self.unit_ids:
             raise RuntimeError("No units pass the selected filters.")
@@ -356,7 +356,7 @@ class PSTHApp(QtWidgets.QMainWindow):
         self._prepare_plot(plot, "sp/s")
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Browse event-aligned neural activity",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -399,7 +399,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
+    args = _parse_args()
     app = pg.mkQApp("PSTH viewer")
     viewer = PSTHApp(
         subject=args.subject,

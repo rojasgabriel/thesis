@@ -4,7 +4,7 @@ from matplotlib.axes import Axes
 
 
 def separate_axes(ax: Axes) -> None:
-    """Trim spines to the visible ticks, following Lukas Oesch's helper."""
+    """Code provided by Lukas Oesch, Ph.D.."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
