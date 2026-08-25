@@ -17,5 +17,5 @@ uv sync
 ## Tested on
 
 - MacBook Pro M2
-- macOS Tahoe 26.3.1 (a)
-- Python 3.11
+- macOS Golden Gate 27.0 (beta 6)
+- Python 3.11.14
