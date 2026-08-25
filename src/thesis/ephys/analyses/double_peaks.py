@@ -1,6 +1,6 @@
 """Test whether double-peaked stimulus responses reflect pulse onset and offset.
 
-The supplemental figure shows discovery examples, the predicted change in peak
+This supplemental figure shows discovery examples, the predicted change in peak
 latency for 15 versus 30 ms pulses, and whether double-peak units cluster by
 waveform duration or recording depth. Pulse-duration comparisons exclude trials
 with another pulse inside the peak-search window. All spike times are
