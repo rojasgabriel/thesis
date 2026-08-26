@@ -26,13 +26,12 @@ def load_decoding_data(
     eligible = trial_table[
         trial_table["response"].isin((-1, 1))
         & trial_table["stim_category"].ne("boundary")
-        & trial_table["first_stim_times_s"].str.len().gt(0)
+        & trial_table["stim_pulse_times_s"].str.len().gt(0)
     ].copy()
     if eligible.empty:
         raise ValueError(
             f"No eligible non-boundary choice trials for {subject} {session}"
         )
-    eligible["first_stim_s"] = eligible["first_stim_times_s"].str[0].astype(float)
     eligible = eligible.reset_index(drop=True)
 
     unit_table = fetch_unit_table(
@@ -41,8 +40,9 @@ def load_decoding_data(
         unit_criteria_id=unit_criteria_id,
         stability_param_id=stability_param_id,
     )
-    starts_s = eligible["first_stim_s"].to_numpy(dtype=float) + window_start_s
-    stops_s = eligible["first_stim_s"].to_numpy(dtype=float) + window_stop_s
+    first_stim_s = eligible["stim_pulse_times_s"].str[0].to_numpy(dtype=float)
+    starts_s = first_stim_s + window_start_s
+    stops_s = first_stim_s + window_stop_s
     duration_s = window_stop_s - window_start_s
     firing_rates = np.empty((len(eligible), len(unit_table)), dtype=float)
     for unit_idx, spike_times_s in enumerate(unit_table["spike_times_s"]):

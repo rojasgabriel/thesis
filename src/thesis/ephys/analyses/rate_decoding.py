@@ -172,7 +172,7 @@ def main() -> None:
         rate_summary["rate_hz"],
         rate_summary["mean"],
         yerr=rate_summary["sem"],
-        color="#377EB8",
+        color="black",
         marker="o",
         capsize=2,
     )
@@ -184,7 +184,7 @@ def main() -> None:
         rate_summary["rate_hz"],
         rate_summary["residual_hz"],
         yerr=rate_summary["sem"],
-        color="#377EB8",
+        color="black",
         marker="o",
         capsize=2,
     )
