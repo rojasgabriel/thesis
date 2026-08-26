@@ -51,7 +51,7 @@ class PSTHApp(QtWidgets.QMainWindow):
             zip(unit_table["unit_id"], unit_table["spike_times_s"], strict=True)
         )
         self.trials = build_trial_table(subject, session)
-        self.event_names = ("trial_start_s", *ALIGNMENT_EV_COLUMNS)
+        self.event_names = ("first_stim_s", "trial_start_s", *ALIGNMENT_EV_COLUMNS)
         self.unit_ids = list(self.units)
         if not self.unit_ids:
             raise RuntimeError("No units pass the selected filters.")
@@ -87,7 +87,7 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         self.event_combo = QtWidgets.QComboBox()
         self.event_combo.addItems(self.event_names)
-        self.event_combo.setCurrentText("first_stim_times_s")
+        self.event_combo.setCurrentText("first_stim_s")
         form.addRow("Event", self.event_combo)
 
         self.plot_combo = QtWidgets.QComboBox()
@@ -149,11 +149,12 @@ class PSTHApp(QtWidgets.QMainWindow):
         for trial_index, trial in self.trials.iterrows():
             if trial["response"] not in (-1, 1):
                 continue
-            event_times = (
-                [trial["trial_start_s"]]
-                if event_name == "trial_start_s"
-                else trial[event_name]
-            )
+            if event_name == "first_stim_s":
+                event_times = trial["stim_pulse_times_s"][:1]
+            elif event_name == "trial_start_s":
+                event_times = [trial["trial_start_s"]]
+            else:
+                event_times = trial[event_name]
             if event_times:
                 event_chunks.append(np.asarray(event_times, dtype=float))
                 trial_indices.extend([trial_index] * len(event_times))
@@ -269,7 +270,7 @@ class PSTHApp(QtWidgets.QMainWindow):
             pg.InfiniteLine(
                 pos=0,
                 angle=90,
-                pen=pg.mkPen("#00a7b5", width=1, style=QtCore.Qt.PenStyle.DashLine),
+                pen=pg.mkPen("#888888", width=1, style=QtCore.Qt.PenStyle.DashLine),
             )
         )
 

@@ -12,7 +12,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin
 
 
 ALIGNMENT_EV_COLUMNS = (
-    "first_stim_times_s",
     "stim_pulse_times_s",
     "frame_times_s",
     "left_port_entry_times_s",
@@ -165,9 +164,6 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
 
     pulse_times_s = stim_pulses["timestamp"].to_numpy(dtype=float)
     pulse_widths_ms = stim_pulses["width_ms"].to_numpy(dtype=float)
-    first_pulse_times_s = stim_pulses.loc[
-        stim_pulses["first_in_train"], "timestamp"
-    ].to_numpy(dtype=float)
     pulse_masks = [
         (pulse_times_s >= trial_start_s) & (pulse_times_s < trial_end_s)
         for trial_start_s, trial_end_s in zip(
@@ -180,15 +176,6 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
     trial_table["stim_pulse_widths_ms"] = [
         pulse_widths_ms[pulse_mask].tolist() for pulse_mask in pulse_masks
     ]
-    trial_table["first_stim_times_s"] = [
-        first_pulse_times_s[
-            (first_pulse_times_s >= trial_start_s) & (first_pulse_times_s < trial_end_s)
-        ].tolist()
-        for trial_start_s, trial_end_s in zip(
-            trial_starts_s[:n_trials], trial_ends_s, strict=True
-        )
-    ]
-
     bpod_sync_s = trial_table["t_sync"].to_numpy(dtype=float)
     bpod_react_s = trial_table["t_react"].to_numpy(dtype=float)
     valid_bpod_sync = np.isfinite(bpod_sync_s)
@@ -225,7 +212,6 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
             "prev_rewarded",
             "trial_start_s",
             "center_entry_s",
-            "first_stim_times_s",
             "center_exit_s",
             "response_port_entry_s",
             "stim_pulse_times_s",

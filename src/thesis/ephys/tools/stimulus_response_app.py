@@ -162,8 +162,8 @@ class StimulusResponseApp(QtWidgets.QMainWindow):
         components = counts.index.to_numpy(dtype=float)
         width = 0.35
         for response_type, offset, color in (
-            ("excited", -width / 2, "#f58518"),
-            ("suppressed", width / 2, "#4c78a8"),
+            ("excited", -width / 2, "#E41A1C"),
+            ("suppressed", width / 2, "#377EB8"),
         ):
             values = counts.get(response_type, pd.Series(0, index=counts.index))
             bars = pg.BarGraphItem(
@@ -197,15 +197,14 @@ class StimulusResponseApp(QtWidgets.QMainWindow):
             (self.bins >= baseline_window[0]) & (self.bins < baseline_window[1])
         ].mean()
         response_type = row["response_type"]
-        color = "#f58518" if response_type == "excited" else "#4c78a8"
+        color = "#E41A1C" if response_type == "excited" else "#377EB8"
 
         self.trace_plot.clear()
-        for window, brush in (
-            (baseline_window, (76, 120, 168, 25)),
-            (response_window, (245, 133, 24, 25)),
-        ):
+        for window in (baseline_window, response_window):
             self.trace_plot.addItem(
-                pg.LinearRegionItem(values=window, movable=False, brush=brush, pen=None)
+                pg.LinearRegionItem(
+                    values=window, movable=False, brush=(80, 80, 80, 25), pen=None
+                )
             )
         self.trace_plot.addLine(
             x=0, pen=pg.mkPen("#888888", style=QtCore.Qt.PenStyle.DashLine)
