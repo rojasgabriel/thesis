@@ -34,6 +34,9 @@ When changing an analysis:
 
 For publication figures, label series directly with matching text colors.
 Use a conventional legend only when direct labels would be unclear.
+Use non-neutral color only when it encodes a scientific category or comparison.
+Use black or gray for single series, reference marks, and decorative context.
+Use red for excitation and blue for inhibition.
 Keep Matplotlib spines at their default edge positions. Use `separate_axes`
 only when intentionally trimming the visible axes; do not move spines to the
 data origin by default.

@@ -45,24 +45,26 @@ def _balanced_indices(
     choice: np.ndarray,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    cells = [(cat, response) for cat in (0, 1) for response in (-1, 1)]
+    category_choice_pairs = [(cat, response) for cat in (0, 1) for response in (-1, 1)]
     counts = [
-        np.sum((category == cat) & (choice == response)) for cat, response in cells
+        np.sum((category == cat) & (choice == response))
+        for cat, response in category_choice_pairs
     ]
-    n_per_cell = int(min(counts))
-    if n_per_cell < 2:
+    n_trials_per_pair = int(min(counts))
+    if n_trials_per_pair < 2:
         raise ValueError(
-            f"Too few category x choice trials; smallest cell has {n_per_cell}"
+            "Too few category x choice trials; least represented pair has "
+            f"{n_trials_per_pair}"
         )
     return np.sort(
         np.concatenate(
             [
                 rng.choice(
                     np.flatnonzero((category == cat) & (choice == response)),
-                    n_per_cell,
+                    n_trials_per_pair,
                     replace=False,
                 )
-                for cat, response in cells
+                for cat, response in category_choice_pairs
             ]
         )
     )
