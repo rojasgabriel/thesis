@@ -23,7 +23,7 @@ dependencies = [
     "scipy>=1.15.3",
     "scikit-learn>=1.7.0",
     "spks",
-    "statsmodels>=0.14.6",
+    "statsmodels>=0.15.0",
     "torch",
     "torchaudio",
     "pyqtgraph>=0.14,<0.15",
