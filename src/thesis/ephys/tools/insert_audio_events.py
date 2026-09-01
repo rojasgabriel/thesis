@@ -90,22 +90,10 @@ def _self_check() -> None:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("subject")
-    parser.add_argument("session")
-    parser.add_argument("dataset")
-    parser.add_argument("--apply", action="store_true")
-    args = parser.parse_args()
-
-    _self_check()
+def insert_audio_events(dataset_key: dict[str, str], apply: bool) -> None:
+    """Recover and optionally insert audio events for one dataset."""
     from labdata.schema import Dataset, DatasetEvents, File
 
-    dataset_key = {
-        "subject_name": args.subject,
-        "session_name": args.session,
-        "dataset_name": args.dataset,
-    }
     event_key = {**dataset_key, "stream_name": "obx", "event_name": "io1"}
     if len(DatasetEvents.Digital() & event_key):
         raise RuntimeError(f"DatasetEvents.Digital already contains {event_key}")
@@ -144,7 +132,7 @@ def main() -> None:
 
     print({name: len(events) for name, events in classified.items()})
     print(f"Recovered {len(onsets)} epochs at threshold {threshold:.3f}")
-    if args.apply:
+    if apply:
         DatasetEvents.Digital().insert1(
             {
                 **event_key,
@@ -156,6 +144,62 @@ def main() -> None:
         print("Inserted obx:io1")
     else:
         print("Dry run; add --apply to insert")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("subject", nargs="?")
+    parser.add_argument("session", nargs="?")
+    parser.add_argument("dataset", nargs="?")
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args()
+    supplied = (args.subject, args.session, args.dataset)
+    if any(supplied) and not all(supplied):
+        parser.error("provide subject, session, and dataset together, or none")
+
+    _self_check()
+    if args.subject is not None:
+        assert args.session is not None and args.dataset is not None
+        dataset_keys = [
+            {
+                "subject_name": args.subject,
+                "session_name": args.session,
+                "dataset_name": args.dataset,
+            }
+        ]
+    else:
+        from labdata.schema import Dataset, DatasetEvents, File
+
+        key_fields = ("subject_name", "session_name", "dataset_name")
+        candidates = {
+            tuple(row[field] for field in key_fields)
+            for row in (
+                File() * Dataset.DataFiles() & 'file_path LIKE "%.obx.bin"'
+            ).fetch(*key_fields, as_dict=True)
+        }
+        existing = {
+            tuple(row[field] for field in key_fields)
+            for row in (
+                DatasetEvents.Digital() & {"stream_name": "obx", "event_name": "io1"}
+            ).fetch(*key_fields, as_dict=True)
+        }
+        dataset_keys = [
+            dict(zip(key_fields, key)) for key in sorted(candidates - existing)
+        ]
+        print(f"Found {len(dataset_keys)} OBX datasets missing obx:io1")
+
+    failures = []
+    for dataset_key in dataset_keys:
+        print("\n", dataset_key)
+        try:
+            insert_audio_events(dataset_key, args.apply)
+        except Exception as error:
+            if len(dataset_keys) == 1:
+                raise
+            failures.append(dataset_key)
+            print(f"Skipped: {error}")
+    if failures:
+        raise RuntimeError(f"Failed to process {len(failures)} datasets")
 
 
 if __name__ == "__main__":
