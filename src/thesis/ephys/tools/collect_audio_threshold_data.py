@@ -139,7 +139,7 @@ def main() -> None:
             "session_name": row["session_name"],
         }
         trials = list(
-            (Chipmunk.Trial() & restriction).fetch(
+            Chipmunk.trial_query(**restriction).fetch(
                 "dataset_name",
                 "trial_num",
                 "t_sync",
