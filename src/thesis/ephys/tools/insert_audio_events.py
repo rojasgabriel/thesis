@@ -199,7 +199,7 @@ def main() -> None:
             failures.append(dataset_key)
             print(f"Skipped: {error}")
     if failures:
-        raise RuntimeError(f"Failed to process {len(failures)} datasets")
+        parser.exit(1, f"Skipped {len(failures)} datasets; see errors above.\n")
 
 
 if __name__ == "__main__":
