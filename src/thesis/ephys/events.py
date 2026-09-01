@@ -21,6 +21,31 @@ REQUIRED_EV_ROLES = (
 EV_STREAM_PRIORITY = ("obx", "nidq")
 
 
+def classify_audio_events(
+    onsets: np.ndarray, offsets: np.ndarray
+) -> dict[str, np.ndarray]:
+    """Group audio epoch onsets by task role using epoch duration."""
+    onsets = np.asarray(onsets, dtype=float)
+    offsets = np.asarray(offsets, dtype=float)
+    if onsets.ndim != 1 or onsets.shape != offsets.shape:
+        raise ValueError("Audio onsets and offsets must be equal-length 1-D arrays")
+    if np.any(offsets <= onsets):
+        raise ValueError("Each audio offset must follow its onset")
+
+    durations = offsets - onsets
+    masks = {
+        "audio_stim": (durations >= 0.015) & (durations < 0.050),
+        "go_cue": (durations >= 0.050) & (durations <= 0.250),
+        "punish_wrong": (durations >= 0.750) & (durations <= 1.250),
+        "punish_early": (durations >= 1.750) & (durations <= 2.250),
+    }
+    known = np.logical_or.reduce(list(masks.values()))
+    return {
+        **{name: onsets[mask] for name, mask in masks.items()},
+        "unknown": onsets[~known],
+    }
+
+
 def _find_sess_ev_sources(
     subject: str,
     sess: str,
