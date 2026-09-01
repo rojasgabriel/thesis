@@ -29,9 +29,12 @@ dependencies = [
     "pyqtgraph>=0.14,<0.15",
     "pyside6-essentials>=6.8,<7",
     "scienceplots>=2.2.2",
+    "dpca",
+    "matlab-dpca",
 ]
 
 [project.scripts]
+insert_audio_events = "thesis.ephys.tools.insert_audio_events:main"
 populate-unit-counts = "thesis.ephys.tools.populate_unit_counts:main"
 psth = "thesis.ephys.tools.psth_app:main"
 stimulus-response = "thesis.ephys.tools.stimulus_response_app:main"
@@ -55,6 +58,8 @@ constraint-dependencies = [
 [tool.uv.sources]
 fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
 spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
+dpca = { git = "https://github.com/machenslab/dPCA", subdirectory = "python", rev = "1def5b15854638811a25257dc0b68074ab5a1be0" }
+matlab-dpca = { git = "https://github.com/rojasgabriel/matlab_dpca_in_python", rev = "8055ce10ff8d185bd7beb1d4563a4e2ecd3e92a8" }
 
 [tool.ruff.lint]
 # Check basic Python errors and import ordering.
