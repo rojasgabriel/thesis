@@ -15,6 +15,7 @@ three possible sounds that are presented in the Chipmunk task.
 """
 
 import argparse
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -92,8 +93,101 @@ def _self_check() -> None:
     }
 
 
+def save_bpod_aligned_audio_plot(
+    dataset_key: dict[str, str],
+    amplitudes: np.ndarray,
+    threshold: float,
+    output_path: Path,
+) -> None:
+    """Plot the XA1 envelope around known Bpod sound-event times."""
+    import matplotlib.pyplot as plt
+    from labdata.schema import StreamSync
+
+    Chipmunk = import_module("chipmunk").Chipmunk
+    session_key = {
+        "subject_name": dataset_key["subject_name"],
+        "session_name": dataset_key["session_name"],
+    }
+    bpod_sync = StreamSync() & {
+        **session_key,
+        "dataset_name": "chipmunk",
+        "stream_name": "bpod",
+        "event_name": "sync",
+    }
+    if len(bpod_sync) != 1:
+        raise ValueError(f"Expected one Bpod StreamSync row for {session_key}")
+
+    trials = (
+        Chipmunk.trial_query(**session_key)
+        .proj(
+            "t_gocue",
+            "t_response",
+            "t_earlywithdraw",
+            "punished",
+            "early_withdrawal",
+        )
+        .fetch(as_dict=True)
+    )
+    event_specs = (
+        ("Go cue", "t_gocue", None),
+        ("Wrong-choice punishment", "t_response", "punished"),
+        ("Early-withdrawal punishment", "t_earlywithdraw", "early_withdrawal"),
+    )
+    bin_seconds = BIN_MS / 1000
+    relative_bins = np.arange(round(-0.5 / bin_seconds), round(2.5 / bin_seconds) + 1)
+    relative_times = relative_bins * bin_seconds
+
+    figure, axes = plt.subplots(3, 1, figsize=(8, 9), sharex=True, sharey=True)
+    for axis, (label, time_field, flag_field) in zip(axes, event_specs, strict=True):
+        bpod_times = np.asarray(
+            [
+                float(trial[time_field])
+                for trial in trials
+                if trial[time_field] is not None
+                and (flag_field is None or trial[flag_field])
+            ]
+        )
+        bpod_times = bpod_times[np.isfinite(bpod_times)]
+        obx_times = np.asarray(
+            bpod_sync.apply(bpod_times, force=True, warn=False), dtype=float
+        )
+        center_bins = np.rint(obx_times / bin_seconds).astype(np.int64)
+        valid = (center_bins + relative_bins[0] >= 0) & (
+            center_bins + relative_bins[-1] < len(amplitudes)
+        )
+        center_bins = center_bins[valid]
+        traces = amplitudes[center_bins[:, None] + relative_bins]
+
+        if len(traces):
+            shown = np.linspace(0, len(traces) - 1, min(30, len(traces)), dtype=int)
+            axis.plot(relative_times, traces[shown].T, color="0.75", alpha=0.35)
+            axis.plot(
+                relative_times,
+                np.median(traces, axis=0),
+                color="black",
+                linewidth=1.5,
+            )
+        else:
+            axis.text(0.5, 0.5, "No aligned events", transform=axis.transAxes)
+        axis.axhline(threshold, color="tab:red", linestyle="--", linewidth=1)
+        axis.axvline(0, color="tab:blue", linestyle=":", linewidth=1)
+        axis.set_title(f"{label} (n={len(traces)})")
+        axis.set_ylabel("10 ms peak-to-peak")
+        print(f"{label}: {len(bpod_times)} Bpod events, {len(traces)} plotted")
+
+    axes[-1].set_xlabel("Time from Bpod event (s)")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=150)
+    plt.close(figure)
+    print(f"Saved diagnostic plot to {output_path}")
+
+
 def insert_audio_events(
-    dataset_key: dict[str, str], apply: bool, threshold: float
+    dataset_key: dict[str, str],
+    apply: bool,
+    threshold: float,
+    diagnostic_plot: Path | None,
 ) -> None:
     """Recover and optionally insert audio events for one dataset."""
     from labdata.schema import Dataset, DatasetEvents, File
@@ -151,6 +245,10 @@ def insert_audio_events(
             + "/".join(f"{value:.1f}" for value in percentiles)
         )
         print(f"Unknown epochs: {counts['unknown'] / len(onsets):.1%}")
+    if diagnostic_plot is not None:
+        save_bpod_aligned_audio_plot(
+            dataset_key, amplitudes, threshold, diagnostic_plot
+        )
     if not onsets.size or len(classified["unknown"]) / len(onsets) > 0.05:
         raise ValueError("Recovered epochs do not match known task-audio durations")
 
@@ -181,6 +279,11 @@ def main() -> None:
         default=DEFAULT_THRESHOLD,
         help="10 ms peak-to-peak amplitude threshold (default: %(default)s)",
     )
+    parser.add_argument(
+        "--diagnostic-plot",
+        type=Path,
+        help="save XA1 envelopes aligned to known Bpod sound events",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     if args.threshold <= 0:
@@ -188,6 +291,8 @@ def main() -> None:
     supplied = (args.subject, args.session, args.dataset)
     if any(supplied) and not all(supplied):
         parser.error("provide subject, session, and dataset together, or none")
+    if args.diagnostic_plot is not None and not all(supplied):
+        parser.error("--diagnostic-plot requires subject, session, and dataset")
 
     _self_check()
     if args.subject is not None:
@@ -224,7 +329,9 @@ def main() -> None:
     for dataset_key in dataset_keys:
         print("\n", dataset_key)
         try:
-            insert_audio_events(dataset_key, args.apply, args.threshold)
+            insert_audio_events(
+                dataset_key, args.apply, args.threshold, args.diagnostic_plot
+            )
         except Exception as error:
             if len(dataset_keys) == 1:
                 raise
