@@ -18,6 +18,7 @@ REQUIRED_EV_ROLES = (
     "center_port",
     "right_port",
 )
+CORE_EV_ROLES = ("visual_stim", "trial_start")
 EV_STREAM_PRIORITY = ("obx", "nidq")
 
 
@@ -49,6 +50,8 @@ def classify_audio_events(
 def _find_sess_ev_sources(
     subject: str,
     sess: str,
+    *,
+    allow_incomplete: bool = False,
 ) -> dict[str, dict[str, str]]:
     """Return source keys for the known event set in one ephys recording."""
     from labdata.schema import DatasetEvents, EphysRecording
@@ -67,6 +70,7 @@ def _find_sess_ev_sources(
         ).fetch("dataset_name", "stream_name", "event_name", as_dict=True)
     }
     ev_mappings = list(EventMapping().fetch(as_dict=True))
+    required_roles = CORE_EV_ROLES if allow_incomplete else REQUIRED_EV_ROLES
 
     for stream_name in EV_STREAM_PRIORITY:
         ev_names_by_role = {
@@ -75,7 +79,7 @@ def _find_sess_ev_sources(
             if ev_mapping["stream_name"] == stream_name
             and ev_mapping["event_role"] in REQUIRED_EV_ROLES
         }
-        if set(ev_names_by_role) != set(REQUIRED_EV_ROLES):
+        if not set(required_roles) <= set(ev_names_by_role):
             continue
         candidate_dsets = {
             dset_name
@@ -86,8 +90,9 @@ def _find_sess_ev_sources(
             dset_name
             for dset_name in candidate_dsets
             if all(
-                (dset_name, stream_name, ev_name) in available_ev_sources
-                for ev_name in ev_names_by_role.values()
+                (dset_name, stream_name, ev_names_by_role[ev_role])
+                in available_ev_sources
+                for ev_role in required_roles
             )
         ]
         if len(matching_dsets) == 1:
@@ -99,6 +104,7 @@ def _find_sess_ev_sources(
                     "event_name": ev_name,
                 }
                 for ev_role, ev_name in ev_names_by_role.items()
+                if (matching_dsets[0], stream_name, ev_name) in available_ev_sources
             }
         if len(matching_dsets) > 1:
             raise ValueError(
@@ -158,6 +164,8 @@ def _build_stimulus_pulses(stim_edges: np.ndarray) -> pd.DataFrame:
 def fetch_session_events(
     subject: str,
     session: str,
+    *,
+    allow_incomplete: bool = False,
 ) -> tuple[dict[str, np.ndarray], pd.DataFrame]:
     """Fetch digital event arrays and the processed stimulus-pulse table.
 
@@ -170,10 +178,14 @@ def fetch_session_events(
 
     The pulse table has `timestamp`, `width_ms`, and `first_in_train` columns.
     `first_in_train` marks the first pulse after a gap longer than one second.
+    With `allow_incomplete=True`, stimulus and trial-start events remain
+    required, but missing frame and port roles are omitted from `sess_ev`.
     """
     from labdata.schema import DatasetEvents
 
-    ev_sources = _find_sess_ev_sources(subject, session)
+    ev_sources = _find_sess_ev_sources(
+        subject, session, allow_incomplete=allow_incomplete
+    )
     digital_ev_records = list(
         (DatasetEvents.Digital() & list(ev_sources.values())).fetch(as_dict=True)
     )
@@ -208,6 +220,8 @@ def fetch_session_events(
         "stim": np.asarray(ev_data_by_role["visual_stim"]["timestamps"], dtype=float),
     }
     for ev_role in ("trial_start", "frames"):
+        if ev_role not in ev_data_by_role:
+            continue
         ev_timestamps = np.asarray(ev_data_by_role[ev_role]["timestamps"], dtype=float)
         ev_values = ev_data_by_role[ev_role]["values"]
         sess_ev[ev_role] = (
@@ -215,6 +229,8 @@ def fetch_session_events(
         )
 
     for port_role in ("left_port", "center_port", "right_port"):
+        if port_role not in ev_data_by_role:
+            continue
         ev_timestamps = np.asarray(
             ev_data_by_role[port_role]["timestamps"], dtype=float
         )

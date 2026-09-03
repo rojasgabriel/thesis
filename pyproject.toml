@@ -34,8 +34,9 @@ dependencies = [
 ]
 
 [project.scripts]
-insert_audio_events = "thesis.ephys.tools.insert_audio_events:main"
-populate-unit-counts = "thesis.ephys.tools.populate_unit_counts:main"
+insert_audio_events = "thesis.ephys.preprocessing.insert_audio_events:main"
+insert-stream-sync = "thesis.ephys.preprocessing.insert_streamsync:main"
+populate-unit-counts = "thesis.ephys.preprocessing.populate_unit_counts:main"
 psth = "thesis.ephys.tools.psth_app:main"
 stimulus-response = "thesis.ephys.tools.stimulus_response_app:main"
 survey-map = "thesis.ephys.tools.survey_map_app:main"
