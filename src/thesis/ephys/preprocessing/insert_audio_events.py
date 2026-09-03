@@ -101,25 +101,18 @@ def save_bpod_aligned_audio_plot(
 ) -> None:
     """Plot the XA1 envelope around known Bpod sound-event times."""
     import matplotlib.pyplot as plt
-    from labdata.schema import StreamSync
+    from labdata.schema import DatasetEvents
+    from scipy.interpolate import CubicSpline
 
     Chipmunk = import_module("chipmunk").Chipmunk
     session_key = {
         "subject_name": dataset_key["subject_name"],
         "session_name": dataset_key["session_name"],
     }
-    bpod_sync = StreamSync() & {
-        **session_key,
-        "dataset_name": "chipmunk",
-        "stream_name": "bpod",
-        "event_name": "sync",
-    }
-    if len(bpod_sync) != 1:
-        raise ValueError(f"Expected one Bpod StreamSync row for {session_key}")
-
     trials = (
         Chipmunk.trial_query(**session_key)
         .proj(
+            "t_sync",
             "t_gocue",
             "t_response",
             "t_earlywithdraw",
@@ -128,6 +121,36 @@ def save_bpod_aligned_audio_plot(
         )
         .fetch(as_dict=True)
     )
+    bpod_sync_times = np.asarray(
+        [float(trial["t_sync"]) for trial in trials if trial["t_sync"] is not None]
+    )
+    clock = (
+        DatasetEvents.Digital()
+        & {
+            **dataset_key,
+            "stream_name": "obx",
+            "event_name": "io2",
+        }
+    ).fetch1()
+    clock_timestamps = np.asarray(clock["event_timestamps"], dtype=float)
+    clock_values = clock["event_values"]
+    clock_onsets = (
+        clock_timestamps[::2]
+        if clock_values is None
+        else clock_timestamps[np.asarray(clock_values) == 1]
+    )
+    if len(clock_onsets) == len(bpod_sync_times) + 1:
+        clock_onsets = clock_onsets[:-1]
+    if len(bpod_sync_times) != len(clock_onsets) or len(bpod_sync_times) < 2:
+        raise ValueError(
+            "Cannot align Bpod to OBX: "
+            f"Bpod t_sync={len(bpod_sync_times)}, OBX io2={len(clock_onsets)}"
+        )
+    if np.any(np.diff(bpod_sync_times) <= 0) or np.any(np.diff(clock_onsets) <= 0):
+        raise ValueError("Bpod and OBX sync times must increase strictly")
+    to_obx_time = CubicSpline(bpod_sync_times, clock_onsets)
+    print(f"Aligned {len(bpod_sync_times)} Bpod t_sync pulses to OBX io2")
+
     event_specs = (
         ("Go cue", "t_gocue", None),
         ("Wrong-choice punishment", "t_response", "punished"),
@@ -148,9 +171,7 @@ def save_bpod_aligned_audio_plot(
             ]
         )
         bpod_times = bpod_times[np.isfinite(bpod_times)]
-        obx_times = np.asarray(
-            bpod_sync.apply(bpod_times, force=True, warn=False), dtype=float
-        )
+        obx_times = np.asarray(to_obx_time(bpod_times), dtype=float)
         center_bins = np.rint(obx_times / bin_seconds).astype(np.int64)
         valid = (center_bins + relative_bins[0] >= 0) & (
             center_bins + relative_bins[-1] < len(amplitudes)
