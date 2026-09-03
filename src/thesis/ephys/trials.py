@@ -24,6 +24,20 @@ ALIGNMENT_EV_COLUMNS = (
 )
 
 
+def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
+    """Return Bpod entry and exit times from a trial's poke array."""
+    if pokes is None or (np.isscalar(pokes) and pd.isna(pokes)):
+        return np.array([]), np.array([])
+    poke_array = np.asarray(pokes, dtype=float)
+    if poke_array.size == 0:
+        return np.array([]), np.array([])
+    if poke_array.ndim != 2 or poke_array.shape[1] != 2:
+        raise ValueError(f"Expected an n-by-2 Bpod poke array, got {poke_array.shape}")
+    if not np.all(np.isin(poke_array[:, 1], (0, 1))):
+        raise ValueError("Bpod poke states must be 0 or 1")
+    return poke_array[poke_array[:, 1] == 1, 0], poke_array[poke_array[:, 1] == 0, 0]
+
+
 def _select_task_ev_sequence(trial: pd.Series, predicted_react_s: float) -> dict:
     """Select the hardware sequence that matches the Bpod reaction event."""
     response_entries_s = {
@@ -81,7 +95,7 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
     """
     from thesis.ephys.events import fetch_session_events
 
-    sess_ev, stim_pulses = fetch_session_events(subject, session)
+    sess_ev, stim_pulses = fetch_session_events(subject, session, allow_incomplete=True)
 
     from chipmunk import Chipmunk
 
@@ -90,8 +104,10 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
             "response",
             "rewarded",
             "early_withdrawal",
-            "t_sync",
             "t_react",
+            "left_poke",
+            "center_poke",
+            "right_poke",
             "stim_duration",
             "stim_rate_vision",
             "category_boundary",
@@ -189,16 +205,71 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
         )
     ]
 
-    bpod_sync_s = trial_table["t_sync"].to_numpy(dtype=float)
+    missing_port_roles = [
+        port_role
+        for port_role in ("left_port", "center_port", "right_port")
+        if port_role not in sess_ev
+    ]
+    missing_frames = "frames" not in sess_ev
     bpod_react_s = trial_table["t_react"].to_numpy(dtype=float)
-    valid_bpod_sync = np.isfinite(bpod_sync_s)
     predicted_react_s = np.full(n_trials, np.nan)
     valid_bpod_react = np.isfinite(bpod_react_s)
-    if valid_bpod_sync.sum() >= 2:
-        predicted_react_s[valid_bpod_react] = np.interp(
-            bpod_react_s[valid_bpod_react],
-            bpod_sync_s[valid_bpod_sync],
-            trial_starts_s[:n_trials][valid_bpod_sync],
+    if valid_bpod_react.any() or missing_port_roles:
+        from labdata.schema import StreamSync
+
+        bpod_sync = StreamSync() & {
+            "subject_name": subject,
+            "session_name": session,
+            "dataset_name": "chipmunk",
+            "stream_name": "bpod",
+            "event_name": "sync",
+        }
+        if len(bpod_sync) != 1:
+            raise ValueError(
+                f"Missing Bpod StreamSync for {subject} {session}; "
+                "run uv run insert-stream-sync for its ephys dataset"
+            )
+
+        for port_role in missing_port_roles:
+            entries_by_trial = []
+            exits_by_trial = []
+            for pokes in trial_table[f"{port_role.removesuffix('_port')}_poke"]:
+                bpod_entries, bpod_exits = _split_bpod_pokes(pokes)
+                entries_by_trial.append(
+                    bpod_sync.apply(bpod_entries, force=True, warn=False).tolist()
+                    if bpod_entries.size
+                    else []
+                )
+                exits_by_trial.append(
+                    bpod_sync.apply(bpod_exits, force=True, warn=False).tolist()
+                    if bpod_exits.size
+                    else []
+                )
+            trial_table[f"{port_role}_entry_times_s"] = entries_by_trial
+            trial_table[f"{port_role}_exit_times_s"] = exits_by_trial
+
+        predicted_react_s[valid_bpod_react] = bpod_sync.apply(
+            bpod_react_s[valid_bpod_react], force=True, warn=False
+        )
+
+    if missing_frames:
+        trial_table["frame_times_s"] = [[] for _ in range(n_trials)]
+    if missing_port_roles or missing_frames:
+        fallback_notes = []
+        if missing_port_roles:
+            fallback_notes.append(
+                f"using Bpod times for {', '.join(missing_port_roles)}"
+            )
+        if missing_frames:
+            fallback_notes.append(
+                "screen-frame times are unavailable because Chipmunk does not "
+                "store them"
+            )
+        warnings.warn(
+            f"Incomplete hardware events for {subject} {session}: "
+            + "; ".join(fallback_notes),
+            RuntimeWarning,
+            stacklevel=2,
         )
 
     task_ev_selections = [
