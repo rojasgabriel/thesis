@@ -35,7 +35,6 @@ dependencies = [
 
 [project.scripts]
 insert_audio_events = "thesis.ephys.preprocessing.insert_audio_events:main"
-insert-obx-events = "thesis.ephys.preprocessing.insert_obx_events:main"
 insert-stream-sync = "thesis.ephys.preprocessing.insert_streamsync:main"
 populate-unit-counts = "thesis.ephys.preprocessing.populate_unit_counts:main"
 psth = "thesis.ephys.tools.psth_app:main"
