@@ -30,12 +30,12 @@ MIN_DURATION_MS = 15.0
 DEFAULT_THRESHOLD = 200.0
 
 
-def recover_audio_epochs(
+def binned_peak_to_peak(
     data: np.ndarray,
     sample_rate_hz: float,
-    threshold: float = DEFAULT_THRESHOLD,
-) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
-    """Return audio epochs, threshold, and binned peak-to-peak amplitudes."""
+    channel_indices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return 10 ms peak-to-peak amplitudes and bin edges for selected channels."""
     samples_per_bin = sample_rate_hz * BIN_MS / 1000.0
     n_bins = int(data.shape[0] // samples_per_bin)
     if not n_bins:
@@ -45,21 +45,27 @@ def recover_audio_epochs(
     amplitudes = []
     for first_bin in range(0, n_bins, 5000):
         chunk_edges = edges[first_bin : min(first_bin + 5000, n_bins) + 1]
-        samples = np.asarray(data[chunk_edges[0] : chunk_edges[-1], AUDIO_CHANNEL])
+        samples = np.asarray(data[chunk_edges[0] : chunk_edges[-1], channel_indices])
         bin_onsets = chunk_edges[:-1] - chunk_edges[0]
         amplitudes.append(
-            np.maximum.reduceat(samples, bin_onsets).astype(np.float32)
-            - np.minimum.reduceat(samples, bin_onsets).astype(np.float32)
+            np.maximum.reduceat(samples, bin_onsets, axis=0).astype(np.float32)
+            - np.minimum.reduceat(samples, bin_onsets, axis=0).astype(np.float32)
         )
+    return np.concatenate(amplitudes), edges
 
-    amplitudes = np.concatenate(amplitudes)
-    if not np.any(amplitudes):
-        raise ValueError("XA1 contains no audio signal")
+
+def epochs_from_amplitudes(
+    amplitudes: np.ndarray,
+    edges: np.ndarray,
+    sample_rate_hz: float,
+    threshold: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return merged audio epochs from one channel's binned amplitudes."""
     active = amplitudes > threshold
     onsets = np.flatnonzero(active & np.r_[True, ~active[:-1]])
     offsets = np.flatnonzero(active & np.r_[~active[1:], True])
     if not onsets.size:
-        return np.array([]), np.array([]), threshold, amplitudes
+        return np.array([]), np.array([])
 
     split = (
         edges[onsets[1:]] - edges[offsets[:-1] + 1]
@@ -68,7 +74,25 @@ def recover_audio_epochs(
     onsets = edges[onsets[np.r_[True, split]]] / sample_rate_hz
     offsets = edges[offsets[np.r_[split, True]] + 1] / sample_rate_hz
     keep = offsets - onsets >= MIN_DURATION_MS / 1000.0
-    return onsets[keep], offsets[keep], threshold, amplitudes
+    return onsets[keep], offsets[keep]
+
+
+def recover_audio_epochs(
+    data: np.ndarray,
+    sample_rate_hz: float,
+    threshold: float = DEFAULT_THRESHOLD,
+) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
+    """Return audio epochs, threshold, and binned peak-to-peak amplitudes."""
+    amplitudes, edges = binned_peak_to_peak(
+        data, sample_rate_hz, np.asarray([AUDIO_CHANNEL])
+    )
+    amplitudes = amplitudes[:, 0]
+    if not np.any(amplitudes):
+        raise ValueError("XA1 contains no audio signal")
+    onsets, offsets = epochs_from_amplitudes(
+        amplitudes, edges, sample_rate_hz, threshold
+    )
+    return onsets, offsets, threshold, amplitudes
 
 
 def _self_check() -> None:
@@ -81,6 +105,11 @@ def _self_check() -> None:
     onsets, offsets, _, _ = recover_audio_epochs(data, 1000.0)
     np.testing.assert_allclose(onsets, [0.2, 0.5])
     np.testing.assert_allclose(offsets, [0.30, 0.52])
+    amplitudes, edges = binned_peak_to_peak(data, 1000.0, np.arange(2))
+    assert amplitudes.shape == (100, 2)
+    assert edges.shape == (101,)
+    assert not np.any(amplitudes[:, 0])
+    assert np.array_equal(amplitudes[:, 1] > DEFAULT_THRESHOLD, amplitudes[:, 1] > 0)
 
     onsets = np.arange(5.0)
     classified = classify_audio_events(onsets, onsets + [0.03, 0.05, 1.0, 2.0, 0.4])
@@ -93,14 +122,10 @@ def _self_check() -> None:
     }
 
 
-def save_bpod_aligned_audio_plot(
+def bpod_audio_events_in_obx_time(
     dataset_key: dict[str, str],
-    amplitudes: np.ndarray,
-    threshold: float,
-    output_path: Path,
-) -> None:
-    """Plot the XA1 envelope around known Bpod sound-event times."""
-    import matplotlib.pyplot as plt
+) -> dict[str, tuple[np.ndarray, float]]:
+    """Return expected Bpod sound onsets in the OBX clock."""
     from labdata.schema import DatasetEvents
     from scipy.interpolate import CubicSpline
 
@@ -124,14 +149,14 @@ def save_bpod_aligned_audio_plot(
     bpod_sync_times = np.asarray(
         [float(trial["t_sync"]) for trial in trials if trial["t_sync"] is not None]
     )
-    clock = (
-        DatasetEvents.Digital()
-        & {
-            **dataset_key,
-            "stream_name": "obx",
-            "event_name": "io2",
-        }
-    ).fetch1()
+    clock_relation = DatasetEvents.Digital() & {
+        **dataset_key,
+        "stream_name": "obx",
+        "event_name": "io2",
+    }
+    if len(clock_relation) != 1:
+        raise ValueError(f"Expected one OBX io2 row; found {len(clock_relation)}")
+    clock = clock_relation.fetch1()
     clock_timestamps = np.asarray(clock["event_timestamps"], dtype=float)
     clock_values = clock["event_values"]
     clock_onsets = (
@@ -152,16 +177,12 @@ def save_bpod_aligned_audio_plot(
     print(f"Aligned {len(bpod_sync_times)} Bpod t_sync pulses to OBX io2")
 
     event_specs = (
-        ("Go cue", "t_gocue", None),
-        ("Wrong-choice punishment", "t_response", "punished"),
-        ("Early-withdrawal punishment", "t_earlywithdraw", "early_withdrawal"),
+        ("go_cue", "t_gocue", None, 0.25),
+        ("punish_wrong", "t_response", "punished", 1.25),
+        ("punish_early", "t_earlywithdraw", "early_withdrawal", 2.25),
     )
-    bin_seconds = BIN_MS / 1000
-    relative_bins = np.arange(round(-0.5 / bin_seconds), round(2.5 / bin_seconds) + 1)
-    relative_times = relative_bins * bin_seconds
-
-    figure, axes = plt.subplots(3, 1, figsize=(8, 9), sharex=True, sharey=True)
-    for axis, (label, time_field, flag_field) in zip(axes, event_specs, strict=True):
+    events = {}
+    for label, time_field, flag_field, maximum_duration_s in event_specs:
         bpod_times = np.asarray(
             [
                 float(trial[time_field])
@@ -171,44 +192,170 @@ def save_bpod_aligned_audio_plot(
             ]
         )
         bpod_times = bpod_times[np.isfinite(bpod_times)]
-        obx_times = np.asarray(to_obx_time(bpod_times), dtype=float)
-        center_bins = np.rint(obx_times / bin_seconds).astype(np.int64)
-        valid = (center_bins + relative_bins[0] >= 0) & (
-            center_bins + relative_bins[-1] < len(amplitudes)
+        events[label] = (
+            np.asarray(to_obx_time(bpod_times), dtype=float),
+            maximum_duration_s,
         )
-        center_bins = center_bins[valid]
-        traces = amplitudes[center_bins[:, None] + relative_bins]
+    return events
 
-        if len(traces):
-            shown = np.linspace(0, len(traces) - 1, min(30, len(traces)), dtype=int)
-            axis.plot(relative_times, traces[shown].T, color="0.75", alpha=0.35)
-            axis.plot(
-                relative_times,
-                np.median(traces, axis=0),
-                color="black",
-                linewidth=1.5,
+
+def _print_event_aligned_diagnostics(
+    amplitudes: np.ndarray,
+    events: dict[str, tuple[np.ndarray, float]],
+) -> None:
+    """Print sound-locked amplitude changes for every analog channel."""
+    bin_seconds = BIN_MS / 1000.0
+    onset_bins = round(0.25 / bin_seconds)
+    print("EVENT-ALIGNED PTP")
+    for event_name, (event_times, maximum_duration_s) in events.items():
+        centers = np.rint(event_times / bin_seconds).astype(np.int64)
+        duration_bins = round(maximum_duration_s / bin_seconds)
+        valid = (centers - duration_bins >= 0) & (
+            centers + duration_bins < len(amplitudes)
+        )
+        centers = centers[valid]
+        print(
+            f"  {event_name}: Bpod={len(event_times)}, "
+            f"within_recording={len(centers)}, window={maximum_duration_s:.2f}s"
+        )
+        if not len(centers):
+            continue
+
+        onset_offsets = np.arange(onset_bins)
+        duration_offsets = np.arange(duration_bins)
+        for channel in range(amplitudes.shape[1]):
+            onset = amplitudes[centers[:, None] + onset_offsets, channel]
+            onset_baseline = amplitudes[
+                centers[:, None] - onset_offsets[::-1] - 1, channel
+            ]
+            duration = amplitudes[centers[:, None] + duration_offsets, channel]
+            duration_baseline = amplitudes[
+                centers[:, None] - duration_offsets[::-1] - 1, channel
+            ]
+            baseline_p99 = float(np.percentile(onset_baseline, 99))
+            onset_hits = np.max(onset, axis=1) > baseline_p99
+            print(
+                f"    XA{channel}: onset_median="
+                f"{np.median(onset):.1f}, onset_baseline={np.median(onset_baseline):.1f}, "
+                f"onset_delta={np.median(onset) - np.median(onset_baseline):.1f}, "
+                f"event_hit_fraction={np.mean(onset_hits):.3f}, "
+                f"duration_median={np.median(duration):.1f}, "
+                f"duration_baseline={np.median(duration_baseline):.1f}"
             )
-        else:
-            axis.text(0.5, 0.5, "No aligned events", transform=axis.transAxes)
-        axis.axhline(threshold, color="tab:red", linestyle="--", linewidth=1)
-        axis.axvline(0, color="tab:blue", linestyle=":", linewidth=1)
-        axis.set_title(f"{label} (n={len(traces)})")
-        axis.set_ylabel("10 ms peak-to-peak")
-        print(f"{label}: {len(bpod_times)} Bpod events, {len(traces)} plotted")
 
-    axes[-1].set_xlabel("Time from Bpod event (s)")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=150)
-    plt.close(figure)
-    print(f"Saved diagnostic plot to {output_path}")
+
+def _print_threshold_sweep(
+    amplitudes: np.ndarray,
+    edges: np.ndarray,
+    sample_rate_hz: float,
+) -> None:
+    """Print recovered duration classes across empirical thresholds."""
+    print("THRESHOLD SWEEP")
+    for channel in range(amplitudes.shape[1]):
+        channel_amplitudes = amplitudes[:, channel]
+        if not np.any(channel_amplitudes):
+            print(f"  XA{channel}: empty")
+            continue
+        empirical = np.percentile(
+            channel_amplitudes, [50, 75, 90, 95, 97, 99, 99.5, 99.9]
+        )
+        thresholds = sorted(
+            {DEFAULT_THRESHOLD, *(float(value) for value in empirical if value > 0)}
+        )
+        print(f"  XA{channel}")
+        for threshold in thresholds:
+            onsets, offsets = epochs_from_amplitudes(
+                channel_amplitudes, edges, sample_rate_hz, threshold
+            )
+            classified = classify_audio_events(onsets, offsets)
+            counts = {name: len(values) for name, values in classified.items()}
+            unknown_fraction = (
+                counts["unknown"] / len(onsets) if len(onsets) else float("nan")
+            )
+            print(
+                f"    threshold={threshold:.1f}, "
+                f"active_bins={np.mean(channel_amplitudes > threshold):.4f}, "
+                f"epochs={len(onsets)}, classes={counts}, "
+                f"unknown_fraction={unknown_fraction:.3f}"
+            )
+
+
+def diagnose_audio_inputs(
+    dataset_key: dict[str, str],
+    data: np.ndarray,
+    metadata: dict,
+) -> None:
+    """Print enough evidence to classify missing OneBox audio."""
+    sample_rate_hz = float(metadata["sRateHz"])
+    try:
+        analog_channels = int(str(metadata["snsXaDwSy"]).split(",")[0])
+    except (KeyError, ValueError) as error:
+        raise ValueError("Cannot determine OneBox analog channel count") from error
+    if analog_channels > data.shape[1]:
+        raise ValueError(
+            f"Metadata reports {analog_channels} analog channels, "
+            f"but data contain {data.shape[1]} total channels"
+        )
+
+    print("AUDIO INPUT DIAGNOSTIC")
+    print(f"  dataset={dataset_key}")
+    print(
+        f"  samples={data.shape[0]}, sample_rate_hz={sample_rate_hz:.6f}, "
+        f"duration_s={data.shape[0] / sample_rate_hz:.3f}, "
+        f"saved_channels={data.shape[1]}, analog_channels={analog_channels}"
+    )
+    for field in (
+        "snsSaveChanSubset",
+        "snsXaDwSy",
+        "acqXaDwSy",
+        "obAiRangeMin",
+        "obAiRangeMax",
+        "obMaxInt",
+        "userNotes",
+    ):
+        print(f"  metadata.{field}={metadata.get(field)!r}")
+
+    sample_step = max(1, data.shape[0] // 1_000_000)
+    sampled = np.asarray(data[::sample_step, :analog_channels])
+    raw_percentiles = np.percentile(sampled, [0, 1, 50, 99, 100], axis=0)
+    adc_limit = float(metadata.get("obMaxInt", np.iinfo(sampled.dtype).max + 1))
+    print(f"RAW SIGNAL (every {sample_step} samples; n={len(sampled)})")
+    for channel in range(analog_channels):
+        percentiles = "/".join(f"{value:.1f}" for value in raw_percentiles[:, channel])
+        rail_fraction = np.mean(np.abs(sampled[:, channel]) >= adc_limit - 1)
+        print(
+            f"  XA{channel}: min/p1/median/p99/max={percentiles}, "
+            f"std={np.std(sampled[:, channel]):.1f}, "
+            f"adc_rail_fraction={rail_fraction:.6f}"
+        )
+
+    amplitudes, edges = binned_peak_to_peak(
+        data, sample_rate_hz, np.arange(analog_channels)
+    )
+    amplitude_percentiles = np.percentile(
+        amplitudes, [0, 1, 5, 25, 50, 75, 95, 99, 100], axis=0
+    )
+    print("10 MS PEAK-TO-PEAK")
+    for channel in range(analog_channels):
+        percentiles = "/".join(
+            f"{value:.1f}" for value in amplitude_percentiles[:, channel]
+        )
+        print(f"  XA{channel}: min/p1/p5/p25/median/p75/p95/p99/max={percentiles}")
+
+    try:
+        events = bpod_audio_events_in_obx_time(dataset_key)
+    except Exception as error:
+        print(f"EVENT ALIGNMENT UNAVAILABLE: {type(error).__name__}: {error}")
+    else:
+        _print_event_aligned_diagnostics(amplitudes, events)
+    _print_threshold_sweep(amplitudes, edges, sample_rate_hz)
 
 
 def insert_audio_events(
     dataset_key: dict[str, str],
     apply: bool,
     threshold: float,
-    diagnostic_plot: Path | None,
+    diagnose: bool,
 ) -> None:
     """Recover and optionally insert audio events for one dataset."""
     from labdata.schema import Dataset, DatasetEvents, File
@@ -244,6 +391,10 @@ def insert_audio_events(
         )
 
     data, metadata = load_spikeglx_binary(obx_bin)
+    if diagnose:
+        diagnose_audio_inputs(dataset_key, data, metadata)
+        return
+
     onsets, offsets, threshold, amplitudes = recover_audio_epochs(
         data, float(metadata["sRateHz"]), threshold
     )
@@ -266,10 +417,6 @@ def insert_audio_events(
             + "/".join(f"{value:.1f}" for value in percentiles)
         )
         print(f"Unknown epochs: {counts['unknown'] / len(onsets):.1%}")
-    if diagnostic_plot is not None:
-        save_bpod_aligned_audio_plot(
-            dataset_key, amplitudes, threshold, diagnostic_plot
-        )
     if not onsets.size or len(classified["unknown"]) / len(onsets) > 0.05:
         raise ValueError("Recovered epochs do not match known task-audio durations")
 
@@ -301,19 +448,19 @@ def main() -> None:
         help="10 ms peak-to-peak amplitude threshold (default: %(default)s)",
     )
     parser.add_argument(
-        "--diagnostic-plot",
-        type=Path,
-        help="save XA1 envelopes aligned to known Bpod sound events",
+        "--diagnose",
+        action="store_true",
+        help="print raw, event-aligned, and threshold-sweep diagnostics",
     )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     if args.threshold <= 0:
         parser.error("--threshold must be positive")
+    if args.diagnose and args.apply:
+        parser.error("--diagnose and --apply cannot be combined")
     supplied = (args.subject, args.session, args.dataset)
     if any(supplied) and not all(supplied):
         parser.error("provide subject, session, and dataset together, or none")
-    if args.diagnostic_plot is not None and not all(supplied):
-        parser.error("--diagnostic-plot requires subject, session, and dataset")
 
     _self_check()
     if args.subject is not None:
@@ -350,9 +497,7 @@ def main() -> None:
     for dataset_key in dataset_keys:
         print("\n", dataset_key)
         try:
-            insert_audio_events(
-                dataset_key, args.apply, args.threshold, args.diagnostic_plot
-            )
+            insert_audio_events(dataset_key, args.apply, args.threshold, args.diagnose)
         except Exception as error:
             if len(dataset_keys) == 1:
                 raise
