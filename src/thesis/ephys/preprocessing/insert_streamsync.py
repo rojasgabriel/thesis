@@ -205,7 +205,9 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description="Insert validated StreamSync mappings for a sorted ephys dataset"
+    )
     parser.add_argument("subject")
     parser.add_argument("session")
     parser.add_argument("dataset")

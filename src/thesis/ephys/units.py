@@ -14,6 +14,8 @@ def fetch_unit_table(
     session: str,
     unit_criteria_id: int = 1,
     stability_param_id: int | None = None,
+    *,
+    include_metrics: bool = True,
 ) -> pd.DataFrame:
     """Return units passing the requested quality filters, sorted by depth.
 
@@ -22,9 +24,10 @@ def fetch_unit_table(
     Don't change without reason — most downstream analyses assume criterion 1.
 
     Spike times are in seconds. The upstream waveform metric stores spike
-    duration in milliseconds.
+    duration in milliseconds. Set `include_metrics=False` to fetch only spike
+    times and depth.
     """
-    from labdata.schema import SpikeSorting, UnitCount
+    from labdata.schema import SpikeSorting, UnitCount, UnitMetrics
 
     session_query = {
         "subject_name": subject,
@@ -50,9 +53,26 @@ def fetch_unit_table(
             )
         passing_units &= UnitStability.Unit & stability_query & {"passes": 1}
 
-    unit_table = pd.DataFrame(
-        passing_units.get_spike_times(include_metrics=True)
-    ).rename(
+    unit_records = passing_units.get_spike_times(include_metrics=include_metrics)
+    if not include_metrics:
+        unit_key = (
+            "subject_name",
+            "session_name",
+            "dataset_name",
+            "probe_num",
+            "parameter_set_num",
+            "unit_id",
+        )
+        depth_by_unit = {
+            tuple(record[field] for field in unit_key): record["depth"]
+            for record in (UnitMetrics & passing_units).fetch(
+                *unit_key, "depth", as_dict=True
+            )
+        }
+        for record in unit_records:
+            record["depth"] = depth_by_unit[tuple(record[field] for field in unit_key)]
+
+    unit_table = pd.DataFrame(unit_records).rename(
         columns={
             "spike_times": "spike_times_s",
             "spike_duration": "spike_duration_ms",

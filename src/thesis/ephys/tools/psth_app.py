@@ -4,13 +4,96 @@ from typing import Literal, cast
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
-from scipy.stats import sem
-from spks.event_aligned import align_raster_to_event, population_peth
-from spks.utils import alpha_function
+from PySide6 import QtCore, QtGui, QtWidgets
 
-PSTH_ALPHA_RISE_S = 0.001
-PSTH_ALPHA_DECAY_S = 0.025
+PSTH_GAUSSIAN_SIGMA_S = 0.010
+EVENT_LABELS = {
+    "first_stim_times_s": "First stimulus onset",
+    "stim_pulse_times_s": "Visual stimulus pulse",
+    "audio_stim_times_s": "Auditory stimulus",
+    "go_cue_times_s": "Go cue",
+    "punish_wrong_times_s": "Wrong-choice punishment",
+    "punish_early_times_s": "Early-withdrawal punishment",
+}
+
+
+def _event_label(event_name: str) -> str:
+    """Return a readable label for one trial-table event column."""
+    return EVENT_LABELS.get(
+        event_name,
+        event_name.removesuffix("_times_s")
+        .removesuffix("_s")
+        .replace("_", " ")
+        .capitalize(),
+    )
+
+
+def _available_event_names(
+    trials: pd.DataFrame, candidates: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Return known alignment events that occur at least once."""
+    return tuple(
+        event_name
+        for event_name in candidates
+        if event_name in trials
+        and (
+            trials[event_name].notna().any()
+            if event_name == "trial_start_s"
+            else any(len(event_times) for event_times in trials[event_name])
+        )
+    )
+
+
+def _align_spikes(
+    event_times: np.ndarray,
+    spike_times: np.ndarray,
+    pre_seconds: float,
+    post_seconds: float,
+) -> list[np.ndarray]:
+    """Align sorted spikes without scanning the full recording per event."""
+    return [
+        spike_times[
+            np.searchsorted(
+                spike_times, event_time - pre_seconds, side="left"
+            ) : np.searchsorted(spike_times, event_time + post_seconds, side="right")
+        ]
+        - event_time
+        for event_time in event_times
+    ]
+
+
+def _centered_smooth(counts: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    """Smooth rows around each bin without shifting the zero-lag sample."""
+    center = len(kernel) // 2
+    return np.vstack(
+        [
+            np.convolve(row, kernel, mode="full")[center : center + row.size]
+            for row in counts
+        ]
+    )
+
+
+def _gaussian_kernel(sigma_bins: float) -> np.ndarray:
+    """Return a normalized Gaussian sampled symmetrically around zero."""
+    support = np.arange(-np.ceil(3 * sigma_bins), np.ceil(3 * sigma_bins) + 1)
+    kernel = np.exp(-0.5 * (support / sigma_bins) ** 2)
+    return kernel / kernel.sum()
+
+
+def _self_check() -> None:
+    aligned = _align_spikes(
+        np.array([1.0, 2.0]), np.array([0.5, 1.0, 1.5, 2.0, 2.5]), 0.5, 0.5
+    )
+    np.testing.assert_allclose(aligned[0], [-0.5, 0.0, 0.5])
+    np.testing.assert_allclose(aligned[1], [-0.5, 0.0, 0.5])
+    counts = np.array([[0.0, 0.0, 1.0, 0.0, 0.0]])
+    np.testing.assert_allclose(
+        _centered_smooth(counts, np.array([0.25, 0.5, 0.25])),
+        [[0.0, 0.25, 0.5, 0.25, 0.0]],
+    )
+    kernel = _gaussian_kernel(1.0)
+    np.testing.assert_allclose(kernel, kernel[::-1])
+    np.testing.assert_allclose(kernel.sum(), 1.0)
 
 
 class PSTHApp(QtWidgets.QMainWindow):
@@ -45,25 +128,32 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.post_seconds = post_seconds
         self.binwidth_ms = binwidth_ms
         binwidth_s = binwidth_ms / 1000
-        decay_bins = PSTH_ALPHA_DECAY_S / binwidth_s
-        self.psth_kernel = alpha_function(
-            int(decay_bins * 15),
-            t_rise=PSTH_ALPHA_RISE_S / binwidth_s,
-            t_decay=decay_bins,
-            srate=1 / binwidth_s,
+        self.bin_edges = np.append(
+            -np.arange(0, pre_seconds, binwidth_s)[1:][::-1],
+            np.arange(0, post_seconds, binwidth_s),
         )
+        self.bin_centers = (self.bin_edges[:-1] + self.bin_edges[1:]) / 2
+        self.psth_kernel = _gaussian_kernel(PSTH_GAUSSIAN_SIGMA_S / binwidth_s)
 
         from thesis.ephys.trials import ALIGNMENT_EV_COLUMNS, build_trial_table
         from thesis.ephys.units import fetch_unit_table
 
         unit_table = fetch_unit_table(
-            subject, session, unit_criteria_id, stability_param_id
+            subject,
+            session,
+            unit_criteria_id,
+            stability_param_id,
+            include_metrics=False,
         )
         self.units = dict(
             zip(unit_table["unit_id"], unit_table["spike_times_s"], strict=True)
         )
-        self.trials = build_trial_table(subject, session)
-        self.event_names = ("trial_start_s", *ALIGNMENT_EV_COLUMNS)
+        if any(np.any(np.diff(spikes) < 0) for spikes in self.units.values()):
+            raise ValueError("Unit spike times must be sorted")
+        self.trials = build_trial_table(subject, session, include_frames=False)
+        self.event_names = _available_event_names(
+            self.trials, ("trial_start_s", *ALIGNMENT_EV_COLUMNS)
+        )
         self.unit_ids = list(self.units)
         if not self.unit_ids:
             raise RuntimeError("No units pass the selected filters.")
@@ -89,7 +179,7 @@ class PSTHApp(QtWidgets.QMainWindow):
         layout.addWidget(self.graphics, stretch=1)
 
         controls = QtWidgets.QGroupBox("Display options")
-        controls.setFixedWidth(280)
+        controls.setFixedWidth(320)
         form = QtWidgets.QFormLayout(controls)
         form.setContentsMargins(18, 24, 18, 18)
         form.setSpacing(14)
@@ -98,8 +188,10 @@ class PSTHApp(QtWidgets.QMainWindow):
         )
 
         self.event_combo = QtWidgets.QComboBox()
-        self.event_combo.addItems(self.event_names)
-        self.event_combo.setCurrentText("first_stim_times_s")
+        for event_name in self.event_names:
+            self.event_combo.addItem(_event_label(event_name), event_name)
+        default_event_index = self.event_combo.findData("first_stim_times_s")
+        self.event_combo.setCurrentIndex(max(0, default_event_index))
         form.addRow("Event", self.event_combo)
 
         self.plot_combo = QtWidgets.QComboBox()
@@ -110,6 +202,13 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.split_combo = QtWidgets.QComboBox()
         self.split_combo.addItems(self.SPLIT_OPTIONS)
         form.addRow("Split", self.split_combo)
+
+        self.choice_only_checkbox = QtWidgets.QCheckBox("Choice trials only")
+        form.addRow(self.choice_only_checkbox)
+
+        self.smoothing_checkbox = QtWidgets.QCheckBox("Gaussian smoothing")
+        self.smoothing_checkbox.setChecked(True)
+        form.addRow(self.smoothing_checkbox)
 
         self.sort_combo = QtWidgets.QComboBox()
         form.addRow("Sort", self.sort_combo)
@@ -124,6 +223,20 @@ class PSTHApp(QtWidgets.QMainWindow):
         unit_layout.addWidget(self.unit_slider)
         unit_layout.addWidget(self.unit_label)
         form.addRow("Unit", unit_control)
+
+        shortcut_hint = QtWidgets.QLabel(
+            "← → units\n"
+            "↑ ↓ events\n"
+            "c → choice trials only\n"
+            "m → smoothing\n"
+            "1 → heatmap\n"
+            "2 → raster\n"
+            "3 → PSTH\n"
+            "s → next split\n"
+            "Esc → close"
+        )
+        shortcut_hint.setStyleSheet("color: #666666;")
+        form.addRow("Keys", shortcut_hint)
         layout.addWidget(controls)
 
         controls.setStyleSheet(
@@ -135,11 +248,43 @@ class PSTHApp(QtWidgets.QMainWindow):
         )
 
         self._update_sort_options()
-        self.event_combo.currentTextChanged.connect(self._draw)
+        self.event_combo.currentIndexChanged.connect(self._draw)
         self.plot_combo.currentTextChanged.connect(self._plot_type_changed)
         self.split_combo.currentTextChanged.connect(self._draw)
+        self.choice_only_checkbox.toggled.connect(self._draw)
+        self.smoothing_checkbox.toggled.connect(self._draw)
         self.sort_combo.currentTextChanged.connect(self._draw)
         self.unit_slider.valueChanged.connect(self._draw)
+        self._build_shortcuts()
+
+    def _build_shortcuts(self) -> None:
+        shortcut_actions = (
+            ("Left", lambda: self._step_unit(-1)),
+            ("Right", lambda: self._step_unit(1)),
+            ("Up", lambda: self._step_combo(self.event_combo, -1)),
+            ("Down", lambda: self._step_combo(self.event_combo, 1)),
+            ("C", self.choice_only_checkbox.toggle),
+            ("M", self.smoothing_checkbox.toggle),
+            ("1", lambda: self.plot_combo.setCurrentIndex(0)),
+            ("2", lambda: self.plot_combo.setCurrentIndex(1)),
+            ("3", lambda: self.plot_combo.setCurrentIndex(2)),
+            ("S", lambda: self._step_combo(self.split_combo, 1)),
+            ("Esc", self.close),
+        )
+        self.shortcuts = []
+        for key, action in shortcut_actions:
+            shortcut = QtGui.QShortcut(QtGui.QKeySequence(key), self)
+            shortcut.setContext(QtCore.Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(action)
+            self.shortcuts.append(shortcut)
+
+    def _step_unit(self, step: int) -> None:
+        self.unit_slider.setValue(self.unit_slider.value() + step)
+
+    @staticmethod
+    def _step_combo(combo: QtWidgets.QComboBox, step: int) -> None:
+        if combo.count():
+            combo.setCurrentIndex((combo.currentIndex() + step) % combo.count())
 
     def _plot_type_changed(self) -> None:
         self._update_sort_options()
@@ -152,14 +297,18 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.sort_combo.addItems(self.SORT_OPTIONS[plot_type])
         self.sort_combo.setEnabled(plot_type != "psth")
         self.unit_slider.setEnabled(plot_type != "heatmap")
+        self.smoothing_checkbox.setEnabled(plot_type == "psth")
         self.sort_combo.blockSignals(False)
 
     def _event_groups(self) -> list[tuple[str, np.ndarray]]:
-        event_name = self.event_combo.currentText()
+        event_name = cast(str, self.event_combo.currentData())
         event_chunks = []
         trial_indices = []
         for trial_index, trial in self.trials.iterrows():
-            if trial["response"] not in (-1, 1):
+            if self.choice_only_checkbox.isChecked() and trial["response"] not in (
+                -1,
+                1,
+            ):
                 continue
             event_times = (
                 [trial["trial_start_s"]]
@@ -176,11 +325,21 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         split_col = self.split_combo.currentText()
         if split_col == "none":
-            return [("", event_times)]
+            return [
+                (
+                    f"{len(event_times)} events from "
+                    f"{len(np.unique(trial_idx))} trials",
+                    event_times,
+                )
+            ]
 
         categories = self.trials[split_col].to_numpy()[trial_idx]
         grouped = pd.DataFrame(
-            {"event_time": event_times, "category": categories}
+            {
+                "event_time": event_times,
+                "trial_index": trial_idx,
+                "category": categories,
+            }
         ).dropna(subset=["category"])
         if split_col == "stim_category":
             grouped["category"] = pd.Categorical(
@@ -195,7 +354,8 @@ class PSTHApp(QtWidgets.QMainWindow):
             grouped = grouped.dropna(subset=["category"])
         return [
             (
-                f"{split_col} = {category}  (n={len(group)})",
+                f"{split_col} = {category}  "
+                f"({len(group)} events from {group['trial_index'].nunique()} trials)",
                 group["event_time"].to_numpy(),
             )
             for category, group in grouped.groupby("category", sort=True, observed=True)
@@ -214,10 +374,18 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         plot_type = self.plot_combo.currentText()
         sort_order = None
-        if plot_type == "heatmap" and self.sort_combo.currentText() == "Peak latency":
-            sort_order = self._peak_latency_order(
-                np.concatenate([event_times for _, event_times in groups])
-            )
+        heatmap_rates = None
+        if plot_type == "heatmap":
+            heatmap_rates = [
+                self._mean_event_rates(event_times) for _, event_times in groups
+            ]
+            if self.sort_combo.currentText() == "Peak latency":
+                pooled_rates = np.average(
+                    np.stack(heatmap_rates),
+                    axis=0,
+                    weights=[len(event_times) for _, event_times in groups],
+                )
+                sort_order = self._peak_latency_order(pooled_rates)
 
         n_cols = min(3, len(groups))
         first_plot = None
@@ -231,8 +399,9 @@ class PSTHApp(QtWidgets.QMainWindow):
             else:
                 plot.setYLink(first_plot)
             if plot_type == "heatmap":
+                assert heatmap_rates is not None
                 heatmaps.append(
-                    (plot, *self._draw_heatmap(plot, event_times, sort_order))
+                    (plot, *self._draw_heatmap(plot, heatmap_rates[index], sort_order))
                 )
             elif plot_type == "raster":
                 self._draw_raster(plot, self.units[unit_id], event_times)
@@ -258,23 +427,71 @@ class PSTHApp(QtWidgets.QMainWindow):
         event_times: np.ndarray,
         kernel: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        peth, bin_edges, _ = population_peth(
-            all_spike_times=spike_times,
-            alignment_times=event_times,
-            pre_seconds=self.pre_seconds,
-            post_seconds=self.post_seconds,
-            binwidth_ms=self.binwidth_ms,
-            kernel=kernel,
+        bin_edges = self.bin_edges
+        pre_seconds = self.pre_seconds
+        post_seconds = self.post_seconds
+        display_slice = slice(None)
+        if kernel is not None:
+            binwidth_s = self.binwidth_ms / 1000
+            center = len(kernel) // 2
+            left_bins = center
+            right_bins = len(kernel) - center - 1
+            bin_edges = np.r_[
+                self.bin_edges[0] - binwidth_s * np.arange(left_bins, 0, -1),
+                self.bin_edges,
+                self.bin_edges[-1] + binwidth_s * np.arange(1, right_bins + 1),
+            ]
+            pre_seconds = -bin_edges[0]
+            post_seconds = bin_edges[-1]
+            display_slice = slice(left_bins, left_bins + len(self.bin_centers))
+
+        peth = np.stack(
+            [
+                np.vstack(
+                    [
+                        np.histogram(raster, bin_edges)[0]
+                        for raster in _align_spikes(
+                            event_times,
+                            unit_spikes,
+                            pre_seconds,
+                            post_seconds,
+                        )
+                    ]
+                )
+                for unit_spikes in spike_times
+            ]
         )
-        return (
-            peth / (self.binwidth_ms / 1000),
-            (bin_edges[:-1] + bin_edges[1:]) / 2,
+        if kernel is not None:
+            peth = np.stack([_centered_smooth(counts, kernel) for counts in peth])
+            peth = peth[:, :, display_slice]
+        return peth / (self.binwidth_ms / 1000), self.bin_centers
+
+    def _mean_event_rates(self, event_times: np.ndarray) -> np.ndarray:
+        """Return mean rates without retaining one matrix per event."""
+        binwidth_s = self.binwidth_ms / 1000
+        return np.asarray(
+            [
+                np.histogram(
+                    np.concatenate(
+                        _align_spikes(
+                            event_times,
+                            spike_times,
+                            self.pre_seconds,
+                            self.post_seconds,
+                        )
+                    ),
+                    self.bin_edges,
+                )[0]
+                / len(event_times)
+                / binwidth_s
+                for spike_times in self.units.values()
+            ]
         )
 
-    def _peak_latency_order(self, event_times: np.ndarray) -> np.ndarray:
-        peth, bin_centers = self._peth(list(self.units.values()), event_times)
-        rates = np.mean(peth, axis=1)
-        return np.argsort(np.argmax(rates[:, bin_centers >= 0], axis=1), kind="stable")
+    def _peak_latency_order(self, rates: np.ndarray) -> np.ndarray:
+        return np.argsort(
+            np.argmax(rates[:, self.bin_centers >= 0], axis=1), kind="stable"
+        )
 
     def _prepare_plot(self, plot: pg.PlotItem, ylabel: str) -> None:
         plot.getAxis("bottom").enableAutoSIPrefix(False)
@@ -290,10 +507,8 @@ class PSTHApp(QtWidgets.QMainWindow):
         )
 
     def _draw_heatmap(
-        self, plot: pg.PlotItem, event_times: np.ndarray, order: np.ndarray | None
+        self, plot: pg.PlotItem, rates: np.ndarray, order: np.ndarray | None
     ) -> tuple[pg.ImageItem, float]:
-        peth, _ = self._peth(list(self.units.values()), event_times)
-        rates = np.mean(peth, axis=1)
         unit_ids = self.unit_ids
         if order is not None:
             rates = rates[order]
@@ -329,7 +544,7 @@ class PSTHApp(QtWidgets.QMainWindow):
     def _draw_raster(
         self, plot: pg.PlotItem, spike_times: np.ndarray, event_times: np.ndarray
     ) -> None:
-        rasters = align_raster_to_event(
+        rasters = _align_spikes(
             event_times,
             spike_times,
             self.pre_seconds,
@@ -357,16 +572,22 @@ class PSTHApp(QtWidgets.QMainWindow):
             offset = stop
         plot.plot(x, y, pen=pg.mkPen("#222222", width=1), connect="finite")
         plot.getViewBox().setYRange(-0.5, max(0.5, len(rasters) - 0.5), padding=0)
-        self._prepare_plot(plot, "trial")
+        self._prepare_plot(plot, "event")
 
     def _draw_psth(
         self, plot: pg.PlotItem, spike_times: np.ndarray, event_times: np.ndarray
     ) -> None:
         peth, bin_centers = self._peth(
-            [spike_times], event_times, kernel=self.psth_kernel
+            [spike_times],
+            event_times,
+            kernel=self.psth_kernel if self.smoothing_checkbox.isChecked() else None,
         )
         mean_rate = np.mean(peth[0], axis=0)
-        sem_rate = sem(peth[0], axis=0)
+        sem_rate = (
+            np.std(peth[0], axis=0, ddof=1) / np.sqrt(len(peth[0]))
+            if len(peth[0]) > 1
+            else np.full_like(mean_rate, np.nan)
+        )
         band_pen = pg.mkPen(0, 0, 0, 64, width=1)
         upper = plot.plot(bin_centers, mean_rate + sem_rate, pen=band_pen)
         lower = plot.plot(bin_centers, mean_rate - sem_rate, pen=band_pen)
