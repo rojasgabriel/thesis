@@ -14,7 +14,10 @@ warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin
 ALIGNMENT_EV_COLUMNS = (
     "first_stim_times_s",
     "stim_pulse_times_s",
-    "frame_times_s",
+    "audio_stim_times_s",
+    "go_cue_times_s",
+    "punish_wrong_times_s",
+    "punish_early_times_s",
     "left_port_entry_times_s",
     "left_port_exit_times_s",
     "center_port_entry_times_s",
@@ -84,7 +87,9 @@ def _select_task_ev_sequence(trial: pd.Series, predicted_react_s: float) -> dict
     }
 
 
-def build_trial_table(subject: str, session: str) -> pd.DataFrame:
+def build_trial_table(
+    subject: str, session: str, *, include_frames: bool = True
+) -> pd.DataFrame:
     """Return one row per trial with Chipmunk metadata and hardware events.
 
     Event columns contain lists of absolute timestamps from the selected OBX or
@@ -92,10 +97,19 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
     which center exit triggered the task response; the returned timestamps
     remain the more precise hardware timestamps. Scalar timestamps end in
     ``_s``; timestamp lists end in ``_times_s``.
+
+    Audio columns use measured OBX events when available and synchronized Bpod
+    command times otherwise. They are empty when neither source is available.
+    Set `include_frames=False` when screen-frame timestamps are not needed.
     """
     from thesis.ephys.events import fetch_session_events
 
-    sess_ev, stim_pulses = fetch_session_events(subject, session, allow_incomplete=True)
+    sess_ev, stim_pulses = fetch_session_events(
+        subject,
+        session,
+        allow_incomplete=True,
+        include_frames=include_frames,
+    )
 
     from chipmunk import Chipmunk
 
@@ -165,6 +179,10 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
         "center_port_exit": "center_port_exit_times_s",
         "right_port": "right_port_entry_times_s",
         "right_port_exit": "right_port_exit_times_s",
+        "audio_stim": "audio_stim_times_s",
+        "go_cue": "go_cue_times_s",
+        "punish_wrong": "punish_wrong_times_s",
+        "punish_early": "punish_early_times_s",
     }
     for ev_name, ev_timestamps in sess_ev.items():
         if ev_name in ("trial_start", "stim"):
@@ -178,6 +196,15 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
                 trial_starts_s[:n_trials], trial_ends_s, strict=True
             )
         ]
+
+    for audio_column in (
+        "audio_stim_times_s",
+        "go_cue_times_s",
+        "punish_wrong_times_s",
+        "punish_early_times_s",
+    ):
+        if audio_column not in trial_table:
+            trial_table[audio_column] = [[] for _ in range(n_trials)]
 
     pulse_times_s = stim_pulses["timestamp"].to_numpy(dtype=float)
     pulse_widths_ms = stim_pulses["width_ms"].to_numpy(dtype=float)
@@ -210,7 +237,7 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
         for port_role in ("left_port", "center_port", "right_port")
         if port_role not in sess_ev
     ]
-    missing_frames = "frames" not in sess_ev
+    missing_frames = include_frames and "frames" not in sess_ev
     bpod_react_s = trial_table["t_react"].to_numpy(dtype=float)
     predicted_react_s = np.full(n_trials, np.nan)
     valid_bpod_react = np.isfinite(bpod_react_s)
@@ -252,7 +279,7 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
             bpod_react_s[valid_bpod_react], force=True, warn=False
         )
 
-    if missing_frames:
+    if "frames" not in sess_ev:
         trial_table["frame_times_s"] = [[] for _ in range(n_trials)]
     if missing_port_roles or missing_frames:
         fallback_notes = []
@@ -301,6 +328,10 @@ def build_trial_table(subject: str, session: str) -> pd.DataFrame:
             "response_port_entry_s",
             "stim_pulse_times_s",
             "stim_pulse_widths_ms",
+            "audio_stim_times_s",
+            "go_cue_times_s",
+            "punish_wrong_times_s",
+            "punish_early_times_s",
             "frame_times_s",
             "left_port_entry_times_s",
             "left_port_exit_times_s",
