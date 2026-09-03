@@ -127,11 +127,20 @@ def insert_audio_events(dataset_key: dict[str, str], apply: bool) -> None:
     data, metadata = load_spikeglx_binary(obx_bin)
     onsets, offsets, threshold = recover_audio_epochs(data, float(metadata["sRateHz"]))
     classified = classify_audio_events(onsets, offsets)
+    counts = {name: len(events) for name, events in classified.items()}
+    print(counts)
+    print(f"Recovered {len(onsets)} epochs at threshold {threshold:.3f}")
+    if onsets.size:
+        durations_ms = (offsets - onsets) * 1000
+        percentiles = np.percentile(durations_ms, [0, 5, 25, 50, 75, 95, 100])
+        print(
+            "Duration ms (min/p5/p25/median/p75/p95/max): "
+            + "/".join(f"{value:.1f}" for value in percentiles)
+        )
+        print(f"Unknown epochs: {counts['unknown'] / len(onsets):.1%}")
     if not onsets.size or len(classified["unknown"]) / len(onsets) > 0.05:
         raise ValueError("Recovered epochs do not match known task-audio durations")
 
-    print({name: len(events) for name, events in classified.items()})
-    print(f"Recovered {len(onsets)} epochs at threshold {threshold:.3f}")
     if apply:
         DatasetEvents.Digital().insert1(
             {
@@ -147,7 +156,9 @@ def insert_audio_events(dataset_key: dict[str, str], apply: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description="Recover XA1 audio events and insert them as obx:io1 events"
+    )
     parser.add_argument("subject", nargs="?")
     parser.add_argument("session", nargs="?")
     parser.add_argument("dataset", nargs="?")
