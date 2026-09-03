@@ -26,10 +26,13 @@ AUDIO_CHANNEL = 1
 BIN_MS = 10.0
 MERGE_GAP_MS = 50.0
 MIN_DURATION_MS = 15.0
+DEFAULT_THRESHOLD = 200.0
 
 
 def recover_audio_epochs(
-    data: np.ndarray, sample_rate_hz: float
+    data: np.ndarray,
+    sample_rate_hz: float,
+    threshold: float = DEFAULT_THRESHOLD,
 ) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
     """Return audio epochs, threshold, and binned peak-to-peak amplitudes."""
     samples_per_bin = sample_rate_hz * BIN_MS / 1000.0
@@ -51,7 +54,6 @@ def recover_audio_epochs(
     amplitudes = np.concatenate(amplitudes)
     if not np.any(amplitudes):
         raise ValueError("XA1 contains no audio signal")
-    threshold = 200.0
     active = amplitudes > threshold
     onsets = np.flatnonzero(active & np.r_[True, ~active[:-1]])
     offsets = np.flatnonzero(active & np.r_[~active[1:], True])
@@ -90,7 +92,9 @@ def _self_check() -> None:
     }
 
 
-def insert_audio_events(dataset_key: dict[str, str], apply: bool) -> None:
+def insert_audio_events(
+    dataset_key: dict[str, str], apply: bool, threshold: float
+) -> None:
     """Recover and optionally insert audio events for one dataset."""
     from labdata.schema import Dataset, DatasetEvents, File
 
@@ -126,7 +130,7 @@ def insert_audio_events(dataset_key: dict[str, str], apply: bool) -> None:
 
     data, metadata = load_spikeglx_binary(obx_bin)
     onsets, offsets, threshold, amplitudes = recover_audio_epochs(
-        data, float(metadata["sRateHz"])
+        data, float(metadata["sRateHz"]), threshold
     )
     classified = classify_audio_events(onsets, offsets)
     counts = {name: len(events) for name, events in classified.items()}
@@ -171,8 +175,16 @@ def main() -> None:
     parser.add_argument("subject", nargs="?")
     parser.add_argument("session", nargs="?")
     parser.add_argument("dataset", nargs="?")
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=DEFAULT_THRESHOLD,
+        help="10 ms peak-to-peak amplitude threshold (default: %(default)s)",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
+    if args.threshold <= 0:
+        parser.error("--threshold must be positive")
     supplied = (args.subject, args.session, args.dataset)
     if any(supplied) and not all(supplied):
         parser.error("provide subject, session, and dataset together, or none")
@@ -212,7 +224,7 @@ def main() -> None:
     for dataset_key in dataset_keys:
         print("\n", dataset_key)
         try:
-            insert_audio_events(dataset_key, args.apply)
+            insert_audio_events(dataset_key, args.apply, args.threshold)
         except Exception as error:
             if len(dataset_keys) == 1:
                 raise
