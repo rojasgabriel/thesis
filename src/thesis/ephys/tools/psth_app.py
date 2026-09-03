@@ -7,6 +7,10 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 from scipy.stats import sem
 from spks.event_aligned import align_raster_to_event, population_peth
+from spks.utils import alpha_function
+
+PSTH_ALPHA_RISE_S = 0.001
+PSTH_ALPHA_DECAY_S = 0.025
 
 
 class PSTHApp(QtWidgets.QMainWindow):
@@ -40,6 +44,14 @@ class PSTHApp(QtWidgets.QMainWindow):
         self.pre_seconds = pre_seconds
         self.post_seconds = post_seconds
         self.binwidth_ms = binwidth_ms
+        binwidth_s = binwidth_ms / 1000
+        decay_bins = PSTH_ALPHA_DECAY_S / binwidth_s
+        self.psth_kernel = alpha_function(
+            int(decay_bins * 15),
+            t_rise=PSTH_ALPHA_RISE_S / binwidth_s,
+            t_decay=decay_bins,
+            srate=1 / binwidth_s,
+        )
 
         from thesis.ephys.trials import ALIGNMENT_EV_COLUMNS, build_trial_table
         from thesis.ephys.units import fetch_unit_table
@@ -241,7 +253,10 @@ class PSTHApp(QtWidgets.QMainWindow):
             )
 
     def _peth(
-        self, spike_times: list[np.ndarray], event_times: np.ndarray
+        self,
+        spike_times: list[np.ndarray],
+        event_times: np.ndarray,
+        kernel: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         peth, bin_edges, _ = population_peth(
             all_spike_times=spike_times,
@@ -249,6 +264,7 @@ class PSTHApp(QtWidgets.QMainWindow):
             pre_seconds=self.pre_seconds,
             post_seconds=self.post_seconds,
             binwidth_ms=self.binwidth_ms,
+            kernel=kernel,
         )
         return (
             peth / (self.binwidth_ms / 1000),
@@ -346,13 +362,16 @@ class PSTHApp(QtWidgets.QMainWindow):
     def _draw_psth(
         self, plot: pg.PlotItem, spike_times: np.ndarray, event_times: np.ndarray
     ) -> None:
-        peth, bin_centers = self._peth([spike_times], event_times)
+        peth, bin_centers = self._peth(
+            [spike_times], event_times, kernel=self.psth_kernel
+        )
         mean_rate = np.mean(peth[0], axis=0)
         sem_rate = sem(peth[0], axis=0)
-        upper = plot.plot(bin_centers, mean_rate + sem_rate, pen=None)
-        lower = plot.plot(bin_centers, mean_rate - sem_rate, pen=None)
-        plot.addItem(pg.FillBetweenItem(upper, lower, brush=(30, 30, 30, 45)))
-        plot.plot(bin_centers, mean_rate, pen=pg.mkPen("#222222", width=2))
+        band_pen = pg.mkPen(0, 0, 0, 64, width=1)
+        upper = plot.plot(bin_centers, mean_rate + sem_rate, pen=band_pen)
+        lower = plot.plot(bin_centers, mean_rate - sem_rate, pen=band_pen)
+        plot.addItem(pg.FillBetweenItem(upper, lower, brush=(0, 0, 0, 51)))
+        plot.plot(bin_centers, mean_rate, pen=pg.mkPen("#000000", width=2.5))
         self._prepare_plot(plot, "sp/s")
 
 
