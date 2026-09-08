@@ -42,7 +42,8 @@ does not identify body parts, movement direction, or task-independent movement.
   stimulus categories and two responses.
   - Signal PC1 explained 31.6% of condition-mean variance.
   - Mean response trajectories separated most clearly late in the trial.
-  - Category and exact-rate trajectories overlapped more strongly.
+  - Category trajectories overlapped more strongly.
+  - Exact stimulus rate is not included in this geometry analysis.
   - The analysis is descriptive, phase-normalized, and not evaluated on
     held-out trials.
 - `notebooks/ephys/demixed_pca.ipynb` was executed on the same population.
