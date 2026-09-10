@@ -9,6 +9,7 @@ description = "Behavior and electrophysiology analyses for my Churchland Lab the
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "damn",
     "datajoint>=0.14.8,<0.15",
     "diptest>=0.11.0",
     "fit-psychometric",
@@ -57,6 +58,7 @@ constraint-dependencies = [
 ]
 
 [tool.uv.sources]
+damn = { git = "https://github.com/mdmelin/damn", rev = "9140eb18a21d74196c16d2b19b6034d3b9ba4449" }
 fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
 spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
 dpca = { git = "https://github.com/machenslab/dPCA", subdirectory = "python", rev = "1def5b15854638811a25257dc0b68074ab5a1be0" }

@@ -2,6 +2,9 @@
 
 Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 
+The [V1 GLM notes](docs/v1_glm.md) record the first encoding model
+workflow and its runnable camera-alignment preparation.
+
 ## Requirements
 
 - [uv](https://astral.sh/uv)

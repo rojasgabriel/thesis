@@ -458,6 +458,18 @@ wheels = [
 ]
 
 [[package]]
+name = "damn"
+version = "0.0.0"
+source = { git = "https://github.com/mdmelin/damn?rev=9140eb18a21d74196c16d2b19b6034d3b9ba4449#9140eb18a21d74196c16d2b19b6034d3b9ba4449" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "tqdm" },
+]
+
+[[package]]
 name = "datajoint"
 version = "0.14.8"
 source = { registry = "https://pypi.org/simple" }
@@ -2357,6 +2369,7 @@ name = "thesis"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "damn" },
     { name = "datajoint" },
     { name = "diptest" },
     { name = "dpca" },
@@ -2383,6 +2396,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "damn", git = "https://github.com/mdmelin/damn?rev=9140eb18a21d74196c16d2b19b6034d3b9ba4449" },
     { name = "datajoint", specifier = ">=0.14.8,<0.15" },
     { name = "diptest", specifier = ">=0.11.0" },
     { name = "dpca", git = "https://github.com/machenslab/dPCA?subdirectory=python&rev=1def5b15854638811a25257dc0b68074ab5a1be0" },
