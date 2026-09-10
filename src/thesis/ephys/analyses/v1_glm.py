@@ -364,6 +364,7 @@ def fit_poisson_alpha_path(
         raise ValueError("Alpha candidates must be positive.")
     models: dict[float, PoissonRegressor] = {}
     losses: dict[float, float] = {}
+    endpoint_plateau = False
     for extension in range(MAX_ALPHA_EXTENSIONS + 1):
         for alpha in sorted(pending - models.keys(), reverse=True):
             warm_model = None
@@ -374,9 +375,19 @@ def fit_poisson_alpha_path(
             losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
             models[alpha] = model
         ordered = sorted(losses)
-        best = min(ordered, key=losses.__getitem__)
+        minimum = min(losses.values())
+        tied = [
+            alpha
+            for alpha in ordered
+            if np.isclose(losses[alpha], minimum, rtol=1e-10, atol=1e-12)
+        ]
+        best = max(tied)
         index = ordered.index(best)
         if 0 < index < len(ordered) - 1:
+            break
+        neighbor = ordered[1] if index == 0 else ordered[-2]
+        if np.isclose(losses[best], losses[neighbor], rtol=1e-10, atol=1e-12):
+            endpoint_plateau = True
             break
         if extension == MAX_ALPHA_EXTENSIONS:
             raise RuntimeError("Best L2 penalty remains at an extended grid endpoint.")
@@ -386,6 +397,7 @@ def fit_poisson_alpha_path(
         "validation_mean_nll": [losses[alpha] for alpha in ordered],
         "best_alpha": best,
         "best_index": ordered.index(best),
+        "endpoint_plateau": endpoint_plateau,
     }
     return models[best], path
 

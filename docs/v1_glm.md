@@ -139,8 +139,9 @@ that lower clip.
 
 Select the L2 penalty separately for each unit and each model. Start with seven
 values from 1e-3 through 1e3 and extend by factors of ten when a boundary value
-wins. Require optimizer convergence. Select one video-PC count for the
-population by mean per-unit validation deviance explained.
+wins. Require optimizer convergence. If validation losses are equal within
+numerical precision, keep the stronger penalty. Select one video-PC count for
+the population by mean per-unit validation deviance explained.
 
 Validation metrics compare predictions with a constant count learned from the
 training rows. After settings are fixed, keep the training-fit PCA axes and all
