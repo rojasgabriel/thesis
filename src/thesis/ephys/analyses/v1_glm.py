@@ -371,7 +371,12 @@ def fit_poisson_alpha_path(
             if models:
                 nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
                 warm_model = copy.deepcopy(models[nearest])
-            model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
+            try:
+                model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
+            except RuntimeError:
+                if warm_model is None:
+                    raise
+                model = fit_poisson_at_alpha(X_train, y_train, alpha)
             losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
             models[alpha] = model
         ordered = sorted(losses)
