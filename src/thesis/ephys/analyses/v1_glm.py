@@ -29,6 +29,7 @@ not causal effects.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import warnings
 from pathlib import Path
@@ -319,16 +320,23 @@ def poisson_metrics(
 
 
 def fit_poisson_at_alpha(
-    X: np.ndarray, y: np.ndarray, alpha: float
+    X: np.ndarray,
+    y: np.ndarray,
+    alpha: float,
+    warm_model: PoissonRegressor | None = None,
 ) -> PoissonRegressor:
     """Fit one unclipped canonical Poisson GLM and require LBFGS convergence."""
-    model = PoissonRegressor(
-        alpha=alpha,
-        fit_intercept=True,
-        solver="lbfgs",
-        max_iter=MAX_ITER,
-        tol=TOL,
-    )
+    if warm_model is None:
+        model = PoissonRegressor(
+            alpha=alpha,
+            fit_intercept=True,
+            solver="lbfgs",
+            max_iter=MAX_ITER,
+            tol=TOL,
+            warm_start=True,
+        )
+    else:
+        model = warm_model.set_params(alpha=alpha)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", ConvergenceWarning)
         model.fit(X, y)
@@ -336,7 +344,7 @@ def fit_poisson_at_alpha(
         item for item in caught if issubclass(item.category, ConvergenceWarning)
     ]
     if convergence:
-        raise RuntimeError(str(convergence[-1].message))
+        raise RuntimeError(f"alpha={alpha:g}: {convergence[-1].message}")
     if not np.isfinite(model.coef_).all() or not np.isfinite(model.intercept_):
         raise RuntimeError("Poisson fit returned non-finite coefficients.")
     return model
@@ -358,7 +366,11 @@ def fit_poisson_alpha_path(
     losses: dict[float, float] = {}
     for extension in range(MAX_ALPHA_EXTENSIONS + 1):
         for alpha in sorted(pending - models.keys(), reverse=True):
-            model = fit_poisson_at_alpha(X_train, y_train, alpha)
+            warm_model = None
+            if models:
+                nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
+                warm_model = copy.deepcopy(models[nearest])
+            model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
             losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
             models[alpha] = model
         ordered = sorted(losses)
