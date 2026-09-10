@@ -19,6 +19,10 @@ from thesis.ephys.analyses.v1_glm import (
 from thesis.ephys.analyses.v1_glm import (
     training_zscore as design_training_zscore,
 )
+from thesis.ephys.analyses.v1_glm_prediction import (
+    select_representative_result,
+    simulate_spike_counts,
+)
 from thesis.ephys.preprocessing.audit_camera_pulses import select_falling_edges
 from thesis.ephys.preprocessing.prepare_v1_glm import (
     trial_bins,
@@ -28,6 +32,37 @@ from thesis.ephys.preprocessing.video_svd import training_zscore
 
 
 class V1GlmTest(unittest.TestCase):
+    def test_representative_unit_is_nearest_population_median(self):
+        results = [
+            {
+                "unit_id": unit_id,
+                "plus_video": {"test": {"deviance_explained": score}},
+            }
+            for unit_id, score in [(30, 0.1), (20, 0.2), (10, 0.3)]
+        ]
+        selected, median = select_representative_result(results)
+        self.assertEqual(selected["unit_id"], 20)
+        self.assertAlmostEqual(median, 0.2)
+
+    def test_recursive_simulation_replaces_observed_history(self):
+        class ZeroCountGenerator:
+            def __init__(self):
+                self.means = []
+
+            def poisson(self, mean):
+                self.means.append(np.asarray(mean).copy())
+                return np.zeros_like(mean, dtype=int)
+
+        generator = ZeroCountGenerator()
+        simulated = simulate_spike_counts(
+            np.array([[1, 0, 0]]),
+            np.ones((1, 3)),
+            np.array([np.log(2)]),
+            generator,
+        )
+        np.testing.assert_array_equal(simulated, 0)
+        np.testing.assert_allclose(np.concatenate(generator.means), [1, 0.5, 1])
+
     def test_task_design_has_explicit_additive_contrasts(self):
         alignments = np.arange(5, dtype=float) * 4
         trials = pd.DataFrame(

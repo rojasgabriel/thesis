@@ -254,6 +254,38 @@ summary, `unit_results.csv` contains one row per unit, and `summary.png` and
 `summary.pdf` show the validation choice and held-out results. This is one
 session, so units are displayed as observations without a population p-value.
 
+## Predicted and observed spike trains
+
+The prediction figure adapts the direct raster comparison in Pillow et al.
+without treating these data as repeated presentations of one stimulus. It uses
+all 59 chronological test trials, aligned to the first measured flash. These
+trials have different later flashes, choices, outcomes, sounds, and movements.
+
+The displayed unit is selected by a fixed, inspectable rule: its full-model
+test deviance explained is nearest the 168-unit median. This selects unit 197
+(`D^2=0.05951`, population median `0.05961`) without selecting for visual
+appearance or unusually high performance. The choice is for post-fit display
+only and does not change the reported test estimates.
+
+Panels a-c show the real spikes and one deterministic recursive draw from each
+model. The task, audio, drift, and camera covariates for each trial stay fixed.
+The model's self-history is seeded from real spikes before the displayed window
+and then updated from simulated spikes. No rate clipping is applied. Panel d
+instead shows the exact one-step conditional means used for test scoring; these
+condition on the real spike history. The 20 ms Gaussian smoothing in this panel
+is for display only.
+
+```bash
+uv run python -m thesis.ephys.analyses.v1_glm_prediction
+```
+
+The command writes `predicted_spike_trains.png` and
+`predicted_spike_trains.pdf` in `figures/v1_glm/all_fit/`. The recursive draws
+are offline covariate-conditioned simulations, not causal online forecasts,
+because some video and task filters use future information. A single simulated
+raster illustrates model behavior; held-out deviance and bits/spike remain the
+quantitative comparison.
+
 ## Current state
 
 The camera mapping, trial grid, raw-video PCA, task matrix, drift terms, history
