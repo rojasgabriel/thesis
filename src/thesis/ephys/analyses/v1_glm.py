@@ -366,19 +366,34 @@ def fit_poisson_alpha_path(
     losses: dict[float, float] = {}
     endpoint_plateau = False
     for extension in range(MAX_ALPHA_EXTENSIONS + 1):
-        for alpha in sorted(pending - models.keys(), reverse=True):
-            warm_model = None
-            if models:
-                nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
-                warm_model = copy.deepcopy(models[nearest])
-            try:
-                model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
-            except RuntimeError:
-                if warm_model is None:
-                    raise
-                model = fit_poisson_at_alpha(X_train, y_train, alpha)
-            losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
-            models[alpha] = model
+        unfitted = pending - models.keys()
+        while unfitted:
+            errors = {}
+            fitted = 0
+            for alpha in sorted(unfitted, reverse=True):
+                warm_model = None
+                if models:
+                    nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
+                    warm_model = copy.deepcopy(models[nearest])
+                try:
+                    model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
+                except RuntimeError as error:
+                    if warm_model is not None:
+                        try:
+                            model = fit_poisson_at_alpha(X_train, y_train, alpha)
+                        except RuntimeError as cold_error:
+                            errors[alpha] = cold_error
+                            continue
+                    else:
+                        errors[alpha] = error
+                        continue
+                losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
+                models[alpha] = model
+                fitted += 1
+            unfitted = pending - models.keys()
+            if unfitted and not fitted:
+                detail = "; ".join(str(errors[alpha]) for alpha in sorted(unfitted))
+                raise RuntimeError(f"No converged penalty initialization: {detail}")
         ordered = sorted(losses)
         minimum = min(losses.values())
         tied = [
