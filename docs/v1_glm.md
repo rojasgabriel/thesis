@@ -263,11 +263,11 @@ test deviance explained is nearest the 168-unit median. This selects unit 197
 appearance or unusually high performance. The choice is for post-fit display
 only and does not change the reported test estimates.
 
-Panel a shows the real spikes. Panel b shows one recursive simulation from the
-complete model. In a recursive simulation, each generated spike becomes part
-of the model's recent spike-history input for later bins. The external task,
-audio, drift, and video covariates stay fixed. The history is seeded from real
-spikes before the displayed window, and no rate clipping is applied.
+Panel a shows the real spikes. Panel b shows model-predicted spike trains. They
+are generated recursively: each generated spike becomes part of the model's
+recent spike-history input for later bins. The external task, audio, drift, and
+video covariates stay fixed. The history is seeded from real spikes before the
+displayed window, and no rate clipping is applied.
 
 Panel c shows the one-step prediction used for test scoring. For each 1 ms bin,
 this prediction uses the real spikes from the preceding 100 ms rather than

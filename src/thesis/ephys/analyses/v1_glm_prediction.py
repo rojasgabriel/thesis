@@ -311,7 +311,7 @@ def plot_prediction_figure(
     raster_data = (observed, simulation)
     raster_labels = (
         "observed held-out spikes",
-        "complete-model recursive simulation (feeds back simulated spikes)",
+        "model-predicted spike trains",
     )
     raster_colors = (OBSERVED_COLOR, MODEL_COLOR)
     trial_count = observed.shape[0]
