@@ -3,10 +3,11 @@
 ## Scientific question
 
 For GRB006 session `20240821_121447`, fit a Poisson encoding model that predicts
-V1 spikes from sensory, task, behavioral, and spike-history variables. Compare a
-sensory/task/history model against the same model plus back-camera features on
-identical held-out trials. Video is one behavioral regressor group used to
-capture movement-related variance. This is not a video-only GLM.
+V1 spikes from sensory, task, behavioral, and spike-history variables. The
+primary result is how well the complete model predicts held-out spikes. Video
+is one behavioral regressor group used to capture movement-related variance;
+it is not the scientific focus and this is not a video-only GLM. Validation
+over camera-PC counts selects the size of that nuisance block.
 
 The model estimates conditional associations. It does not establish that a
 regressor causes a neural response.
@@ -71,10 +72,10 @@ linear and quadratic session-time terms are common nuisance variables. They are
 needed because firing rates change across the chronological split for a small
 set of units even when spike amplitudes pass the stability filter.
 
-The baseline model has 69 penalized columns: 57 task, 2 drift, and 10
-self-history. The plus-video candidates have 99, 144, 219, 369, or 669
-penalized columns for 10, 25, 50, 100, or 200 video PCs. Each model also has one
-unpenalized intercept.
+The zero-camera validation candidate has 69 penalized columns: 57 task, 2
+drift, and 10 self-history. The complete-model candidates have 99, 144, 219,
+369, or 669 penalized columns for 10, 25, 50, 100, or 200 video PCs. Each model
+also has one unpenalized intercept.
 
 Six causal bases over 300 ms give a smooth event filter at about 60 ms peak
 spacing. Nine peri-event bases cover motor and response associations over a
@@ -85,9 +86,9 @@ the spike. Because the video filter is acausal, it is a nuisance association
 and must not be read as a causal encoding filter.
 
 There is no same-bin history, cross-unit coupling, previous-trial term,
-early-withdrawal term, or interaction term in the first model. The additive
-model is the first interpretable comparison. More complex nonlinear or coupled
-models require evidence from held-out failures before they are added.
+early-withdrawal term, or interaction term in the current model. The additive
+model is the first interpretable prediction model. More complex nonlinear or
+coupled models require evidence from held-out failures before they are added.
 
 ## Video preparation and timing
 
@@ -217,42 +218,37 @@ prediction setting rather than a biologically meaningful dimensionality.
 | 100 | 0.06555 |
 | 200 | 0.06019 |
 
-On the 59 untouched test trials, adding the selected camera block improved 118
-of 168 units. The paired median camera gain was 0.00208 deviance explained
-(interquartile range -0.00091 to 0.00735) and 0.01532 bits/spike
-(interquartile range -0.00587 to 0.05469). The spike-weighted gain across all
-191,538 test spikes was 0.01882 bits/spike.
+On the 59 untouched test trials, the complete model gave the following
+performance across 168 units:
 
-| Test metric | Without camera, median (IQR) | With 25 camera PCs, median (IQR) |
-| --- | ---: | ---: |
-| Deviance explained | 0.05467 (0.02854 to 0.08623) | 0.05961 (0.03120 to 0.08835) |
-| Bits/spike | 0.39178 (0.19016 to 0.71672) | 0.42199 (0.21586 to 0.76841) |
+| Test metric | Median (IQR) |
+| --- | ---: |
+| Deviance explained | 0.05961 (0.03120 to 0.08835) |
+| Bits/spike | 0.42199 (0.21586 to 0.76841) |
 
 All 1,008 validation penalty paths selected an interior penalty after automatic
 grid extension. All saved coefficients and metrics are finite and have the
 expected dimensions. The test files were written only after every validation
-file. Summed across units, the two models predicted 187,384 and 189,044 spikes,
-respectively, against 191,538 observed spikes.
+file. Summed across units, the complete model predicted 189,044 spikes against
+191,538 observed spikes.
 
-The chronological test split also exposes limits. Six units scored below the
-constant-rate null in at least one model, with large train-to-test rate errors
-that are consistent with late-session nonstationarity. Seven camera models
-produced an expected count above one in at least one 1 ms bin. The Poisson
-likelihood permits these tail values, but they warn against treating the fitted
-model as a calibrated spike simulator. The robust held-out likelihood gain
-remains positive: among the 90 units with at least 500 test spikes, the median
-gain was 0.01250 bits/spike and 71 improved.
+The chronological test split also exposes limits. Four complete-model units
+scored below the constant-rate null. Seven complete models produced an expected
+count above one in at least one 1 ms bin. The Poisson likelihood permits these
+tail values, but they warn against treating every fitted unit as a calibrated
+spike simulator.
 
-This comparison tests the incremental prediction supplied by broad raw-camera
-features. It does not yet separate the predictive contributions of visual,
-audio, other task, and history groups. That requires prespecified group
-ablations on new held-out folds or sessions; individual coefficients are not a
-substitute because the event groups are correlated.
+This result measures prediction from the complete set of regressors. It does
+not separate the predictive contributions of visual, audio, other task,
+history, and video groups. Group ablations would answer a different question;
+individual coefficients are not a substitute because the regressors are
+correlated.
 
 Results are in `figures/v1_glm/all_fit/`: `summary.json` contains the gated fit
 summary, `unit_results.csv` contains one row per unit, and `summary.png` and
-`summary.pdf` show the validation choice and held-out results. This is one
-session, so units are displayed as observations without a population p-value.
+`summary.pdf` show camera-PC selection, the complete model's held-out metric
+distributions, and spike-count calibration. This is one session, so units are
+displayed as observations without a population p-value.
 
 ## Predicted and observed spike trains
 
@@ -267,24 +263,28 @@ test deviance explained is nearest the 168-unit median. This selects unit 197
 appearance or unusually high performance. The choice is for post-fit display
 only and does not change the reported test estimates.
 
-Panels a-c show the real spikes and one deterministic recursive draw from each
-model. The task, audio, drift, and camera covariates for each trial stay fixed.
-The model's self-history is seeded from real spikes before the displayed window
-and then updated from simulated spikes. No rate clipping is applied. Panel d
-instead shows the exact one-step conditional means used for test scoring; these
-condition on the real spike history. The 20 ms Gaussian smoothing in this panel
-is for display only.
+Panel a shows the real spikes. Panel b shows one recursive simulation from the
+complete model. In a recursive simulation, each generated spike becomes part
+of the model's recent spike-history input for later bins. The external task,
+audio, drift, and video covariates stay fixed. The history is seeded from real
+spikes before the displayed window, and no rate clipping is applied.
+
+Panel c shows the one-step prediction used for test scoring. For each 1 ms bin,
+this prediction uses the real spikes from the preceding 100 ms rather than
+earlier simulated spikes. It therefore shows the model's conditional expected
+rate, not a generated spike train. The 20 ms Gaussian smoothing is for display
+only.
 
 ```bash
 uv run python -m thesis.ephys.analyses.v1_glm_prediction
 ```
 
-The command writes `predicted_spike_trains.png` and
-`predicted_spike_trains.pdf` in `figures/v1_glm/all_fit/`. The recursive draws
-are offline covariate-conditioned simulations, not causal online forecasts,
+The command writes both summary formats and `predicted_spike_trains.png` and
+`predicted_spike_trains.pdf` in `figures/v1_glm/all_fit/`. The recursive draw is
+an offline covariate-conditioned simulation, not a causal online forecast,
 because some video and task filters use future information. A single simulated
 raster illustrates model behavior; held-out deviance and bits/spike remain the
-quantitative comparison.
+quantitative evaluation.
 
 ## Current state
 
