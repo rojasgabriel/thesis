@@ -202,11 +202,63 @@ unique basis count or time range. Those values remain explicit assumptions and
 must be checked with validation performance, fitted kernel shape, residuals,
 rate calibration, and sensitivity analyses.
 
+## First full fit
+
+The full fit completed for all 168 eligible units. Validation selected 25 raw
+camera PCs. The optimum is shallow between 10 and 50 PCs, so 25 is a selected
+prediction setting rather than a biologically meaningful dimensionality.
+
+| Camera PCs | Mean validation deviance explained |
+| ---: | ---: |
+| none | 0.06668 |
+| 10 | 0.06953 |
+| **25** | **0.07024** |
+| 50 | 0.06925 |
+| 100 | 0.06555 |
+| 200 | 0.06019 |
+
+On the 59 untouched test trials, adding the selected camera block improved 118
+of 168 units. The paired median camera gain was 0.00208 deviance explained
+(interquartile range -0.00091 to 0.00735) and 0.01532 bits/spike
+(interquartile range -0.00587 to 0.05469). The spike-weighted gain across all
+191,538 test spikes was 0.01882 bits/spike.
+
+| Test metric | Without camera, median (IQR) | With 25 camera PCs, median (IQR) |
+| --- | ---: | ---: |
+| Deviance explained | 0.05467 (0.02854 to 0.08623) | 0.05961 (0.03120 to 0.08835) |
+| Bits/spike | 0.39178 (0.19016 to 0.71672) | 0.42199 (0.21586 to 0.76841) |
+
+All 1,008 validation penalty paths selected an interior penalty after automatic
+grid extension. All saved coefficients and metrics are finite and have the
+expected dimensions. The test files were written only after every validation
+file. Summed across units, the two models predicted 187,384 and 189,044 spikes,
+respectively, against 191,538 observed spikes.
+
+The chronological test split also exposes limits. Six units scored below the
+constant-rate null in at least one model, with large train-to-test rate errors
+that are consistent with late-session nonstationarity. Seven camera models
+produced an expected count above one in at least one 1 ms bin. The Poisson
+likelihood permits these tail values, but they warn against treating the fitted
+model as a calibrated spike simulator. The robust held-out likelihood gain
+remains positive: among the 90 units with at least 500 test spikes, the median
+gain was 0.01250 bits/spike and 71 improved.
+
+This comparison tests the incremental prediction supplied by broad raw-camera
+features. It does not yet separate the predictive contributions of visual,
+audio, other task, and history groups. That requires prespecified group
+ablations on new held-out folds or sessions; individual coefficients are not a
+substitute because the event groups are correlated.
+
+Results are in `figures/v1_glm/all_fit/`: `summary.json` contains the gated fit
+summary, `unit_results.csv` contains one row per unit, and `summary.png` and
+`summary.pdf` show the validation choice and held-out results. This is one
+session, so units are displayed as observations without a population p-value.
+
 ## Current state
 
-No GLM has been fitted. The camera mapping, trial grid, raw-video PCA, task
-matrix, drift terms, history basis, Poisson fitter, validation path, and test
-gate are implemented. Focused tests are in `tests/`:
+The camera mapping, trial grid, raw-video PCA, task matrix, drift terms, history
+basis, Poisson fitter, validation path, test gate, pilot, and full fit are
+complete. Focused tests are in `tests/`:
 
 ```bash
 uv run python -m unittest discover -s tests -v
