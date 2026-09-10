@@ -41,8 +41,10 @@ def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
     return poke_array[poke_array[:, 1] == 1, 0], poke_array[poke_array[:, 1] == 0, 0]
 
 
-def _select_task_ev_sequence(trial: pd.Series, predicted_react_s: float) -> dict:
-    """Select the hardware sequence that matches the Bpod reaction event."""
+def _select_task_ev_sequence(
+    trial: pd.Series, predicted_react_s: float, predicted_entry_s: float = np.nan
+) -> dict:
+    """Match hardware entry and exit to Bpod initiation and reaction events."""
     response_entries_s = {
         -1: trial["left_port_entry_times_s"],
         1: trial["right_port_entry_times_s"],
@@ -62,7 +64,9 @@ def _select_task_ev_sequence(trial: pd.Series, predicted_react_s: float) -> dict
         if center_entries_s and following_response_entries_s:
             task_ev_candidates.append(
                 (
-                    center_entries_s[-1],
+                    min(center_entries_s, key=lambda t: abs(t - predicted_entry_s))
+                    if np.isfinite(predicted_entry_s)
+                    else center_entries_s[-1],
                     center_exit_s,
                     following_response_entries_s[0],
                 )
@@ -119,6 +123,7 @@ def build_trial_table(
             "rewarded",
             "early_withdrawal",
             "t_react",
+            "t_initiate",
             "left_poke",
             "center_poke",
             "right_poke",
@@ -240,8 +245,17 @@ def build_trial_table(
     missing_frames = include_frames and "frames" not in sess_ev
     bpod_react_s = trial_table["t_react"].to_numpy(dtype=float)
     predicted_react_s = np.full(n_trials, np.nan)
+    bpod_entry_s = np.full(n_trials, np.nan)
+    for i, trial in trial_table.iterrows():
+        entries, _ = _split_bpod_pokes(trial["center_poke"])
+        if entries.size and np.isfinite(trial["t_initiate"]):
+            # Stored state times can be rounded to 10 ms. Match the nearest
+            # Bpod poke, not the last poke before that rounded state time.
+            bpod_entry_s[i] = entries[np.argmin(abs(entries - trial["t_initiate"]))]
+    predicted_entry_s = np.full(n_trials, np.nan)
+    valid_bpod_entry = np.isfinite(bpod_entry_s)
     valid_bpod_react = np.isfinite(bpod_react_s)
-    if valid_bpod_react.any() or missing_port_roles:
+    if valid_bpod_react.any() or valid_bpod_entry.any() or missing_port_roles:
         from labdata.schema import StreamSync
 
         bpod_sync = StreamSync() & {
@@ -278,6 +292,9 @@ def build_trial_table(
         predicted_react_s[valid_bpod_react] = bpod_sync.apply(
             bpod_react_s[valid_bpod_react], force=True, warn=False
         )
+        predicted_entry_s[valid_bpod_entry] = bpod_sync.apply(
+            bpod_entry_s[valid_bpod_entry], force=True, warn=False
+        )
 
     if "frames" not in sess_ev:
         trial_table["frame_times_s"] = [[] for _ in range(n_trials)]
@@ -300,7 +317,9 @@ def build_trial_table(
         )
 
     task_ev_selections = [
-        _select_task_ev_sequence(trial, predicted_react_s[trial_index])
+        _select_task_ev_sequence(
+            trial, predicted_react_s[trial_index], predicted_entry_s[trial_index]
+        )
         for trial_index, trial in trial_table.reset_index(drop=True).iterrows()
     ]
     trial_table = pd.concat(
