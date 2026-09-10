@@ -4,10 +4,9 @@ Scientific comparison
 ---------------------
 For the previously held-out chronological test trials from GRB006 session
 20240821_121447, show observed spikes beside one recursive simulation from the
-sensory/task/history model and one from the same model plus the selected camera
-PC block. Each simulated row keeps that trial's sensory, task, audio, drift,
-and video covariates fixed. Self-history is updated from simulated spikes after
-seeding each trial with its observed pre-window history.
+complete sensory, task, audio, history, drift, and video model. Each simulated
+row keeps that trial's external covariates fixed. Self-history is updated from
+simulated spikes after seeding each trial with its observed pre-window history.
 
 The final panel shows the one-step conditional mean used for held-out deviance
 and bits/spike. Unlike the recursive rasters, that prediction conditions on the
@@ -38,6 +37,7 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.v1_glm import (
     HISTORY_COLUMNS,
+    VIDEO_COMPONENT_COUNTS,
     _contiguous_slices,
     _load_windows,
     build_unit_design,
@@ -47,8 +47,7 @@ from thesis.ephys.preprocessing.prepare_v1_glm import BINWIDTH_S
 from thesis.ephys.units import fetch_unit_table
 
 OBSERVED_COLOR = "0.1"
-BASE_COLOR = "#0072B2"
-VIDEO_COLOR = "#D55E00"
+MODEL_COLOR = "#008695"
 SMOOTHING_MS = 20
 SIMULATION_SEED = 2008
 FIGURE_STYLE = {
@@ -174,37 +173,159 @@ def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
     return [np.repeat(times, row.astype(int, copy=False)) for row in np.asarray(counts)]
 
 
+def _save_figure(figure, output: Path) -> tuple[Path, Path]:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path = output.with_suffix(".pdf")
+    png_path = output.with_suffix(".png")
+    figure.savefig(pdf_path, bbox_inches="tight")
+    figure.savefig(png_path, dpi=300, bbox_inches="tight")
+    plt.close(figure)
+    return pdf_path, png_path
+
+
+def plot_population_summary(
+    results: list[dict], selections: list[dict], output: Path
+) -> tuple[Path, Path]:
+    """Show camera-PC selection and complete-model held-out performance."""
+    selected_components = {item["plus_video"]["components"] for item in results}
+    if len(selected_components) != 1:
+        raise ValueError("All final fits must use one camera-PC count.")
+    selected = selected_components.pop()
+    component_counts = (0, *VIDEO_COMPONENT_COUNTS)
+    validation_deviance = [
+        np.mean(
+            [
+                item["baseline"]["validation"]["deviance_explained"]
+                for item in selections
+            ]
+        ),
+        *[
+            np.mean(
+                [
+                    item["plus_video"][str(count)]["validation"]["deviance_explained"]
+                    for item in selections
+                ]
+            )
+            for count in VIDEO_COMPONENT_COUNTS
+        ],
+    ]
+    full_results = [item["plus_video"]["test"] for item in results]
+    deviance = np.asarray([item["deviance_explained"] for item in full_results])
+    bits = np.asarray([item["bits_per_spike"] for item in full_results])
+    observed = np.asarray([item["observed_spikes"] for item in full_results])
+    predicted = np.asarray([item["predicted_spikes"] for item in full_results])
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.6))
+        axes = axes.ravel()
+
+        positions = np.arange(len(component_counts))
+        axes[0].plot(positions, validation_deviance, color=MODEL_COLOR, marker="o")
+        selected_position = component_counts.index(selected)
+        axes[0].scatter(
+            selected_position,
+            validation_deviance[selected_position],
+            color=MODEL_COLOR,
+            s=75,
+            zorder=3,
+        )
+        axes[0].text(
+            selected_position,
+            validation_deviance[selected_position],
+            "selected",
+            color=MODEL_COLOR,
+            ha="center",
+            va="bottom",
+        )
+        axes[0].set_xticks(positions, component_counts)
+        axes[0].set_xlabel("Candidate camera PCs")
+        axes[0].set_ylabel("Mean validation deviance explained")
+
+        for axis, values, xlabel, digits in (
+            (axes[1], deviance, "Test deviance explained", 3),
+            (axes[2], bits, "Test prediction (bits/spike)", 3),
+        ):
+            median = float(np.median(values))
+            axis.hist(values, bins=24, color=MODEL_COLOR, alpha=0.8)
+            axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
+            axis.axvline(median, color=MODEL_COLOR, linewidth=1.5)
+            axis.text(
+                0.98,
+                0.93,
+                f"median = {median:.{digits}f}",
+                color=MODEL_COLOR,
+                transform=axis.transAxes,
+                ha="right",
+                va="top",
+            )
+            axis.set_xlabel(xlabel)
+            axis.set_ylabel("Units")
+
+        lower = float(min(observed.min(), predicted.min()) * 0.8)
+        upper = float(max(observed.max(), predicted.max()) * 1.2)
+        axes[3].scatter(observed, predicted, color=MODEL_COLOR, alpha=0.65, s=16)
+        axes[3].plot([lower, upper], [lower, upper], color="0.65", linestyle="--")
+        axes[3].set(
+            xscale="log", yscale="log", xlim=(lower, upper), ylim=(lower, upper)
+        )
+        axes[3].set_xlabel("Observed test spikes")
+        axes[3].set_ylabel("Predicted test spikes")
+        axes[3].text(
+            0.04,
+            0.94,
+            (
+                f"complete model\n{predicted.sum():,.0f} predicted / "
+                f"{observed.sum():,.0f} observed"
+            ),
+            color=MODEL_COLOR,
+            transform=axes[3].transAxes,
+            ha="left",
+            va="top",
+        )
+
+        for letter, axis in zip("abcd", axes, strict=True):
+            axis.text(
+                -0.14,
+                1.05,
+                letter,
+                transform=axis.transAxes,
+                ha="left",
+                va="bottom",
+                fontweight="bold",
+                fontsize=10,
+            )
+        figure.tight_layout(h_pad=2.0, w_pad=2.0)
+        return _save_figure(figure, output)
+
+
 def plot_prediction_figure(
     relative_times: np.ndarray,
     observed: np.ndarray,
-    baseline_simulation: np.ndarray,
-    video_simulation: np.ndarray,
-    baseline_prediction: np.ndarray,
-    video_prediction: np.ndarray,
+    simulation: np.ndarray,
+    prediction: np.ndarray,
     result: dict,
     population_median: float,
     output: Path,
 ) -> tuple[Path, Path]:
     """Write the Pillow-style raster and conditional-rate comparison."""
-    raster_data = (observed, baseline_simulation, video_simulation)
+    raster_data = (observed, simulation)
     raster_labels = (
         "observed held-out spikes",
-        "base-model recursive simulation",
-        f"+ {result['plus_video']['components']} camera PCs recursive simulation",
+        "complete-model recursive simulation (feeds back simulated spikes)",
     )
-    raster_colors = (OBSERVED_COLOR, BASE_COLOR, VIDEO_COLOR)
+    raster_colors = (OBSERVED_COLOR, MODEL_COLOR)
     trial_count = observed.shape[0]
 
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
-            4,
+            3,
             1,
-            figsize=(7.1, 7.6),
+            figsize=(7.1, 6.0),
             sharex=True,
-            gridspec_kw={"height_ratios": [1, 1, 1, 1.35], "hspace": 0.28},
+            gridspec_kw={"height_ratios": [1, 1, 1.35], "hspace": 0.28},
         )
         for axis, counts, label, color in zip(
-            axes[:3], raster_data, raster_labels, raster_colors, strict=True
+            axes[:2], raster_data, raster_labels, raster_colors, strict=True
         ):
             axis.eventplot(
                 _raster_events(counts, relative_times),
@@ -226,7 +347,7 @@ def plot_prediction_figure(
                 va="bottom",
                 fontweight="bold",
             )
-        axes[1].set_ylabel("Chronological test trial")
+        axes[1].set_ylabel("Test trials")
         axes[0].text(
             0.99,
             1.02,
@@ -245,9 +366,9 @@ def plot_prediction_figure(
         sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
         rates = [
             gaussian_filter1d(values.mean(axis=0) / BINWIDTH_S, sigma_bins)
-            for values in (observed, baseline_prediction, video_prediction)
+            for values in (observed, prediction)
         ]
-        rate_axis = axes[3]
+        rate_axis = axes[2]
         for rate, color in zip(rates, raster_colors, strict=True):
             rate_axis.plot(relative_times, rate, color=color, linewidth=1.25)
         rate_axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
@@ -256,7 +377,7 @@ def plot_prediction_figure(
         rate_axis.text(
             0.01,
             0.94,
-            "scored one-step prediction (observed history)",
+            "one-step prediction (uses observed recent spikes)",
             transform=rate_axis.transAxes,
             ha="left",
             va="top",
@@ -265,8 +386,7 @@ def plot_prediction_figure(
         )
         for y, label, color in (
             (0.86, "observed", OBSERVED_COLOR),
-            (0.77, "base model", BASE_COLOR),
-            (0.68, "+ camera", VIDEO_COLOR),
+            (0.77, "complete model", MODEL_COLOR),
         ):
             rate_axis.text(
                 0.99,
@@ -294,7 +414,7 @@ def plot_prediction_figure(
             relative_times[-1] + BINWIDTH_S / 2,
         )
         axes[-1].set_xlim(*edges)
-        for letter, axis in zip("abcd", axes, strict=True):
+        for letter, axis in zip("abc", axes, strict=True):
             axis.text(
                 -0.075,
                 1.02,
@@ -306,13 +426,7 @@ def plot_prediction_figure(
                 fontsize=10,
             )
         figure.align_ylabels(axes)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        pdf_path = output.with_suffix(".pdf")
-        png_path = output.with_suffix(".png")
-        figure.savefig(pdf_path, bbox_inches="tight")
-        figure.savefig(png_path, dpi=300, bbox_inches="tight")
-        plt.close(figure)
-    return pdf_path, png_path
+        return _save_figure(figure, output)
 
 
 def main() -> None:
@@ -337,10 +451,18 @@ def main() -> None:
     for path in sorted(args.fit_dir.glob("unit_*_test.json")):
         with path.open() as handle:
             results.append(json.load(handle))
+    selections = []
+    for path in sorted(args.fit_dir.glob("unit_*_validation.json")):
+        with path.open() as handle:
+            selections.append(json.load(handle))
+    if len(results) != len(selections):
+        raise ValueError("Final and validation result counts differ.")
+    summary_pdf, summary_png = plot_population_summary(
+        results, selections, args.fit_dir / "summary"
+    )
     result, population_median = select_representative_result(results)
     unit_id = int(result["unit_id"])
-    with (args.fit_dir / f"unit_{unit_id}_validation.json").open() as handle:
-        selection = json.load(handle)
+    selection = next(item for item in selections if int(item["unit_id"]) == unit_id)
 
     prepared = _load_windows(args.windows)
     _, _, test_rows = _contiguous_slices(prepared["split"])
@@ -366,47 +488,28 @@ def main() -> None:
         raise ValueError("Test design and response rows differ.")
     history_mean = np.asarray(selection["history_training_mean"], dtype=float)
     history_scale = np.asarray(selection["history_training_scale"], dtype=float)
-    predictions = {
-        name: conditional_prediction(
-            common, history, history_mean, history_scale, result[name]
-        )
-        for name in ("baseline", "plus_video")
-    }
-    for name, prediction in predictions.items():
-        saved = result[name]["test"]
-        if not np.isclose(prediction.sum(), saved["predicted_spikes"], rtol=1e-6):
-            raise ValueError(
-                f"Reconstructed {name} predictions differ from the saved fit."
-            )
+    prediction = conditional_prediction(
+        common, history, history_mean, history_scale, result["plus_video"]
+    )
+    saved = result["plus_video"]["test"]
+    if not np.isclose(prediction.sum(), saved["predicted_spikes"], rtol=1e-6):
+        raise ValueError("Reconstructed predictions differ from the saved fit.")
 
     trial_count = len(test_alignments)
     bin_count = len(relative_times)
     observed = counts.reshape(trial_count, bin_count)
-    conditional = {
-        name: values.reshape(trial_count, bin_count)
-        for name, values in predictions.items()
-    }
-    seed_sequence = np.random.SeedSequence(SIMULATION_SEED)
-    baseline_seed, video_seed = seed_sequence.spawn(2)
-    baseline_simulation = simulate_spike_counts(
+    conditional = prediction.reshape(trial_count, bin_count)
+    simulation = simulate_spike_counts(
         observed,
-        conditional["baseline"],
-        simulation_history_kernel(result["baseline"], history_scale),
-        np.random.default_rng(baseline_seed),
-    )
-    video_simulation = simulate_spike_counts(
-        observed,
-        conditional["plus_video"],
+        conditional,
         simulation_history_kernel(result["plus_video"], history_scale),
-        np.random.default_rng(video_seed),
+        np.random.default_rng(SIMULATION_SEED),
     )
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
         observed,
-        baseline_simulation,
-        video_simulation,
-        conditional["baseline"],
-        conditional["plus_video"],
+        simulation,
+        conditional,
         result,
         population_median,
         args.output,
@@ -422,9 +525,10 @@ def main() -> None:
                 ],
                 "test_trials": trial_count,
                 "observed_spikes": int(observed.sum()),
-                "baseline_simulated_spikes": int(baseline_simulation.sum()),
-                "video_simulated_spikes": int(video_simulation.sum()),
+                "simulated_spikes": int(simulation.sum()),
                 "simulation_seed": SIMULATION_SEED,
+                "summary_pdf": str(summary_pdf),
+                "summary_png": str(summary_png),
                 "pdf": str(pdf_path),
                 "png": str(png_path),
             },

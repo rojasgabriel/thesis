@@ -2,10 +2,12 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, compare a sensory/task/history model with
-the same model plus back-camera video PCs. The response is raw spike count in
-1 ms bins from 99 ms before through 2.539 s after the first measured visual
-flash. Trials are the sampling units and remain in chronological 60/20/20
+For GRB006 session 20240821_121447, fit an encoding model that uses sensory,
+task, audio, behavior, drift, and spike-history variables to predict V1 spikes.
+Validation compares candidate camera-PC counts, including zero, to select the
+size of the video nuisance block. The response is raw spike count in 1 ms bins
+from 99 ms before through 2.539 s after the first measured visual flash. Trials
+are the sampling units and remain in chronological 60/20/20
 training/validation/test splits. The pilot uses 12 depth-spaced units that pass
 quality criterion 1 and stability parameter 0. No sensory-response selection
 or baseline subtraction is used.
