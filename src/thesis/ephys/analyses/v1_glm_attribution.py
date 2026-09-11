@@ -68,7 +68,7 @@ DETAILED_GROUPS = (
     "drift",
 )
 DISPLAY_LABELS = {
-    "task": "All task/event",
+    "task": "Task",
     "video": "Video SVD",
     "history": "Spike history",
     "drift": "Session drift",
@@ -82,10 +82,10 @@ DISPLAY_LABELS = {
     "outcome": "Outcome",
 }
 GROUP_COLORS = {
-    "task": "#7562A8",
-    "video": "#008C95",
-    "history": "#D99000",
-    "drift": "#767676",
+    "task": "C0",
+    "video": "C1",
+    "history": "C2",
+    "drift": "black",
 }
 FIGURE_STYLE = {
     "axes.spines.top": False,
@@ -232,23 +232,11 @@ def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
         whiskerprops={"color": "0.3", "linewidth": 0.7},
         capprops={"color": "0.3", "linewidth": 0.7},
     )
-    rng = np.random.default_rng(0)
     for position, (group, group_values, patch) in enumerate(
         zip(groups, values, boxes["boxes"], strict=True)
     ):
         color = _group_color(group)
         patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
-        jitter = rng.uniform(-0.17, 0.17, len(group_values))
-        axis.scatter(
-            position + jitter,
-            group_values,
-            color="0.55",
-            alpha=0.55,
-            s=7,
-            linewidths=0,
-            rasterized=True,
-            zorder=2,
-        )
         axis.scatter(
             position,
             np.mean(group_values),

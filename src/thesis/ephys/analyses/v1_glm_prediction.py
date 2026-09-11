@@ -1,4 +1,4 @@
-"""Compare observed and predicted V1 spike trains on held-out trials.
+"""Create figures for the fitted V1 spike-prediction GLM.
 
 Scientific comparison
 ---------------------
@@ -13,6 +13,15 @@ and bits/spike. Unlike the recursive rasters, that prediction conditions on the
 observed spike history. Test trials are distinct trials aligned to their first
 measured flash, not repeats of one identical stimulus. The displayed mean rates
 use 20 ms Gaussian smoothing; all fitting and scoring remain at 1 ms.
+
+The figure set also shows one actual held-out-trial design matrix and the fitted
+temporal kernels. Population heatmaps contain every eligible unit in depth order.
+Line plots show the same median-performance unit used for the spike-train figure.
+Task kernels are changes in log expected rate for one event. Response side and
+outcome use their fitted +1 codes. History kernels are per preceding spike, and
+video kernels are per one-bin sample of a training-standardized camera-PC score.
+Heatmap color limits use the pooled 99th absolute percentile within each logical
+regressor group; this affects color saturation only and does not remove units.
 
 The example is selected by a fixed rule as the unit whose full-model test
 deviance explained is nearest the population median. This post-fit display
@@ -39,17 +48,36 @@ from matplotlib.patches import FancyBboxPatch
 
 from thesis.ephys.analyses.v1_glm import (
     HISTORY_COLUMNS,
+    VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
     _contiguous_slices,
     _load_windows,
     build_unit_design,
     spike_history_basis,
+    task_temporal_bases,
+    video_temporal_basis,
 )
 from thesis.ephys.preprocessing.prepare_v1_glm import BINWIDTH_S
 from thesis.ephys.units import fetch_unit_table
 
-OBSERVED_COLOR = "0.1"
-MODEL_COLOR = "#008695"
+OBSERVED_COLOR = "black"
+MODEL_COLOR = "C0"
+GROUP_COLORS = {
+    "task": "C0",
+    "video": "C1",
+    "history": "C2",
+    "drift": "black",
+}
+TASK_LABELS = {
+    "visual_flash": "Visual flash",
+    "center_entry": "Center entry",
+    "go_cue_command": "Go cue",
+    "center_exit": "Center exit",
+    "response_entry": "Response entry",
+    "response_side": "Response side\n(+1 right)",
+    "outcome": "Outcome\n(+1 rewarded)",
+    "wrong_punishment_command": "Punishment cue",
+}
 SMOOTHING_MS = 20
 SIMULATION_SEED = 2008
 FIGURE_STYLE = {
@@ -231,23 +259,13 @@ def plot_model_design(
     if mean_frame.size != height * width or components.shape != (3, height * width):
         raise ValueError("Saved camera-PC maps do not match the saved frame shape.")
 
-    task_labels = {
-        "visual_flash": "Visual flash",
-        "center_entry": "Center entry",
-        "go_cue_command": "Go cue",
-        "center_exit": "Center exit",
-        "response_entry": "Response entry",
-        "response_side": "Response side",
-        "outcome": "Outcome",
-        "wrong_punishment_command": "Punishment cue",
-    }
     supports = [
         (
-            task_labels[item["name"]],
+            TASK_LABELS[item["name"]].split("\n")[0],
             1000 * float(item["kernel_range_s"][0]),
             1000 * float(item["kernel_range_s"][1]),
             int(item["columns"]),
-            "#7562A8",
+            GROUP_COLORS["task"],
         )
         for item in design_metadata["task_manifest"]
     ]
@@ -258,9 +276,9 @@ def plot_model_design(
                 1000 * float(design_metadata["video_basis_range_s"][0]),
                 1000 * float(design_metadata["video_basis_range_s"][1]),
                 int(design_metadata["video_basis_columns_per_component"]),
-                "#008C95",
+                GROUP_COLORS["video"],
             ),
-            ("Spike history", -100, -1, HISTORY_COLUMNS, "#D99000"),
+            ("Spike history", -100, -1, HISTORY_COLUMNS, GROUP_COLORS["history"]),
         ]
     )
 
@@ -279,7 +297,7 @@ def plot_model_design(
                     "sensory, task, audio\n"
                     f"{design_metadata['task_columns']} temporal columns"
                 ),
-                "#7562A8",
+                GROUP_COLORS["task"],
             ),
             (
                 0.02,
@@ -288,15 +306,15 @@ def plot_model_design(
                     f"video-derived movement\n{selected_components} PCs × "
                     f"{design_metadata['video_basis_columns_per_component']} bases"
                 ),
-                "#008C95",
+                GROUP_COLORS["video"],
             ),
             (
                 0.02,
                 0.26,
                 f"spike history\n{HISTORY_COLUMNS} bases, 1–100 ms",
-                "#D99000",
+                GROUP_COLORS["history"],
             ),
-            (0.02, 0.01, "session drift\nlinear + quadratic", "#767676"),
+            (0.02, 0.01, "session drift\nlinear + quadratic", GROUP_COLORS["drift"]),
         )
         for x, y, label, color in source_boxes:
             box = FancyBboxPatch(
@@ -339,8 +357,8 @@ def plot_model_design(
             0.2,
             0.22,
             boxstyle="round,pad=0.02",
-            facecolor="#008C95",
-            edgecolor="#008C95",
+            facecolor=MODEL_COLOR,
+            edgecolor=MODEL_COLOR,
             alpha=0.2,
             linewidth=1,
         )
@@ -423,7 +441,6 @@ def plot_model_design(
         for index, axis in enumerate(image_axes[1:]):
             image = axis.imshow(
                 components[index].reshape(height, width),
-                cmap="RdBu_r",
                 vmin=-maximum,
                 vmax=maximum,
             )
@@ -507,12 +524,12 @@ def plot_population_summary(
         axes = axes.ravel()
 
         positions = np.arange(len(component_counts))
-        axes[0].plot(positions, validation_deviance, color=MODEL_COLOR, marker="o")
+        axes[0].plot(positions, validation_deviance, color="black", marker="o")
         selected_position = component_counts.index(selected)
         axes[0].scatter(
             selected_position,
             validation_deviance[selected_position],
-            color=MODEL_COLOR,
+            color="black",
             s=75,
             zorder=3,
         )
@@ -520,7 +537,7 @@ def plot_population_summary(
             selected_position,
             validation_deviance[selected_position],
             "selected",
-            color=MODEL_COLOR,
+            color="black",
             ha="center",
             va="bottom",
         )
@@ -533,14 +550,14 @@ def plot_population_summary(
             (axes[2], bits, "Test prediction (bits/spike)", 3),
         ):
             median = float(np.median(values))
-            axis.hist(values, bins=24, color=MODEL_COLOR, alpha=0.8)
+            axis.hist(values, bins=24, color="black", alpha=0.75)
             axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
-            axis.axvline(median, color=MODEL_COLOR, linewidth=1.5)
+            axis.axvline(median, color="black", linewidth=1.5)
             axis.text(
                 0.98,
                 0.93,
                 f"median = {median:.{digits}f}",
-                color=MODEL_COLOR,
+                color="black",
                 transform=axis.transAxes,
                 ha="right",
                 va="top",
@@ -548,7 +565,7 @@ def plot_population_summary(
             axis.set_xlabel(xlabel)
             axis.set_ylabel("Units")
 
-        axes[3].scatter(training_rate, deviance, color=MODEL_COLOR, alpha=0.65, s=16)
+        axes[3].scatter(training_rate, deviance, color="black", alpha=0.65, s=16)
         axes[3].axhline(0, color="0.65", linestyle="--", linewidth=0.8)
         if np.all(training_rate > 0):
             axes[3].set_xscale("log")
@@ -558,7 +575,7 @@ def plot_population_summary(
             0.04,
             0.94,
             f"Spearman ρ = {rate_deviance_rho:.2f}\nn = {len(results)} units",
-            color=MODEL_COLOR,
+            color="black",
             transform=axes[3].transAxes,
             ha="left",
             va="top",
@@ -578,6 +595,359 @@ def plot_population_summary(
         figure.tight_layout(h_pad=2.0, w_pad=2.0)
         pdf_path, png_path = _save_figure(figure, output)
         return pdf_path, png_path, rate_deviance_rho
+
+
+def fitted_kernel_matrices(
+    results: list[dict], selections: list[dict], design_metadata: dict
+) -> tuple[list[int], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Reconstruct fitted filters in the units of the unscaled regressors."""
+    ordered = sorted(
+        results, key=lambda item: (float(item["depth"]), int(item["unit_id"]))
+    )
+    selection_by_id = {int(item["unit_id"]): item for item in selections}
+    unit_ids = [int(item["unit_id"]) for item in ordered]
+    if len(selection_by_id) != len(selections) or set(unit_ids) != set(selection_by_id):
+        raise ValueError("Final and validation results contain different units.")
+
+    component_counts = {int(item["plus_video"]["components"]) for item in ordered}
+    if len(component_counts) != 1:
+        raise ValueError("All final fits must use one camera-PC count.")
+    video_components = component_counts.pop()
+    if video_components < 3:
+        raise ValueError("At least three camera PCs are needed for the kernel figure.")
+    common_columns = (
+        int(design_metadata["base_columns"]) + VIDEO_BASIS_COLUMNS * video_components
+    )
+    coefficients = np.asarray(
+        [item["plus_video"]["coefficients"] for item in ordered], dtype=float
+    )
+    if coefficients.shape != (len(ordered), common_columns + HISTORY_COLUMNS):
+        raise ValueError("Saved coefficient count does not match the selected design.")
+
+    common_scale = np.asarray(design_metadata["training_scale"], dtype=float)[
+        :common_columns
+    ]
+    if common_scale.shape != (common_columns,) or np.any(common_scale <= 0):
+        raise ValueError("Common-design scales must be positive and complete.")
+    common_weights = coefficients[:, :common_columns] / common_scale
+
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    bases = task_temporal_bases()
+    cursor = 0
+    for item in design_metadata["task_manifest"]:
+        name = item["name"]
+        basis = bases[name]
+        stop = cursor + int(item["columns"])
+        if stop - cursor != basis.basis.shape[1]:
+            raise ValueError(f"Basis size differs from saved metadata for {name}.")
+        kernels[name] = (
+            1000 * basis.basis_time,
+            common_weights[:, cursor:stop] @ basis.basis.T,
+        )
+        cursor = stop
+    if cursor != int(design_metadata["task_columns"]):
+        raise ValueError("Task manifest and saved task-column count differ.")
+
+    video_basis = video_temporal_basis()
+    video_start = int(design_metadata["base_columns"])
+    for component in range(3):
+        start = video_start + component * video_basis.basis.shape[1]
+        stop = start + video_basis.basis.shape[1]
+        kernels[f"video_pc_{component + 1}"] = (
+            1000 * video_basis.basis_time,
+            common_weights[:, start:stop] @ video_basis.basis.T,
+        )
+
+    history_scale = np.asarray(
+        [selection_by_id[unit_id]["history_training_scale"] for unit_id in unit_ids],
+        dtype=float,
+    )
+    if history_scale.shape != (len(ordered), HISTORY_COLUMNS) or np.any(
+        history_scale <= 0
+    ):
+        raise ValueError("History scales must be positive and complete.")
+    history_weights = coefficients[:, -HISTORY_COLUMNS:] / history_scale
+    history_basis = spike_history_basis()
+    kernels["self_history"] = (
+        1000 * BINWIDTH_S * np.arange(1, len(history_basis.basis) + 1),
+        history_weights @ history_basis.basis.T,
+    )
+    if not all(np.isfinite(values).all() for _, values in kernels.values()):
+        raise ValueError("Reconstructed kernels must be finite.")
+    return unit_ids, kernels
+
+
+def _kernel_color_limit(matrices: list[np.ndarray]) -> float:
+    absolute = np.concatenate([np.abs(matrix).ravel() for matrix in matrices])
+    limit = float(np.quantile(absolute, 0.99))
+    if not np.isfinite(limit) or limit <= 0:
+        raise ValueError("Kernel values must have a positive finite color range.")
+    return limit
+
+
+def _plot_kernel_heatmap(axis, times_ms: np.ndarray, values: np.ndarray, limit: float):
+    image = axis.imshow(
+        values,
+        aspect="auto",
+        interpolation="nearest",
+        extent=(times_ms[0], times_ms[-1], len(values), 0),
+        vmin=-limit,
+        vmax=limit,
+    )
+    if times_ms[0] <= 0 <= times_ms[-1]:
+        axis.axvline(0, color="black", linewidth=0.45)
+    axis.set_yticks([])
+    return image
+
+
+def plot_task_kernels(
+    unit_ids: list[int],
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    representative_unit_id: int,
+    task_names: list[str],
+    output: Path,
+) -> tuple[Path, Path]:
+    """Show population task-filter heatmaps and one representative unit."""
+    if len(task_names) != 8:
+        raise ValueError("The task-kernel layout expects eight regressors.")
+    example_row = unit_ids.index(representative_unit_id)
+    limit = _kernel_color_limit([kernels[name][1] for name in task_names])
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure = plt.figure(figsize=(7.5, 7.8))
+        outer = figure.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.7)
+        population_grid = outer[0].subgridspec(
+            2, 5, width_ratios=[1, 1, 1, 1, 0.055], hspace=0.88, wspace=0.3
+        )
+        example_grid = outer[1].subgridspec(2, 4, hspace=0.88, wspace=0.3)
+        images = []
+        for index, name in enumerate(task_names):
+            row, column = divmod(index, 4)
+            axis = figure.add_subplot(population_grid[row, column])
+            times_ms, values = kernels[name]
+            images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
+            axis.set_title(TASK_LABELS[name], fontsize=8)
+            if column == 0:
+                axis.set_ylabel("Units\n(depth order)")
+        colorbar_axis = figure.add_subplot(population_grid[:, 4])
+        figure.colorbar(
+            images[0],
+            cax=colorbar_axis,
+            label="$\Delta$ log expected rate\n(99th-percentile color limit)",
+        )
+
+        for index, name in enumerate(task_names):
+            row, column = divmod(index, 4)
+            axis = figure.add_subplot(example_grid[row, column])
+            times_ms, values = kernels[name]
+            axis.plot(times_ms, values[example_row], color="black", linewidth=1)
+            axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
+            if times_ms[0] <= 0 <= times_ms[-1]:
+                axis.axvline(0, color="black", linewidth=0.45)
+            axis.set_title(TASK_LABELS[name], fontsize=8)
+            if column == 0:
+                axis.set_ylabel("$\Delta$ log rate")
+
+        figure.text(0.01, 0.985, "a", fontweight="bold", fontsize=10, va="top")
+        figure.text(0.04, 0.985, "All fitted V1 units, sorted by depth", va="top")
+        figure.text(0.5, 0.515, "Time from event (ms)", ha="center", va="top")
+        figure.text(0.01, 0.475, "b", fontweight="bold", fontsize=10, va="top")
+        figure.text(
+            0.04,
+            0.475,
+            f"Median-performance unit {representative_unit_id}",
+            va="top",
+        )
+        figure.text(0.5, 0.005, "Time from event (ms)", ha="center", va="bottom")
+        return _save_figure(figure, output)
+
+
+def plot_history_video_kernels(
+    unit_ids: list[int],
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    representative_unit_id: int,
+    output: Path,
+) -> tuple[Path, Path]:
+    """Show population and representative history and camera-PC filters."""
+    names = ["self_history", "video_pc_1", "video_pc_2", "video_pc_3"]
+    titles = ["Spike history", "Video PC 1", "Video PC 2", "Video PC 3"]
+    example_row = unit_ids.index(representative_unit_id)
+    history_limit = _kernel_color_limit([kernels["self_history"][1]])
+    video_limit = _kernel_color_limit([kernels[name][1] for name in names[1:]])
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure = plt.figure(figsize=(7.5, 4.0))
+        grid = figure.add_gridspec(
+            2,
+            6,
+            width_ratios=[1, 0.06, 1, 1, 1, 0.06],
+            height_ratios=[1, 1],
+            hspace=0.55,
+            wspace=0.42,
+        )
+        positions = [0, 2, 3, 4]
+        images = []
+        for index, (name, title, column) in enumerate(
+            zip(names, titles, positions, strict=True)
+        ):
+            axis = figure.add_subplot(grid[0, column])
+            times_ms, values = kernels[name]
+            limit = history_limit if index == 0 else video_limit
+            images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
+            axis.set_title(title)
+            axis.set_xlabel("Lag (ms)")
+            if index == 0:
+                axis.set_ylabel("Units\n(depth order)")
+        history_colorbar = figure.add_subplot(grid[0, 1])
+        figure.colorbar(images[0], cax=history_colorbar)
+        history_colorbar.set_title("$\Delta$ log\nrate", fontsize=7, pad=3)
+        video_colorbar = figure.add_subplot(grid[0, 5])
+        figure.colorbar(images[1], cax=video_colorbar)
+        video_colorbar.set_title("$\Delta$ log\nrate", fontsize=7, pad=3)
+
+        for index, (name, title, column) in enumerate(
+            zip(names, titles, positions, strict=True)
+        ):
+            axis = figure.add_subplot(grid[1, column])
+            times_ms, values = kernels[name]
+            axis.plot(times_ms, values[example_row], color="black", linewidth=1)
+            axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
+            if times_ms[0] <= 0 <= times_ms[-1]:
+                axis.axvline(0, color="black", linewidth=0.45)
+            axis.set_title(title)
+            axis.set_xlabel("Lag (ms)")
+            if index == 0:
+                axis.set_ylabel("$\Delta$ log rate / spike")
+            elif index == 1:
+                axis.set_ylabel("$\Delta$ log rate / PC sample", fontsize=7)
+        for column in (1, 5):
+            figure.add_subplot(grid[1, column]).axis("off")
+
+        figure.text(0.01, 0.985, "a", fontweight="bold", fontsize=10, va="top")
+        figure.text(0.04, 0.985, "All fitted V1 units, sorted by depth", va="top")
+        figure.text(0.01, 0.49, "b", fontweight="bold", fontsize=10, va="top")
+        figure.text(
+            0.04,
+            0.49,
+            f"Median-performance unit {representative_unit_id}",
+            va="top",
+        )
+        return _save_figure(figure, output)
+
+
+def _select_count_typical_trial(observed: np.ndarray) -> int:
+    """Select the earliest trial nearest the median observed spike count."""
+    if observed.ndim != 2 or len(observed) == 0:
+        raise ValueError("Observed spikes must be a nonempty trial-by-bin matrix.")
+    totals = observed.sum(axis=1)
+    median = float(np.median(totals))
+    return min(
+        range(len(totals)), key=lambda index: (abs(totals[index] - median), index)
+    )
+
+
+def plot_design_matrix_trial(
+    relative_times: np.ndarray,
+    counts: np.ndarray,
+    design: np.ndarray,
+    design_metadata: dict,
+    selected_components: int,
+    unit_id: int,
+    trial_number: int,
+    output: Path,
+) -> tuple[Path, Path]:
+    """Show the response vector and exact standardized matrix for one test trial."""
+    expected_columns = (
+        int(design_metadata["base_columns"])
+        + VIDEO_BASIS_COLUMNS * selected_components
+        + HISTORY_COLUMNS
+    )
+    if design.shape != (len(relative_times), expected_columns):
+        raise ValueError("Displayed trial design has the wrong shape.")
+    if counts.shape != relative_times.shape:
+        raise ValueError("Displayed counts and times must match.")
+    if not np.isfinite(design).all() or not np.isfinite(counts).all():
+        raise ValueError("Displayed trial values must be finite.")
+
+    task_stop = int(design_metadata["task_columns"])
+    drift_stop = int(design_metadata["base_columns"])
+    video_stop = drift_stop + VIDEO_BASIS_COLUMNS * selected_components
+    stops = [0, task_stop, drift_stop, video_stop, expected_columns]
+    labels = [
+        f"Task ({task_stop})",
+        f"Drift ({drift_stop - task_stop})",
+        f"Video PCs ({video_stop - drift_stop})",
+        f"Spike history ({HISTORY_COLUMNS})",
+    ]
+    mids = [(start + stop) / 2 for start, stop in zip(stops[:-1], stops[1:])]
+    maximum = float(np.max(np.abs(design)))
+    if maximum <= 0:
+        raise ValueError("Displayed design matrix cannot be all zero.")
+    edges = (
+        relative_times[0] - BINWIDTH_S / 2,
+        relative_times[-1] + BINWIDTH_S / 2,
+    )
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure = plt.figure(figsize=(7.5, 4.8))
+        grid = figure.add_gridspec(
+            2,
+            2,
+            height_ratios=[0.9, 3.1],
+            width_ratios=[1, 0.025],
+            hspace=0.14,
+            wspace=0.08,
+        )
+        count_axis = figure.add_subplot(grid[0, 0])
+        matrix_axis = figure.add_subplot(grid[1, 0], sharex=count_axis)
+        colorbar_axis = figure.add_subplot(grid[1, 1])
+        figure.add_subplot(grid[0, 1]).axis("off")
+
+        count_axis.step(
+            relative_times, counts, where="mid", color="black", linewidth=0.7
+        )
+        count_axis.set_ylabel("Spike count\nper 1 ms")
+        count_axis.set_ylim(-0.05, max(1, int(counts.max())) + 0.25)
+        count_axis.set_yticks(range(max(1, int(counts.max())) + 1))
+        count_axis.tick_params(axis="x", labelbottom=False)
+        count_axis.text(
+            0.99,
+            1.02,
+            f"held-out trial {trial_number}; median-performance unit {unit_id}",
+            transform=count_axis.transAxes,
+            ha="right",
+            va="bottom",
+        )
+
+        image = matrix_axis.imshow(
+            design.T,
+            aspect="auto",
+            interpolation="nearest",
+            extent=(*edges, expected_columns, 0),
+            vmin=-maximum,
+            vmax=maximum,
+        )
+        for stop in stops[1:-1]:
+            matrix_axis.axhline(stop, color="black", linewidth=0.6)
+        matrix_axis.set_yticks(mids, labels)
+        matrix_axis.set_xlabel("Time from first measured flash (s)")
+        matrix_axis.set_ylabel("Model columns")
+        figure.colorbar(
+            image, cax=colorbar_axis, label="Training-standardized design value"
+        )
+        matrix_axis.set_xlim(*edges)
+
+        for letter, axis in zip("ab", (count_axis, matrix_axis), strict=True):
+            axis.text(
+                -0.12,
+                1.03,
+                letter,
+                transform=axis.transAxes,
+                fontweight="bold",
+                fontsize=10,
+                va="bottom",
+            )
+        return _save_figure(figure, output)
 
 
 def plot_prediction_figure(
@@ -745,12 +1115,13 @@ def main() -> None:
     selected_components = {item["plus_video"]["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
+    selected_components = int(selected_components.pop())
     with args.design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     design_pdf, design_png = plot_model_design(
         args.video,
         design_metadata,
-        selected_components.pop(),
+        selected_components,
         args.fit_dir / "model_design",
     )
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
@@ -759,6 +1130,22 @@ def main() -> None:
     result, population_median = select_representative_result(results)
     unit_id = int(result["unit_id"])
     selection = next(item for item in selections if int(item["unit_id"]) == unit_id)
+    ordered_unit_ids, kernels = fitted_kernel_matrices(
+        results, selections, design_metadata
+    )
+    task_kernel_pdf, task_kernel_png = plot_task_kernels(
+        ordered_unit_ids,
+        kernels,
+        unit_id,
+        [item["name"] for item in design_metadata["task_manifest"]],
+        args.fit_dir / "fitted_task_kernels",
+    )
+    history_video_kernel_pdf, history_video_kernel_png = plot_history_video_kernels(
+        ordered_unit_ids,
+        kernels,
+        unit_id,
+        args.fit_dir / "fitted_history_video_kernels",
+    )
 
     prepared = _load_windows(args.windows)
     _, _, test_rows = _contiguous_slices(prepared["split"])
@@ -795,6 +1182,27 @@ def main() -> None:
     bin_count = len(relative_times)
     observed = counts.reshape(trial_count, bin_count)
     conditional = prediction.reshape(trial_count, bin_count)
+    history_scaled = (history - history_mean) / history_scale
+    common_columns = len(result["plus_video"]["coefficients"]) - HISTORY_COLUMNS
+    typical_trial = _select_count_typical_trial(observed)
+    common_trial = common[:, :common_columns].reshape(
+        trial_count, bin_count, common_columns
+    )[typical_trial]
+    history_trial = history_scaled.reshape(trial_count, bin_count, HISTORY_COLUMNS)[
+        typical_trial
+    ]
+    displayed_design = np.column_stack((common_trial, history_trial))
+    test_trial_numbers = prepared["selected_trial_numbers"][trial_split == 2]
+    design_matrix_pdf, design_matrix_png = plot_design_matrix_trial(
+        relative_times,
+        observed[typical_trial],
+        displayed_design,
+        design_metadata,
+        selected_components,
+        unit_id,
+        int(test_trial_numbers[typical_trial]),
+        args.fit_dir / "design_matrix_trial",
+    )
     simulation = simulate_spike_counts(
         observed,
         conditional,
@@ -828,6 +1236,13 @@ def main() -> None:
                 "summary_pdf": str(summary_pdf),
                 "summary_png": str(summary_png),
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
+                "design_matrix_trial": int(test_trial_numbers[typical_trial]),
+                "design_matrix_pdf": str(design_matrix_pdf),
+                "design_matrix_png": str(design_matrix_png),
+                "task_kernel_pdf": str(task_kernel_pdf),
+                "task_kernel_png": str(task_kernel_png),
+                "history_video_kernel_pdf": str(history_video_kernel_pdf),
+                "history_video_kernel_png": str(history_video_kernel_png),
                 "pdf": str(pdf_path),
                 "png": str(png_path),
             },

@@ -79,20 +79,35 @@ def _flatten_events(values) -> np.ndarray:
     return np.concatenate(arrays) if arrays else np.empty(0)
 
 
+def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
+    """Return the temporal basis used for each sensory or task regressor."""
+    causal = RaisedCosineBasis(6, 0, 0.301, BINWIDTH_S)
+    peri = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
+    pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
+    return {
+        "visual_flash": causal,
+        "center_entry": causal,
+        "go_cue_command": causal,
+        "center_exit": peri,
+        "response_entry": peri,
+        "response_side": peri,
+        "outcome": pre_response,
+        "wrong_punishment_command": causal,
+    }
+
+
 def build_task_design(
     alignments: np.ndarray, trials
 ) -> tuple[DesignMatrix, list[dict]]:
     """Build sensory and task regressors with the accepted DAMN interface."""
-    causal = RaisedCosineBasis(6, 0, 0.301, BINWIDTH_S)
-    peri = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
-    pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
+    bases = task_temporal_bases()
     response_times = trials["response_port_entry_s"].to_numpy(dtype=float)
     specifications = [
         (
             "visual_flash",
             _flatten_events(trials["stim_pulse_times_s"]),
             None,
-            causal,
+            bases["visual_flash"],
             "sensory",
             "each measured flash",
         ),
@@ -100,7 +115,7 @@ def build_task_design(
             "center_entry",
             trials["center_entry_s"].to_numpy(dtype=float),
             None,
-            causal,
+            bases["center_entry"],
             "task",
             "one event per completed trial",
         ),
@@ -108,7 +123,7 @@ def build_task_design(
             "go_cue_command",
             _flatten_events(trials["go_cue_times_s"]),
             None,
-            causal,
+            bases["go_cue_command"],
             "audio task",
             "Bpod command converted to NIDQ time",
         ),
@@ -116,7 +131,7 @@ def build_task_design(
             "center_exit",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
-            peri,
+            bases["center_exit"],
             "task",
             "one event per completed trial",
         ),
@@ -124,7 +139,7 @@ def build_task_design(
             "response_entry",
             response_times,
             None,
-            peri,
+            bases["response_entry"],
             "task",
             "common response-entry effect",
         ),
@@ -132,7 +147,7 @@ def build_task_design(
             "response_side",
             response_times,
             trials["response"].to_numpy(dtype=float),
-            peri,
+            bases["response_side"],
             "task",
             "left=-1, right=+1 at response entry",
         ),
@@ -140,7 +155,7 @@ def build_task_design(
             "outcome",
             response_times,
             np.where(trials["rewarded"].to_numpy(dtype=bool), 1.0, -1.0),
-            pre_response,
+            bases["outcome"],
             "task",
             "error=-1, rewarded=+1 at response entry",
         ),
@@ -148,7 +163,7 @@ def build_task_design(
             "wrong_punishment_command",
             _flatten_events(trials["punish_wrong_times_s"]),
             None,
-            causal,
+            bases["wrong_punishment_command"],
             "audio task",
             "Bpod command converted to NIDQ time",
         ),

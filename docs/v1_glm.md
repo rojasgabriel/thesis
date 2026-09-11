@@ -287,7 +287,7 @@ shuffle-and-refit logic used by Oesch et al., with added grouping for temporal
 bases and explicit split boundaries:
 [Nature Communications, 2026](https://doi.org/10.1038/s41467-026-70639-1).
 
-The broad comparison reports all task/event terms, the complete 25-PC video
+The broad comparison reports the full task block, the complete 25-PC video
 block, spike history, and session drift. The detailed comparison keeps the 25
 camera PCs together, but separates visual flash, go cue, punishment cue,
 center entry, center exit, response entry, response side, and outcome. Signed
@@ -311,7 +311,7 @@ The completed 168-unit comparison gave these signed median contributions:
 
 | Broad block | Median unique test D² (IQR) |
 | --- | ---: |
-| All task/event terms | 0.00720 (0.00349 to 0.01256) |
+| Task | 0.00720 (0.00349 to 0.01256) |
 | Video SVD | 0.00288 (0.00069 to 0.00653) |
 | Spike history | 0.03171 (0.01744 to 0.04951) |
 | Session drift | -0.00087 (-0.00418 to 0.00086) |
@@ -334,6 +334,50 @@ constant-rate limit, so this is a recorded endpoint plateau rather than a
 failed optimizer. Because the analysis uses one fixed shuffle, these values are
 descriptive point estimates. Repeated shuffles are needed before interpreting
 small differences near zero as stable.
+
+The box plots omit individual-unit points. Each box summarizes all 168 fitted
+units, and the white dot marks the mean. The colors use Matplotlib's default
+cycle for the task, video, and history groups; session drift is black.
+
+## Actual design matrix
+
+`design_matrix_trial.png` and `design_matrix_trial.pdf` show the exact fitted
+input for one real held-out trial. Panel a is the raw 1 ms spike-count response.
+Panel b is the 144-column training-standardized matrix for the complete model:
+57 task columns, 2 drift columns, 75 columns from 25 camera PCs, and 10
+unit-specific spike-history columns. Repeated visual flashes appear separately
+in the task block; the model does not keep only the first flash.
+
+The display uses the median-performance unit and selects the earliest test
+trial whose observed spike count is nearest that unit's median test-trial
+count. This fixed rule selected trial 408. The color scale spans the full matrix
+range and uses Matplotlib's default colormap.
+
+## Fitted temporal kernels
+
+`fitted_task_kernels.png` and `fitted_task_kernels.pdf` show the reconstructed
+filter for every sensory, task, and audio regressor. `fitted_history_video_kernels.png`
+and `fitted_history_video_kernels.pdf` show self-history and the first three
+camera-PC filters. Panel a in each figure contains all 168 units sorted by
+depth. Panel b shows unit 197, the same median-performance unit used in the
+spike-train figure.
+
+The reconstruction divides each standardized-design coefficient by its saved
+training-column standard deviation before multiplying it by the original basis
+functions. Task filters therefore show the change in log expected rate from one
+event. The response-side line is the +1 right-choice effect and the left-choice
+effect has the opposite sign. The outcome line is the +1 rewarded effect and
+the error effect has the opposite sign. The history filter is the change per
+preceding spike. Each video filter is the change per 1 ms sample of a +1
+training-SD camera-PC score. Camera-PC sign is arbitrary, and its acausal filter
+is an association rather than a causal response.
+
+Population heatmaps use a symmetric color range set to the pooled 99th absolute
+percentile within each logical group. Values beyond that range remain in the
+data and only saturate the color scale. The representative-unit lines show the
+full fitted values. Session drift does not have an event-aligned kernel because
+it is a linear and quadratic function of absolute session time; it remains
+visible in the actual design-matrix figure.
 
 ## Predicted and observed spike trains
 
@@ -375,8 +419,8 @@ quantitative evaluation.
 
 The camera mapping, trial grid, raw-video PCA, task matrix, drift terms, history
 basis, Poisson fitter, validation path, test gate, full fit, conditional
-shuffle-and-refit analysis, and prediction figures are complete. Focused tests
-are in `tests/`:
+shuffle-and-refit analysis, actual design matrix, fitted-kernel figures, and
+prediction figures are complete. Focused tests are in `tests/`:
 
 ```bash
 uv run python -m unittest discover -s tests -v
