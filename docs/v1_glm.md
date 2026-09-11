@@ -229,8 +229,7 @@ performance across 168 units:
 All 1,008 validation penalty paths selected an interior penalty after automatic
 grid extension. All saved coefficients and metrics are finite and have the
 expected dimensions. The test files were written only after every validation
-file. Summed across units, the complete model predicted 189,044 spikes against
-191,538 observed spikes.
+file.
 
 The chronological test split also exposes limits. Four complete-model units
 scored below the constant-rate null. Seven complete models produced an expected
@@ -238,17 +237,103 @@ count above one in at least one 1 ms bin. The Poisson likelihood permits these
 tail values, but they warn against treating every fitted unit as a calibrated
 spike simulator.
 
-This result measures prediction from the complete set of regressors. It does
-not separate the predictive contributions of visual, audio, other task,
-history, and video groups. Group ablations would answer a different question;
-individual coefficients are not a substitute because the regressors are
-correlated.
+These metrics measure prediction from the complete set of regressors.
+Conditional shuffle-and-refit comparisons below separate predictive
+contributions without using individual coefficient magnitudes as importance
+scores.
 
 Results are in `figures/v1_glm/all_fit/`: `summary.json` contains the gated fit
 summary, `unit_results.csv` contains one row per unit, and `summary.png` and
 `summary.pdf` show camera-PC selection, the complete model's held-out metric
-distributions, and spike-count calibration. This is one session, so units are
+distributions, and the relation between firing rate and predictive performance.
+Panel d uses mean firing rate from the training trials on the x-axis and
+complete-model deviance explained from the held-out test trials on the y-axis.
+All training rates are positive, so the x-axis is logarithmic. The descriptive
+Spearman correlation is -0.255 across 168 units. Higher-firing units therefore
+were not predicted better in this session. This is one session, so units are
 displayed as observations without a population p-value.
+
+## Model design and camera PCs
+
+`model_design.png` and `model_design.pdf` show the full model equation, the
+time support and basis count for every regressor type, and the leading camera
+components. The camera panel uses the actual training-fit components saved in
+`video_features.npz`. These are PCs of mean-centered raw grayscale frames, not
+the motion-energy PCs shown in Stringer et al. Component sign is arbitrary.
+The first three PCs explain 65.9% of training-frame variance; the selected 25
+explain 84.1%.
+
+The camera maps show which pixels contribute to each PC. They do not by
+themselves identify a named movement. The temporal PC scores, after convolution
+with three bases from -200 to +200 ms, are the quantities that enter the GLM.
+
+## Conditional deviance explained
+
+For each broad block and each actual regressor, fit a model with the same 144
+penalized columns as the complete model. Shuffle only the target block and then
+refit all coefficients. Select the L2 penalty again on the validation trials,
+refit on training plus validation, and score the chronological test trials.
+Define the signed conditional contribution as
+
+`unique test D² = complete-model test D² - shuffled-model test D²`.
+
+All basis columns for one regressor move together. Task, audio, video, and
+spike-history rows are shuffled within each trial. Thus, the shuffle destroys
+their time relation to the spikes without crossing a chronological split or
+changing the model width. The linear and quadratic drift columns move together
+between whole trials within each split because they change too little inside a
+trial. One fixed shuffle is shared by all units. This follows the
+shuffle-and-refit logic used by Oesch et al., with added grouping for temporal
+bases and explicit split boundaries:
+[Nature Communications, 2026](https://doi.org/10.1038/s41467-026-70639-1).
+
+The broad comparison reports all task/event terms, the complete 25-PC video
+block, spike history, and session drift. The detailed comparison keeps the 25
+camera PCs together, but separates visual flash, go cue, punishment cue,
+center entry, center exit, response entry, response side, and outcome. Signed
+negative values stay in the result. Detailed contributions do not have to sum
+to the broad task/event contribution because regressors share predictive
+information and every comparator is refit.
+
+```bash
+uv run python -m thesis.ephys.analyses.v1_glm_attribution --units pilot
+uv run python -m thesis.ephys.analyses.v1_glm_attribution --units all
+```
+
+The first command checks 12 depth-spaced units. The second reuses those files
+and completes all eligible units. Results, a long-form unit table, and the
+Oesch-style figure are written to
+`figures/v1_glm/all_fit/conditional_deviance_fit/`. Units are observations from
+one session, so the figure shows their full distribution without a population
+p-value or a claim of independent biological replication.
+
+The completed 168-unit comparison gave these signed median contributions:
+
+| Broad block | Median unique test D² (IQR) |
+| --- | ---: |
+| All task/event terms | 0.00720 (0.00349 to 0.01256) |
+| Video SVD | 0.00288 (0.00069 to 0.00653) |
+| Spike history | 0.03171 (0.01744 to 0.04951) |
+| Session drift | -0.00087 (-0.00418 to 0.00086) |
+
+| Detailed regressor | Median unique test D² (IQR) |
+| --- | ---: |
+| Visual flash | 0.00153 (0.00036 to 0.00390) |
+| Go cue | 0.00006 (-0.00017 to 0.00030) |
+| Punishment cue | 0.00028 (-0.00009 to 0.00099) |
+| Center entry | 0.00056 (0.00006 to 0.00132) |
+| Center exit | 0.00123 (0.00046 to 0.00237) |
+| Response entry | 0.00057 (0.00004 to 0.00137) |
+| Response side | 0.00040 (0.00003 to 0.00117) |
+| Outcome | -0.00004 (-0.00029 to 0.00023) |
+
+All 2,016 shuffled-model results are present and finite. One path, the video
+shuffle for low-rate unit 45, ended at an L2 penalty of 1e6 after the validation
+loss became numerically flat. Its fitted prediction is effectively the
+constant-rate limit, so this is a recorded endpoint plateau rather than a
+failed optimizer. Because the analysis uses one fixed shuffle, these values are
+descriptive point estimates. Repeated shuffles are needed before interpreting
+small differences near zero as stable.
 
 ## Predicted and observed spike trains
 
@@ -289,8 +374,9 @@ quantitative evaluation.
 ## Current state
 
 The camera mapping, trial grid, raw-video PCA, task matrix, drift terms, history
-basis, Poisson fitter, validation path, test gate, pilot, and full fit are
-complete. Focused tests are in `tests/`:
+basis, Poisson fitter, validation path, test gate, full fit, conditional
+shuffle-and-refit analysis, and prediction figures are complete. Focused tests
+are in `tests/`:
 
 ```bash
 uv run python -m unittest discover -s tests -v
