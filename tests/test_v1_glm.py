@@ -24,6 +24,7 @@ from thesis.ephys.analyses.v1_glm_attribution import (
     attribution_slices,
     shuffle_permutations,
 )
+from thesis.ephys.analyses.v1_glm_damn_check import _damn_prediction
 from thesis.ephys.analyses.v1_glm_prediction import (
     select_representative_result,
     simulate_spike_counts,
@@ -39,6 +40,13 @@ from thesis.ephys.preprocessing.video_svd import training_zscore
 
 
 class V1GlmTest(unittest.TestCase):
+    def test_damn_prediction_uses_only_upper_clip(self):
+        predicted, clipped = _damn_prediction(
+            np.array([[1.0], [-1.0]]), np.array([[9.0]]), np.array([0.0])
+        )
+        self.assertEqual(clipped, 1)
+        np.testing.assert_allclose(predicted, [np.exp(8), np.exp(-9)])
+
     def test_signed_task_kernels_show_condition_differences(self):
         values = np.array([[-0.2, 0.3]])
         np.testing.assert_array_equal(
