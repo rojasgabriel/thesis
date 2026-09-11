@@ -19,9 +19,15 @@ from thesis.ephys.analyses.v1_glm import (
 from thesis.ephys.analyses.v1_glm import (
     training_zscore as design_training_zscore,
 )
+from thesis.ephys.analyses.v1_glm_attribution import (
+    apply_row_permutation,
+    attribution_slices,
+    shuffle_permutations,
+)
 from thesis.ephys.analyses.v1_glm_prediction import (
     select_representative_result,
     simulate_spike_counts,
+    training_rate_and_test_deviance,
 )
 from thesis.ephys.preprocessing.audit_camera_pulses import select_falling_edges
 from thesis.ephys.preprocessing.prepare_v1_glm import (
@@ -32,6 +38,46 @@ from thesis.ephys.preprocessing.video_svd import training_zscore
 
 
 class V1GlmTest(unittest.TestCase):
+    def test_attribution_groups_keep_basis_columns_together(self):
+        metadata = {
+            "task_columns": 5,
+            "base_columns": 7,
+            "task_manifest": [
+                {"name": "first", "columns": 2},
+                {"name": "second", "columns": 3},
+            ],
+        }
+        groups = attribution_slices(metadata, video_components=2)
+        self.assertEqual(groups["task"], slice(0, 5))
+        self.assertEqual(groups["first"], slice(0, 2))
+        self.assertEqual(groups["second"], slice(2, 5))
+        self.assertEqual(groups["drift"], slice(5, 7))
+        self.assertEqual(groups["video"], slice(7, 13))
+        self.assertEqual(groups["history"], slice(13, 23))
+
+    def test_attribution_shuffles_respect_trial_and_split_boundaries(self):
+        trial_split = np.array([0, 0, 1, 1])
+        within, whole = shuffle_permutations(trial_split, bins_per_trial=5, seed=4)
+        row_grid = np.arange(20).reshape(4, 5)
+        within_grid = within.reshape(4, 5)
+        np.testing.assert_array_equal(
+            within_grid // 5, np.repeat(np.arange(4)[:, None], 5, axis=1)
+        )
+        np.testing.assert_array_equal(np.sort(within_grid, axis=1), row_grid)
+
+        whole_grid = whole.reshape(4, 5)
+        source_trials = whole_grid[:, 0] // 5
+        np.testing.assert_array_equal(trial_split[source_trials], trial_split)
+        self.assertTrue(np.all(source_trials != np.arange(4)))
+        np.testing.assert_array_equal(
+            whole_grid % 5, np.repeat(np.arange(5)[None, :], 4, axis=0)
+        )
+
+        source = np.arange(40).reshape(20, 2)
+        destination = np.empty_like(source)
+        apply_row_permutation(destination, source, within, chunk_rows=3)
+        np.testing.assert_array_equal(destination, source[within])
+
     def test_representative_unit_is_nearest_population_median(self):
         results = [
             {
@@ -43,6 +89,25 @@ class V1GlmTest(unittest.TestCase):
         selected, median = select_representative_result(results)
         self.assertEqual(selected["unit_id"], 20)
         self.assertAlmostEqual(median, 0.2)
+
+    def test_training_rate_is_paired_by_unit_and_keeps_zero_rate(self):
+        results = [
+            {
+                "unit_id": 2,
+                "plus_video": {"test": {"deviance_explained": 0.2}},
+            },
+            {
+                "unit_id": 1,
+                "plus_video": {"test": {"deviance_explained": -0.1}},
+            },
+        ]
+        selections = [
+            {"unit_id": 1, "training_mean_count": 0.0},
+            {"unit_id": 2, "training_mean_count": 0.002},
+        ]
+        rate, deviance = training_rate_and_test_deviance(results, selections)
+        np.testing.assert_array_equal(rate, [2.0, 0.0])
+        np.testing.assert_array_equal(deviance, [0.2, -0.1])
 
     def test_recursive_simulation_replaces_observed_history(self):
         class ZeroCountGenerator:

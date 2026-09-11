@@ -31,9 +31,11 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+from scipy.stats import spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch
 
 from thesis.ephys.analyses.v1_glm import (
     HISTORY_COLUMNS,
@@ -78,6 +80,35 @@ def select_representative_result(results: list[dict]) -> tuple[dict, float]:
         ),
     )
     return result, median
+
+
+def training_rate_and_test_deviance(
+    results: list[dict], selections: list[dict]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pair training firing rate and full-model test score by unit ID."""
+    selection_by_id = {int(item["unit_id"]): item for item in selections}
+    result_ids = [int(item["unit_id"]) for item in results]
+    if len(selection_by_id) != len(selections) or len(set(result_ids)) != len(results):
+        raise ValueError("Unit IDs must be unique in fit results.")
+    if set(result_ids) != set(selection_by_id):
+        raise ValueError("Final and validation results contain different units.")
+
+    training_rate = np.asarray(
+        [
+            selection_by_id[unit_id]["training_mean_count"] / BINWIDTH_S
+            for unit_id in result_ids
+        ],
+        dtype=float,
+    )
+    test_deviance = np.asarray(
+        [item["plus_video"]["test"]["deviance_explained"] for item in results],
+        dtype=float,
+    )
+    if not np.isfinite(training_rate).all() or np.any(training_rate < 0):
+        raise ValueError("Training firing rates must be finite and nonnegative.")
+    if not np.isfinite(test_deviance).all():
+        raise ValueError("Full-model test scores must be finite.")
+    return training_rate, test_deviance
 
 
 def conditional_prediction(
@@ -183,10 +214,265 @@ def _save_figure(figure, output: Path) -> tuple[Path, Path]:
     return pdf_path, png_path
 
 
+def plot_model_design(
+    video_path: Path,
+    design_metadata: dict,
+    selected_components: int,
+    output: Path,
+) -> tuple[Path, Path]:
+    """Show the complete model structure, temporal support, and camera PCs."""
+    with np.load(video_path, allow_pickle=False) as video:
+        video_metadata = json.loads(str(video["metadata_json"]))
+        mean_frame = video["mean"].copy()
+        components = video["components"][:3].copy()
+        variance = video["explained_variance_ratio"].copy()
+    height = int(video_metadata["height"])
+    width = int(video_metadata["width"])
+    if mean_frame.size != height * width or components.shape != (3, height * width):
+        raise ValueError("Saved camera-PC maps do not match the saved frame shape.")
+
+    task_labels = {
+        "visual_flash": "Visual flash",
+        "center_entry": "Center entry",
+        "go_cue_command": "Go cue",
+        "center_exit": "Center exit",
+        "response_entry": "Response entry",
+        "response_side": "Response side",
+        "outcome": "Outcome",
+        "wrong_punishment_command": "Punishment cue",
+    }
+    supports = [
+        (
+            task_labels[item["name"]],
+            1000 * float(item["kernel_range_s"][0]),
+            1000 * float(item["kernel_range_s"][1]),
+            int(item["columns"]),
+            "#7562A8",
+        )
+        for item in design_metadata["task_manifest"]
+    ]
+    supports.extend(
+        [
+            (
+                "Video PCs",
+                1000 * float(design_metadata["video_basis_range_s"][0]),
+                1000 * float(design_metadata["video_basis_range_s"][1]),
+                int(design_metadata["video_basis_columns_per_component"]),
+                "#008C95",
+            ),
+            ("Spike history", -100, -1, HISTORY_COLUMNS, "#D99000"),
+        ]
+    )
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure = plt.figure(figsize=(7.4, 7.0))
+        grid = figure.add_gridspec(3, 1, height_ratios=[1.1, 2.2, 1.35], hspace=0.55)
+
+        schematic = figure.add_subplot(grid[0])
+        schematic.set(xlim=(0, 1), ylim=(0, 1))
+        schematic.axis("off")
+        source_boxes = (
+            (
+                0.02,
+                0.76,
+                (
+                    "sensory, task, audio\n"
+                    f"{design_metadata['task_columns']} temporal columns"
+                ),
+                "#7562A8",
+            ),
+            (
+                0.02,
+                0.51,
+                (
+                    f"video-derived movement\n{selected_components} PCs × "
+                    f"{design_metadata['video_basis_columns_per_component']} bases"
+                ),
+                "#008C95",
+            ),
+            (
+                0.02,
+                0.26,
+                f"spike history\n{HISTORY_COLUMNS} bases, 1–100 ms",
+                "#D99000",
+            ),
+            (0.02, 0.01, "session drift\nlinear + quadratic", "#767676"),
+        )
+        for x, y, label, color in source_boxes:
+            box = FancyBboxPatch(
+                (x, y),
+                0.27,
+                0.17,
+                boxstyle="round,pad=0.015",
+                facecolor=color,
+                edgecolor=color,
+                alpha=0.2,
+                linewidth=1,
+            )
+            schematic.add_patch(box)
+            schematic.text(x + 0.135, y + 0.085, label, ha="center", va="center")
+            schematic.annotate(
+                "",
+                xy=(0.42, 0.5),
+                xytext=(x + 0.27, y + 0.085),
+                arrowprops={"arrowstyle": "->", "color": "0.45", "linewidth": 0.8},
+            )
+        model_box = FancyBboxPatch(
+            (0.42, 0.34),
+            0.25,
+            0.32,
+            boxstyle="round,pad=0.02",
+            facecolor="0.94",
+            edgecolor="0.35",
+            linewidth=1,
+        )
+        schematic.add_patch(model_box)
+        schematic.text(
+            0.545,
+            0.5,
+            "$\\log \\mu_t = \\beta_0 + X_t\\beta$\nL2-penalized fit",
+            ha="center",
+            va="center",
+        )
+        output_box = FancyBboxPatch(
+            (0.78, 0.39),
+            0.2,
+            0.22,
+            boxstyle="round,pad=0.02",
+            facecolor="#008C95",
+            edgecolor="#008C95",
+            alpha=0.2,
+            linewidth=1,
+        )
+        schematic.add_patch(output_box)
+        schematic.text(
+            0.88,
+            0.5,
+            "$y_t \\sim$ Poisson($\\mu_t$)\nspike count in 1 ms",
+            ha="center",
+            va="center",
+        )
+        schematic.annotate(
+            "",
+            xy=(0.78, 0.5),
+            xytext=(0.67, 0.5),
+            arrowprops={"arrowstyle": "->", "color": "0.35", "linewidth": 1},
+        )
+        schematic.text(
+            -0.02,
+            1.02,
+            "a",
+            transform=schematic.transAxes,
+            fontweight="bold",
+            fontsize=10,
+            va="bottom",
+        )
+
+        support_axis = figure.add_subplot(grid[1])
+        positions = np.arange(len(supports))
+        for position, (label, start, stop, columns, color) in enumerate(supports):
+            support_axis.plot(
+                [start, stop],
+                [position, position],
+                color=color,
+                linewidth=5,
+                solid_capstyle="butt",
+            )
+            support_axis.text(
+                320,
+                position,
+                f"{columns}" + (" / PC" if label == "Video PCs" else ""),
+                va="center",
+                ha="left",
+                color=color,
+            )
+        support_axis.axvline(0, color="0.7", linewidth=0.8, zorder=0)
+        support_axis.set_yticks(positions, [item[0] for item in supports])
+        support_axis.invert_yaxis()
+        support_axis.set_xlim(-330, 395)
+        support_axis.set_xticks(np.arange(-300, 301, 100))
+        support_axis.set_xlabel("Time relative to event or current bin (ms)")
+        support_axis.text(
+            320,
+            -0.8,
+            "Basis\nfunctions",
+            ha="left",
+            va="bottom",
+            color="0.3",
+            fontsize=7,
+        )
+        support_axis.text(
+            -0.07,
+            1.02,
+            "b",
+            transform=support_axis.transAxes,
+            fontweight="bold",
+            fontsize=10,
+            va="bottom",
+        )
+
+        image_grid = grid[2].subgridspec(
+            1, 5, width_ratios=[1, 1, 1, 1, 0.06], wspace=0.12
+        )
+        image_axes = [figure.add_subplot(image_grid[0, index]) for index in range(4)]
+        colorbar_axis = figure.add_subplot(image_grid[0, 4])
+        image_axes[0].imshow(mean_frame.reshape(height, width), cmap="gray")
+        image_axes[0].set_title("Training mean")
+        maximum = float(np.max(np.abs(components)))
+        images = []
+        for index, axis in enumerate(image_axes[1:]):
+            image = axis.imshow(
+                components[index].reshape(height, width),
+                cmap="RdBu_r",
+                vmin=-maximum,
+                vmax=maximum,
+            )
+            images.append(image)
+            axis.set_title(f"PC {index + 1}\n{100 * variance[index]:.1f}%")
+        for axis in image_axes:
+            axis.set_xticks([])
+            axis.set_yticks([])
+        figure.colorbar(images[-1], cax=colorbar_axis, label="Pixel loading")
+        image_axes[0].text(
+            -0.18,
+            1.12,
+            "c",
+            transform=image_axes[0].transAxes,
+            fontweight="bold",
+            fontsize=10,
+            va="bottom",
+        )
+        image_axes[-1].text(
+            1.0,
+            -0.12,
+            (
+                f"raw-frame PCA: top 3 = {100 * variance[:3].sum():.1f}%; "
+                f"selected {selected_components} = "
+                f"{100 * variance[:selected_components].sum():.1f}%"
+            ),
+            transform=image_axes[-1].transAxes,
+            ha="right",
+            va="top",
+            color="0.35",
+            fontsize=7,
+        )
+        image_axes[0].text(
+            0,
+            -0.12,
+            "PC sign is arbitrary",
+            transform=image_axes[0].transAxes,
+            ha="left",
+            va="top",
+            color="0.35",
+            fontsize=7,
+        )
+        return _save_figure(figure, output)
+
+
 def plot_population_summary(
     results: list[dict], selections: list[dict], output: Path
-) -> tuple[Path, Path]:
-    """Show camera-PC selection and complete-model held-out performance."""
+) -> tuple[Path, Path, float]:
+    """Show camera selection, held-out performance, and its rate relation."""
     selected_components = {item["plus_video"]["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
@@ -210,10 +496,11 @@ def plot_population_summary(
         ],
     ]
     full_results = [item["plus_video"]["test"] for item in results]
-    deviance = np.asarray([item["deviance_explained"] for item in full_results])
+    training_rate, deviance = training_rate_and_test_deviance(results, selections)
     bits = np.asarray([item["bits_per_spike"] for item in full_results])
-    observed = np.asarray([item["observed_spikes"] for item in full_results])
-    predicted = np.asarray([item["predicted_spikes"] for item in full_results])
+    rate_deviance_rho = float(spearmanr(training_rate, deviance).statistic)
+    if not np.isfinite(rate_deviance_rho):
+        raise ValueError("Training firing rate and test score must vary across units.")
 
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.6))
@@ -261,22 +548,16 @@ def plot_population_summary(
             axis.set_xlabel(xlabel)
             axis.set_ylabel("Units")
 
-        lower = float(min(observed.min(), predicted.min()) * 0.8)
-        upper = float(max(observed.max(), predicted.max()) * 1.2)
-        axes[3].scatter(observed, predicted, color=MODEL_COLOR, alpha=0.65, s=16)
-        axes[3].plot([lower, upper], [lower, upper], color="0.65", linestyle="--")
-        axes[3].set(
-            xscale="log", yscale="log", xlim=(lower, upper), ylim=(lower, upper)
-        )
-        axes[3].set_xlabel("Observed test spikes")
-        axes[3].set_ylabel("Predicted test spikes")
+        axes[3].scatter(training_rate, deviance, color=MODEL_COLOR, alpha=0.65, s=16)
+        axes[3].axhline(0, color="0.65", linestyle="--", linewidth=0.8)
+        if np.all(training_rate > 0):
+            axes[3].set_xscale("log")
+        axes[3].set_xlabel("mean firing rate (spikes/s)")
+        axes[3].set_ylabel("test deviance explained")
         axes[3].text(
             0.04,
             0.94,
-            (
-                f"complete model\n{predicted.sum():,.0f} predicted / "
-                f"{observed.sum():,.0f} observed"
-            ),
+            f"Spearman ρ = {rate_deviance_rho:.2f}\nn = {len(results)} units",
             color=MODEL_COLOR,
             transform=axes[3].transAxes,
             ha="left",
@@ -295,7 +576,8 @@ def plot_population_summary(
                 fontsize=10,
             )
         figure.tight_layout(h_pad=2.0, w_pad=2.0)
-        return _save_figure(figure, output)
+        pdf_path, png_path = _save_figure(figure, output)
+        return pdf_path, png_path, rate_deviance_rho
 
 
 def plot_prediction_figure(
@@ -439,6 +721,9 @@ def main() -> None:
     parser.add_argument(
         "--design", type=Path, default=Path("figures/v1_glm/common_design.npy")
     )
+    parser.add_argument(
+        "--video", type=Path, default=Path("figures/v1_glm/video_features.npz")
+    )
     parser.add_argument("--fit-dir", type=Path, default=Path("figures/v1_glm/all_fit"))
     parser.add_argument(
         "--output",
@@ -457,7 +742,18 @@ def main() -> None:
             selections.append(json.load(handle))
     if len(results) != len(selections):
         raise ValueError("Final and validation result counts differ.")
-    summary_pdf, summary_png = plot_population_summary(
+    selected_components = {item["plus_video"]["components"] for item in results}
+    if len(selected_components) != 1:
+        raise ValueError("All final fits must use one camera-PC count.")
+    with args.design.with_suffix(".json").open() as handle:
+        design_metadata = json.load(handle)
+    design_pdf, design_png = plot_model_design(
+        args.video,
+        design_metadata,
+        selected_components.pop(),
+        args.fit_dir / "model_design",
+    )
+    summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
         results, selections, args.fit_dir / "summary"
     )
     result, population_median = select_representative_result(results)
@@ -527,8 +823,11 @@ def main() -> None:
                 "observed_spikes": int(observed.sum()),
                 "simulated_spikes": int(simulation.sum()),
                 "simulation_seed": SIMULATION_SEED,
+                "model_design_pdf": str(design_pdf),
+                "model_design_png": str(design_png),
                 "summary_pdf": str(summary_pdf),
                 "summary_png": str(summary_png),
+                "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
                 "pdf": str(pdf_path),
                 "png": str(png_path),
             },
