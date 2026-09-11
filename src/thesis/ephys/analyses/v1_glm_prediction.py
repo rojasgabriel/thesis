@@ -17,9 +17,10 @@ use 20 ms Gaussian smoothing; all fitting and scoring remain at 1 ms.
 The figure set also shows one actual held-out-trial design matrix and the fitted
 temporal kernels. Population heatmaps contain every eligible unit in depth order.
 Line plots show the same median-performance unit used for the spike-train figure.
-Task kernels are changes in log expected rate for one event. Response side and
-outcome use their fitted +1 codes. History kernels are per preceding spike, and
-video kernels are per one-bin sample of a training-standardized camera-PC score.
+Task kernels are changes in log expected rate for one event. Response side is
+shown as right minus left, and eventual outcome as rewarded minus error. History
+kernels are per preceding spike, and video kernels are per one-bin sample of a
+training-standardized camera-PC score.
 Heatmap color limits use the pooled 99th absolute percentile within each logical
 regressor group; this affects color saturation only and does not remove units.
 
@@ -74,8 +75,8 @@ TASK_LABELS = {
     "go_cue_command": "Go cue",
     "center_exit": "Center exit",
     "response_entry": "Response entry",
-    "response_side": "Response side\n(+1 right)",
-    "outcome": "Outcome\n(+1 rewarded)",
+    "response_side": "Response side\n(right − left)",
+    "outcome": "Eventual outcome\n(rewarded − error)",
     "wrong_punishment_command": "Punishment cue",
 }
 SMOOTHING_MS = 20
@@ -243,22 +244,11 @@ def _save_figure(figure, output: Path) -> tuple[Path, Path]:
 
 
 def plot_model_design(
-    video_path: Path,
     design_metadata: dict,
     selected_components: int,
     output: Path,
 ) -> tuple[Path, Path]:
-    """Show the complete model structure, temporal support, and camera PCs."""
-    with np.load(video_path, allow_pickle=False) as video:
-        video_metadata = json.loads(str(video["metadata_json"]))
-        mean_frame = video["mean"].copy()
-        components = video["components"][:3].copy()
-        variance = video["explained_variance_ratio"].copy()
-    height = int(video_metadata["height"])
-    width = int(video_metadata["width"])
-    if mean_frame.size != height * width or components.shape != (3, height * width):
-        raise ValueError("Saved camera-PC maps do not match the saved frame shape.")
-
+    """Show the complete model structure and temporal support."""
     supports = [
         (
             TASK_LABELS[item["name"]].split("\n")[0],
@@ -283,8 +273,8 @@ def plot_model_design(
     )
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 7.0))
-        grid = figure.add_gridspec(3, 1, height_ratios=[1.1, 2.2, 1.35], hspace=0.55)
+        figure = plt.figure(figsize=(7.4, 4.8))
+        grid = figure.add_gridspec(2, 1, height_ratios=[1.1, 2.2], hspace=0.55)
 
         schematic = figure.add_subplot(grid[0])
         schematic.set(xlim=(0, 1), ylim=(0, 1))
@@ -429,60 +419,6 @@ def plot_model_design(
             va="bottom",
         )
 
-        image_grid = grid[2].subgridspec(
-            1, 5, width_ratios=[1, 1, 1, 1, 0.06], wspace=0.12
-        )
-        image_axes = [figure.add_subplot(image_grid[0, index]) for index in range(4)]
-        colorbar_axis = figure.add_subplot(image_grid[0, 4])
-        image_axes[0].imshow(mean_frame.reshape(height, width), cmap="gray")
-        image_axes[0].set_title("Training mean")
-        maximum = float(np.max(np.abs(components)))
-        images = []
-        for index, axis in enumerate(image_axes[1:]):
-            image = axis.imshow(
-                components[index].reshape(height, width),
-                vmin=-maximum,
-                vmax=maximum,
-            )
-            images.append(image)
-            axis.set_title(f"PC {index + 1}\n{100 * variance[index]:.1f}%")
-        for axis in image_axes:
-            axis.set_xticks([])
-            axis.set_yticks([])
-        figure.colorbar(images[-1], cax=colorbar_axis, label="Pixel loading")
-        image_axes[0].text(
-            -0.18,
-            1.12,
-            "c",
-            transform=image_axes[0].transAxes,
-            fontweight="bold",
-            fontsize=10,
-            va="bottom",
-        )
-        image_axes[-1].text(
-            1.0,
-            -0.12,
-            (
-                f"raw-frame PCA: top 3 = {100 * variance[:3].sum():.1f}%; "
-                f"selected {selected_components} = "
-                f"{100 * variance[:selected_components].sum():.1f}%"
-            ),
-            transform=image_axes[-1].transAxes,
-            ha="right",
-            va="top",
-            color="0.35",
-            fontsize=7,
-        )
-        image_axes[0].text(
-            0,
-            -0.12,
-            "PC sign is arbitrary",
-            transform=image_axes[0].transAxes,
-            ha="left",
-            va="top",
-            color="0.35",
-            fontsize=7,
-        )
         return _save_figure(figure, output)
 
 
@@ -700,6 +636,12 @@ def _plot_kernel_heatmap(axis, times_ms: np.ndarray, values: np.ndarray, limit: 
     return image
 
 
+def task_kernel_display_values(name: str, values: np.ndarray) -> np.ndarray:
+    """Convert signed-code filters to the displayed condition difference."""
+    values = np.asarray(values)
+    return 2 * values if name in {"response_side", "outcome"} else values
+
+
 def plot_task_kernels(
     unit_ids: list[int],
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
@@ -711,7 +653,12 @@ def plot_task_kernels(
     if len(task_names) != 8:
         raise ValueError("The task-kernel layout expects eight regressors.")
     example_row = unit_ids.index(representative_unit_id)
-    limit = _kernel_color_limit([kernels[name][1] for name in task_names])
+    displayed = {
+        name: (times, task_kernel_display_values(name, values))
+        for name, (times, values) in kernels.items()
+        if name in task_names
+    }
+    limit = _kernel_color_limit([displayed[name][1] for name in task_names])
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.5, 7.8))
@@ -724,7 +671,7 @@ def plot_task_kernels(
         for index, name in enumerate(task_names):
             row, column = divmod(index, 4)
             axis = figure.add_subplot(population_grid[row, column])
-            times_ms, values = kernels[name]
+            times_ms, values = displayed[name]
             images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
             axis.set_title(TASK_LABELS[name], fontsize=8)
             if column == 0:
@@ -739,7 +686,7 @@ def plot_task_kernels(
         for index, name in enumerate(task_names):
             row, column = divmod(index, 4)
             axis = figure.add_subplot(example_grid[row, column])
-            times_ms, values = kernels[name]
+            times_ms, values = displayed[name]
             axis.plot(times_ms, values[example_row], color="black", linewidth=1)
             axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
             if times_ms[0] <= 0 <= times_ms[-1]:
@@ -933,7 +880,9 @@ def plot_design_matrix_trial(
         matrix_axis.set_xlabel("Time from first measured flash (s)")
         matrix_axis.set_ylabel("Model columns")
         figure.colorbar(
-            image, cax=colorbar_axis, label="Training-standardized design value"
+            image,
+            cax=colorbar_axis,
+            label="Model input (standard deviations from training mean)",
         )
         matrix_axis.set_xlim(*edges)
 
@@ -1091,9 +1040,6 @@ def main() -> None:
     parser.add_argument(
         "--design", type=Path, default=Path("figures/v1_glm/common_design.npy")
     )
-    parser.add_argument(
-        "--video", type=Path, default=Path("figures/v1_glm/video_features.npz")
-    )
     parser.add_argument("--fit-dir", type=Path, default=Path("figures/v1_glm/all_fit"))
     parser.add_argument(
         "--output",
@@ -1119,7 +1065,6 @@ def main() -> None:
     with args.design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     design_pdf, design_png = plot_model_design(
-        args.video,
         design_metadata,
         selected_components,
         args.fit_dir / "model_design",

@@ -253,19 +253,12 @@ Spearman correlation is -0.255 across 168 units. Higher-firing units therefore
 were not predicted better in this session. This is one session, so units are
 displayed as observations without a population p-value.
 
-## Model design and camera PCs
+## Model design
 
 `model_design.png` and `model_design.pdf` show the full model equation, the
-time support and basis count for every regressor type, and the leading camera
-components. The camera panel uses the actual training-fit components saved in
-`video_features.npz`. These are PCs of mean-centered raw grayscale frames, not
-the motion-energy PCs shown in Stringer et al. Component sign is arbitrary.
-The first three PCs explain 65.9% of training-frame variance; the selected 25
-explain 84.1%.
-
-The camera maps show which pixels contribute to each PC. They do not by
-themselves identify a named movement. The temporal PC scores, after convolution
-with three bases from -200 to +200 ms, are the quantities that enter the GLM.
+time support and basis count for every regressor type. The model includes 25
+PCs of mean-centered raw grayscale video as movement regressors. Each PC score
+is convolved with three bases from -200 to +200 ms before it enters the GLM.
 
 ## Conditional deviance explained
 
@@ -325,7 +318,7 @@ The completed 168-unit comparison gave these signed median contributions:
 | Center exit | 0.00123 (0.00046 to 0.00237) |
 | Response entry | 0.00057 (0.00004 to 0.00137) |
 | Response side | 0.00040 (0.00003 to 0.00117) |
-| Outcome | -0.00004 (-0.00029 to 0.00023) |
+| Eventual outcome | -0.00004 (-0.00029 to 0.00023) |
 
 All 2,016 shuffled-model results are present and finite. One path, the video
 shuffle for low-rate unit 45, ended at an L2 penalty of 1e6 after the validation
@@ -343,7 +336,9 @@ cycle for the task, video, and history groups; session drift is black.
 
 `design_matrix_trial.png` and `design_matrix_trial.pdf` show the exact fitted
 input for one real held-out trial. Panel a is the raw 1 ms spike-count response.
-Panel b is the 144-column training-standardized matrix for the complete model:
+Panel b is the exact 144-column matrix for the complete model after each column
+is centered and scaled with the training trials. A value of 0 is the training
+mean, and +1 or -1 is one training standard deviation above or below that mean:
 57 task columns, 2 drift columns, 75 columns from 25 camera PCs, and 10
 unit-specific spike-history columns. Repeated visual flashes appear separately
 in the task block; the model does not keep only the first flash.
@@ -365,10 +360,14 @@ spike-train figure.
 The reconstruction divides each standardized-design coefficient by its saved
 training-column standard deviation before multiplying it by the original basis
 functions. Task filters therefore show the change in log expected rate from one
-event. The response-side line is the +1 right-choice effect and the left-choice
-effect has the opposite sign. The outcome line is the +1 rewarded effect and
-the error effect has the opposite sign. The history filter is the change per
-preceding spike. Each video filter is the change per 1 ms sample of a +1
+event. Response side is shown as the right-minus-left difference, and eventual
+outcome as the rewarded-minus-error difference. Because the fitted event codes
+are -1 and +1, each displayed difference is twice its fitted coefficient kernel.
+Response entry is instead the activity common to all completed trials around
+port entry. The eventual-outcome contrast is restricted to the pre-entry period;
+it is a predictive association with the later trial result, not a response to
+reward delivery. The history filter is the change per preceding spike. Each
+video filter is the change per 1 ms sample of a +1
 training-SD camera-PC score. Camera-PC sign is arbitrary, and its acausal filter
 is an association rather than a causal response.
 
