@@ -27,6 +27,7 @@ from thesis.ephys.analyses.v1_glm_attribution import (
 from thesis.ephys.analyses.v1_glm_prediction import (
     select_representative_result,
     simulate_spike_counts,
+    task_kernel_display_values,
     training_rate_and_test_deviance,
 )
 from thesis.ephys.preprocessing.audit_camera_pulses import select_falling_edges
@@ -38,6 +39,16 @@ from thesis.ephys.preprocessing.video_svd import training_zscore
 
 
 class V1GlmTest(unittest.TestCase):
+    def test_signed_task_kernels_show_condition_differences(self):
+        values = np.array([[-0.2, 0.3]])
+        np.testing.assert_array_equal(
+            task_kernel_display_values("response_side", values), 2 * values
+        )
+        np.testing.assert_array_equal(
+            task_kernel_display_values("outcome", values), 2 * values
+        )
+        self.assertIs(task_kernel_display_values("visual_flash", values), values)
+
     def test_attribution_groups_keep_basis_columns_together(self):
         metadata = {
             "task_columns": 5,

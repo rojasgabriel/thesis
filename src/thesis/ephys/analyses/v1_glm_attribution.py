@@ -79,7 +79,7 @@ DISPLAY_LABELS = {
     "center_exit": "Center exit",
     "response_entry": "Response entry",
     "response_side": "Response side",
-    "outcome": "Outcome",
+    "outcome": "Eventual outcome",
 }
 GROUP_COLORS = {
     "task": "C0",
