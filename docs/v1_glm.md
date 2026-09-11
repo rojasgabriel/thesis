@@ -419,8 +419,4 @@ quantitative evaluation.
 The camera mapping, trial grid, raw-video PCA, task matrix, drift terms, history
 basis, Poisson fitter, validation path, test gate, full fit, conditional
 shuffle-and-refit analysis, actual design matrix, fitted-kernel figures, and
-prediction figures are complete. Focused tests are in `tests/`:
-
-```bash
-uv run python -m unittest discover -s tests -v
-```
+prediction figures are complete.
