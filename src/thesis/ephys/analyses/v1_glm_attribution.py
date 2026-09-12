@@ -7,7 +7,6 @@ units. Motion-energy PCs stay one block.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 from pathlib import Path
@@ -20,7 +19,6 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.v1_glm import (
     VIDEO_BASIS_COLUMNS,
-    PoissonGLM,
     _load_windows,
     _split_masks,
     _valid_bin_mask,
@@ -83,19 +81,18 @@ def attribution_slices(metadata: dict, video_components: int) -> dict[str, slice
 
 
 def shuffle_permutations(
-    trial_split: np.ndarray,
+    n_trials: int,
     bins_per_trial: int,
     seed: int,
     valid: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> np.ndarray:
     """Return within-trial permutations, only among valid bins when given."""
-    trial_split = np.asarray(trial_split)
-    if trial_split.ndim != 1 or bins_per_trial <= 1:
+    if n_trials <= 0 or bins_per_trial <= 1:
         raise ValueError(
             "Trials and bins per trial must define a two-dimensional grid."
         )
-    rows = np.arange(len(trial_split) * bins_per_trial, dtype=np.int64).reshape(
-        len(trial_split), bins_per_trial
+    rows = np.arange(n_trials * bins_per_trial, dtype=np.int64).reshape(
+        n_trials, bins_per_trial
     )
     if valid is None:
         valid_trials = np.ones(rows.shape, dtype=bool)
@@ -109,49 +106,21 @@ def shuffle_permutations(
         if keep.size:
             permuted[keep] = trial_rows[keep][rng.permutation(keep.size)]
         within_trial[trial] = permuted
-
-    whole_trial = np.empty_like(rows)
-    for split in np.unique(trial_split):
-        trials = np.flatnonzero(trial_split == split)
-        if len(trials) < 2:
-            raise ValueError(
-                "Each split needs at least two trials for whole-trial shuffling."
-            )
-        sources = rng.permutation(trials)
-        while np.any(sources == trials):
-            sources = rng.permutation(trials)
-        whole_trial[trials] = rows[sources]
-    return within_trial.ravel(), whole_trial.ravel()
+    return within_trial.ravel()
 
 
-def apply_row_permutation(
-    destination: np.ndarray,
-    source: np.ndarray,
-    permutation: np.ndarray,
-    chunk_rows: int,
-) -> None:
-    """Copy permuted rows in small chunks to limit peak memory."""
-    if destination.shape != source.shape or len(permutation) != len(source):
-        raise ValueError("Permutation inputs must have matching row and column counts.")
-    for start in range(0, len(source), chunk_rows):
-        stop = min(start + chunk_rows, len(source))
-        destination[start:stop] = source[permutation[start:stop]]
-
-
-def _load_fit_records(fit_dir: Path) -> tuple[dict[int, dict], dict[int, dict]]:
+def _load_fit_records(fit_dir: Path) -> dict[int, dict]:
     tests = {}
     for path in fit_dir.glob("unit_*_test.json"):
         with path.open() as handle:
             item = json.load(handle)
         tests[int(item["unit_id"])] = item
-    selections = {}
-    for path in fit_dir.glob("unit_*_validation.json"):
-        with path.open() as handle:
-            item = json.load(handle)
-        selections[int(item["unit_id"])] = item
-    if not tests or tests.keys() != selections.keys():
+    selected = {
+        int(path.name.split("_")[1]) for path in fit_dir.glob("unit_*_validation.json")
+    }
+    if not tests or tests.keys() != selected:
         raise ValueError("Complete test and validation records are required.")
-    return tests, selections
+    return tests
 
 
 def _fit_shuffled_model(
@@ -182,10 +151,6 @@ def _fit_shuffled_model(
     }
 
 
-def _group_color(group: str) -> str:
-    return GROUP_COLORS.get(group, GROUP_COLORS["task"])
-
-
 def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
     values = [
         np.asarray(
@@ -210,7 +175,7 @@ def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
     for position, (group, group_values, patch) in enumerate(
         zip(groups, values, boxes["boxes"], strict=True)
     ):
-        color = _group_color(group)
+        color = GROUP_COLORS.get(group, GROUP_COLORS["task"])
         patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
         axis.scatter(
             position,
@@ -226,7 +191,7 @@ def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
     axis.tick_params(axis="x", labelrotation=48)
     for label, group in zip(axis.get_xticklabels(), groups, strict=True):
         label.set_ha("right")
-        label.set_color(_group_color(group))
+        label.set_color(GROUP_COLORS.get(group, GROUP_COLORS["task"]))
     axis.margins(x=0.04)
 
 
@@ -317,13 +282,15 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
     return summary
 
 
-def run_attribution(args: argparse.Namespace) -> None:
+def run_attribution(
+    windows: Path, design_path: Path, fit_dir: Path, unit_set: str
+) -> None:
     """Fit same-width shuffled comparators and write the summary figure."""
-    prepared = _load_windows(args.windows)
-    common = np.load(args.design, mmap_mode="r", allow_pickle=False)
-    with args.design.with_suffix(".json").open() as handle:
+    prepared = _load_windows(windows)
+    common = np.load(design_path, mmap_mode="r", allow_pickle=False)
+    with design_path.with_suffix(".json").open() as handle:
         metadata = json.load(handle)
-    tests, _selections = _load_fit_records(args.fit_dir)
+    tests = _load_fit_records(fit_dir)
     selected_components = {
         int(item["plus_video"]["components"]) for item in tests.values()
     }
@@ -336,16 +303,16 @@ def run_attribution(args: argparse.Namespace) -> None:
     groups = attribution_slices(metadata, video_components)
     group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
-    with np.load(args.windows, allow_pickle=False) as windows:
-        trial_split = windows["trial_split"].copy()
-        relative_times = windows["relative_bin_centers_s"].copy()
+    with np.load(windows, allow_pickle=False) as saved:
+        trial_split = saved["trial_split"].copy()
+        relative_times = saved["relative_bin_centers_s"].copy()
     bins_per_trial = len(relative_times)
     if len(common) != len(trial_split) * bins_per_trial:
         raise ValueError("Common design rows do not match the saved trial grid.")
     valid = _valid_bin_mask(prepared)
     train, validation, test = _split_masks(prepared["split"], valid)
-    within_trial, _ = shuffle_permutations(
-        trial_split, bins_per_trial, SHUFFLE_SEED, valid=valid
+    within_trial = shuffle_permutations(
+        len(trial_split), bins_per_trial, SHUFFLE_SEED, valid=valid
     )
 
     units = fetch_unit_table(
@@ -355,11 +322,11 @@ def run_attribution(args: argparse.Namespace) -> None:
         stability_param_id=0,
         include_metrics=False,
     )
-    if args.units == "test":
+    if unit_set == "test":
         unit_rows = test_unit_indices(len(units))
     else:
         unit_rows = np.arange(len(units))
-    output_dir = args.output or args.fit_dir / "conditional_deviance_fit"
+    output_dir = fit_dir / "conditional_deviance_fit"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     records = []
@@ -390,10 +357,7 @@ def run_attribution(args: argparse.Namespace) -> None:
         for group_position, group in enumerate(group_order, start=1):
             columns = groups[group]
             source = design[:, columns].copy()
-            permutation = within_trial
-            apply_row_permutation(
-                design[:, columns], source, permutation, bins_per_trial
-            )
+            design[:, columns] = source[within_trial]
             fitted = _fit_shuffled_model(design, counts, train, validation, test)
             design[:, columns] = source
             del source
@@ -434,18 +398,3 @@ def run_attribution(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    model = PoissonGLM()
-    parser.add_argument("--windows", type=Path, default=model.windows)
-    parser.add_argument("--design", type=Path, default=model.design)
-    parser.add_argument("--fit-dir", type=Path, default=model.fit_dir("all"))
-    parser.add_argument("--units", choices=("test", "all"), default="test")
-    parser.add_argument("--output", type=Path)
-    run_attribution(parser.parse_args())
-
-
-if __name__ == "__main__":
-    main()

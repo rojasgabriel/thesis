@@ -22,6 +22,22 @@ BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
 
 
+def training_zscore(
+    values: np.ndarray, train_rows: np.ndarray | slice
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Scale each column with training rows and reject constants."""
+    mean = values[train_rows].mean(axis=0)
+    scale = values[train_rows].std(axis=0)
+    if not np.isfinite(mean).all() or not np.isfinite(scale).all():
+        raise ValueError("Scaling statistics must be finite.")
+    if np.any(scale == 0):
+        raise ValueError("Every column must vary in the training rows.")
+    scaled = (values - mean) / scale
+    if not np.isfinite(scaled).all():
+        raise ValueError("Scaled values must be finite.")
+    return scaled, mean, scale
+
+
 def validate_frame_times(times: np.ndarray, n_frames: int) -> np.ndarray:
     """Reject missing, duplicate, unordered, or mismatched frame timestamps."""
     times = np.asarray(times, dtype=float)
