@@ -46,6 +46,9 @@ INITIAL_ALPHAS = tuple(np.logspace(-7, 1, 9))
 VIDEO_BASIS_COLUMNS = 3
 HISTORY_COLUMNS = 10
 TEST_UNITS = 12
+CV_FOLDS = 10
+CV_SEED = 20260913
+CV_INNER_FRACTION = 0.25
 MAX_ITER = 500
 TOL = 1e-7
 MAX_ALPHA_EXTENSIONS = 6
@@ -653,6 +656,164 @@ def _final_fit_for_unit(
     }
 
 
+def trial_folds(n_trials: int, n_folds: int, seed: int) -> np.ndarray:
+    """Assign each trial to one fold, so every trial is tested exactly once."""
+    if n_trials < n_folds:
+        raise ValueError("Fewer trials than folds.")
+    order = np.random.default_rng(seed).permutation(n_trials)
+    folds = np.empty(n_trials, dtype=np.int8)
+    for index, block in enumerate(np.array_split(order, n_folds)):
+        folds[block] = index
+    return folds
+
+
+def _fold_fit_for_unit(
+    common: np.ndarray,
+    common_columns: int,
+    counts: np.ndarray,
+    history: np.ndarray,
+    train: np.ndarray,
+    inner: np.ndarray,
+    test: np.ndarray,
+) -> dict:
+    """Select the penalty inside the fold, refit on everything but the fold."""
+    fit = train | inner
+    fit_mean = float(counts[fit].mean())
+    if fit_mean <= 0:
+        raise ValueError("Each unit must have at least one training spike.")
+    history, _, _ = training_zscore(history, fit)
+    design = _design_with_history(common, history, common_columns)
+    _, path = fit_poisson_alpha_path(
+        design[train], counts[train], design[inner], counts[inner]
+    )
+    model = fit_poisson_at_alpha(design[fit], counts[fit], path["best_alpha"])
+    return {
+        "alpha": path["best_alpha"],
+        "fit_mean_count": fit_mean,
+        "intercept": float(model.intercept_),
+        "coefficients": model.coef_.tolist(),
+        "test": poisson_metrics(counts[test], model.predict(design[test]), fit_mean),
+    }
+
+
+def crossvalidate(
+    windows: Path, design: Path, unit_set: str, output_dir: Path, components: int
+) -> None:
+    """Score every trial once through k-fold cross-validation over trials.
+
+    Folds are over whole trials, never bins, because bins inside a trial are
+    correlated. The motion-energy PC count is fixed beforehand by `fit`, so
+    only each unit's penalty is chosen inside a fold.
+    """
+    prepared = _load_windows(windows)
+    common = np.load(design, mmap_mode="r", allow_pickle=False)
+    with design.with_suffix(".json").open() as handle:
+        design_metadata = json.load(handle)
+    common_columns = int(design_metadata["base_columns"]) + (
+        VIDEO_BASIS_COLUMNS * components
+    )
+    valid = _valid_bin_mask(prepared)
+    with np.load(windows, allow_pickle=False) as saved:
+        trial_split = saved["trial_split"].copy()
+    bins_per_trial = len(prepared["split"]) // len(trial_split)
+    folds = trial_folds(len(trial_split), CV_FOLDS, CV_SEED)
+    fold_rows = np.repeat(folds, bins_per_trial)
+
+    units = fetch_unit_table(
+        prepared["metadata"]["subject_name"],
+        prepared["metadata"]["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
+    unit_rows = (
+        test_unit_indices(len(units)) if unit_set == "test" else np.arange(len(units))
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(CV_SEED)
+    print(
+        f"{CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
+        f"{len(unit_rows)} units, {components} motion-energy PCs.",
+        flush=True,
+    )
+
+    records = []
+    for position, row in enumerate(unit_rows, start=1):
+        unit = units.iloc[row]
+        unit_id = int(unit["unit_id"])
+        output = output_dir / f"unit_{unit_id}_folds.json"
+        if output.exists():
+            with output.open() as handle:
+                record = json.load(handle)
+            records.append(record)
+            print(f"Loaded unit {position} of {len(unit_rows)}: {unit_id}", flush=True)
+            continue
+
+        spikes = np.asarray(unit["spike_times_s"], dtype=float)
+        counts = build_unit_counts(prepared["alignments"], spikes)
+        history = build_unit_history(prepared["alignments"], spikes)
+        fold_results = []
+        for fold in range(CV_FOLDS):
+            test = (fold_rows == fold) & valid
+            rest_trials = np.flatnonzero(folds != fold)
+            inner_trials = rng.choice(
+                rest_trials,
+                size=max(1, int(round(CV_INNER_FRACTION * len(rest_trials)))),
+                replace=False,
+            )
+            inner_mask = np.zeros(len(folds), dtype=bool)
+            inner_mask[inner_trials] = True
+            inner = np.repeat(inner_mask, bins_per_trial) & valid
+            train = ~np.repeat(inner_mask, bins_per_trial) & (fold_rows != fold) & valid
+            fold_results.append(
+                _fold_fit_for_unit(
+                    common, common_columns, counts, history, train, inner, test
+                )
+            )
+        deviance = np.asarray(
+            [item["test"]["deviance_explained"] for item in fold_results]
+        )
+        bits = np.asarray([item["test"]["bits_per_spike"] for item in fold_results])
+        record = {
+            "unit_id": unit_id,
+            "depth": float(unit["depth"]),
+            "components": components,
+            "folds": fold_results,
+            "deviance_explained_mean": float(deviance.mean()),
+            "deviance_explained_sem": float(
+                deviance.std(ddof=1) / np.sqrt(len(deviance))
+            ),
+            "bits_per_spike_mean": float(bits.mean()),
+            "bits_per_spike_sem": float(bits.std(ddof=1) / np.sqrt(len(bits))),
+        }
+        _write_json_atomic(output, record)
+        records.append(record)
+        print(
+            f"Scored unit {position} of {len(unit_rows)}: {unit_id}  "
+            f"D2 {record['deviance_explained_mean']:.4f} "
+            f"+- {record['deviance_explained_sem']:.4f}",
+            flush=True,
+        )
+
+    means = np.asarray([item["deviance_explained_mean"] for item in records])
+    summary = {
+        "folds": CV_FOLDS,
+        "fold_seed": CV_SEED,
+        "inner_fraction": CV_INNER_FRACTION,
+        "unit_set": unit_set,
+        "units": len(records),
+        "components": components,
+        "trials": int(len(trial_split)),
+        "cross_validated_deviance_explained": {
+            "median": float(np.median(means)),
+            "q25": float(np.quantile(means, 0.25)),
+            "q75": float(np.quantile(means, 0.75)),
+        },
+    }
+    _write_json_atomic(output_dir / "summary.json", summary)
+    print(json.dumps(summary, indent=2))
+
+
 def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> None:
     """Run validation selection; score held-out trials only for the all-unit run."""
     prepared = _load_windows(windows)
@@ -796,6 +957,7 @@ def main() -> None:
         ("fit", "Select and fit Poisson models"),
         ("attribute", "Refit shuffled blocks for conditional deviance"),
         ("figures", "Draw every figure for a completed fit"),
+        ("crossvalidate", "Score every trial once with k-fold over trials"),
     ):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--units", choices=("test", "all"), default="test")
@@ -854,6 +1016,16 @@ class PoissonGLM:
 
     def fit(self, units: str = "test") -> None:
         fit_models(self.windows, self.design, units, self.fit_dir(units))
+
+    def cv_dir(self, units: str) -> Path:
+        return self.root / f"{units}_cv_me"
+
+    def crossvalidate(self, units: str = "test") -> None:
+        from thesis.ephys.analyses.glm import crossvalidate as run
+
+        with (self.fit_dir(units) / "summary.json").open() as handle:
+            components = int(json.load(handle)["selected_video_components"])
+        run(self.windows, self.design, units, self.cv_dir(units), components)
 
     def attribute(self, units: str = "test") -> None:
         from thesis.ephys.analyses.glm_attribution import run_attribution
