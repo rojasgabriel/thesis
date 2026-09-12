@@ -13,7 +13,11 @@ PC count. The 12-unit test set never scores held-out trials.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
+import re
+import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +43,10 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
-ALPHA_GRID = tuple(np.logspace(-12, 3, 16))
+# Trimmed from logspace(-12, 3, 16) after the first all-unit run: validation
+# loss was flat below 1e-7 and saturated above 1e-2, so eleven of sixteen
+# points never won. select_alpha_per_unit warns if any unit lands on an edge.
+ALPHA_GRID = tuple(np.logspace(-9, -1, 9))
 VIDEO_BASIS_COLUMNS = 3
 TEST_UNITS = 12
 MAX_ITER = 500
@@ -484,42 +491,65 @@ def fit_damn(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     """Fit every target at once on the shared design; return W, b, per-target loss."""
     torch.manual_seed(FIT_SEED)
-    weights, intercept, _, _, _, _, _, val_loss = damn_fit.fit_poisson_glm_lbfgs(
-        np.ascontiguousarray(X, dtype=np.float32),
-        np.ascontiguousarray(Y, dtype=np.float32),
-        alpha=alpha,
-        max_epochs=DAMN_MAX_EPOCHS,
-        early_stopping="train",
-        patience=DAMN_PATIENCE,
-        tol=TOL,
-        print_every=1000,
-        seed=FIT_SEED,
-        device=device,
-        per_target_loss=True,
-        val_inds=val_inds,
-    )
+    chatter = io.StringIO()
+    with contextlib.redirect_stdout(chatter):
+        weights, intercept, _, _, _, _, _, val_loss = damn_fit.fit_poisson_glm_lbfgs(
+            np.ascontiguousarray(X, dtype=np.float32),
+            np.ascontiguousarray(Y, dtype=np.float32),
+            alpha=alpha,
+            max_epochs=DAMN_MAX_EPOCHS,
+            early_stopping="train",
+            patience=DAMN_PATIENCE,
+            tol=TOL,
+            print_every=10**6,
+            seed=FIT_SEED,
+            device=device,
+            per_target_loss=True,
+            val_inds=val_inds,
+        )
     if not np.isfinite(weights).all() or not np.isfinite(intercept).all():
         raise RuntimeError("DAMN returned non-finite parameters.")
-    return weights, intercept, val_loss
+    epochs = re.search(r"at epoch (\d+)", chatter.getvalue())
+    return (
+        weights,
+        intercept,
+        val_loss,
+        int(epochs.group(1)) if epochs else DAMN_MAX_EPOCHS,
+    )
 
 
 def select_alpha_per_unit(
     X: np.ndarray, Y: np.ndarray, val_inds: np.ndarray, device
 ) -> tuple[np.ndarray, np.ndarray]:
     """Walk the penalty grid once and take each unit's best validation loss."""
+    print(
+        f"       {'alpha':>9}  {'mean val loss':>14}  {'best':>5}  {'epochs':>6}  {'time':>6}"
+    )
     losses = []
     for alpha in ALPHA_GRID:
-        _, _, val_loss = fit_damn(X, Y, val_inds, float(alpha), device)
+        start = time.perf_counter()
+        _, _, val_loss, epochs = fit_damn(X, Y, val_inds, float(alpha), device)
         if val_loss is None:
             raise RuntimeError("DAMN returned no per-target validation loss.")
         losses.append(np.asarray(val_loss, dtype=float))
+        mean = losses[-1].mean()
+        marker = "*" if mean <= min(item.mean() for item in losses) else ""
         print(
-            f"  alpha {alpha:g}: mean validation loss {losses[-1].mean():.6f}",
+            f"       {alpha:>9.0e}  {mean:>14.3f}  {marker:>5}  {epochs:>6}  "
+            f"{time.perf_counter() - start:>5.0f}s",
             flush=True,
         )
-    losses = np.stack(losses)
-    best = np.argmin(losses, axis=0)
-    return np.asarray(ALPHA_GRID, dtype=float)[best], losses[best, np.arange(len(best))]
+    grid = np.asarray(ALPHA_GRID, dtype=float)
+    stacked = np.stack(losses)
+    best = np.argmin(stacked, axis=0)
+    edge = int(np.count_nonzero((best == 0) | (best == len(grid) - 1)))
+    if edge:
+        print(
+            f"       WARNING: {edge} of {len(best)} units chose a grid endpoint; "
+            "widen ALPHA_GRID.",
+            flush=True,
+        )
+    return grid[best], stacked[best, np.arange(len(best))]
 
 
 def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> None:
@@ -546,7 +576,11 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
     ]
     output_dir.mkdir(parents=True, exist_ok=True)
     device = resolve_device()
-    print(f"Fitting {len(units)} units together on {device}.", flush=True)
+    print(
+        f"Fitting {len(units)} units together on {device}: "
+        f"{int(train.sum()):,} train and {int(validation.sum()):,} validation rows.",
+        flush=True,
+    )
 
     counts = build_counts_matrix(prepared["alignments"], units)
     if np.any(counts[train].sum(axis=0) <= 0):
@@ -558,11 +592,19 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
     val_inds = np.flatnonzero(np.isin(fit_rows, np.flatnonzero(validation)))
     train_mean = counts[train].mean(axis=0)
 
+    widths = _model_widths(base_columns)
     selection: dict[str, dict] = {}
-    for width_name, columns in _model_widths(base_columns):
+    started = time.perf_counter()
+    for position, (width_name, columns) in enumerate(widths, start=1):
+        label = "baseline" if width_name == "baseline" else f"{width_name} video PCs"
+        print(
+            f"\n[{position}/{len(widths)}] {label} - {columns} columns, "
+            f"{len(ALPHA_GRID)} penalties",
+            flush=True,
+        )
         X = np.asarray(common[np.ix_(fit_rows, np.arange(columns))])
         alpha, _ = select_alpha_per_unit(X, counts[fit_rows], val_inds, device)
-        weights, intercept, _ = fit_damn(
+        weights, intercept, _, _ = fit_damn(
             X[np.isin(np.arange(len(fit_rows)), val_inds, invert=True)],
             counts[train],
             None,
@@ -585,7 +627,20 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
                 for unit in range(len(units))
             ],
         }
-        print(f"Selected {width_name}: median alpha {np.median(alpha):g}", flush=True)
+        median_deviance = float(
+            np.median(
+                [
+                    item["deviance_explained"]
+                    for item in selection[width_name]["validation"]
+                ]
+            )
+        )
+        print(
+            f"       -> median alpha {np.median(alpha):.0e}, "
+            f"median validation D2 {median_deviance:.4f}, "
+            f"{clamped} clamped bins, {(time.perf_counter() - started) / 60:.1f} min elapsed",
+            flush=True,
+        )
         del X
 
     mean_validation_deviance = {
@@ -655,7 +710,7 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
         ):
             key = "baseline" if width_name == "baseline" else str(selected_components)
             X = np.asarray(common[np.ix_(np.flatnonzero(fit), np.arange(columns))])
-            weights, intercept, _ = fit_damn(
+            weights, intercept, _, _ = fit_damn(
                 X, counts[fit], None, np.asarray(selection[key]["alpha"]), device
             )
             rate, clamped = damn_rate(

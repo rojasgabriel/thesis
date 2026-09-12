@@ -141,7 +141,7 @@ def _fit_shuffled_model(
     alpha, _ = select_alpha_per_unit(
         design[fit_rows], response[fit_rows], val_inds, device
     )
-    weights, intercept, _ = fit_damn(
+    weights, intercept, _, _ = fit_damn(
         design[train], response[train], None, alpha, device
     )
     validation_rate, _ = damn_rate(design[validation], weights, intercept)
@@ -150,7 +150,7 @@ def _fit_shuffled_model(
     )
     fit = train | validation
     fit_mean = float(counts[fit].mean())
-    weights, intercept, _ = fit_damn(design[fit], response[fit], None, alpha, device)
+    weights, intercept, _, _ = fit_damn(design[fit], response[fit], None, alpha, device)
     test_rate, clamped = damn_rate(design[test], weights, intercept)
     return {
         "alpha": float(alpha[0]),
