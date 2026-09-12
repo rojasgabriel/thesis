@@ -43,10 +43,22 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
-# Trimmed from logspace(-12, 3, 16) after the first all-unit run: validation
-# loss was flat below 1e-7 and saturated above 1e-2, so eleven of sixteen
-# points never won. select_alpha_per_unit warns if any unit lands on an edge.
-ALPHA_GRID = tuple(np.logspace(-9, -1, 9))
+# The first all-unit sweep put the mean optimum at 1e-6, with the loss flat
+# below 1e-7 and saturated above 1e-2. Keep decade resolution across that live
+# range and spend four points on far anchors, so a unit landing on an endpoint
+# is genuinely unpenalized or fully shrunk rather than clipped by the grid.
+ALPHA_GRID = (
+    1e-12,
+    1e-10,
+    1e-8,
+    1e-7,
+    1e-6,
+    1e-5,
+    1e-4,
+    1e-3,
+    1e-1,
+    1e1,
+)
 VIDEO_BASIS_COLUMNS = 3
 TEST_UNITS = 12
 MAX_ITER = 500
@@ -542,11 +554,18 @@ def select_alpha_per_unit(
     grid = np.asarray(ALPHA_GRID, dtype=float)
     stacked = np.stack(losses)
     best = np.argmin(stacked, axis=0)
-    edge = int(np.count_nonzero((best == 0) | (best == len(grid) - 1)))
-    if edge:
+    low = int(np.count_nonzero(best == 0))
+    high = int(np.count_nonzero(best == len(grid) - 1))
+    if low or high:
+        # An endpoint only matters if the loss is still moving there. In a flat
+        # tail the unit is already unpenalized (low) or fully shrunk (high).
+        slope_low = float(np.mean(stacked[1] - stacked[0])) if low else 0.0
+        slope_high = float(np.mean(stacked[-1] - stacked[-2])) if high else 0.0
         print(
-            f"       WARNING: {edge} of {len(best)} units chose a grid endpoint; "
-            "widen ALPHA_GRID.",
+            f"       WARNING: {low} units at {grid[0]:.0e} "
+            f"(neighbor loss {slope_low:+.3f}), "
+            f"{high} at {grid[-1]:.0e} (neighbor loss {slope_high:+.3f}); "
+            "widen ALPHA_GRID if a tail is still falling.",
             flush=True,
         )
     return grid[best], stacked[best, np.arange(len(best))]
