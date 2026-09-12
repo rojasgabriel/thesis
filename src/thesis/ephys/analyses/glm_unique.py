@@ -18,20 +18,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
+    CV_FOLDS,
+    CV_SEED,
     HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
     _design_with_history,
     _load_windows,
-    _split_masks,
     _valid_bin_mask,
     _write_json_atomic,
     build_unit_counts,
     build_unit_history,
-    fit_poisson_alpha_path,
     fit_poisson_at_alpha,
     poisson_metrics,
     sample_unit_indices,
     training_zscore,
+    trial_folds,
 )
 from thesis.ephys.units import fetch_unit_table
 
@@ -119,46 +120,36 @@ def shuffle_permutations(
     return within_trial.ravel()
 
 
-def _load_fit_records(fit_dir: Path) -> dict[int, dict]:
-    tests = {}
-    for path in fit_dir.glob("unit_*_test.json"):
+def _load_fold_records(fit_dir: Path) -> list[dict]:
+    """Read the per-fold penalties that `fit` selected for every unit."""
+    records = []
+    for path in sorted(fit_dir.glob("unit_*_folds.json")):
         with path.open() as handle:
-            item = json.load(handle)
-        tests[int(item["unit_id"])] = item
-    selected = {
-        int(path.name.split("_")[1]) for path in fit_dir.glob("unit_*_validation.json")
-    }
-    if not tests or tests.keys() != selected:
-        raise ValueError("Complete test and validation records are required.")
-    return tests
+            records.append(json.load(handle))
+    if not records:
+        raise ValueError(f"No cross-validated fits in {fit_dir}; run `fit` first.")
+    return records
 
 
-def _fit_shuffled_model(
+def _shuffled_deviance(
     design: np.ndarray,
     counts: np.ndarray,
-    train: np.ndarray,
-    validation: np.ndarray,
+    fit: np.ndarray,
     test: np.ndarray,
-) -> dict:
-    training_mean = float(counts[train].mean())
-    selected_model, path = fit_poisson_alpha_path(
-        design[train], counts[train], design[validation], counts[validation]
-    )
-    validation_metrics = poisson_metrics(
-        counts[validation], selected_model.predict(design[validation]), training_mean
-    )
-    fit = train | validation
+    alpha: float,
+) -> float:
+    """Refit one shuffled design at a fixed penalty and score the held-out fold.
+
+    The penalty comes from the full model rather than being reselected. The
+    shuffled design has the same width, so the optimum barely moves, and holding
+    it fixed keeps the difference in deviance attributable to the shuffle rather
+    than to two models landing on different penalties.
+    """
     fit_mean = float(counts[fit].mean())
-    final_model = fit_poisson_at_alpha(design[fit], counts[fit], path["best_alpha"])
-    test_metrics = poisson_metrics(
-        counts[test], final_model.predict(design[test]), fit_mean
-    )
-    return {
-        "alpha_path": path,
-        "validation": validation_metrics,
-        "fit_mean_count": fit_mean,
-        "test": test_metrics,
-    }
+    model = fit_poisson_at_alpha(design[fit], counts[fit], alpha)
+    return poisson_metrics(counts[test], model.predict(design[test]), fit_mean)[
+        "deviance_explained"
+    ]
 
 
 def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
@@ -337,12 +328,10 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
     with design_path.with_suffix(".json").open() as handle:
         metadata = json.load(handle)
-    tests = _load_fit_records(fit_dir)
-    selected_components = {
-        int(item["plus_video"]["components"]) for item in tests.values()
-    }
+    fold_records = _load_fold_records(fit_dir)
+    selected_components = {int(item["components"]) for item in fold_records}
     if len(selected_components) != 1:
-        raise ValueError("All complete models must use one video-PC count.")
+        raise ValueError("All cross-validated fits must use one video-PC count.")
     video_components = selected_components.pop()
     common_columns = int(metadata["base_columns"]) + (
         VIDEO_BASIS_COLUMNS * video_components
@@ -357,10 +346,22 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
     if len(common) != len(trial_split) * bins_per_trial:
         raise ValueError("Common design rows do not match the saved trial grid.")
     valid = _valid_bin_mask(prepared)
-    train, validation, test = _split_masks(prepared["split"], valid)
     within_trial = shuffle_permutations(
         len(trial_split), bins_per_trial, SHUFFLE_SEED, valid=valid
     )
+    fold_index = trial_folds(len(trial_split), CV_FOLDS, CV_SEED)
+    fold_rows = np.repeat(fold_index, bins_per_trial)
+    folds = [
+        {
+            "test": (fold_rows == index) & valid,
+            "fit": (fold_rows != index) & valid,
+        }
+        for index in range(CV_FOLDS)
+    ]
+    fold_alphas = {
+        int(item["unit_id"]): [float(entry["alpha"]) for entry in item["folds"]]
+        for item in fold_records
+    }
 
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
@@ -392,68 +393,76 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
 
         spikes = np.asarray(unit["spike_times_s"], dtype=float)
         counts = build_unit_counts(prepared["alignments"], spikes)
-        history, _, _ = training_zscore(
-            build_unit_history(prepared["alignments"], spikes), train | validation
-        )
-        design = _design_with_history(common, history, common_columns)
-        if design.shape[1] != len(tests[unit_id]["plus_video"]["coefficients"]):
-            raise ValueError("Saved full model and attribution design widths differ.")
+        raw_history = build_unit_history(prepared["alignments"], spikes)
 
-        full_deviance = float(
-            tests[unit_id]["plus_video"]["test"]["deviance_explained"]
-        )
+        # One pass per fold, matching the cross-validation that produced the
+        # headline deviance, so unique and complete numbers are comparable.
+        per_fold: dict[str, dict[str, list[float]]] = {
+            group: {"unique": [], "maximal": []} for group in group_order
+        }
+        complete_folds = []
+        for fold_index, fold in enumerate(folds):
+            test = fold["test"]
+            fit = fold["fit"]
+            alpha = float(fold_alphas[unit_id][fold_index])
+            history, _, _ = training_zscore(raw_history, fit)
+            design = _design_with_history(common, history, common_columns)
+            complete = _shuffled_deviance(design, counts, fit, test, alpha)
+            complete_folds.append(complete)
+
+            shuffled_all = design.copy()
+            for columns in dict.fromkeys(groups[name] for name in group_order):
+                shuffled_all[:, columns] = design[:, columns][within_trial]
+            reference = _shuffled_deviance(shuffled_all, counts, fit, test, alpha)
+            del shuffled_all
+
+            for group in group_order:
+                columns = groups[group]
+                source = design[:, columns].copy()
+
+                design[:, columns] = source[within_trial]
+                removed = _shuffled_deviance(design, counts, fit, test, alpha)
+                design[:, columns] = source
+
+                alone_design = design.copy()
+                for other in dict.fromkeys(
+                    groups[name] for name in group_order if name != group
+                ):
+                    if other != columns:
+                        alone_design[:, other] = design[:, other][within_trial]
+                alone = _shuffled_deviance(alone_design, counts, fit, test, alpha)
+                del alone_design, source
+
+                per_fold[group]["unique"].append(complete - removed)
+                per_fold[group]["maximal"].append(alone - reference)
+            del design
+
         group_results = {}
-        # Everything shuffled: the intercept-only reference for maximal deviance.
-        shuffled_all = design.copy()
-        for columns in dict.fromkeys(groups[group] for group in group_order):
-            shuffled_all[:, columns] = design[:, columns][within_trial]
-        intercept_only = _fit_shuffled_model(
-            shuffled_all, counts, train, validation, test
-        )["test"]["deviance_explained"]
-        del shuffled_all
-
-        for group_position, group in enumerate(group_order, start=1):
-            columns = groups[group]
-            source = design[:, columns].copy()
-
-            # One-removed: shuffle this block only. Full minus this is unique.
-            design[:, columns] = source[within_trial]
-            fitted = _fit_shuffled_model(design, counts, train, validation, test)
-            design[:, columns] = source
-
-            # Single-block-only: shuffle every other block. This minus the
-            # all-shuffled reference is how much the block explains alone.
-            alone_design = design.copy()
-            for other in dict.fromkeys(
-                groups[name] for name in group_order if name != group
-            ):
-                if other != columns:
-                    alone_design[:, other] = design[:, other][within_trial]
-            alone = _fit_shuffled_model(alone_design, counts, train, validation, test)[
-                "test"
-            ]["deviance_explained"]
-            del alone_design, source
-
-            fitted.update(
-                columns=columns.stop - columns.start,
-                shuffle="rows jointly within trial",
-                unique_test_deviance_explained=(
-                    full_deviance - fitted["test"]["deviance_explained"]
+        for group in group_order:
+            unique = np.asarray(per_fold[group]["unique"])
+            maximal = np.asarray(per_fold[group]["maximal"])
+            fitted = {
+                "columns": groups[group].stop - groups[group].start,
+                "shuffle": "rows jointly within trial",
+                "unique_test_deviance_explained": float(unique.mean()),
+                "unique_test_deviance_explained_sem": float(
+                    unique.std(ddof=1) / np.sqrt(len(unique))
                 ),
-                maximal_test_deviance_explained=alone - intercept_only,
-            )
+                "maximal_test_deviance_explained": float(maximal.mean()),
+                "maximal_test_deviance_explained_sem": float(
+                    maximal.std(ddof=1) / np.sqrt(len(maximal))
+                ),
+                "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
+            }
             group_results[group] = fitted
-            print(
-                f"  Fitted {group_position} of {len(group_order)} blocks: {group}",
-                flush=True,
-            )
 
         record = {
             "unit_id": unit_id,
             "depth": float(unit["depth"]),
             "video_components": video_components,
             "shuffle_seed": SHUFFLE_SEED,
-            "full_test_deviance_explained": full_deviance,
+            "folds": len(folds),
+            "complete_test_deviance_explained": float(np.mean(complete_folds)),
             "groups": group_results,
         }
         _write_json_atomic(output, record)
