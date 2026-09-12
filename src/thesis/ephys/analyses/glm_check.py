@@ -82,7 +82,7 @@ def run_check(windows: Path, design_path: Path, output: Path) -> None:
     )
     X_train = np.asarray(common[np.ix_(train_rows, column_index)])
     X_validation = np.asarray(common[np.ix_(np.flatnonzero(validation), column_index)])
-    weights, intercept, _ = fit_damn(X_train, counts[train], None, alpha, device)
+    weights, intercept, _, _ = fit_damn(X_train, counts[train], None, alpha, device)
     damn_validation, clamped = damn_rate(X_validation, weights, intercept)
 
     records: list[dict] = []
