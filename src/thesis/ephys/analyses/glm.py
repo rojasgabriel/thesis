@@ -810,7 +810,7 @@ class PoissonGLM:
         run_attribution(self.windows, self.design, self.fit_dir(units), units)
 
     def figures(self, units: str = "all") -> None:
-        from thesis.ephys.analyses.glm_prediction import make_figures
+        from thesis.ephys.analyses.glm_figures import make_figures
 
         make_figures(self.windows, self.design, self.fit_dir(units))
 
