@@ -12,7 +12,8 @@ already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
 ## Data
 
 - Units: quality 1, stability 0. No sensory-response filter. 168 eligible
-  units; 12 depth-spaced units for `--units test`.
+  units; a fixed random sample of 20 for `--units sample`
+  (`SAMPLE_SEED = 20260914`).
 - Trials: completed left/right, no early withdrawal. Require ordered center
   entry, first measured flash, center exit, response entry.
 - Align to the first measured flash, not the Bpod stimulus command.
@@ -20,14 +21,14 @@ already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
   window. Fitting **masks bins after that trial’s response entry**; it does not
   shorten the grid. 10.5% of responses are after 1.5 s; no flashes occur after
   response.
-- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). `--units test`
-  scores train/validation only. After settings are fixed, `fit --units all`
-  refits every eligible unit on train+validation and scores the held-out trial
-  split once.
+- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Train fits,
+  validation chooses the motion-energy PC count and each unit's penalty, test
+  is scored once.
+- `fit` then cross-validates at that PC count: 10 folds over whole trials
+  (`CV_SEED = 20260913`), so every trial is scored once and all 294 contribute.
+  Reports per-unit mean and SEM across folds. It finally refits on every trial,
+  which is what the figures and `unique` use.
 - 294 completed trials, 168 units, 3502 flashes.
-- `fit` then cross-validates at that PC count: 10 folds over whole trials, so
-  every trial is scored once and all 294 contribute. Reports per-unit mean and
-  SEM across folds.
 
 ## Design
 
@@ -73,13 +74,12 @@ p-value.
 
 ```bash
 uv run glm prepare
-uv run glm fit --units test
+uv run glm fit --units all
 ```
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
-`common_design_me.npy` under `figures/glm/`. `--units test` writes
-`test_fit_me/` (resumable), no held-out trial metric. `fit --units all` writes
-`all_fit_me/` only after the model is accepted.
+`common_design_me.npy` under `figures/glm/`. `fit` writes `all_fit_me/`, which
+is resumable. Use `--units sample` for a 20-unit smoke run.
 
 ## Unique explained deviance
 
