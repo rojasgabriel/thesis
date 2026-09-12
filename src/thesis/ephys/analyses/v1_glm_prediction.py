@@ -1,35 +1,7 @@
 """Create figures for the fitted V1 spike-prediction GLM.
 
-Scientific comparison
----------------------
-For the previously held-out chronological test trials from GRB006 session
-20240821_121447, show observed spikes beside one recursive simulation from the
-complete sensory, task, audio, history, drift, and video model. Each simulated
-row keeps that trial's external covariates fixed. Self-history is updated from
-simulated spikes after seeding each trial with its observed pre-window history.
-
-The final panel shows the one-step conditional mean used for held-out deviance
-and bits/spike. Unlike the recursive rasters, that prediction conditions on the
-observed spike history. Test trials are distinct trials aligned to their first
-measured flash, not repeats of one identical stimulus. The displayed mean rates
-use 20 ms Gaussian smoothing; all fitting and scoring remain at 1 ms.
-
-The figure set also shows one actual held-out-trial design matrix and the fitted
-temporal kernels. Population heatmaps contain every eligible unit in depth order.
-Line plots show the same median-performance unit used for the spike-train figure.
-Task kernels are changes in log expected rate for one event. Response side is
-shown as right minus left, and eventual outcome as rewarded minus error. History
-kernels are per preceding spike, and video kernels are per one-bin sample of a
-training-standardized camera-PC score.
-Heatmap color limits use the pooled 99th absolute percentile within each logical
-regressor group; this affects color saturation only and does not remove units.
-
-The example is selected by a fixed rule as the unit whose full-model test
-deviance explained is nearest the population median. This post-fit display
-choice does not change any fitted model or reported score. No sensory-response
-or visual-quality filter is used. The unit is an observation from one session.
-The simulations are offline conditional draws, not causal online forecasts,
-because the design includes acausal video and peri-event regressors.
+Held-out test trials, first-flash aligned. No spike-history simulation: rasters
+are independent Poisson draws from the covariate-conditioned rate.
 """
 
 from __future__ import annotations
@@ -48,13 +20,11 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
 from thesis.ephys.analyses.v1_glm import (
-    HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
-    _contiguous_slices,
+    PoissonGLM,
     _load_windows,
-    build_unit_design,
-    spike_history_basis,
+    build_unit_counts,
     task_temporal_bases,
     video_temporal_basis,
 )
@@ -66,18 +36,12 @@ MODEL_COLOR = "C0"
 GROUP_COLORS = {
     "task": "C0",
     "video": "C1",
-    "history": "C2",
-    "drift": "black",
 }
 TASK_LABELS = {
     "visual_flash": "Visual flash",
-    "center_entry": "Center entry",
-    "go_cue_command": "Go cue",
+    "center_poke": "Center poke",
     "center_exit": "Center exit",
-    "response_entry": "Response entry",
     "response_side": "Response side\n(right − left)",
-    "outcome": "Eventual outcome\n(rewarded − error)",
-    "wrong_punishment_command": "Punishment cue",
 }
 SMOOTHING_MS = 20
 SIMULATION_SEED = 2008
@@ -140,27 +104,14 @@ def training_rate_and_test_deviance(
     return training_rate, test_deviance
 
 
-def conditional_prediction(
-    common: np.ndarray,
-    history: np.ndarray,
-    history_mean: np.ndarray,
-    history_scale: np.ndarray,
-    fitted_model: dict,
-) -> np.ndarray:
-    """Rebuild the saved one-step prediction that uses observed history."""
+def conditional_prediction(common: np.ndarray, fitted_model: dict) -> np.ndarray:
+    """Rebuild the saved mean from the shared design and fitted coefficients."""
     coefficients = np.asarray(fitted_model["coefficients"], dtype=float)
-    common_columns = len(coefficients) - HISTORY_COLUMNS
-    if common_columns <= 0 or common.shape[1] < common_columns:
+    if common.shape[1] < len(coefficients):
         raise ValueError("Saved coefficient count does not match the common design.")
-    if history.shape != (common.shape[0], HISTORY_COLUMNS):
-        raise ValueError("Common and history rows must match.")
-    scaled_history = (history - history_mean) / history_scale
-    linear_prediction = (
-        float(fitted_model["intercept"])
-        + common[:, :common_columns] @ coefficients[:common_columns]
-        + scaled_history @ coefficients[common_columns:]
+    prediction = np.exp(
+        float(fitted_model["intercept"]) + common[:, : len(coefficients)] @ coefficients
     )
-    prediction = np.exp(linear_prediction)
     if not np.isfinite(prediction).all() or np.any(prediction <= 0):
         raise ValueError(
             "Reconstructed conditional predictions must be finite and positive."
@@ -168,25 +119,14 @@ def conditional_prediction(
     return prediction
 
 
-def simulation_history_kernel(
-    fitted_model: dict, history_scale: np.ndarray
-) -> np.ndarray:
-    """Collapse scaled history coefficients into one 100-lag spike filter."""
-    coefficients = np.asarray(fitted_model["coefficients"], dtype=float)
-    history_coefficients = coefficients[-HISTORY_COLUMNS:] / history_scale
-    return spike_history_basis().basis @ history_coefficients
-
-
 def simulate_spike_counts(
     observed_counts: np.ndarray,
     conditional_mean: np.ndarray,
-    history_kernel: np.ndarray,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Draw spike counts while replacing observed with simulated self-history."""
+    """Draw independent Poisson counts from the covariate-conditioned mean."""
     observed = np.asarray(observed_counts, dtype=float)
     conditional = np.asarray(conditional_mean, dtype=float)
-    kernel = np.asarray(history_kernel, dtype=float)
     if observed.ndim != 2 or observed.shape != conditional.shape:
         raise ValueError(
             "Observed counts and conditional means must be trial-by-bin arrays."
@@ -195,38 +135,7 @@ def simulate_spike_counts(
         raise ValueError("Observed counts must be finite and nonnegative.")
     if np.any(conditional <= 0) or not np.isfinite(conditional).all():
         raise ValueError("Conditional means must be finite and positive.")
-    if kernel.ndim != 1 or not np.isfinite(kernel).all():
-        raise ValueError("The history kernel must be one finite vector.")
-
-    simulated = np.zeros(observed.shape, dtype=np.int64)
-    difference = np.zeros(observed.shape, dtype=float)
-    log_conditional = np.log(conditional)
-    for bin_index in range(observed.shape[1]):
-        lag_count = min(bin_index, len(kernel))
-        if lag_count:
-            recent_difference = difference[:, bin_index - lag_count : bin_index]
-            correction = recent_difference @ kernel[:lag_count][::-1]
-        else:
-            correction = 0.0
-        with np.errstate(over="raise", invalid="raise"):
-            try:
-                mean = np.exp(log_conditional[:, bin_index] + correction)
-            except FloatingPointError as error:
-                raise RuntimeError(
-                    "Recursive simulation became unstable; no rate clipping was applied."
-                ) from error
-        if not np.isfinite(mean).all():
-            raise RuntimeError(
-                "Recursive simulation became unstable; no rate clipping was applied."
-            )
-        try:
-            simulated[:, bin_index] = rng.poisson(mean)
-        except ValueError as error:
-            raise RuntimeError(
-                "Recursive simulation became unstable; no rate clipping was applied."
-            ) from error
-        difference[:, bin_index] = simulated[:, bin_index] - observed[:, bin_index]
-    return simulated
+    return rng.poisson(conditional)
 
 
 def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
@@ -262,13 +171,12 @@ def plot_model_design(
     supports.extend(
         [
             (
-                "Video PCs",
+                "Motion-energy PCs",
                 1000 * float(design_metadata["video_basis_range_s"][0]),
                 1000 * float(design_metadata["video_basis_range_s"][1]),
                 int(design_metadata["video_basis_columns_per_component"]),
                 GROUP_COLORS["video"],
             ),
-            ("Spike history", -100, -1, HISTORY_COLUMNS, GROUP_COLORS["history"]),
         ]
     )
 
@@ -282,29 +190,22 @@ def plot_model_design(
         source_boxes = (
             (
                 0.02,
-                0.76,
+                0.62,
                 (
-                    "sensory, task, audio\n"
+                    "sensory and task\n"
                     f"{design_metadata['task_columns']} temporal columns"
                 ),
                 GROUP_COLORS["task"],
             ),
             (
                 0.02,
-                0.51,
+                0.28,
                 (
-                    f"video-derived movement\n{selected_components} PCs × "
+                    f"motion energy\n{selected_components} PCs × "
                     f"{design_metadata['video_basis_columns_per_component']} bases"
                 ),
                 GROUP_COLORS["video"],
             ),
-            (
-                0.02,
-                0.26,
-                f"spike history\n{HISTORY_COLUMNS} bases, 1–100 ms",
-                GROUP_COLORS["history"],
-            ),
-            (0.02, 0.01, "session drift\nlinear + quadratic", GROUP_COLORS["drift"]),
         )
         for x, y, label, color in source_boxes:
             box = FancyBboxPatch(
@@ -389,7 +290,7 @@ def plot_model_design(
             support_axis.text(
                 320,
                 position,
-                f"{columns}" + (" / PC" if label == "Video PCs" else ""),
+                f"{columns}" + (" / PC" if "Motion-energy" in label else ""),
                 va="center",
                 ha="left",
                 color=color,
@@ -478,7 +379,7 @@ def plot_population_summary(
             va="bottom",
         )
         axes[0].set_xticks(positions, component_counts)
-        axes[0].set_xlabel("Candidate camera PCs")
+        axes[0].set_xlabel("Candidate motion-energy PCs")
         axes[0].set_ylabel("Mean validation deviance explained")
 
         for axis, values, xlabel, digits in (
@@ -557,7 +458,7 @@ def fitted_kernel_matrices(
     coefficients = np.asarray(
         [item["plus_video"]["coefficients"] for item in ordered], dtype=float
     )
-    if coefficients.shape != (len(ordered), common_columns + HISTORY_COLUMNS):
+    if coefficients.shape != (len(ordered), common_columns):
         raise ValueError("Saved coefficient count does not match the selected design.")
 
     common_scale = np.asarray(design_metadata["training_scale"], dtype=float)[
@@ -594,20 +495,6 @@ def fitted_kernel_matrices(
             common_weights[:, start:stop] @ video_basis.basis.T,
         )
 
-    history_scale = np.asarray(
-        [selection_by_id[unit_id]["history_training_scale"] for unit_id in unit_ids],
-        dtype=float,
-    )
-    if history_scale.shape != (len(ordered), HISTORY_COLUMNS) or np.any(
-        history_scale <= 0
-    ):
-        raise ValueError("History scales must be positive and complete.")
-    history_weights = coefficients[:, -HISTORY_COLUMNS:] / history_scale
-    history_basis = spike_history_basis()
-    kernels["self_history"] = (
-        1000 * BINWIDTH_S * np.arange(1, len(history_basis.basis) + 1),
-        history_weights @ history_basis.basis.T,
-    )
     if not all(np.isfinite(values).all() for _, values in kernels.values()):
         raise ValueError("Reconstructed kernels must be finite.")
     return unit_ids, kernels
@@ -639,7 +526,7 @@ def _plot_kernel_heatmap(axis, times_ms: np.ndarray, values: np.ndarray, limit: 
 def task_kernel_display_values(name: str, values: np.ndarray) -> np.ndarray:
     """Convert signed-code filters to the displayed condition difference."""
     values = np.asarray(values)
-    return 2 * values if name in {"response_side", "outcome"} else values
+    return 2 * values if name == "response_side" else values
 
 
 def plot_task_kernels(
@@ -650,8 +537,8 @@ def plot_task_kernels(
     output: Path,
 ) -> tuple[Path, Path]:
     """Show population task-filter heatmaps and one representative unit."""
-    if len(task_names) != 8:
-        raise ValueError("The task-kernel layout expects eight regressors.")
+    if len(task_names) != 4:
+        raise ValueError("The task-kernel layout expects four regressors.")
     example_row = unit_ids.index(representative_unit_id)
     displayed = {
         name: (times, task_kernel_display_values(name, values))
@@ -664,19 +551,19 @@ def plot_task_kernels(
         figure = plt.figure(figsize=(7.5, 7.8))
         outer = figure.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.7)
         population_grid = outer[0].subgridspec(
-            2, 5, width_ratios=[1, 1, 1, 1, 0.055], hspace=0.88, wspace=0.3
+            2, 3, width_ratios=[1, 1, 0.055], hspace=0.88, wspace=0.3
         )
-        example_grid = outer[1].subgridspec(2, 4, hspace=0.88, wspace=0.3)
+        example_grid = outer[1].subgridspec(2, 2, hspace=0.88, wspace=0.3)
         images = []
         for index, name in enumerate(task_names):
-            row, column = divmod(index, 4)
+            row, column = divmod(index, 2)
             axis = figure.add_subplot(population_grid[row, column])
             times_ms, values = displayed[name]
             images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
             axis.set_title(TASK_LABELS[name], fontsize=8)
             if column == 0:
                 axis.set_ylabel("Units\n(depth order)")
-        colorbar_axis = figure.add_subplot(population_grid[:, 4])
+        colorbar_axis = figure.add_subplot(population_grid[:, 2])
         figure.colorbar(
             images[0],
             cax=colorbar_axis,
@@ -684,7 +571,7 @@ def plot_task_kernels(
         )
 
         for index, name in enumerate(task_names):
-            row, column = divmod(index, 4)
+            row, column = divmod(index, 2)
             axis = figure.add_subplot(example_grid[row, column])
             times_ms, values = displayed[name]
             axis.plot(times_ms, values[example_row], color="black", linewidth=1)
@@ -709,67 +596,44 @@ def plot_task_kernels(
         return _save_figure(figure, output)
 
 
-def plot_history_video_kernels(
+def plot_motion_energy_kernels(
     unit_ids: list[int],
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
     representative_unit_id: int,
     output: Path,
 ) -> tuple[Path, Path]:
-    """Show population and representative history and camera-PC filters."""
-    names = ["self_history", "video_pc_1", "video_pc_2", "video_pc_3"]
-    titles = ["Spike history", "Video PC 1", "Video PC 2", "Video PC 3"]
+    """Show population and representative motion-energy PC filters."""
+    names = ["video_pc_1", "video_pc_2", "video_pc_3"]
+    titles = ["ME PC 1", "ME PC 2", "ME PC 3"]
     example_row = unit_ids.index(representative_unit_id)
-    history_limit = _kernel_color_limit([kernels["self_history"][1]])
-    video_limit = _kernel_color_limit([kernels[name][1] for name in names[1:]])
+    video_limit = _kernel_color_limit([kernels[name][1] for name in names])
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.5, 4.0))
-        grid = figure.add_gridspec(
-            2,
-            6,
-            width_ratios=[1, 0.06, 1, 1, 1, 0.06],
-            height_ratios=[1, 1],
-            hspace=0.55,
-            wspace=0.42,
-        )
-        positions = [0, 2, 3, 4]
+        grid = figure.add_gridspec(2, 4, width_ratios=[1, 1, 1, 0.06], hspace=0.55)
         images = []
-        for index, (name, title, column) in enumerate(
-            zip(names, titles, positions, strict=True)
-        ):
-            axis = figure.add_subplot(grid[0, column])
+        for index, (name, title) in enumerate(zip(names, titles, strict=True)):
+            axis = figure.add_subplot(grid[0, index])
             times_ms, values = kernels[name]
-            limit = history_limit if index == 0 else video_limit
-            images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
+            images.append(_plot_kernel_heatmap(axis, times_ms, values, video_limit))
             axis.set_title(title)
             axis.set_xlabel("Lag (ms)")
             if index == 0:
                 axis.set_ylabel("Units\n(depth order)")
-        history_colorbar = figure.add_subplot(grid[0, 1])
-        figure.colorbar(images[0], cax=history_colorbar)
-        history_colorbar.set_title("$\Delta$ log\nrate", fontsize=7, pad=3)
-        video_colorbar = figure.add_subplot(grid[0, 5])
-        figure.colorbar(images[1], cax=video_colorbar)
-        video_colorbar.set_title("$\Delta$ log\nrate", fontsize=7, pad=3)
-
-        for index, (name, title, column) in enumerate(
-            zip(names, titles, positions, strict=True)
-        ):
-            axis = figure.add_subplot(grid[1, column])
+        colorbar = figure.add_subplot(grid[0, 3])
+        figure.colorbar(images[0], cax=colorbar)
+        colorbar.set_title("$\Delta$ log\nrate", fontsize=7, pad=3)
+        for index, (name, title) in enumerate(zip(names, titles, strict=True)):
+            axis = figure.add_subplot(grid[1, index])
             times_ms, values = kernels[name]
             axis.plot(times_ms, values[example_row], color="black", linewidth=1)
             axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
-            if times_ms[0] <= 0 <= times_ms[-1]:
-                axis.axvline(0, color="black", linewidth=0.45)
+            axis.axvline(0, color="black", linewidth=0.45)
             axis.set_title(title)
             axis.set_xlabel("Lag (ms)")
             if index == 0:
-                axis.set_ylabel("$\Delta$ log rate / spike")
-            elif index == 1:
                 axis.set_ylabel("$\Delta$ log rate / PC sample", fontsize=7)
-        for column in (1, 5):
-            figure.add_subplot(grid[1, column]).axis("off")
-
+        figure.add_subplot(grid[1, 3]).axis("off")
         figure.text(0.01, 0.985, "a", fontweight="bold", fontsize=10, va="top")
         figure.text(0.04, 0.985, "All fitted V1 units, sorted by depth", va="top")
         figure.text(0.01, 0.49, "b", fontweight="bold", fontsize=10, va="top")
@@ -804,10 +668,8 @@ def plot_design_matrix_trial(
     output: Path,
 ) -> tuple[Path, Path]:
     """Show the response vector and exact standardized matrix for one test trial."""
-    expected_columns = (
-        int(design_metadata["base_columns"])
-        + VIDEO_BASIS_COLUMNS * selected_components
-        + HISTORY_COLUMNS
+    expected_columns = int(design_metadata["base_columns"]) + (
+        VIDEO_BASIS_COLUMNS * selected_components
     )
     if design.shape != (len(relative_times), expected_columns):
         raise ValueError("Displayed trial design has the wrong shape.")
@@ -817,14 +679,11 @@ def plot_design_matrix_trial(
         raise ValueError("Displayed trial values must be finite.")
 
     task_stop = int(design_metadata["task_columns"])
-    drift_stop = int(design_metadata["base_columns"])
-    video_stop = drift_stop + VIDEO_BASIS_COLUMNS * selected_components
-    stops = [0, task_stop, drift_stop, video_stop, expected_columns]
+    video_stop = expected_columns
+    stops = [0, task_stop, video_stop]
     labels = [
         f"Task ({task_stop})",
-        f"Drift ({drift_stop - task_stop})",
-        f"Video PCs ({video_stop - drift_stop})",
-        f"Spike history ({HISTORY_COLUMNS})",
+        f"Motion energy ({video_stop - task_stop})",
     ]
     mids = [(start + stop) / 2 for start, stop in zip(stops[:-1], stops[1:])]
     maximum = float(np.max(np.abs(design)))
@@ -978,7 +837,7 @@ def plot_prediction_figure(
         rate_axis.text(
             0.01,
             0.94,
-            "one-step prediction (uses observed recent spikes)",
+            "covariate-conditioned mean (no spike history)",
             transform=rate_axis.transAxes,
             ha="left",
             va="top",
@@ -1032,19 +891,14 @@ def plot_prediction_figure(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--windows",
-        type=Path,
-        default=Path("figures/v1_glm/stimulus_windows.npz"),
-    )
-    parser.add_argument(
-        "--design", type=Path, default=Path("figures/v1_glm/common_design.npy")
-    )
-    parser.add_argument("--fit-dir", type=Path, default=Path("figures/v1_glm/all_fit"))
+    model = PoissonGLM()
+    parser.add_argument("--windows", type=Path, default=model.windows)
+    parser.add_argument("--design", type=Path, default=model.design)
+    parser.add_argument("--fit-dir", type=Path, default=model.fit_dir("all"))
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("figures/v1_glm/all_fit/predicted_spike_trains"),
+        default=model.fit_dir("all") / "predicted_spike_trains",
     )
     args = parser.parse_args()
 
@@ -1074,7 +928,6 @@ def main() -> None:
     )
     result, population_median = select_representative_result(results)
     unit_id = int(result["unit_id"])
-    selection = next(item for item in selections if int(item["unit_id"]) == unit_id)
     ordered_unit_ids, kernels = fitted_kernel_matrices(
         results, selections, design_metadata
     )
@@ -1085,15 +938,14 @@ def main() -> None:
         [item["name"] for item in design_metadata["task_manifest"]],
         args.fit_dir / "fitted_task_kernels",
     )
-    history_video_kernel_pdf, history_video_kernel_png = plot_history_video_kernels(
+    video_kernel_pdf, video_kernel_png = plot_motion_energy_kernels(
         ordered_unit_ids,
         kernels,
         unit_id,
-        args.fit_dir / "fitted_history_video_kernels",
+        args.fit_dir / "fitted_video_kernels",
     )
 
     prepared = _load_windows(args.windows)
-    _, _, test_rows = _contiguous_slices(prepared["split"])
     with np.load(args.windows, allow_pickle=False) as windows:
         relative_times = windows["relative_bin_centers_s"].copy()
         trial_split = windows["trial_split"].copy()
@@ -1109,34 +961,25 @@ def main() -> None:
     if len(matching_units) != 1:
         raise ValueError(f"Expected one eligible row for unit {unit_id}.")
     spike_times = np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
-    counts, history = build_unit_design(test_alignments, spike_times)
+    counts = build_unit_counts(test_alignments, spike_times)
 
+    test_rows = np.repeat(trial_split == 2, len(relative_times))
     common = np.load(args.design, mmap_mode="r", allow_pickle=False)[test_rows]
     if len(common) != len(counts):
         raise ValueError("Test design and response rows differ.")
-    history_mean = np.asarray(selection["history_training_mean"], dtype=float)
-    history_scale = np.asarray(selection["history_training_scale"], dtype=float)
+    common_columns = len(result["plus_video"]["coefficients"])
     prediction = conditional_prediction(
-        common, history, history_mean, history_scale, result["plus_video"]
+        common[:, :common_columns], result["plus_video"]
     )
-    saved = result["plus_video"]["test"]
-    if not np.isclose(prediction.sum(), saved["predicted_spikes"], rtol=1e-6):
-        raise ValueError("Reconstructed predictions differ from the saved fit.")
 
     trial_count = len(test_alignments)
     bin_count = len(relative_times)
     observed = counts.reshape(trial_count, bin_count)
     conditional = prediction.reshape(trial_count, bin_count)
-    history_scaled = (history - history_mean) / history_scale
-    common_columns = len(result["plus_video"]["coefficients"]) - HISTORY_COLUMNS
     typical_trial = _select_count_typical_trial(observed)
-    common_trial = common[:, :common_columns].reshape(
+    displayed_design = common[:, :common_columns].reshape(
         trial_count, bin_count, common_columns
     )[typical_trial]
-    history_trial = history_scaled.reshape(trial_count, bin_count, HISTORY_COLUMNS)[
-        typical_trial
-    ]
-    displayed_design = np.column_stack((common_trial, history_trial))
     test_trial_numbers = prepared["selected_trial_numbers"][trial_split == 2]
     design_matrix_pdf, design_matrix_png = plot_design_matrix_trial(
         relative_times,
@@ -1151,7 +994,6 @@ def main() -> None:
     simulation = simulate_spike_counts(
         observed,
         conditional,
-        simulation_history_kernel(result["plus_video"], history_scale),
         np.random.default_rng(SIMULATION_SEED),
     )
     pdf_path, png_path = plot_prediction_figure(
@@ -1186,8 +1028,8 @@ def main() -> None:
                 "design_matrix_png": str(design_matrix_png),
                 "task_kernel_pdf": str(task_kernel_pdf),
                 "task_kernel_png": str(task_kernel_png),
-                "history_video_kernel_pdf": str(history_video_kernel_pdf),
-                "history_video_kernel_png": str(history_video_kernel_png),
+                "video_kernel_pdf": str(video_kernel_pdf),
+                "video_kernel_png": str(video_kernel_png),
                 "pdf": str(pdf_path),
                 "png": str(png_path),
             },

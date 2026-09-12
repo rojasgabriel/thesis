@@ -2,17 +2,17 @@
 
 Scientific comparison
 ---------------------
-For the 12 depth-spaced V1 pilot units, use DAMN's native per-target alpha
-selection on chronological training trials with its internal random 5% split.
-Then refit the accepted 25-camera-PC model on all training trials with DAMN and
-sklearn. The matched sklearn penalty is twice DAMN's penalty because the two
+For the 12 depth-spaced V1 test units, use DAMN's native per-target alpha
+selection on random-split training rows with its internal random 5% split.
+Then refit the accepted 25 motion-energy-PC model on all training rows with DAMN
+and sklearn. The matched sklearn penalty is twice DAMN's penalty because the two
 objectives differ by a factor of two in the L2 term. Compare coefficients and
-predictions only on the existing validation trials. Test trials are not scored.
+predictions only on validation rows. Test trials are not scored.
 
-Both fits use the same standardized design, observed strictly past spike
-history, and Poisson log link. DAMN clips the linear predictor only above 8.
-The output reports how often that bound is active. This is a backend check,
-not a new model-selection or biological analysis.
+Both fits use the same standardized shared design and Poisson log link. DAMN
+clips the linear predictor only above 8. The output reports how often that bound
+is active. This is a backend check, not a new model-selection or biological
+analysis.
 """
 
 from __future__ import annotations
@@ -28,13 +28,14 @@ from damn import fit as damn_fit
 
 from thesis.ephys.analyses.v1_glm import (
     VIDEO_BASIS_COLUMNS,
-    _contiguous_slices,
-    _design_with_history,
+    PoissonGLM,
     _load_windows,
-    build_unit_design,
+    _split_masks,
+    _valid_bin_mask,
+    build_unit_counts,
     fit_poisson_at_alpha,
-    pilot_indices,
     poisson_metrics,
+    test_unit_indices,
 )
 from thesis.ephys.units import fetch_unit_table
 
@@ -63,11 +64,8 @@ def run_check(args: argparse.Namespace) -> None:
     common = np.load(args.design, mmap_mode="r", allow_pickle=False)
     with args.design.with_suffix(".json").open() as handle:
         metadata = json.load(handle)
-    train, validation, _ = _contiguous_slices(prepared["split"])
-    selection_stop = validation.stop
-    rows_per_trial = len(prepared["split"]) // len(prepared["alignments"])
-    alignments = prepared["alignments"][: selection_stop // rows_per_trial]
-    common = common[:selection_stop]
+    valid = _valid_bin_mask(prepared)
+    train, validation, _ = _split_masks(prepared["split"], valid)
 
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
@@ -76,7 +74,7 @@ def run_check(args: argparse.Namespace) -> None:
         stability_param_id=0,
         include_metrics=False,
     )
-    units = units.iloc[pilot_indices(len(units))]
+    units = units.iloc[test_unit_indices(len(units))]
     columns = int(metadata["base_columns"]) + (VIDEO_BASIS_COLUMNS * VIDEO_COMPONENTS)
     records = []
     for position, unit in enumerate(units.itertuples(index=False), start=1):
@@ -84,13 +82,10 @@ def run_check(args: argparse.Namespace) -> None:
         with (args.fit_dir / f"unit_{unit_id}_validation.json").open() as handle:
             selection = json.load(handle)
         saved = selection["plus_video"][str(VIDEO_COMPONENTS)]
-        counts, history = build_unit_design(
-            alignments, np.asarray(unit.spike_times_s, dtype=float)
+        counts = build_unit_counts(
+            prepared["alignments"], np.asarray(unit.spike_times_s, dtype=float)
         )
-        history = (
-            history - np.asarray(selection["history_training_mean"], dtype=float)
-        ) / np.asarray(selection["history_training_scale"], dtype=float)
-        design = _design_with_history(common, history, columns)
+        design = np.asarray(common[:, :columns])
         fit_mean = float(counts[train].mean())
 
         np.random.seed(SEED + unit_id)
@@ -186,7 +181,7 @@ def run_check(args: argparse.Namespace) -> None:
         )
 
     result = {
-        "comparison": "DAMN versus sklearn on chronological validation trials",
+        "comparison": "DAMN versus sklearn on random-trial validation rows",
         "device": str(device),
         "units": len(records),
         "video_components": VIDEO_COMPONENTS,
@@ -233,20 +228,15 @@ def run_check(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--windows",
-        type=Path,
-        default=Path("figures/v1_glm/stimulus_windows.npz"),
-    )
-    parser.add_argument(
-        "--design", type=Path, default=Path("figures/v1_glm/common_design.npy")
-    )
-    parser.add_argument("--fit-dir", type=Path, default=Path("figures/v1_glm/all_fit"))
+    model = PoissonGLM()
+    parser.add_argument("--windows", type=Path, default=model.windows)
+    parser.add_argument("--design", type=Path, default=model.design)
+    parser.add_argument("--fit-dir", type=Path, default=model.fit_dir("test"))
     parser.add_argument("--device", default="mps")
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("figures/v1_glm/damn_mps_check.json"),
+        default=model.root / "damn_mps_check_me.json",
     )
     run_check(parser.parse_args())
 

@@ -2,30 +2,12 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, fit an encoding model that uses sensory,
-task, audio, behavior, drift, and spike-history variables to predict V1 spikes.
-Validation compares candidate camera-PC counts, including zero, to select the
-size of the video nuisance block. The response is raw spike count in 1 ms bins
-from 99 ms before through 2.539 s after the first measured visual flash. Trials
-are the sampling units and remain in chronological 60/20/20
-training/validation/test splits. The pilot uses 12 depth-spaced units that pass
-quality criterion 1 and stability parameter 0. No sensory-response selection
-or baseline subtraction is used.
-
-Measured flashes and task events use raised-cosine kernels. Self-history uses
-10 log-spaced raised cosines over strictly past lags from 1 to 100 ms. Linear
-and quadratic session-time terms absorb slow firing-rate drift. Each raw-video
-PC uses three raised cosines over -200 to +200 ms because video is a behavioral
-nuisance group, not a causal regressor. DAMN supplies native event alignment,
-continuous resampling, and trial-edge truncation. Scikit-learn supplies the
-unclipped log-link Poisson likelihood and L2-penalized LBFGS fit.
-
-All settings are selected on validation trials. The pilot never scores test
-responses. The full-unit run selects one video-PC count for the population,
-refits coefficients on training plus validation trials, and scores test trials
-once. Predictions condition on observed spike history; they are not free
-simulations. Coefficients and predictive changes are conditional associations,
-not causal effects.
+For GRB006 session 20240821_121447, predict V1 spikes from flashes, a
+center-poke kernel truncated at the first flash, peri-exit movement, pre-response
+choice side, and additive video motion-energy PCs. Bins after response entry are
+excluded. Whole trials are split randomly 60/20/20. No spike history, session
+drift, go cue, outcome, or punishment terms. Validation selects the motion-energy
+PC count. The 12-unit test set never scores held-out trials.
 """
 
 from __future__ import annotations
@@ -34,10 +16,11 @@ import argparse
 import copy
 import json
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from damn.alignment import compute_spike_count
+from damn.alignment import compute_spike_count, construct_timebins
 from damn.objects.basis_function_objects import RaisedCosineBasis
 from damn.objects.design_matrix_objects import DesignMatrix
 from damn.objects.regressor_objects import ContinuousRegressor, EventRegressor
@@ -52,7 +35,6 @@ from thesis.ephys.units import fetch_unit_table
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
 INITIAL_ALPHAS = tuple(np.logspace(-3, 3, 7))
 VIDEO_BASIS_COLUMNS = 3
-HISTORY_COLUMNS = 10
 MAX_ITER = 500
 TOL = 1e-7
 MAX_ALPHA_EXTENSIONS = 6
@@ -81,18 +63,15 @@ def _flatten_events(values) -> np.ndarray:
 
 def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     """Return the temporal basis used for each sensory or task regressor."""
-    causal = RaisedCosineBasis(6, 0, 0.301, BINWIDTH_S)
-    peri = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
+    flash = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
+    poke = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
+    peri_exit = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
     pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
     return {
-        "visual_flash": causal,
-        "center_entry": causal,
-        "go_cue_command": causal,
-        "center_exit": peri,
-        "response_entry": peri,
-        "response_side": peri,
-        "outcome": pre_response,
-        "wrong_punishment_command": causal,
+        "visual_flash": flash,
+        "center_poke": poke,
+        "center_exit": peri_exit,
+        "response_side": pre_response,
     }
 
 
@@ -101,7 +80,6 @@ def build_task_design(
 ) -> tuple[DesignMatrix, list[dict]]:
     """Build sensory and task regressors with the accepted DAMN interface."""
     bases = task_temporal_bases()
-    response_times = trials["response_port_entry_s"].to_numpy(dtype=float)
     specifications = [
         (
             "visual_flash",
@@ -112,20 +90,12 @@ def build_task_design(
             "each measured flash",
         ),
         (
-            "center_entry",
+            "center_poke",
             trials["center_entry_s"].to_numpy(dtype=float),
             None,
-            bases["center_entry"],
+            bases["center_poke"],
             "task",
-            "one event per completed trial",
-        ),
-        (
-            "go_cue_command",
-            _flatten_events(trials["go_cue_times_s"]),
-            None,
-            bases["go_cue_command"],
-            "audio task",
-            "Bpod command converted to NIDQ time",
+            "center poke truncated at the first flash",
         ),
         (
             "center_exit",
@@ -136,36 +106,12 @@ def build_task_design(
             "one event per completed trial",
         ),
         (
-            "response_entry",
-            response_times,
-            None,
-            bases["response_entry"],
-            "task",
-            "common response-entry effect",
-        ),
-        (
             "response_side",
-            response_times,
+            trials["response_port_entry_s"].to_numpy(dtype=float),
             trials["response"].to_numpy(dtype=float),
             bases["response_side"],
             "task",
-            "left=-1, right=+1 at response entry",
-        ),
-        (
-            "outcome",
-            response_times,
-            np.where(trials["rewarded"].to_numpy(dtype=bool), 1.0, -1.0),
-            bases["outcome"],
-            "task",
-            "error=-1, rewarded=+1 at response entry",
-        ),
-        (
-            "wrong_punishment_command",
-            _flatten_events(trials["punish_wrong_times_s"]),
-            None,
-            bases["wrong_punishment_command"],
-            "audio task",
-            "Bpod command converted to NIDQ time",
+            "left=-1, right=+1; pre-response only",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
@@ -195,14 +141,24 @@ def build_task_design(
             }
         )
     design.build_matrix()
-    rows_per_trial = design.X.shape[0] // len(alignments)
-    for item, regressor in zip(manifest, design.regressors.values(), strict=True):
+    poke = design.regressors["center_poke"]
+    rows_per_trial = poke.X.shape[0] // len(alignments)
+    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
+    truncated = np.asarray(poke.X).reshape(len(alignments), rows_per_trial, -1)
+    truncated[:, np.asarray(centers) >= 0] = 0
+    poke._X = truncated.reshape(-1, poke.X.shape[1])
+    values = np.asarray(design.X)
+    start = 0
+    widths = [regressor.X.shape[1] for regressor in design.regressors.values()]
+    for item, columns in zip(manifest, widths, strict=True):
+        stop = start + columns
         item["trials_with_nonzero_values"] = int(
             np.any(
-                regressor.X.reshape(len(alignments), rows_per_trial, -1),
+                values[:, start:stop].reshape(len(alignments), rows_per_trial, -1),
                 axis=(1, 2),
             ).sum()
         )
+        start = stop
     return design, manifest
 
 
@@ -215,20 +171,16 @@ def task_column_names(manifest: list[dict]) -> list[str]:
     ]
 
 
-def build_session_drift(bin_times: np.ndarray) -> np.ndarray:
-    """Return linear and quadratic absolute session-time nuisance columns."""
-    times = np.asarray(bin_times, dtype=float)
-    if times.ndim != 1 or not np.isfinite(times).all():
-        raise ValueError("Session bin times must be one finite vector.")
-    span = np.ptp(times)
-    if span <= 0:
-        raise ValueError("Session bin times must span a positive duration.")
-    session_fraction = (times - times.min()) / span
-    return np.column_stack((session_fraction, session_fraction**2))
+def build_unit_counts(alignments: np.ndarray, spike_times: np.ndarray) -> np.ndarray:
+    """Return raw 1 ms spike counts on the GLM grid."""
+    counts, _, _ = compute_spike_count(
+        alignments, spike_times, PRE_S, POST_S, BINWIDTH_S
+    )
+    return counts.ravel()
 
 
 def video_temporal_basis() -> RaisedCosineBasis:
-    """Return three smooth acausal video terms spanning -200 to +200 ms."""
+    """Return three smooth acausal motion-energy terms spanning -200 to +200 ms."""
     return RaisedCosineBasis(3, 0.201, 0.201, BINWIDTH_S)
 
 
@@ -258,40 +210,11 @@ def build_video_component_design(
     return regressor.X
 
 
-def spike_history_basis() -> RaisedCosineBasis:
-    """Return 10 log-spaced functions at strictly past lags 1 through 100 ms."""
-    return RaisedCosineBasis(HISTORY_COLUMNS, 0, 0.1, BINWIDTH_S, log_scale=True)
-
-
-def build_unit_design(
-    alignments: np.ndarray, spike_times: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return raw spike counts and 10 native strictly past history columns."""
-    counts, _, _ = compute_spike_count(
-        alignments, spike_times, PRE_S, POST_S, BINWIDTH_S
-    )
-    design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
-    design.add_regressor(
-        EventRegressor(
-            "self_history",
-            spike_times + BINWIDTH_S,
-            BINWIDTH_S,
-            basis_objects=[spike_history_basis()],
-            tags="history",
-        )
-    )
-    design.build_matrix()
-    history = design.X
-    if history.shape[1] != HISTORY_COLUMNS:
-        raise ValueError("Expected 10 strictly past self-history columns.")
-    return counts.ravel(), history
-
-
-def pilot_indices(n_units: int, pilot_size: int = 12) -> np.ndarray:
+def test_unit_indices(n_units: int, n_test_units: int = 12) -> np.ndarray:
     """Select deterministic indices spaced across depth-sorted eligible units."""
-    if n_units < pilot_size:
-        raise ValueError("Not enough eligible units for the requested pilot.")
-    return np.rint(np.linspace(0, n_units - 1, pilot_size)).astype(int)
+    if n_units < n_test_units:
+        raise ValueError("Not enough eligible units for the requested test set.")
+    return np.rint(np.linspace(0, n_units - 1, n_test_units)).astype(int)
 
 
 def poisson_nll(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -442,13 +365,16 @@ def fit_poisson_alpha_path(
 def _load_windows(path: Path) -> dict:
     with np.load(path, allow_pickle=False) as windows:
         selected_rows = windows["selected_trial_rows"]
+        eligible = windows["eligible_trials"]
         return {
             "metadata": json.loads(str(windows["metadata_json"])),
             "selected_rows": selected_rows.copy(),
             "selected_trial_numbers": windows["trial_num"][selected_rows].copy(),
-            "alignments": windows["first_stim_s"][windows["eligible_trials"]].copy(),
+            "alignments": windows["first_stim_s"][eligible].copy(),
             "split": windows["bin_split"].copy(),
             "bin_times": windows["bin_center_s"].copy(),
+            "relative_centers": windows["relative_bin_centers_s"].copy(),
+            "response_times": windows["response_entry_s"][eligible].copy(),
         }
 
 
@@ -463,6 +389,22 @@ def _load_selected_trials(prepared: dict):
     return trials
 
 
+def _valid_bin_mask(prepared: dict) -> np.ndarray:
+    """Keep bins at or before that trial's response entry."""
+    limits = prepared["response_times"] - prepared["alignments"]
+    return (prepared["relative_centers"][None, :] <= limits[:, None]).ravel()
+
+
+def _split_masks(
+    split: np.ndarray, valid: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Train / validation / test rows after the response-entry mask."""
+    split = np.asarray(split)
+    if not np.array_equal(np.unique(split), [0, 1, 2]):
+        raise ValueError("Rows must contain train, validation, and test labels.")
+    return tuple((split == value) & valid for value in (0, 1, 2))
+
+
 def _write_json_atomic(path: Path, value: dict) -> None:
     partial = path.with_name(f"{path.name}.partial")
     if path.exists() or partial.exists():
@@ -473,7 +415,7 @@ def _write_json_atomic(path: Path, value: dict) -> None:
 
 
 def prepare_common_design(args: argparse.Namespace) -> None:
-    """Build and save the shared task, drift, and video design columns."""
+    """Build and save the shared task and motion-energy design columns."""
     prepared = _load_windows(args.windows)
     trials = _load_selected_trials(prepared)
     with np.load(args.video, allow_pickle=False) as video:
@@ -487,14 +429,10 @@ def prepare_common_design(args: argparse.Namespace) -> None:
     task, task_manifest = build_task_design(prepared["alignments"], trials)
     task_values = task.X
     task_columns = task_values.shape[1]
-    drift = build_session_drift(prepared["bin_times"])
-    base = np.hstack((task_values, drift))
-    train_rows = prepared["split"] == 0
-    scaled_base, base_mean, base_scale = training_zscore(base, train_rows)
-    base_names = task_column_names(task_manifest) + [
-        "session_time_linear",
-        "session_time_quadratic",
-    ]
+    valid = _valid_bin_mask(prepared)
+    train_rows, _, _ = _split_masks(prepared["split"], valid)
+    scaled_base, base_mean, base_scale = training_zscore(task_values, train_rows)
+    base_names = task_column_names(task_manifest)
     base_columns = len(base_names)
     total_columns = base_columns + VIDEO_BASIS_COLUMNS * scores.shape[1]
 
@@ -512,7 +450,7 @@ def prepare_common_design(args: argparse.Namespace) -> None:
         shape=(len(prepared["split"]), total_columns),
     )
     matrix[:, :base_columns] = scaled_base.astype(np.float32)
-    del base, scaled_base, task_values
+    del scaled_base, task_values
 
     video_mean = []
     video_scale = []
@@ -546,7 +484,7 @@ def prepare_common_design(args: argparse.Namespace) -> None:
         "columns": matrix.shape[1],
         "dtype": str(matrix.dtype),
         "task_columns": task_columns,
-        "drift_columns": 2,
+        "drift_columns": 0,
         "base_columns": base_columns,
         "video_components": scores.shape[1],
         "video_basis_columns_per_component": VIDEO_BASIS_COLUMNS,
@@ -576,46 +514,18 @@ def prepare_common_design(args: argparse.Namespace) -> None:
     )
 
 
-def _contiguous_slices(split: np.ndarray) -> tuple[slice, slice, slice]:
-    """Return contiguous chronological train, validation, and test slices."""
-    if not np.array_equal(np.unique(split), [0, 1, 2]) or np.any(np.diff(split) < 0):
-        raise ValueError("Rows must contain contiguous chronological 0/1/2 splits.")
-    validation_start = int(np.flatnonzero(split == 1)[0])
-    test_start = int(np.flatnonzero(split == 2)[0])
-    return (
-        slice(0, validation_start),
-        slice(validation_start, test_start),
-        slice(test_start, len(split)),
-    )
-
-
-def _design_with_history(
-    common: np.ndarray, history: np.ndarray, common_columns: int
-) -> np.ndarray:
-    design = np.empty(
-        (common.shape[0], common_columns + history.shape[1]), dtype=np.float32
-    )
-    design[:, :common_columns] = common[:, :common_columns]
-    design[:, common_columns:] = history.astype(np.float32)
-    return design
-
-
 def _selection_for_unit(
     common: np.ndarray,
     base_columns: int,
     counts: np.ndarray,
-    history: np.ndarray,
-    split_slices: tuple[slice, slice, slice],
+    train: np.ndarray,
+    validation: np.ndarray,
 ) -> dict:
-    train, validation, _ = split_slices
-    history_scaled, history_mean, history_scale = training_zscore(
-        history, slice(0, train.stop)
-    )
     fit_mean = float(counts[train].mean())
     if fit_mean <= 0:
         raise ValueError("Each unit must have at least one training spike.")
 
-    baseline = _design_with_history(common, history_scaled, base_columns)
+    baseline = common[:, :base_columns]
     model, path = fit_poisson_alpha_path(
         baseline[train],
         counts[train],
@@ -623,8 +533,6 @@ def _selection_for_unit(
         counts[validation],
     )
     result = {
-        "history_training_mean": history_mean.tolist(),
-        "history_training_scale": history_scale.tolist(),
         "training_mean_count": fit_mean,
         "baseline": {
             "alpha_path": path,
@@ -634,11 +542,11 @@ def _selection_for_unit(
         },
         "plus_video": {},
     }
-    del baseline, model
+    del model
 
     for component_count in VIDEO_COMPONENT_COUNTS:
         common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
-        design = _design_with_history(common, history_scaled, common_columns)
+        design = common[:, :common_columns]
         model, path = fit_poisson_alpha_path(
             design[train],
             counts[train],
@@ -651,7 +559,7 @@ def _selection_for_unit(
                 counts[validation], model.predict(design[validation]), fit_mean
             ),
         }
-        del design, model
+        del model
     return result
 
 
@@ -659,41 +567,36 @@ def _final_fit_for_unit(
     common: np.ndarray,
     base_columns: int,
     counts: np.ndarray,
-    history: np.ndarray,
-    split_slices: tuple[slice, slice, slice],
+    train: np.ndarray,
+    validation: np.ndarray,
+    test: np.ndarray,
     selection: dict,
     component_count: int,
 ) -> dict:
-    _, validation, test = split_slices
-    fit_stop = validation.stop
-    history_mean = np.asarray(selection["history_training_mean"])
-    history_scale = np.asarray(selection["history_training_scale"])
-    history_scaled = (history - history_mean) / history_scale
-    fit_mean = float(counts[:fit_stop].mean())
-
-    baseline = _design_with_history(common, history_scaled, base_columns)
+    fit = train | validation
+    fit_mean = float(counts[fit].mean())
+    baseline = common[:, :base_columns]
     baseline_model = fit_poisson_at_alpha(
-        baseline[:fit_stop],
-        counts[:fit_stop],
+        baseline[fit],
+        counts[fit],
         selection["baseline"]["alpha_path"]["best_alpha"],
     )
-    baseline_prediction = baseline_model.predict(baseline[test])
-
     common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
-    full = _design_with_history(common, history_scaled, common_columns)
+    full = common[:, :common_columns]
     full_model = fit_poisson_at_alpha(
-        full[:fit_stop],
-        counts[:fit_stop],
+        full[fit],
+        counts[fit],
         selection["plus_video"][str(component_count)]["alpha_path"]["best_alpha"],
     )
-    full_prediction = full_model.predict(full[test])
     return {
         "fit_mean_count": fit_mean,
         "baseline": {
             "alpha": selection["baseline"]["alpha_path"]["best_alpha"],
             "intercept": float(baseline_model.intercept_),
             "coefficients": baseline_model.coef_.tolist(),
-            "test": poisson_metrics(counts[test], baseline_prediction, fit_mean),
+            "test": poisson_metrics(
+                counts[test], baseline_model.predict(baseline[test]), fit_mean
+            ),
         },
         "plus_video": {
             "components": component_count,
@@ -702,13 +605,15 @@ def _final_fit_for_unit(
             ],
             "intercept": float(full_model.intercept_),
             "coefficients": full_model.coef_.tolist(),
-            "test": poisson_metrics(counts[test], full_prediction, fit_mean),
+            "test": poisson_metrics(
+                counts[test], full_model.predict(full[test]), fit_mean
+            ),
         },
     }
 
 
 def fit_models(args: argparse.Namespace) -> None:
-    """Run validation selection for pilot/all units and test only the all-unit run."""
+    """Run validation selection; score held-out trials only for the all-unit run."""
     prepared = _load_windows(args.windows)
     common = np.load(args.design, mmap_mode="r", allow_pickle=False)
     with args.design.with_suffix(".json").open() as handle:
@@ -717,7 +622,8 @@ def fit_models(args: argparse.Namespace) -> None:
         raise ValueError("Common design matrix and metadata shapes differ.")
     if common.shape[0] != len(prepared["split"]):
         raise ValueError("Common design and prepared response rows differ.")
-    split_slices = _contiguous_slices(prepared["split"])
+    valid = _valid_bin_mask(prepared)
+    train, validation, test = _split_masks(prepared["split"], valid)
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
         prepared["metadata"]["session_name"],
@@ -726,36 +632,32 @@ def fit_models(args: argparse.Namespace) -> None:
         include_metrics=False,
     )
     unit_rows = (
-        pilot_indices(len(units)) if args.units == "pilot" else np.arange(len(units))
+        test_unit_indices(len(units)) if args.units == "test" else np.arange(len(units))
     )
     args.output.mkdir(parents=True, exist_ok=True)
 
     selections = []
-    selection_stop = split_slices[1].stop
-    rows_per_trial = len(prepared["split"]) // len(prepared["alignments"])
-    selection_alignments = prepared["alignments"][: selection_stop // rows_per_trial]
-    selection_common = common[:selection_stop]
     for position, row in enumerate(unit_rows, start=1):
         unit = units.iloc[row]
         output = args.output / f"unit_{int(unit['unit_id'])}_validation.json"
-        counts, history = build_unit_design(
-            selection_alignments, np.asarray(unit["spike_times_s"], dtype=float)
+        counts = build_unit_counts(
+            prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
         )
         if output.exists():
             with output.open() as handle:
                 selection = json.load(handle)
         else:
             selection = _selection_for_unit(
-                selection_common,
+                common,
                 design_metadata["base_columns"],
                 counts,
-                history,
-                split_slices,
+                train,
+                validation,
             )
             selection.update(
                 unit_id=int(unit["unit_id"]),
                 depth=float(unit["depth"]),
-                spikes_in_selection_bins=int(counts.sum()),
+                spikes_in_selection_bins=int(counts[train | validation].sum()),
             )
             _write_json_atomic(output, selection)
         selections.append(selection)
@@ -787,17 +689,21 @@ def fit_models(args: argparse.Namespace) -> None:
         "test_scored": args.units == "all",
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_components,
+        "fit_rows": {
+            "train": int(train.sum()),
+            "validation": int(validation.sum()),
+            "test": int(test.sum()),
+        },
     }
 
     if args.units == "all":
-        test_rows = split_slices[2]
         final_results = []
         for position, (row, selection) in enumerate(
             zip(unit_rows, selections, strict=True), start=1
         ):
             unit = units.iloc[row]
             output = args.output / f"unit_{int(unit['unit_id'])}_test.json"
-            counts, history = build_unit_design(
+            counts = build_unit_counts(
                 prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
             )
             if output.exists():
@@ -808,8 +714,9 @@ def fit_models(args: argparse.Namespace) -> None:
                     common,
                     design_metadata["base_columns"],
                     counts,
-                    history,
-                    split_slices,
+                    train,
+                    validation,
+                    test,
                     selection,
                     selected_components,
                 )
@@ -832,7 +739,6 @@ def fit_models(args: argparse.Namespace) -> None:
             "q25": float(np.quantile(differences, 0.25)),
             "q75": float(np.quantile(differences, 0.75)),
         }
-        summary["test_rows"] = test_rows.stop - test_rows.start
 
     _write_json_atomic(args.output / "summary.json", summary)
     print(json.dumps(summary, indent=2))
@@ -841,38 +747,78 @@ def fit_models(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    design = subparsers.add_parser("prepare-design", help="Build shared design columns")
-    design.add_argument(
-        "--windows",
-        type=Path,
-        default=Path("figures/v1_glm/stimulus_windows.npz"),
+    prepare = subparsers.add_parser(
+        "prepare", help="Windows, motion-energy SVD, and shared design"
     )
-    design.add_argument(
-        "--video", type=Path, default=Path("figures/v1_glm/video_features.npz")
-    )
-    design.add_argument(
-        "--output", type=Path, default=Path("figures/v1_glm/common_design.npy")
-    )
-    design.set_defaults(function=prepare_common_design)
-
+    prepare.add_argument("--frame-times", type=Path)
     fit = subparsers.add_parser("fit", help="Select and fit Poisson models")
-    fit.add_argument(
-        "--windows",
-        type=Path,
-        default=Path("figures/v1_glm/stimulus_windows.npz"),
-    )
-    fit.add_argument(
-        "--design", type=Path, default=Path("figures/v1_glm/common_design.npy")
-    )
-    fit.add_argument("--units", choices=("pilot", "all"), default="pilot")
-    fit.add_argument("--output", type=Path)
-    fit.set_defaults(function=fit_models)
-
+    fit.add_argument("--units", choices=("test", "all"), default="test")
     args = parser.parse_args()
-    if args.command == "fit" and args.output is None:
-        args.output = Path(f"figures/v1_glm/{args.units}_fit")
-    args.function(args)
+    model = PoissonGLM()
+    if args.command == "prepare":
+        if args.frame_times is not None:
+            model.frame_times = args.frame_times
+        model.prepare()
+        return
+    model.fit(args.units)
+
+
+@dataclass
+class PoissonGLM:
+    """Default artifact layout and the two commands that produce a fitted GLM."""
+
+    root: Path = Path("figures/v1_glm")
+    subject: str = "GRB006"
+    session: str = "20240821_121447"
+    frame_times: Path = Path("figures/v1_glm/frame_times.npy")
+
+    @property
+    def windows(self) -> Path:
+        return self.root / "stimulus_windows_me.npz"
+
+    @property
+    def video(self) -> Path:
+        return self.root / "video_me_features.npz"
+
+    @property
+    def design(self) -> Path:
+        return self.root / "common_design_me.npy"
+
+    def fit_dir(self, units: str) -> Path:
+        return self.root / f"{units}_fit_me"
+
+    def prepare(self) -> None:
+        from thesis.ephys.preprocessing.prepare_v1_glm import write_stimulus_windows
+        from thesis.ephys.preprocessing.video_svd import write_motion_energy_features
+
+        if self.windows.exists():
+            print(f"Skipping {self.windows}; file exists.", flush=True)
+        else:
+            write_stimulus_windows(
+                self.subject, self.session, self.windows, self.frame_times
+            )
+        if self.video.exists():
+            print(f"Skipping {self.video}; file exists.", flush=True)
+        else:
+            write_motion_energy_features(self.windows, self.video)
+        if self.design.exists():
+            print(f"Skipping {self.design}; file exists.", flush=True)
+        else:
+            prepare_common_design(
+                argparse.Namespace(
+                    windows=self.windows, video=self.video, output=self.design
+                )
+            )
+
+    def fit(self, units: str = "test") -> None:
+        fit_models(
+            argparse.Namespace(
+                windows=self.windows,
+                design=self.design,
+                units=units,
+                output=self.fit_dir(units),
+            )
+        )
 
 
 if __name__ == "__main__":
