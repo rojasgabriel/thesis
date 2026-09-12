@@ -69,8 +69,8 @@ D² and bits/spike as median (IQR) over units. One session: no population
 p-value.
 
 ```bash
-uv run python -m thesis.ephys.analyses.v1_glm prepare
-uv run python -m thesis.ephys.analyses.v1_glm fit --units test
+uv run python -m thesis.ephys.analyses.glm prepare
+uv run python -m thesis.ephys.analyses.glm fit --units test
 ```
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
@@ -87,7 +87,7 @@ Motion-energy PCs stay one block.
 `unique test D² = complete D² − shuffled D²`
 
 ```bash
-uv run python -m thesis.ephys.analyses.v1_glm attribute --units test
+uv run python -m thesis.ephys.analyses.glm attribute --units test
 ```
 
 ## Figures
@@ -95,7 +95,7 @@ uv run python -m thesis.ephys.analyses.v1_glm attribute --units test
 After the all-unit held-out fit:
 
 ```bash
-uv run python -m thesis.ephys.analyses.v1_glm figures --units all
+uv run python -m thesis.ephys.analyses.glm figures --units all
 ```
 
 Rasters are independent Poisson draws from the covariate-conditioned rate (no

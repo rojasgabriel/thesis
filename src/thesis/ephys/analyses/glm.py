@@ -28,7 +28,7 @@ from scipy.special import xlogy
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import PoissonRegressor
 
-from thesis.ephys.preprocessing.prepare_v1_glm import (
+from thesis.ephys.preprocessing.prepare_glm import (
     BINWIDTH_S,
     POST_S,
     PRE_S,
@@ -783,7 +783,7 @@ class PoissonGLM:
         return self.root / f"{units}_fit_me"
 
     def prepare(self) -> None:
-        from thesis.ephys.preprocessing.prepare_v1_glm import write_stimulus_windows
+        from thesis.ephys.preprocessing.prepare_glm import write_stimulus_windows
         from thesis.ephys.preprocessing.video_svd import write_motion_energy_features
 
         if self.windows.exists():
@@ -805,12 +805,12 @@ class PoissonGLM:
         fit_models(self.windows, self.design, units, self.fit_dir(units))
 
     def attribute(self, units: str = "test") -> None:
-        from thesis.ephys.analyses.v1_glm_attribution import run_attribution
+        from thesis.ephys.analyses.glm_attribution import run_attribution
 
         run_attribution(self.windows, self.design, self.fit_dir(units), units)
 
     def figures(self, units: str = "all") -> None:
-        from thesis.ephys.analyses.v1_glm_prediction import make_figures
+        from thesis.ephys.analyses.glm_prediction import make_figures
 
         make_figures(self.windows, self.design, self.fit_dir(units))
 

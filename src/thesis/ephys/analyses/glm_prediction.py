@@ -17,7 +17,7 @@ from scipy.stats import spearmanr
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.v1_glm import (
+from thesis.ephys.analyses.glm import (
     VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
     _load_windows,
@@ -25,7 +25,7 @@ from thesis.ephys.analyses.v1_glm import (
     task_temporal_bases,
     video_temporal_basis,
 )
-from thesis.ephys.preprocessing.prepare_v1_glm import BINWIDTH_S
+from thesis.ephys.preprocessing.prepare_glm import BINWIDTH_S
 from thesis.ephys.units import fetch_unit_table
 
 OBSERVED_COLOR = "black"
