@@ -954,10 +954,9 @@ def main() -> None:
     )
     prepare.add_argument("--frame-times", type=Path)
     for name, help_text in (
-        ("fit", "Select and fit Poisson models"),
-        ("attribute", "Refit shuffled blocks for conditional deviance"),
+        ("fit", "Select the PC count, cross-validate, and refit"),
+        ("unique", "Shuffle each block to get its unique explained deviance"),
         ("figures", "Draw every figure for a completed fit"),
-        ("crossvalidate", "Score every trial once with k-fold over trials"),
     ):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--units", choices=("test", "all"), default="test")
@@ -1015,22 +1014,21 @@ class PoissonGLM:
             prepare_common_design(self.windows, self.video, self.design)
 
     def fit(self, units: str = "test") -> None:
-        fit_models(self.windows, self.design, units, self.fit_dir(units))
+        """Choose the PC count, cross-validate at it, then refit on every trial.
 
-    def cv_dir(self, units: str) -> Path:
-        return self.root / f"{units}_cv_me"
-
-    def crossvalidate(self, units: str = "test") -> None:
-        from thesis.ephys.analyses.glm import crossvalidate as run
-
-        with (self.fit_dir(units) / "summary.json").open() as handle:
+        One command so the cross-validation cannot read a stale PC count, and so
+        the coefficients the figures use always come from the same run.
+        """
+        directory = self.fit_dir(units)
+        fit_models(self.windows, self.design, units, directory)
+        with (directory / "summary.json").open() as handle:
             components = int(json.load(handle)["selected_video_components"])
-        run(self.windows, self.design, units, self.cv_dir(units), components)
+        crossvalidate(self.windows, self.design, units, directory, components)
 
-    def attribute(self, units: str = "test") -> None:
-        from thesis.ephys.analyses.glm_attribution import run_attribution
+    def unique(self, units: str = "test") -> None:
+        from thesis.ephys.analyses.glm_unique import run_unique
 
-        run_attribution(self.windows, self.design, self.fit_dir(units), units)
+        run_unique(self.windows, self.design, self.fit_dir(units), units)
 
     def figures(self, units: str = "all") -> None:
         from thesis.ephys.analyses.glm_figures import make_figures
