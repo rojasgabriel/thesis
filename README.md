@@ -2,7 +2,7 @@
 
 Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 
-[V1 GLM](docs/v1_glm.md) is the encoding-model workflow.
+[V1 GLM](docs/glm.md) is the encoding-model workflow.
 
 ## Requirements
 
