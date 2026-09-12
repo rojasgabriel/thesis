@@ -15,21 +15,10 @@ from pathlib import Path
 import numpy as np
 from sklearn.decomposition import PCA
 
+from thesis.ephys.preprocessing.prepare_v1_glm import training_zscore
+
 WIDTH = 80
 COMPONENTS = 200
-
-
-def training_zscore(values: np.ndarray, train: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Scale every column using only training rows."""
-    mean = values[train].mean(axis=0)
-    scale = values[train].std(axis=0)
-    if (
-        not np.isfinite(mean).all()
-        or not np.isfinite(scale).all()
-        or np.any(scale == 0)
-    ):
-        raise ValueError("Training video scores must have finite nonzero variance.")
-    return (values - mean) / scale, mean, scale
 
 
 def write_motion_energy_features(alignment: Path, output: Path) -> None:

@@ -28,32 +28,22 @@ from scipy.special import xlogy
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import PoissonRegressor
 
-from thesis.ephys.preprocessing.prepare_v1_glm import BINWIDTH_S, POST_S, PRE_S
+from thesis.ephys.preprocessing.prepare_v1_glm import (
+    BINWIDTH_S,
+    POST_S,
+    PRE_S,
+    training_zscore,
+)
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
 INITIAL_ALPHAS = tuple(np.logspace(-3, 3, 7))
 VIDEO_BASIS_COLUMNS = 3
+TEST_UNITS = 12
 MAX_ITER = 500
 TOL = 1e-7
 MAX_ALPHA_EXTENSIONS = 6
-
-
-def training_zscore(
-    values: np.ndarray, train_rows: np.ndarray | slice
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Scale each design column with training rows and reject constants."""
-    mean = values[train_rows].mean(axis=0)
-    scale = values[train_rows].std(axis=0)
-    if not np.isfinite(mean).all() or not np.isfinite(scale).all():
-        raise ValueError("Design scaling statistics must be finite.")
-    if np.any(scale == 0):
-        raise ValueError("Every design column must vary in the training rows.")
-    scaled = (values - mean) / scale
-    if not np.isfinite(scaled).all():
-        raise ValueError("Scaled design values must be finite.")
-    return scaled, mean, scale
 
 
 def _flatten_events(values) -> np.ndarray:
@@ -210,11 +200,11 @@ def build_video_component_design(
     return regressor.X
 
 
-def test_unit_indices(n_units: int, n_test_units: int = 12) -> np.ndarray:
+def test_unit_indices(n_units: int) -> np.ndarray:
     """Select deterministic indices spaced across depth-sorted eligible units."""
-    if n_units < n_test_units:
+    if n_units < TEST_UNITS:
         raise ValueError("Not enough eligible units for the requested test set.")
-    return np.rint(np.linspace(0, n_units - 1, n_test_units)).astype(int)
+    return np.rint(np.linspace(0, n_units - 1, TEST_UNITS)).astype(int)
 
 
 def poisson_nll(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -414,13 +404,13 @@ def _write_json_atomic(path: Path, value: dict) -> None:
     partial.replace(path)
 
 
-def prepare_common_design(args: argparse.Namespace) -> None:
+def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     """Build and save the shared task and motion-energy design columns."""
-    prepared = _load_windows(args.windows)
+    prepared = _load_windows(windows)
     trials = _load_selected_trials(prepared)
-    with np.load(args.video, allow_pickle=False) as video:
-        frame_times = video["frame_times_s"].copy()
-        scores = video["scores"].copy()
+    with np.load(video, allow_pickle=False) as data:
+        frame_times = data["frame_times_s"].copy()
+        scores = data["scores"].copy()
     if scores.ndim != 2 or scores.shape[1] != max(VIDEO_COMPONENT_COUNTS):
         raise ValueError("Expected exactly 200 video-component score columns.")
     if len(frame_times) != len(scores):
@@ -436,11 +426,11 @@ def prepare_common_design(args: argparse.Namespace) -> None:
     base_columns = len(base_names)
     total_columns = base_columns + VIDEO_BASIS_COLUMNS * scores.shape[1]
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    matrix_partial = args.output.with_name(f"{args.output.name}.partial")
-    metadata_path = args.output.with_suffix(".json")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    matrix_partial = output.with_name(f"{output.name}.partial")
+    metadata_path = output.with_suffix(".json")
     metadata_partial = metadata_path.with_name(f"{metadata_path.name}.partial")
-    for path in (args.output, matrix_partial, metadata_path, metadata_partial):
+    for path in (output, matrix_partial, metadata_path, metadata_partial):
         if path.exists():
             raise FileExistsError(path)
     matrix = np.lib.format.open_memmap(
@@ -504,7 +494,7 @@ def prepare_common_design(args: argparse.Namespace) -> None:
     del matrix
     with metadata_partial.open("x") as handle:
         json.dump(metadata, handle, indent=2)
-    matrix_partial.replace(args.output)
+    matrix_partial.replace(output)
     metadata_partial.replace(metadata_path)
     omitted = {"column_names", "task_manifest", "training_mean", "training_scale"}
     print(
@@ -612,11 +602,11 @@ def _final_fit_for_unit(
     }
 
 
-def fit_models(args: argparse.Namespace) -> None:
+def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> None:
     """Run validation selection; score held-out trials only for the all-unit run."""
-    prepared = _load_windows(args.windows)
-    common = np.load(args.design, mmap_mode="r", allow_pickle=False)
-    with args.design.with_suffix(".json").open() as handle:
+    prepared = _load_windows(windows)
+    common = np.load(design, mmap_mode="r", allow_pickle=False)
+    with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     if list(common.shape) != [design_metadata["rows"], design_metadata["columns"]]:
         raise ValueError("Common design matrix and metadata shapes differ.")
@@ -632,14 +622,14 @@ def fit_models(args: argparse.Namespace) -> None:
         include_metrics=False,
     )
     unit_rows = (
-        test_unit_indices(len(units)) if args.units == "test" else np.arange(len(units))
+        test_unit_indices(len(units)) if unit_set == "test" else np.arange(len(units))
     )
-    args.output.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     selections = []
     for position, row in enumerate(unit_rows, start=1):
         unit = units.iloc[row]
-        output = args.output / f"unit_{int(unit['unit_id'])}_validation.json"
+        output = output_dir / f"unit_{int(unit['unit_id'])}_validation.json"
         counts = build_unit_counts(
             prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
         )
@@ -684,9 +674,9 @@ def fit_models(args: argparse.Namespace) -> None:
         key=lambda count: mean_validation_deviance[str(count)],
     )
     summary = {
-        "unit_set": args.units,
+        "unit_set": unit_set,
         "units": len(unit_rows),
-        "test_scored": args.units == "all",
+        "test_scored": unit_set == "all",
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_components,
         "fit_rows": {
@@ -696,13 +686,13 @@ def fit_models(args: argparse.Namespace) -> None:
         },
     }
 
-    if args.units == "all":
+    if unit_set == "all":
         final_results = []
         for position, (row, selection) in enumerate(
             zip(unit_rows, selections, strict=True), start=1
         ):
             unit = units.iloc[row]
-            output = args.output / f"unit_{int(unit['unit_id'])}_test.json"
+            output = output_dir / f"unit_{int(unit['unit_id'])}_test.json"
             counts = build_unit_counts(
                 prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
             )
@@ -740,7 +730,7 @@ def fit_models(args: argparse.Namespace) -> None:
             "q75": float(np.quantile(differences, 0.75)),
         }
 
-    _write_json_atomic(args.output / "summary.json", summary)
+    _write_json_atomic(output_dir / "summary.json", summary)
     print(json.dumps(summary, indent=2))
 
 
@@ -751,8 +741,13 @@ def main() -> None:
         "prepare", help="Windows, motion-energy SVD, and shared design"
     )
     prepare.add_argument("--frame-times", type=Path)
-    fit = subparsers.add_parser("fit", help="Select and fit Poisson models")
-    fit.add_argument("--units", choices=("test", "all"), default="test")
+    for name, help_text in (
+        ("fit", "Select and fit Poisson models"),
+        ("attribute", "Refit shuffled blocks for conditional deviance"),
+        ("figures", "Draw every figure for a completed fit"),
+    ):
+        command = subparsers.add_parser(name, help=help_text)
+        command.add_argument("--units", choices=("test", "all"), default="test")
     args = parser.parse_args()
     model = PoissonGLM()
     if args.command == "prepare":
@@ -760,12 +755,12 @@ def main() -> None:
             model.frame_times = args.frame_times
         model.prepare()
         return
-    model.fit(args.units)
+    getattr(model, args.command)(args.units)
 
 
 @dataclass
 class PoissonGLM:
-    """Default artifact layout and the two commands that produce a fitted GLM."""
+    """Default artifact layout and the commands that produce a fitted GLM."""
 
     root: Path = Path("figures/v1_glm")
     subject: str = "GRB006"
@@ -804,21 +799,20 @@ class PoissonGLM:
         if self.design.exists():
             print(f"Skipping {self.design}; file exists.", flush=True)
         else:
-            prepare_common_design(
-                argparse.Namespace(
-                    windows=self.windows, video=self.video, output=self.design
-                )
-            )
+            prepare_common_design(self.windows, self.video, self.design)
 
     def fit(self, units: str = "test") -> None:
-        fit_models(
-            argparse.Namespace(
-                windows=self.windows,
-                design=self.design,
-                units=units,
-                output=self.fit_dir(units),
-            )
-        )
+        fit_models(self.windows, self.design, units, self.fit_dir(units))
+
+    def attribute(self, units: str = "test") -> None:
+        from thesis.ephys.analyses.v1_glm_attribution import run_attribution
+
+        run_attribution(self.windows, self.design, self.fit_dir(units), units)
+
+    def figures(self, units: str = "all") -> None:
+        from thesis.ephys.analyses.v1_glm_prediction import make_figures
+
+        make_figures(self.windows, self.design, self.fit_dir(units))
 
 
 if __name__ == "__main__":

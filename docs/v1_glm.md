@@ -87,7 +87,7 @@ Motion-energy PCs stay one block.
 `unique test D² = complete D² − shuffled D²`
 
 ```bash
-uv run python -m thesis.ephys.analyses.v1_glm_attribution --units test
+uv run python -m thesis.ephys.analyses.v1_glm attribute --units test
 ```
 
 ## Figures
@@ -95,7 +95,7 @@ uv run python -m thesis.ephys.analyses.v1_glm_attribution --units test
 After the all-unit held-out fit:
 
 ```bash
-uv run python -m thesis.ephys.analyses.v1_glm_prediction
+uv run python -m thesis.ephys.analyses.v1_glm figures --units all
 ```
 
 Rasters are independent Poisson draws from the covariate-conditioned rate (no

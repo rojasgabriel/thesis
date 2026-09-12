@@ -6,7 +6,6 @@ are independent Poisson draws from the covariate-conditioned rate.
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 
@@ -17,12 +16,10 @@ from scipy.stats import spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
 
 from thesis.ephys.analyses.v1_glm import (
     VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
-    PoissonGLM,
     _load_windows,
     build_unit_counts,
     task_temporal_bases,
@@ -120,19 +117,12 @@ def conditional_prediction(common: np.ndarray, fitted_model: dict) -> np.ndarray
 
 
 def simulate_spike_counts(
-    observed_counts: np.ndarray,
-    conditional_mean: np.ndarray,
-    rng: np.random.Generator,
+    conditional_mean: np.ndarray, rng: np.random.Generator
 ) -> np.ndarray:
     """Draw independent Poisson counts from the covariate-conditioned mean."""
-    observed = np.asarray(observed_counts, dtype=float)
     conditional = np.asarray(conditional_mean, dtype=float)
-    if observed.ndim != 2 or observed.shape != conditional.shape:
-        raise ValueError(
-            "Observed counts and conditional means must be trial-by-bin arrays."
-        )
-    if np.any(observed < 0) or not np.isfinite(observed).all():
-        raise ValueError("Observed counts must be finite and nonnegative.")
+    if conditional.ndim != 2:
+        raise ValueError("Conditional means must be a trial-by-bin array.")
     if np.any(conditional <= 0) or not np.isfinite(conditional).all():
         raise ValueError("Conditional means must be finite and positive.")
     return rng.poisson(conditional)
@@ -152,12 +142,8 @@ def _save_figure(figure, output: Path) -> tuple[Path, Path]:
     return pdf_path, png_path
 
 
-def plot_model_design(
-    design_metadata: dict,
-    selected_components: int,
-    output: Path,
-) -> tuple[Path, Path]:
-    """Show the complete model structure and temporal support."""
+def plot_model_design(design_metadata: dict, output: Path) -> tuple[Path, Path]:
+    """Show the temporal support and basis count of every design block."""
     supports = [
         (
             TASK_LABELS[item["name"]].split("\n")[0],
@@ -181,103 +167,7 @@ def plot_model_design(
     )
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 4.8))
-        grid = figure.add_gridspec(2, 1, height_ratios=[1.1, 2.2], hspace=0.55)
-
-        schematic = figure.add_subplot(grid[0])
-        schematic.set(xlim=(0, 1), ylim=(0, 1))
-        schematic.axis("off")
-        source_boxes = (
-            (
-                0.02,
-                0.62,
-                (
-                    "sensory and task\n"
-                    f"{design_metadata['task_columns']} temporal columns"
-                ),
-                GROUP_COLORS["task"],
-            ),
-            (
-                0.02,
-                0.28,
-                (
-                    f"motion energy\n{selected_components} PCs × "
-                    f"{design_metadata['video_basis_columns_per_component']} bases"
-                ),
-                GROUP_COLORS["video"],
-            ),
-        )
-        for x, y, label, color in source_boxes:
-            box = FancyBboxPatch(
-                (x, y),
-                0.27,
-                0.17,
-                boxstyle="round,pad=0.015",
-                facecolor=color,
-                edgecolor=color,
-                alpha=0.2,
-                linewidth=1,
-            )
-            schematic.add_patch(box)
-            schematic.text(x + 0.135, y + 0.085, label, ha="center", va="center")
-            schematic.annotate(
-                "",
-                xy=(0.42, 0.5),
-                xytext=(x + 0.27, y + 0.085),
-                arrowprops={"arrowstyle": "->", "color": "0.45", "linewidth": 0.8},
-            )
-        model_box = FancyBboxPatch(
-            (0.42, 0.34),
-            0.25,
-            0.32,
-            boxstyle="round,pad=0.02",
-            facecolor="0.94",
-            edgecolor="0.35",
-            linewidth=1,
-        )
-        schematic.add_patch(model_box)
-        schematic.text(
-            0.545,
-            0.5,
-            "$\\log \\mu_t = \\beta_0 + X_t\\beta$\nL2-penalized fit",
-            ha="center",
-            va="center",
-        )
-        output_box = FancyBboxPatch(
-            (0.78, 0.39),
-            0.2,
-            0.22,
-            boxstyle="round,pad=0.02",
-            facecolor=MODEL_COLOR,
-            edgecolor=MODEL_COLOR,
-            alpha=0.2,
-            linewidth=1,
-        )
-        schematic.add_patch(output_box)
-        schematic.text(
-            0.88,
-            0.5,
-            "$y_t \\sim$ Poisson($\\mu_t$)\nspike count in 1 ms",
-            ha="center",
-            va="center",
-        )
-        schematic.annotate(
-            "",
-            xy=(0.78, 0.5),
-            xytext=(0.67, 0.5),
-            arrowprops={"arrowstyle": "->", "color": "0.35", "linewidth": 1},
-        )
-        schematic.text(
-            -0.02,
-            1.02,
-            "a",
-            transform=schematic.transAxes,
-            fontweight="bold",
-            fontsize=10,
-            va="bottom",
-        )
-
-        support_axis = figure.add_subplot(grid[1])
+        figure, support_axis = plt.subplots(figsize=(7.4, 3.0))
         positions = np.arange(len(supports))
         for position, (label, start, stop, columns, color) in enumerate(supports):
             support_axis.plot(
@@ -310,16 +200,6 @@ def plot_model_design(
             color="0.3",
             fontsize=7,
         )
-        support_axis.text(
-            -0.07,
-            1.02,
-            "b",
-            transform=support_axis.transAxes,
-            fontweight="bold",
-            fontsize=10,
-            va="bottom",
-        )
-
         return _save_figure(figure, output)
 
 
@@ -529,111 +409,65 @@ def task_kernel_display_values(name: str, values: np.ndarray) -> np.ndarray:
     return 2 * values if name == "response_side" else values
 
 
-def plot_task_kernels(
+def plot_kernel_figure(
     unit_ids: list[int],
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
     representative_unit_id: int,
-    task_names: list[str],
+    names: list[str],
+    titles: list[str],
     output: Path,
+    columns: int,
+    xlabel: str,
+    example_ylabel: str,
 ) -> tuple[Path, Path]:
-    """Show population task-filter heatmaps and one representative unit."""
-    if len(task_names) != 4:
-        raise ValueError("The task-kernel layout expects four regressors.")
+    """Show population filter heatmaps above the same filters for one unit."""
     example_row = unit_ids.index(representative_unit_id)
     displayed = {
-        name: (times, task_kernel_display_values(name, values))
-        for name, (times, values) in kernels.items()
-        if name in task_names
+        name: (kernels[name][0], task_kernel_display_values(name, kernels[name][1]))
+        for name in names
     }
-    limit = _kernel_color_limit([displayed[name][1] for name in task_names])
+    limit = _kernel_color_limit([displayed[name][1] for name in names])
+    rows = -(-len(names) // columns)
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.5, 7.8))
-        outer = figure.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.7)
-        population_grid = outer[0].subgridspec(
-            2, 3, width_ratios=[1, 1, 0.055], hspace=0.88, wspace=0.3
-        )
-        example_grid = outer[1].subgridspec(2, 2, hspace=0.88, wspace=0.3)
+        figure = plt.figure(figsize=(7.5, 2.0 + 1.9 * 2 * rows))
+        outer = figure.add_gridspec(2, 1, hspace=0.7)
         images = []
-        for index, name in enumerate(task_names):
-            row, column = divmod(index, 2)
-            axis = figure.add_subplot(population_grid[row, column])
-            times_ms, values = displayed[name]
-            images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
-            axis.set_title(TASK_LABELS[name], fontsize=8)
-            if column == 0:
-                axis.set_ylabel("Units\n(depth order)")
-        colorbar_axis = figure.add_subplot(population_grid[:, 2])
-        figure.colorbar(
-            images[0],
-            cax=colorbar_axis,
-            label="$\Delta$ log expected rate\n(99th-percentile color limit)",
-        )
+        for half in (0, 1):
+            grid = outer[half].subgridspec(
+                rows,
+                columns + 1,
+                width_ratios=[1] * columns + [0.06],
+                wspace=0.3,
+                hspace=0.9,
+            )
+            for index, (name, title) in enumerate(zip(names, titles, strict=True)):
+                row, column = divmod(index, columns)
+                axis = figure.add_subplot(grid[row, column])
+                times_ms, values = displayed[name]
+                if half == 0:
+                    images.append(_plot_kernel_heatmap(axis, times_ms, values, limit))
+                    if column == 0:
+                        axis.set_ylabel("Units\n(depth order)")
+                else:
+                    axis.plot(times_ms, values[example_row], color="black", linewidth=1)
+                    axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
+                    if times_ms[0] <= 0 <= times_ms[-1]:
+                        axis.axvline(0, color="black", linewidth=0.45)
+                    if column == 0:
+                        axis.set_ylabel(example_ylabel, fontsize=7)
+                axis.set_title(title, fontsize=8)
+                axis.set_xlabel(xlabel)
+            legend_cell = figure.add_subplot(grid[:, columns])
+            if half == 0:
+                figure.colorbar(
+                    images[0],
+                    cax=legend_cell,
+                    label="$\Delta$ log expected rate\n(99th-percentile color limit)",
+                )
+            else:
+                legend_cell.axis("off")
 
-        for index, name in enumerate(task_names):
-            row, column = divmod(index, 2)
-            axis = figure.add_subplot(example_grid[row, column])
-            times_ms, values = displayed[name]
-            axis.plot(times_ms, values[example_row], color="black", linewidth=1)
-            axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
-            if times_ms[0] <= 0 <= times_ms[-1]:
-                axis.axvline(0, color="black", linewidth=0.45)
-            axis.set_title(TASK_LABELS[name], fontsize=8)
-            if column == 0:
-                axis.set_ylabel("$\Delta$ log rate")
-
-        figure.text(0.01, 0.985, "a", fontweight="bold", fontsize=10, va="top")
-        figure.text(0.04, 0.985, "All fitted V1 units, sorted by depth", va="top")
-        figure.text(0.5, 0.515, "Time from event (ms)", ha="center", va="top")
-        figure.text(0.01, 0.475, "b", fontweight="bold", fontsize=10, va="top")
-        figure.text(
-            0.04,
-            0.475,
-            f"Median-performance unit {representative_unit_id}",
-            va="top",
-        )
-        figure.text(0.5, 0.005, "Time from event (ms)", ha="center", va="bottom")
-        return _save_figure(figure, output)
-
-
-def plot_motion_energy_kernels(
-    unit_ids: list[int],
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    representative_unit_id: int,
-    output: Path,
-) -> tuple[Path, Path]:
-    """Show population and representative motion-energy PC filters."""
-    names = ["video_pc_1", "video_pc_2", "video_pc_3"]
-    titles = ["ME PC 1", "ME PC 2", "ME PC 3"]
-    example_row = unit_ids.index(representative_unit_id)
-    video_limit = _kernel_color_limit([kernels[name][1] for name in names])
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.5, 4.0))
-        grid = figure.add_gridspec(2, 4, width_ratios=[1, 1, 1, 0.06], hspace=0.55)
-        images = []
-        for index, (name, title) in enumerate(zip(names, titles, strict=True)):
-            axis = figure.add_subplot(grid[0, index])
-            times_ms, values = kernels[name]
-            images.append(_plot_kernel_heatmap(axis, times_ms, values, video_limit))
-            axis.set_title(title)
-            axis.set_xlabel("Lag (ms)")
-            if index == 0:
-                axis.set_ylabel("Units\n(depth order)")
-        colorbar = figure.add_subplot(grid[0, 3])
-        figure.colorbar(images[0], cax=colorbar)
-        colorbar.set_title("$\Delta$ log\nrate", fontsize=7, pad=3)
-        for index, (name, title) in enumerate(zip(names, titles, strict=True)):
-            axis = figure.add_subplot(grid[1, index])
-            times_ms, values = kernels[name]
-            axis.plot(times_ms, values[example_row], color="black", linewidth=1)
-            axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
-            axis.axvline(0, color="black", linewidth=0.45)
-            axis.set_title(title)
-            axis.set_xlabel("Lag (ms)")
-            if index == 0:
-                axis.set_ylabel("$\Delta$ log rate / PC sample", fontsize=7)
-        figure.add_subplot(grid[1, 3]).axis("off")
         figure.text(0.01, 0.985, "a", fontweight="bold", fontsize=10, va="top")
         figure.text(0.04, 0.985, "All fitted V1 units, sorted by depth", va="top")
         figure.text(0.01, 0.49, "b", fontweight="bold", fontsize=10, va="top")
@@ -889,25 +723,14 @@ def plot_prediction_figure(
         return _save_figure(figure, output)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    model = PoissonGLM()
-    parser.add_argument("--windows", type=Path, default=model.windows)
-    parser.add_argument("--design", type=Path, default=model.design)
-    parser.add_argument("--fit-dir", type=Path, default=model.fit_dir("all"))
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=model.fit_dir("all") / "predicted_spike_trains",
-    )
-    args = parser.parse_args()
-
+def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
+    """Write every figure for one completed fit directory."""
     results = []
-    for path in sorted(args.fit_dir.glob("unit_*_test.json")):
+    for path in sorted(fit_dir.glob("unit_*_test.json")):
         with path.open() as handle:
             results.append(json.load(handle))
     selections = []
-    for path in sorted(args.fit_dir.glob("unit_*_validation.json")):
+    for path in sorted(fit_dir.glob("unit_*_validation.json")):
         with path.open() as handle:
             selections.append(json.load(handle))
     if len(results) != len(selections):
@@ -916,39 +739,48 @@ def main() -> None:
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
     selected_components = int(selected_components.pop())
-    with args.design.with_suffix(".json").open() as handle:
+    with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     design_pdf, design_png = plot_model_design(
-        design_metadata,
-        selected_components,
-        args.fit_dir / "model_design",
+        design_metadata, fit_dir / "model_design"
     )
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
-        results, selections, args.fit_dir / "summary"
+        results, selections, fit_dir / "summary"
     )
     result, population_median = select_representative_result(results)
     unit_id = int(result["unit_id"])
     ordered_unit_ids, kernels = fitted_kernel_matrices(
         results, selections, design_metadata
     )
-    task_kernel_pdf, task_kernel_png = plot_task_kernels(
+    task_names = [item["name"] for item in design_metadata["task_manifest"]]
+    task_kernel_pdf, task_kernel_png = plot_kernel_figure(
         ordered_unit_ids,
         kernels,
         unit_id,
-        [item["name"] for item in design_metadata["task_manifest"]],
-        args.fit_dir / "fitted_task_kernels",
+        task_names,
+        [TASK_LABELS[name] for name in task_names],
+        fit_dir / "fitted_task_kernels",
+        columns=2,
+        xlabel="Time from event (ms)",
+        example_ylabel="$\\Delta$ log rate",
     )
-    video_kernel_pdf, video_kernel_png = plot_motion_energy_kernels(
+    video_names = ["video_pc_1", "video_pc_2", "video_pc_3"]
+    video_kernel_pdf, video_kernel_png = plot_kernel_figure(
         ordered_unit_ids,
         kernels,
         unit_id,
-        args.fit_dir / "fitted_video_kernels",
+        video_names,
+        ["ME PC 1", "ME PC 2", "ME PC 3"],
+        fit_dir / "fitted_video_kernels",
+        columns=3,
+        xlabel="Lag (ms)",
+        example_ylabel="$\\Delta$ log rate / PC sample",
     )
 
-    prepared = _load_windows(args.windows)
-    with np.load(args.windows, allow_pickle=False) as windows:
-        relative_times = windows["relative_bin_centers_s"].copy()
-        trial_split = windows["trial_split"].copy()
+    prepared = _load_windows(windows)
+    with np.load(windows, allow_pickle=False) as saved:
+        relative_times = saved["relative_bin_centers_s"].copy()
+        trial_split = saved["trial_split"].copy()
     test_alignments = prepared["alignments"][trial_split == 2]
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
@@ -964,7 +796,7 @@ def main() -> None:
     counts = build_unit_counts(test_alignments, spike_times)
 
     test_rows = np.repeat(trial_split == 2, len(relative_times))
-    common = np.load(args.design, mmap_mode="r", allow_pickle=False)[test_rows]
+    common = np.load(design, mmap_mode="r", allow_pickle=False)[test_rows]
     if len(common) != len(counts):
         raise ValueError("Test design and response rows differ.")
     common_columns = len(result["plus_video"]["coefficients"])
@@ -989,12 +821,10 @@ def main() -> None:
         selected_components,
         unit_id,
         int(test_trial_numbers[typical_trial]),
-        args.fit_dir / "design_matrix_trial",
+        fit_dir / "design_matrix_trial",
     )
     simulation = simulate_spike_counts(
-        observed,
-        conditional,
-        np.random.default_rng(SIMULATION_SEED),
+        conditional, np.random.default_rng(SIMULATION_SEED)
     )
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
@@ -1003,7 +833,7 @@ def main() -> None:
         conditional,
         result,
         population_median,
-        args.output,
+        fit_dir / "predicted_spike_trains",
     )
     print(
         json.dumps(
@@ -1036,7 +866,3 @@ def main() -> None:
             indent=2,
         )
     )
-
-
-if __name__ == "__main__":
-    main()
