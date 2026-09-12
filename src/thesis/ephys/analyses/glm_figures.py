@@ -1,7 +1,10 @@
 """Create figures for the fitted V1 spike-prediction GLM.
 
-Held-out test trials, first-flash aligned. No spike-history simulation: rasters
-are independent Poisson draws from the covariate-conditioned rate.
+Held-out test trials, first-flash aligned. Rasters are recursive samples from
+the fitted model: each simulated spike feeds back through that unit's own
+history filter, so the raster is a draw from the model's generative process
+rather than a one-step-ahead prediction. Each trial starts with an empty
+history.
 """
 
 from __future__ import annotations
@@ -18,11 +21,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
+    HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
     _load_windows,
+    _split_masks,
+    _valid_bin_mask,
     build_unit_counts,
+    build_unit_history,
+    spike_history_basis,
     task_temporal_bases,
+    training_zscore,
     video_temporal_basis,
 )
 from thesis.ephys.preprocessing.prepare_glm import BINWIDTH_S
@@ -101,31 +110,52 @@ def training_rate_and_test_deviance(
     return training_rate, test_deviance
 
 
-def conditional_prediction(common: np.ndarray, fitted_model: dict) -> np.ndarray:
-    """Rebuild the saved mean from the shared design and fitted coefficients."""
-    coefficients = np.asarray(fitted_model["coefficients"], dtype=float)
-    if common.shape[1] < len(coefficients):
-        raise ValueError("Saved coefficient count does not match the common design.")
-    prediction = np.exp(
-        float(fitted_model["intercept"]) + common[:, : len(coefficients)] @ coefficients
-    )
-    if not np.isfinite(prediction).all() or np.any(prediction <= 0):
-        raise ValueError(
-            "Reconstructed conditional predictions must be finite and positive."
-        )
-    return prediction
+def history_filter(
+    coefficients: np.ndarray, scale: np.ndarray, mean: np.ndarray
+) -> tuple[np.ndarray, float]:
+    """Collapse the fitted history bases into one filter over past bins.
+
+    The design columns were standardized, so undo that here: the filter carries
+    the scaled weights and the centring becomes a constant added to the
+    intercept. Entry ``lag`` multiplies the spike count ``lag + 1`` bins back,
+    matching the one-bin shift used when the columns were built.
+    """
+    basis = np.asarray(spike_history_basis().basis, dtype=float)
+    if basis.shape[1] != len(coefficients):
+        raise ValueError("History coefficients and basis widths differ.")
+    weights = np.asarray(coefficients, dtype=float) / np.asarray(scale, dtype=float)
+    return basis @ weights, float(-np.sum(weights * np.asarray(mean, dtype=float)))
 
 
 def simulate_spike_counts(
-    conditional_mean: np.ndarray, rng: np.random.Generator
+    base_eta: np.ndarray,
+    filter_taps: np.ndarray,
+    offset: float,
+    rng: np.random.Generator,
 ) -> np.ndarray:
-    """Draw independent Poisson counts from the covariate-conditioned mean."""
-    conditional = np.asarray(conditional_mean, dtype=float)
-    if conditional.ndim != 2:
-        raise ValueError("Conditional means must be a trial-by-bin array.")
-    if np.any(conditional <= 0) or not np.isfinite(conditional).all():
-        raise ValueError("Conditional means must be finite and positive.")
-    return rng.poisson(conditional)
+    """Sample spike trains recursively, feeding each spike back through history.
+
+    ``base_eta`` holds the linear predictor from every non-history column, one
+    row per trial. Each trial starts with no history, so the first bins are
+    driven by the covariates alone.
+    """
+    base_eta = np.asarray(base_eta, dtype=float)
+    if base_eta.ndim != 2:
+        raise ValueError("Base linear predictor must be a trial-by-bin array.")
+    if not np.isfinite(base_eta).all():
+        raise ValueError("Base linear predictor must be finite.")
+    taps = np.asarray(filter_taps, dtype=float)
+    n_trials, n_bins = base_eta.shape
+    counts = np.zeros((n_trials, n_bins), dtype=np.int64)
+    for trial in range(n_trials):
+        recent = np.zeros(len(taps))
+        for step in range(n_bins):
+            rate = np.exp(base_eta[trial, step] + offset + float(recent @ taps))
+            draw = rng.poisson(min(rate, 1e6))
+            counts[trial, step] = draw
+            recent[1:] = recent[:-1]
+            recent[0] = draw
+    return counts
 
 
 def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
@@ -799,15 +829,35 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
     common = np.load(design, mmap_mode="r", allow_pickle=False)[test_rows]
     if len(common) != len(counts):
         raise ValueError("Test design and response rows differ.")
-    common_columns = len(result["plus_video"]["coefficients"])
-    prediction = conditional_prediction(
-        common[:, :common_columns], result["plus_video"]
+    coefficients = np.asarray(result["plus_video"]["coefficients"], dtype=float)
+    common_columns = len(coefficients) - HISTORY_COLUMNS
+
+    # The history block is per unit, so rebuild it and standardize it the way
+    # the fit did: statistics from the train and validation rows only.
+    valid = _valid_bin_mask(prepared)
+    train, validation, _ = _split_masks(prepared["split"], valid)
+    history_all = build_unit_history(prepared["alignments"], spike_times)
+    _, history_mean, history_scale = training_zscore(history_all, train | validation)
+    history = (history_all[test_rows] - history_mean) / history_scale
+    taps, history_offset = history_filter(
+        coefficients[common_columns:], history_scale, history_mean
     )
 
     trial_count = len(test_alignments)
     bin_count = len(relative_times)
     observed = counts.reshape(trial_count, bin_count)
-    conditional = prediction.reshape(trial_count, bin_count)
+    base_eta = (
+        float(result["plus_video"]["intercept"])
+        + np.asarray(common[:, :common_columns]) @ coefficients[:common_columns]
+    ).reshape(trial_count, bin_count)
+    # Rate given the observed past, which is what the model predicts one step
+    # ahead. The raster below instead feeds its own samples back.
+    conditional = np.exp(
+        base_eta
+        + (history @ coefficients[common_columns:]).reshape(trial_count, bin_count)
+    )
+    if not np.isfinite(conditional).all() or np.any(conditional <= 0):
+        raise ValueError("Conditional predictions must be finite and positive.")
     typical_trial = _select_count_typical_trial(observed)
     displayed_design = common[:, :common_columns].reshape(
         trial_count, bin_count, common_columns
@@ -824,7 +874,7 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
         fit_dir / "design_matrix_trial",
     )
     simulation = simulate_spike_counts(
-        conditional, np.random.default_rng(SIMULATION_SEED)
+        base_eta, taps, history_offset, np.random.default_rng(SIMULATION_SEED)
     )
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
