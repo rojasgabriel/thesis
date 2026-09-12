@@ -40,10 +40,11 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
-# Centred on the optimum measured for this design. The DAMN sweep put it at
-# 1e-6 with 168 targets, which is about 3e-4 on sklearn's scale for a single
-# neuron. The path still extends by a decade when an endpoint wins.
-INITIAL_ALPHAS = tuple(np.logspace(-7, 1, 9))
+# The optimum for this design sits near 3e-4. Below about 1e-5 the fit is
+# effectively unpenalized and LBFGS stops hitting its iteration limit rather
+# than converging, so the grid starts above that. It still extends by a decade
+# when an endpoint wins, and a penalty that fails to converge is dropped.
+INITIAL_ALPHAS = tuple(np.logspace(-5, 3, 9))
 VIDEO_BASIS_COLUMNS = 3
 HISTORY_COLUMNS = 10
 SAMPLE_UNITS = 20
@@ -384,6 +385,13 @@ def fit_poisson_alpha_path(
                 fitted += 1
             unfitted = pending - models.keys()
             if unfitted and not fitted:
+                # A weak penalty can hit the iteration limit instead of
+                # converging. Drop it and keep the ones that worked, as long as
+                # the best is not itself sitting on a dropped edge.
+                if models and min(unfitted) < min(models):
+                    pending -= unfitted
+                    unfitted = set()
+                    continue
                 detail = "; ".join(str(errors[alpha]) for alpha in sorted(unfitted))
                 raise RuntimeError(f"No converged penalty initialization: {detail}")
         ordered = sorted(losses)
