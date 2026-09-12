@@ -474,10 +474,17 @@ def _split_masks(
     return tuple((split == value) & valid for value in (0, 1, 2))
 
 
-def _write_json_atomic(path: Path, value: dict) -> None:
+def _write_json_atomic(path: Path, value: dict, *, overwrite: bool = False) -> None:
+    """Write JSON through a partial file so a kill cannot leave a half record.
+
+    Per-unit records refuse to overwrite, which is what makes a run resumable.
+    Derived summaries pass overwrite, since they are recomputed from those
+    records every time and a stale one would otherwise block the resume.
+    """
     partial = path.with_name(f"{path.name}.partial")
-    if path.exists() or partial.exists():
+    if not overwrite and path.exists():
         raise FileExistsError(path)
+    partial.unlink(missing_ok=True)
     with partial.open("x") as handle:
         json.dump(value, handle, indent=2)
     partial.replace(path)
@@ -856,7 +863,7 @@ def crossvalidate(
             "q75": float(np.quantile(means, 0.75)),
         },
     }
-    _write_json_atomic(output_dir / "summary.json", summary)
+    _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
     print(json.dumps(summary, indent=2))
 
 
@@ -990,7 +997,7 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
             "q75": float(np.quantile(differences, 0.75)),
         }
 
-    _write_json_atomic(output_dir / "summary.json", summary)
+    _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
     print(json.dumps(summary, indent=2))
 
 
