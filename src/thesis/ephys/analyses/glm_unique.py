@@ -404,6 +404,8 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
         for fold_index, fold in enumerate(folds):
             test = fold["test"]
             fit = fold["fit"]
+            if counts[test].sum() <= 0:
+                continue
             alpha = float(fold_alphas[unit_id][fold_index])
             history, _, _ = training_zscore(raw_history, fit)
             design = _design_with_history(common, history, common_columns)
