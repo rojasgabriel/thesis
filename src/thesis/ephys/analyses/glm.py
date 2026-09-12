@@ -13,18 +13,13 @@ PC count. The 12-unit test set never scores held-out trials.
 from __future__ import annotations
 
 import argparse
-import contextlib
-import io
+import copy
 import json
-import re
-import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import torch
-from damn import fit as damn_fit
 from damn.alignment import compute_spike_count, construct_timebins
 from damn.objects.basis_function_objects import RaisedCosineBasis
 from damn.objects.design_matrix_objects import DesignMatrix
@@ -43,37 +38,12 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
-# The first all-unit sweep put the mean optimum at 1e-6, with the loss flat
-# below 1e-7 and saturated above 1e-2. Keep decade resolution across that live
-# range and spend four points on far anchors, so a unit landing on an endpoint
-# is genuinely unpenalized or fully shrunk rather than clipped by the grid.
-ALPHA_GRID = (
-    1e-12,
-    1e-10,
-    1e-8,
-    1e-7,
-    1e-6,
-    1e-5,
-    1e-4,
-    1e-3,
-    1e-1,
-    1e1,
-)
+INITIAL_ALPHAS = tuple(np.logspace(-3, 3, 7))
 VIDEO_BASIS_COLUMNS = 3
 TEST_UNITS = 12
 MAX_ITER = 500
 TOL = 1e-7
-DAMN_MAX_EPOCHS = 100
-DAMN_PATIENCE = 10
-FIT_SEED = 20260911
-
-
-# DAMN averages its data loss over targets but sums the L2 penalty over them,
-# so one alpha bites N times harder when N units are fit together. Verified
-# against sklearn to ~1e-5 in the coefficients for N in 1, 2, 4, 8.
-def sklearn_equivalent_alpha(alpha: float, n_targets: int) -> float:
-    """Return the sklearn penalty matching DAMN's alpha for an N-target fit."""
-    return 2.0 * n_targets * alpha
+MAX_ALPHA_EXTENSIONS = 6
 
 
 def _flatten_events(values) -> np.ndarray:
@@ -312,6 +282,78 @@ def fit_poisson_at_alpha(
     return model
 
 
+def fit_poisson_alpha_path(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_validation: np.ndarray,
+    y_validation: np.ndarray,
+    *,
+    initial_alphas: tuple[float, ...] = INITIAL_ALPHAS,
+) -> tuple[PoissonRegressor, dict]:
+    """Select L2 strength on validation data and extend endpoint grids."""
+    pending = {float(alpha) for alpha in initial_alphas}
+    if not pending or min(pending) <= 0:
+        raise ValueError("Alpha candidates must be positive.")
+    models: dict[float, PoissonRegressor] = {}
+    losses: dict[float, float] = {}
+    endpoint_plateau = False
+    for extension in range(MAX_ALPHA_EXTENSIONS + 1):
+        unfitted = pending - models.keys()
+        while unfitted:
+            errors = {}
+            fitted = 0
+            for alpha in sorted(unfitted, reverse=True):
+                warm_model = None
+                if models:
+                    nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
+                    warm_model = copy.deepcopy(models[nearest])
+                try:
+                    model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
+                except RuntimeError as error:
+                    if warm_model is not None:
+                        try:
+                            model = fit_poisson_at_alpha(X_train, y_train, alpha)
+                        except RuntimeError as cold_error:
+                            errors[alpha] = cold_error
+                            continue
+                    else:
+                        errors[alpha] = error
+                        continue
+                losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
+                models[alpha] = model
+                fitted += 1
+            unfitted = pending - models.keys()
+            if unfitted and not fitted:
+                detail = "; ".join(str(errors[alpha]) for alpha in sorted(unfitted))
+                raise RuntimeError(f"No converged penalty initialization: {detail}")
+        ordered = sorted(losses)
+        minimum = min(losses.values())
+        tied = [
+            alpha
+            for alpha in ordered
+            if np.isclose(losses[alpha], minimum, rtol=1e-10, atol=1e-12)
+        ]
+        best = max(tied)
+        index = ordered.index(best)
+        if 0 < index < len(ordered) - 1:
+            break
+        neighbor = ordered[1] if index == 0 else ordered[-2]
+        if np.isclose(losses[best], losses[neighbor], rtol=1e-10, atol=1e-12):
+            endpoint_plateau = True
+            break
+        if extension == MAX_ALPHA_EXTENSIONS:
+            raise RuntimeError("Best L2 penalty remains at an extended grid endpoint.")
+        pending.add(best / 10 if index == 0 else best * 10)
+    path = {
+        "alphas": ordered,
+        "validation_mean_nll": [losses[alpha] for alpha in ordered],
+        "best_alpha": best,
+        "best_index": ordered.index(best),
+        "endpoint_plateau": endpoint_plateau,
+    }
+    return models[best], path
+
+
 def _load_windows(path: Path) -> dict:
     with np.load(path, allow_pickle=False) as windows:
         selected_rows = windows["selected_trial_rows"]
@@ -464,115 +506,106 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     )
 
 
-def resolve_device():
-    """Return DAMN's accelerator, requiring the MPS-capable checkout."""
-    resolver = getattr(damn_fit, "_resolve_device", None)
-    if resolver is None:
-        raise RuntimeError(
-            "The active DAMN install has no device support. Run with "
-            "PYTHONPATH=/Users/gabriel/lib/damn-mls-implementation."
-        )
-    return resolver(None)
+def _selection_for_unit(
+    common: np.ndarray,
+    base_columns: int,
+    counts: np.ndarray,
+    train: np.ndarray,
+    validation: np.ndarray,
+) -> dict:
+    fit_mean = float(counts[train].mean())
+    if fit_mean <= 0:
+        raise ValueError("Each unit must have at least one training spike.")
 
-
-def build_counts_matrix(alignments: np.ndarray, units) -> np.ndarray:
-    """Stack every unit's 1 ms counts into one bins-by-units response matrix."""
-    columns = [
-        build_unit_counts(alignments, np.asarray(spikes, dtype=float))
-        for spikes in units["spike_times_s"]
-    ]
-    counts = np.column_stack(columns).astype(np.float32)
-    if counts.ndim != 2 or counts.shape[1] != len(units):
-        raise ValueError("Counts matrix must have one column per unit.")
-    return counts
-
-
-def damn_rate(design: np.ndarray, weights: np.ndarray, intercept: np.ndarray):
-    """Return DAMN's clamped conditional rate and the count of clamped bins."""
-    eta = design @ weights + intercept
-    clamped = int(np.count_nonzero(eta > damn_fit.CLAMP))
-    return np.exp(np.minimum(eta, damn_fit.CLAMP)), clamped
-
-
-def fit_damn(
-    X: np.ndarray,
-    Y: np.ndarray,
-    val_inds: np.ndarray | None,
-    alpha: float | np.ndarray,
-    device,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-    """Fit every target at once on the shared design; return W, b, per-target loss."""
-    torch.manual_seed(FIT_SEED)
-    chatter = io.StringIO()
-    with contextlib.redirect_stdout(chatter):
-        weights, intercept, _, _, _, _, _, val_loss = damn_fit.fit_poisson_glm_lbfgs(
-            np.ascontiguousarray(X, dtype=np.float32),
-            np.ascontiguousarray(Y, dtype=np.float32),
-            alpha=alpha,
-            max_epochs=DAMN_MAX_EPOCHS,
-            early_stopping="train",
-            patience=DAMN_PATIENCE,
-            tol=TOL,
-            print_every=10**6,
-            seed=FIT_SEED,
-            device=device,
-            per_target_loss=True,
-            val_inds=val_inds,
-        )
-    if not np.isfinite(weights).all() or not np.isfinite(intercept).all():
-        raise RuntimeError("DAMN returned non-finite parameters.")
-    epochs = re.search(r"at epoch (\d+)", chatter.getvalue())
-    return (
-        weights,
-        intercept,
-        val_loss,
-        int(epochs.group(1)) if epochs else DAMN_MAX_EPOCHS,
+    baseline = common[:, :base_columns]
+    model, path = fit_poisson_alpha_path(
+        baseline[train],
+        counts[train],
+        baseline[validation],
+        counts[validation],
     )
+    result = {
+        "training_mean_count": fit_mean,
+        "baseline": {
+            "alpha_path": path,
+            "validation": poisson_metrics(
+                counts[validation], model.predict(baseline[validation]), fit_mean
+            ),
+        },
+        "plus_video": {},
+    }
+    del model
+
+    for component_count in VIDEO_COMPONENT_COUNTS:
+        common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
+        design = common[:, :common_columns]
+        model, path = fit_poisson_alpha_path(
+            design[train],
+            counts[train],
+            design[validation],
+            counts[validation],
+        )
+        result["plus_video"][str(component_count)] = {
+            "alpha_path": path,
+            "validation": poisson_metrics(
+                counts[validation], model.predict(design[validation]), fit_mean
+            ),
+        }
+        del model
+    return result
 
 
-def select_alpha_per_unit(
-    X: np.ndarray, Y: np.ndarray, val_inds: np.ndarray, device
-) -> tuple[np.ndarray, np.ndarray]:
-    """Walk the penalty grid once and take each unit's best validation loss."""
-    print(
-        f"       {'alpha':>9}  {'mean val loss':>14}  {'best':>5}  {'epochs':>6}  {'time':>6}"
+def _final_fit_for_unit(
+    common: np.ndarray,
+    base_columns: int,
+    counts: np.ndarray,
+    train: np.ndarray,
+    validation: np.ndarray,
+    test: np.ndarray,
+    selection: dict,
+    component_count: int,
+) -> dict:
+    fit = train | validation
+    fit_mean = float(counts[fit].mean())
+    baseline = common[:, :base_columns]
+    baseline_model = fit_poisson_at_alpha(
+        baseline[fit],
+        counts[fit],
+        selection["baseline"]["alpha_path"]["best_alpha"],
     )
-    losses = []
-    for alpha in ALPHA_GRID:
-        start = time.perf_counter()
-        _, _, val_loss, epochs = fit_damn(X, Y, val_inds, float(alpha), device)
-        if val_loss is None:
-            raise RuntimeError("DAMN returned no per-target validation loss.")
-        losses.append(np.asarray(val_loss, dtype=float))
-        mean = losses[-1].mean()
-        marker = "*" if mean <= min(item.mean() for item in losses) else ""
-        print(
-            f"       {alpha:>9.0e}  {mean:>14.3f}  {marker:>5}  {epochs:>6}  "
-            f"{time.perf_counter() - start:>5.0f}s",
-            flush=True,
-        )
-    grid = np.asarray(ALPHA_GRID, dtype=float)
-    stacked = np.stack(losses)
-    best = np.argmin(stacked, axis=0)
-    low = int(np.count_nonzero(best == 0))
-    high = int(np.count_nonzero(best == len(grid) - 1))
-    if low or high:
-        # An endpoint only matters if the loss is still moving there. In a flat
-        # tail the unit is already unpenalized (low) or fully shrunk (high).
-        slope_low = float(np.mean(stacked[1] - stacked[0])) if low else 0.0
-        slope_high = float(np.mean(stacked[-1] - stacked[-2])) if high else 0.0
-        print(
-            f"       WARNING: {low} units at {grid[0]:.0e} "
-            f"(neighbor loss {slope_low:+.3f}), "
-            f"{high} at {grid[-1]:.0e} (neighbor loss {slope_high:+.3f}); "
-            "widen ALPHA_GRID if a tail is still falling.",
-            flush=True,
-        )
-    return grid[best], stacked[best, np.arange(len(best))]
+    common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
+    full = common[:, :common_columns]
+    full_model = fit_poisson_at_alpha(
+        full[fit],
+        counts[fit],
+        selection["plus_video"][str(component_count)]["alpha_path"]["best_alpha"],
+    )
+    return {
+        "fit_mean_count": fit_mean,
+        "baseline": {
+            "alpha": selection["baseline"]["alpha_path"]["best_alpha"],
+            "intercept": float(baseline_model.intercept_),
+            "coefficients": baseline_model.coef_.tolist(),
+            "test": poisson_metrics(
+                counts[test], baseline_model.predict(baseline[test]), fit_mean
+            ),
+        },
+        "plus_video": {
+            "components": component_count,
+            "alpha": selection["plus_video"][str(component_count)]["alpha_path"][
+                "best_alpha"
+            ],
+            "intercept": float(full_model.intercept_),
+            "coefficients": full_model.coef_.tolist(),
+            "test": poisson_metrics(
+                counts[test], full_model.predict(full[test]), fit_mean
+            ),
+        },
+    }
 
 
 def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> None:
-    """Fit all units together with DAMN; score held-out trials for the all-unit run."""
+    """Run validation selection; score held-out trials only for the all-unit run."""
     prepared = _load_windows(windows)
     common = np.load(design, mmap_mode="r", allow_pickle=False)
     with design.with_suffix(".json").open() as handle:
@@ -590,99 +623,62 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
         stability_param_id=0,
         include_metrics=False,
     )
-    units = units.iloc[
+    unit_rows = (
         test_unit_indices(len(units)) if unit_set == "test" else np.arange(len(units))
-    ]
-    output_dir.mkdir(parents=True, exist_ok=True)
-    device = resolve_device()
-    print(
-        f"Fitting {len(units)} units together on {device}: "
-        f"{int(train.sum()):,} train and {int(validation.sum()):,} validation rows.",
-        flush=True,
     )
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    counts = build_counts_matrix(prepared["alignments"], units)
-    if np.any(counts[train].sum(axis=0) <= 0):
-        raise ValueError("Every unit must have at least one training spike.")
-    base_columns = int(design_metadata["base_columns"])
-
-    # One design for every unit, so alpha selection walks the grid once per block.
-    fit_rows = np.flatnonzero(train | validation)
-    val_inds = np.flatnonzero(np.isin(fit_rows, np.flatnonzero(validation)))
-    train_mean = counts[train].mean(axis=0)
-
-    widths = _model_widths(base_columns)
-    selection: dict[str, dict] = {}
-    started = time.perf_counter()
-    for position, (width_name, columns) in enumerate(widths, start=1):
-        label = "baseline" if width_name == "baseline" else f"{width_name} video PCs"
-        print(
-            f"\n[{position}/{len(widths)}] {label} - {columns} columns, "
-            f"{len(ALPHA_GRID)} penalties",
-            flush=True,
+    selections = []
+    for position, row in enumerate(unit_rows, start=1):
+        unit = units.iloc[row]
+        output = output_dir / f"unit_{int(unit['unit_id'])}_validation.json"
+        counts = build_unit_counts(
+            prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
         )
-        X = np.asarray(common[np.ix_(fit_rows, np.arange(columns))])
-        alpha, _ = select_alpha_per_unit(X, counts[fit_rows], val_inds, device)
-        weights, intercept, _, _ = fit_damn(
-            X[np.isin(np.arange(len(fit_rows)), val_inds, invert=True)],
-            counts[train],
-            None,
-            alpha,
-            device,
-        )
-        rate, clamped = damn_rate(
-            np.asarray(common[np.ix_(np.flatnonzero(validation), np.arange(columns))]),
-            weights,
-            intercept,
-        )
-        selection[width_name] = {
-            "columns": columns,
-            "alpha": alpha.tolist(),
-            "clamped_validation_bins": clamped,
-            "validation": [
-                poisson_metrics(
-                    counts[validation][:, unit], rate[:, unit], float(train_mean[unit])
-                )
-                for unit in range(len(units))
-            ],
-        }
-        median_deviance = float(
-            np.median(
-                [
-                    item["deviance_explained"]
-                    for item in selection[width_name]["validation"]
-                ]
+        if output.exists():
+            with output.open() as handle:
+                selection = json.load(handle)
+        else:
+            selection = _selection_for_unit(
+                common,
+                design_metadata["base_columns"],
+                counts,
+                train,
+                validation,
             )
-        )
+            selection.update(
+                unit_id=int(unit["unit_id"]),
+                depth=float(unit["depth"]),
+                spikes_in_selection_bins=int(counts[train | validation].sum()),
+            )
+            _write_json_atomic(output, selection)
+        selections.append(selection)
         print(
-            f"       -> median alpha {np.median(alpha):.0e}, "
-            f"median validation D2 {median_deviance:.4f}, "
-            f"{clamped} clamped bins, {(time.perf_counter() - started) / 60:.1f} min elapsed",
+            f"Validated unit {position} of {len(unit_rows)}: {int(unit['unit_id'])}",
             flush=True,
         )
-        del X
 
     mean_validation_deviance = {
         str(count): float(
             np.mean(
                 [
-                    item["deviance_explained"]
-                    for item in selection[str(count)]["validation"]
+                    selection["plus_video"][str(count)]["validation"][
+                        "deviance_explained"
+                    ]
+                    for selection in selections
                 ]
             )
         )
         for count in VIDEO_COMPONENT_COUNTS
     }
     selected_components = max(
-        VIDEO_COMPONENT_COUNTS, key=lambda count: mean_validation_deviance[str(count)]
+        VIDEO_COMPONENT_COUNTS,
+        key=lambda count: mean_validation_deviance[str(count)],
     )
-    summary: dict = {
-        "backend": "damn",
-        "device": str(device),
+    summary = {
         "unit_set": unit_set,
-        "units": len(units),
+        "units": len(unit_rows),
         "test_scored": unit_set == "all",
-        "alpha_grid": list(ALPHA_GRID),
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_components,
         "fit_rows": {
@@ -692,104 +688,42 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
         },
     }
 
-    for position, unit in enumerate(units.itertuples(index=False)):
-        record = {
-            "unit_id": int(unit.unit_id),
-            "depth": float(unit.depth),
-            "training_mean_count": float(train_mean[position]),
-            "spikes_in_selection_bins": int(
-                counts[train | validation][:, position].sum()
-            ),
-            "baseline": {
-                "alpha": selection["baseline"]["alpha"][position],
-                "validation": selection["baseline"]["validation"][position],
-            },
-            "plus_video": {
-                str(count): {
-                    "alpha": selection[str(count)]["alpha"][position],
-                    "validation": selection[str(count)]["validation"][position],
-                }
-                for count in VIDEO_COMPONENT_COUNTS
-            },
-        }
-        _write_json_atomic(
-            output_dir / f"unit_{int(unit.unit_id)}_validation.json", record
-        )
-
     if unit_set == "all":
-        fit = train | validation
-        fit_mean = counts[fit].mean(axis=0)
-        finals = {}
-        for width_name, columns in (
-            ("baseline", base_columns),
-            (
-                "plus_video",
-                base_columns + VIDEO_BASIS_COLUMNS * selected_components,
-            ),
+        final_results = []
+        for position, (row, selection) in enumerate(
+            zip(unit_rows, selections, strict=True), start=1
         ):
-            key = "baseline" if width_name == "baseline" else str(selected_components)
-            X = np.asarray(common[np.ix_(np.flatnonzero(fit), np.arange(columns))])
-            weights, intercept, _, _ = fit_damn(
-                X, counts[fit], None, np.asarray(selection[key]["alpha"]), device
+            unit = units.iloc[row]
+            output = output_dir / f"unit_{int(unit['unit_id'])}_test.json"
+            counts = build_unit_counts(
+                prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
             )
-            rate, clamped = damn_rate(
-                np.asarray(common[np.ix_(np.flatnonzero(test), np.arange(columns))]),
-                weights,
-                intercept,
+            if output.exists():
+                with output.open() as handle:
+                    final = json.load(handle)
+            else:
+                final = _final_fit_for_unit(
+                    common,
+                    design_metadata["base_columns"],
+                    counts,
+                    train,
+                    validation,
+                    test,
+                    selection,
+                    selected_components,
+                )
+                final.update(unit_id=int(unit["unit_id"]), depth=float(unit["depth"]))
+                _write_json_atomic(output, final)
+            final_results.append(final)
+            print(
+                f"Tested unit {position} of {len(unit_rows)}: {int(unit['unit_id'])}",
+                flush=True,
             )
-            finals[width_name] = (
-                weights,
-                intercept,
-                rate,
-                clamped,
-                selection[key]["alpha"],
-            )
-            del X
-
-        for position, unit in enumerate(units.itertuples(index=False)):
-            record = {
-                "unit_id": int(unit.unit_id),
-                "depth": float(unit.depth),
-                "fit_mean_count": float(fit_mean[position]),
-            }
-            for width_name, (
-                weights,
-                intercept,
-                rate,
-                clamped,
-                alpha,
-            ) in finals.items():
-                block = {
-                    "alpha": alpha[position],
-                    "clamped_test_bins": clamped,
-                    "intercept": float(intercept[position]),
-                    "coefficients": weights[:, position].tolist(),
-                    "test": poisson_metrics(
-                        counts[test][:, position],
-                        rate[:, position],
-                        float(fit_mean[position]),
-                    ),
-                }
-                if width_name == "plus_video":
-                    block["components"] = selected_components
-                record[width_name] = block
-            _write_json_atomic(
-                output_dir / f"unit_{int(unit.unit_id)}_test.json", record
-            )
-
         differences = np.asarray(
             [
-                poisson_metrics(
-                    counts[test][:, position],
-                    finals["plus_video"][2][:, position],
-                    float(fit_mean[position]),
-                )["bits_per_spike"]
-                - poisson_metrics(
-                    counts[test][:, position],
-                    finals["baseline"][2][:, position],
-                    float(fit_mean[position]),
-                )["bits_per_spike"]
-                for position in range(len(units))
+                item["plus_video"]["test"]["bits_per_spike"]
+                - item["baseline"]["test"]["bits_per_spike"]
+                for item in final_results
             ]
         )
         summary["test_video_delta_bits_per_spike"] = {
@@ -800,14 +734,6 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
 
     _write_json_atomic(output_dir / "summary.json", summary)
     print(json.dumps(summary, indent=2))
-
-
-def _model_widths(base_columns: int) -> list[tuple[str, int]]:
-    """Return the baseline and each motion-energy width as (name, column count)."""
-    return [("baseline", base_columns)] + [
-        (str(count), base_columns + VIDEO_BASIS_COLUMNS * count)
-        for count in VIDEO_COMPONENT_COUNTS
-    ]
 
 
 def main() -> None:
@@ -821,7 +747,6 @@ def main() -> None:
         ("fit", "Select and fit Poisson models"),
         ("attribute", "Refit shuffled blocks for conditional deviance"),
         ("figures", "Draw every figure for a completed fit"),
-        ("check", "Compare the DAMN fit against sklearn (throwaway)"),
     ):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--units", choices=("test", "all"), default="test")
@@ -885,11 +810,6 @@ class PoissonGLM:
         from thesis.ephys.analyses.glm_attribution import run_attribution
 
         run_attribution(self.windows, self.design, self.fit_dir(units), units)
-
-    def check(self, units: str = "test") -> None:
-        from thesis.ephys.analyses.glm_check import run_check
-
-        run_check(self.windows, self.design, self.root / "damn_sklearn_check.json")
 
     def figures(self, units: str = "all") -> None:
         from thesis.ephys.analyses.glm_figures import make_figures

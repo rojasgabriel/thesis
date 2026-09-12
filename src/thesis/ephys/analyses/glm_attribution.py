@@ -24,11 +24,9 @@ from thesis.ephys.analyses.glm import (
     _valid_bin_mask,
     _write_json_atomic,
     build_unit_counts,
-    damn_rate,
-    fit_damn,
+    fit_poisson_alpha_path,
+    fit_poisson_at_alpha,
     poisson_metrics,
-    resolve_device,
-    select_alpha_per_unit,
     test_unit_indices,
 )
 from thesis.ephys.units import fetch_unit_table
@@ -131,33 +129,25 @@ def _fit_shuffled_model(
     train: np.ndarray,
     validation: np.ndarray,
     test: np.ndarray,
-    device,
 ) -> dict:
-    """Reselect the penalty and rescore one shuffled block with the DAMN fitter."""
     training_mean = float(counts[train].mean())
-    fit_rows = np.flatnonzero(train | validation)
-    val_inds = np.flatnonzero(np.isin(fit_rows, np.flatnonzero(validation)))
-    response = counts[:, None].astype(np.float32)
-    alpha, _ = select_alpha_per_unit(
-        design[fit_rows], response[fit_rows], val_inds, device
+    selected_model, path = fit_poisson_alpha_path(
+        design[train], counts[train], design[validation], counts[validation]
     )
-    weights, intercept, _, _ = fit_damn(
-        design[train], response[train], None, alpha, device
-    )
-    validation_rate, _ = damn_rate(design[validation], weights, intercept)
     validation_metrics = poisson_metrics(
-        counts[validation], validation_rate[:, 0], training_mean
+        counts[validation], selected_model.predict(design[validation]), training_mean
     )
     fit = train | validation
     fit_mean = float(counts[fit].mean())
-    weights, intercept, _, _ = fit_damn(design[fit], response[fit], None, alpha, device)
-    test_rate, clamped = damn_rate(design[test], weights, intercept)
+    final_model = fit_poisson_at_alpha(design[fit], counts[fit], path["best_alpha"])
+    test_metrics = poisson_metrics(
+        counts[test], final_model.predict(design[test]), fit_mean
+    )
     return {
-        "alpha": float(alpha[0]),
-        "clamped_test_bins": clamped,
+        "alpha_path": path,
         "validation": validation_metrics,
         "fit_mean_count": fit_mean,
-        "test": poisson_metrics(counts[test], test_rate[:, 0], fit_mean),
+        "test": test_metrics,
     }
 
 
@@ -273,7 +263,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
                 "unique_test_deviance_explained": record["groups"][group][
                     "unique_test_deviance_explained"
                 ],
-                "alpha": record["groups"][group]["alpha"],
+                "alpha": record["groups"][group]["alpha_path"]["best_alpha"],
             }
             for record in records
         )
@@ -310,7 +300,6 @@ def run_attribution(
     common_columns = int(metadata["base_columns"]) + (
         VIDEO_BASIS_COLUMNS * video_components
     )
-    device = resolve_device()
     groups = attribution_slices(metadata, video_components)
     group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
@@ -369,9 +358,7 @@ def run_attribution(
             columns = groups[group]
             source = design[:, columns].copy()
             design[:, columns] = source[within_trial]
-            fitted = _fit_shuffled_model(
-                design, counts, train, validation, test, device
-            )
+            fitted = _fit_shuffled_model(design, counts, train, validation, test)
             design[:, columns] = source
             del source
             fitted.update(
