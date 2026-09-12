@@ -74,7 +74,7 @@ uv run python -m thesis.ephys.analyses.glm fit --units test
 ```
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
-`common_design_me.npy` under `figures/v1_glm/`. `--units test` writes
+`common_design_me.npy` under `figures/glm/`. `--units test` writes
 `test_fit_me/` (resumable), no held-out trial metric. `fit --units all` writes
 `all_fit_me/` only after the model is accepted.
 

@@ -762,10 +762,10 @@ def main() -> None:
 class PoissonGLM:
     """Default artifact layout and the commands that produce a fitted GLM."""
 
-    root: Path = Path("figures/v1_glm")
+    root: Path = Path("figures/glm")
     subject: str = "GRB006"
     session: str = "20240821_121447"
-    frame_times: Path = Path("figures/v1_glm/frame_times.npy")
+    frame_times: Path = Path("figures/glm/frame_times.npy")
 
     @property
     def windows(self) -> Path:
