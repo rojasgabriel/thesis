@@ -357,6 +357,7 @@ def fit_poisson_alpha_path(
         raise ValueError("Alpha candidates must be positive.")
     models: dict[float, PoissonRegressor] = {}
     losses: dict[float, float] = {}
+    failed: set[float] = set()
     endpoint_plateau = False
     for extension in range(MAX_ALPHA_EXTENSIONS + 1):
         unfitted = pending - models.keys()
@@ -385,15 +386,17 @@ def fit_poisson_alpha_path(
                 fitted += 1
             unfitted = pending - models.keys()
             if unfitted and not fitted:
-                # A weak penalty can hit the iteration limit instead of
-                # converging. Drop it and keep the ones that worked, as long as
-                # the best is not itself sitting on a dropped edge.
-                if models and min(unfitted) < min(models):
-                    pending -= unfitted
-                    unfitted = set()
-                    continue
-                detail = "; ".join(str(errors[alpha]) for alpha in sorted(unfitted))
-                raise RuntimeError(f"No converged penalty initialization: {detail}")
+                # LBFGS can stop without converging at either extreme: weak
+                # penalties hit the iteration limit, strong ones terminate
+                # abnormally once the coefficients are driven to zero. Neither
+                # says the unit is unfittable, so drop those penalties and keep
+                # the ones that worked. Only give up when none converged.
+                if not models:
+                    detail = "; ".join(str(errors[alpha]) for alpha in sorted(unfitted))
+                    raise RuntimeError(f"No converged penalty initialization: {detail}")
+                failed |= unfitted
+                pending -= unfitted
+                unfitted = set()
         ordered = sorted(losses)
         minimum = min(losses.values())
         tied = [
@@ -409,15 +412,21 @@ def fit_poisson_alpha_path(
         if np.isclose(losses[best], losses[neighbor], rtol=1e-10, atol=1e-12):
             endpoint_plateau = True
             break
+        candidate = best / 10 if index == 0 else best * 10
+        if candidate in failed:
+            # The grid already reaches as far as this design can be fitted.
+            endpoint_plateau = True
+            break
         if extension == MAX_ALPHA_EXTENSIONS:
             raise RuntimeError("Best L2 penalty remains at an extended grid endpoint.")
-        pending.add(best / 10 if index == 0 else best * 10)
+        pending.add(candidate)
     path = {
         "alphas": ordered,
         "validation_mean_nll": [losses[alpha] for alpha in ordered],
         "best_alpha": best,
         "best_index": ordered.index(best),
         "endpoint_plateau": endpoint_plateau,
+        "unconverged_alphas": sorted(failed),
     }
     return models[best], path
 
@@ -775,8 +784,14 @@ def crossvalidate(
         counts = build_unit_counts(prepared["alignments"], spikes)
         history = build_unit_history(prepared["alignments"], spikes)
         fold_results = []
+        skipped = 0
         for fold in range(CV_FOLDS):
             test = (fold_rows == fold) & valid
+            if counts[test].sum() <= 0:
+                # Deviance explained is undefined with no spikes to explain.
+                # A quiet unit can be silent through one fold's ~29 trials.
+                skipped += 1
+                continue
             rest_trials = np.flatnonzero(folds != fold)
             inner_trials = rng.choice(
                 rest_trials,
@@ -792,6 +807,13 @@ def crossvalidate(
                     common, common_columns, counts, history, train, inner, test
                 )
             )
+        if len(fold_results) < 2:
+            print(
+                f"Skipped unit {position} of {len(unit_rows)}: {unit_id}  "
+                f"spikes in only {len(fold_results)} of {CV_FOLDS} folds",
+                flush=True,
+            )
+            continue
         deviance = np.asarray(
             [item["test"]["deviance_explained"] for item in fold_results]
         )
@@ -800,6 +822,8 @@ def crossvalidate(
             "unit_id": unit_id,
             "depth": float(unit["depth"]),
             "components": components,
+            "folds_scored": len(fold_results),
+            "folds_without_spikes": skipped,
             "folds": fold_results,
             "deviance_explained_mean": float(deviance.mean()),
             "deviance_explained_sem": float(
