@@ -78,7 +78,8 @@ uv run glm fit --units all
 ```
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
-`common_design_me.npy` under `figures/glm/`. `fit` writes `all_fit_me/`, which
+`common_design_me.npy` under `figures/glm/<subject>_<session>/`. Pass
+`--subject`, `--session`, or `--root` to work on another dataset. `fit` writes `all_fit_me/`, which
 is resumable. Use `--units sample` for a 20-unit smoke run.
 
 ## Unique explained deviance
