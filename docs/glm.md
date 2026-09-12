@@ -25,6 +25,9 @@ already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
   refits every eligible unit on train+validation and scores the held-out trial
   split once.
 - 294 completed trials, 168 units, 3502 flashes.
+- `crossvalidate` instead scores every trial once with 10 folds over whole
+  trials, choosing each unit's penalty inside the fold at the PC count `fit`
+  selected. Reports per-unit mean and SEM across folds.
 
 ## Design
 
@@ -106,7 +109,7 @@ excluded from likelihood and scores.
 
 Same family as [Truccolo et al. 2005](https://pubmed.ncbi.nlm.nih.gov/15356183/)
 and [Pillow et al. 2008](https://sites.stat.columbia.edu/liam/research/pubs/pillow-nature-08.pdf),
-without a self-history block in this revision.
+with a self-history block but no coupling between units.
 [Talluri et al. 2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC10620084/)
 (video SVD, ridge, trial CV),
 [Stringer et al. 2019](https://pmc.ncbi.nlm.nih.gov/articles/PMC6525101/)
