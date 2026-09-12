@@ -976,12 +976,27 @@ def main() -> None:
     ):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--units", choices=("sample", "all"), default="sample")
+        if name == "figures":
+            command.add_argument(
+                "--output-dir",
+                type=Path,
+                help="Write figures here instead of beside the fit.",
+            )
+            command.add_argument(
+                "--format",
+                choices=("pdf", "png", "both"),
+                default="both",
+                help="Which file formats to write.",
+            )
     args = parser.parse_args()
     model = PoissonGLM()
     if args.command == "prepare":
         if args.frame_times is not None:
             model.frame_times = args.frame_times
         model.prepare()
+        return
+    if args.command == "figures":
+        model.figures(args.units, args.output_dir, args.format)
         return
     getattr(model, args.command)(args.units)
 
@@ -1046,10 +1061,21 @@ class PoissonGLM:
 
         run_unique(self.windows, self.design, self.fit_dir(units), units)
 
-    def figures(self, units: str = "all") -> None:
+    def figures(
+        self,
+        units: str = "all",
+        output_dir: Path | None = None,
+        formats: str = "both",
+    ) -> None:
         from thesis.ephys.analyses.glm_figures import make_figures
 
-        make_figures(self.windows, self.design, self.fit_dir(units))
+        make_figures(
+            self.windows,
+            self.design,
+            self.fit_dir(units),
+            output_dir,
+            ("pdf", "png") if formats == "both" else (formats,),
+        )
 
 
 if __name__ == "__main__":

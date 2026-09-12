@@ -52,6 +52,9 @@ TASK_LABELS = {
 }
 SMOOTHING_MS = 20
 SIMULATION_SEED = 2008
+# Rebound by make_figures; read by _save_figure so the six plot functions keep
+# their signatures.
+FIGURE_FORMATS: tuple[str, ...] = ("pdf", "png")
 FIGURE_STYLE = {
     "axes.spines.top": False,
     "axes.spines.right": False,
@@ -163,14 +166,18 @@ def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
     return [np.repeat(times, row.astype(int, copy=False)) for row in np.asarray(counts)]
 
 
-def _save_figure(figure, output: Path) -> tuple[Path, Path]:
+def _save_figure(figure, output: Path) -> tuple[Path | None, Path | None]:
+    """Write the figure in the formats FIGURE_FORMATS names, skipping the rest."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    pdf_path = output.with_suffix(".pdf")
-    png_path = output.with_suffix(".png")
-    figure.savefig(pdf_path, bbox_inches="tight")
-    figure.savefig(png_path, dpi=300, bbox_inches="tight")
+    paths: dict[str, Path | None] = {"pdf": None, "png": None}
+    if "pdf" in FIGURE_FORMATS:
+        paths["pdf"] = output.with_suffix(".pdf")
+        figure.savefig(paths["pdf"], bbox_inches="tight")
+    if "png" in FIGURE_FORMATS:
+        paths["png"] = output.with_suffix(".png")
+        figure.savefig(paths["png"], dpi=300, bbox_inches="tight")
     plt.close(figure)
-    return pdf_path, png_path
+    return paths["pdf"], paths["png"]
 
 
 def plot_model_design(design_metadata: dict, output: Path) -> tuple[Path, Path]:
@@ -881,8 +888,25 @@ def plot_prediction_figure(
         return _save_figure(figure, output)
 
 
-def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
-    """Write every figure for one completed fit directory."""
+def make_figures(
+    windows: Path,
+    design: Path,
+    fit_dir: Path,
+    output_dir: Path | None = None,
+    formats: tuple[str, ...] = ("pdf", "png"),
+) -> None:
+    """Write every figure for one completed fit directory.
+
+    Figures land beside the fit unless `output_dir` says otherwise. `formats`
+    selects which of pdf and png to write.
+    """
+    global FIGURE_FORMATS
+
+    if not set(formats) <= {"pdf", "png"} or not formats:
+        raise ValueError("Formats must be a non-empty subset of pdf and png.")
+    FIGURE_FORMATS = tuple(formats)
+    figure_dir = output_dir if output_dir is not None else fit_dir
+    figure_dir.mkdir(parents=True, exist_ok=True)
     results = []
     for path in sorted(fit_dir.glob("unit_*_test.json")):
         with path.open() as handle:
@@ -900,10 +924,10 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     design_pdf, design_png = plot_model_design(
-        design_metadata, fit_dir / "model_design"
+        design_metadata, figure_dir / "model_design"
     )
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
-        results, selections, fit_dir / "summary"
+        results, selections, figure_dir / "summary"
     )
     result, population_median = select_representative_result(results)
     unit_id = int(result["unit_id"])
@@ -917,7 +941,7 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
         unit_id,
         task_names,
         [TASK_LABELS[name] for name in task_names],
-        fit_dir / "fitted_task_kernels",
+        figure_dir / "fitted_task_kernels",
         columns=2,
         xlabel="Time from event (ms)",
         example_ylabel="$\\Delta$ log rate",
@@ -929,7 +953,7 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
         unit_id,
         video_names,
         ["ME PC 1", "ME PC 2", "ME PC 3"],
-        fit_dir / "fitted_video_kernels",
+        figure_dir / "fitted_video_kernels",
         columns=3,
         xlabel="Lag (ms)",
         example_ylabel="$\\Delta$ log rate / PC sample",
@@ -999,13 +1023,13 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
         selected_components,
         unit_id,
         int(test_trial_numbers[typical_trial]),
-        fit_dir / "design_matrix_trial",
+        figure_dir / "design_matrix_trial",
     )
     simulation = simulate_spike_counts(
         base_eta, taps, history_offset, np.random.default_rng(SIMULATION_SEED)
     )
     checks_pdf, checks_png = plot_generative_checks(
-        observed, simulation, unit_id, fit_dir / "generative_checks"
+        observed, simulation, unit_id, figure_dir / "generative_checks"
     )
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
@@ -1014,8 +1038,17 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
         conditional,
         result,
         population_median,
-        fit_dir / "predicted_spike_trains",
+        figure_dir / "predicted_spike_trains",
     )
+    written = {
+        "model_design": (design_pdf, design_png),
+        "summary": (summary_pdf, summary_png),
+        "fitted_task_kernels": (task_kernel_pdf, task_kernel_png),
+        "fitted_video_kernels": (video_kernel_pdf, video_kernel_png),
+        "design_matrix_trial": (design_matrix_pdf, design_matrix_png),
+        "generative_checks": (checks_pdf, checks_png),
+        "predicted_spike_trains": (pdf_path, png_path),
+    }
     print(
         json.dumps(
             {
@@ -1028,23 +1061,15 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
                 "test_trials": trial_count,
                 "observed_spikes": int(observed.sum()),
                 "simulated_spikes": int(simulation.sum()),
-                "generative_checks_pdf": str(checks_pdf),
-                "generative_checks_png": str(checks_png),
                 "simulation_seed": SIMULATION_SEED,
-                "model_design_pdf": str(design_pdf),
-                "model_design_png": str(design_png),
-                "summary_pdf": str(summary_pdf),
-                "summary_png": str(summary_png),
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
                 "design_matrix_trial": int(test_trial_numbers[typical_trial]),
-                "design_matrix_pdf": str(design_matrix_pdf),
-                "design_matrix_png": str(design_matrix_png),
-                "task_kernel_pdf": str(task_kernel_pdf),
-                "task_kernel_png": str(task_kernel_png),
-                "video_kernel_pdf": str(video_kernel_pdf),
-                "video_kernel_png": str(video_kernel_png),
-                "pdf": str(pdf_path),
-                "png": str(png_path),
+                "figure_dir": str(figure_dir),
+                "formats": list(FIGURE_FORMATS),
+                "figures": {
+                    name: [str(path) for path in paths if path is not None]
+                    for name, paths in written.items()
+                },
             },
             indent=2,
         )

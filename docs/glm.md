@@ -105,7 +105,7 @@ uv run glm unique --units all
 After the all-unit held-out fit:
 
 ```bash
-uv run glm figures --units all
+uv run glm figures --units all [--output-dir DIR] [--format {pdf,png,both}]
 ```
 
 Rasters are independent Poisson draws from the covariate-conditioned rate (no
