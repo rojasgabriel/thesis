@@ -1,18 +1,13 @@
-"""Fit mean-centered raw-video SVD on training trials and project all trial frames.
+"""Fit motion-energy SVD on training trials and project all trial frames.
 
-Uses the trial selection and chronological split saved by prepare_v1_glm.
-Frames cover the selected first-stimulus windows and their interpolation support.
-Spatial area downsampling preserves the full camera view; no motion differencing,
-pixel standardization, or neural-response selection is applied. PCA's randomized
-SVD fits 200 training-frame axes at 80 by 64 pixels. Component scores are centered
-and scaled with training frames only. Validation/test frames are projected and
-scaled without refitting. Later validation compares nested prefixes of 10, 25,
-50, 100, and 200 components. Whole trials remain the sampling units for later fits.
+Uses the trial selection and split saved by prepare_v1_glm. Each retained frame
+is the absolute pixel difference from the previous decoded frame when the two
+indices are adjacent; the first frame of a gap is left at zero. PCA fits 200
+training-frame axes at 80 by 64. Scores are z-scored with training frames only.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
 from pathlib import Path
@@ -37,14 +32,11 @@ def training_zscore(values: np.ndarray, train: np.ndarray) -> tuple[np.ndarray, 
     return (values - mean) / scale, mean, scale
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("alignment", type=Path)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    if args.output.exists():
-        raise FileExistsError(args.output)
-    with np.load(args.alignment, allow_pickle=False) as data:
+def write_motion_energy_features(alignment: Path, output: Path) -> None:
+    """Fit motion-energy SVD on training frames and project all trial frames."""
+    if output.exists():
+        raise FileExistsError(output)
+    with np.load(alignment, allow_pickle=False) as data:
         metadata = json.loads(str(data["metadata_json"]))
         if not metadata.get("video_aligned", False):
             raise ValueError("Preparation has no validated neural-clock video mapping.")
@@ -90,7 +82,11 @@ def main() -> None:
             raise ValueError("Video has more frames than the aligned timestamp array.")
         if process.wait() != 0 or selected != len(indices):
             raise RuntimeError("Video decoding did not complete successfully.")
-    train = split == 0
+    consecutive = np.zeros(len(indices), dtype=bool)
+    consecutive[1:] = np.diff(indices) == 1
+    motion = np.zeros_like(pixels)
+    motion[consecutive] = np.abs(np.diff(pixels, axis=0)[consecutive[1:]])
+    train = (split == 0) & consecutive
     if COMPONENTS >= min(int(train.sum()), frame_size):
         raise ValueError("Too many SVD components for the training-frame matrix.")
     print(
@@ -98,24 +94,24 @@ def main() -> None:
         flush=True,
     )
     model = PCA(n_components=COMPONENTS, svd_solver="randomized", random_state=0)
-    model.fit(pixels[train])
-    scores, score_mean, score_scale = training_zscore(model.transform(pixels), train)
+    model.fit(motion[train])
+    scores, score_mean, score_scale = training_zscore(model.transform(motion), train)
     if not np.isfinite(scores).all():
         raise ValueError("Non-finite video scores.")
     summary = {
-        "alignment_path": str(args.alignment.resolve()),
+        "alignment_path": str(alignment.resolve()),
         "source": metadata,
         "width": WIDTH,
         "height": height,
         "components": COMPONENTS,
         "component_candidates": [10, 25, 50, 100, 200],
-        "score_scaling": "training z-score",
+        "feature": "absolute frame-to-frame motion energy",
         "training_frames": int(train.sum()),
         "trial_frames": len(indices),
         "training_variance_fraction": float(model.explained_variance_ratio_.sum()),
     }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("xb") as handle:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("xb") as handle:
         np.savez_compressed(
             handle,
             allow_pickle=False,
@@ -132,7 +128,3 @@ def main() -> None:
             metadata_json=json.dumps(summary),
         )
     print(json.dumps(summary, indent=2))
-
-
-if __name__ == "__main__":
-    main()
