@@ -30,7 +30,7 @@ from thesis.ephys.analyses.glm import (
     fit_poisson_alpha_path,
     fit_poisson_at_alpha,
     poisson_metrics,
-    test_unit_indices,
+    sample_unit_indices,
     training_zscore,
 )
 from thesis.ephys.units import fetch_unit_table
@@ -41,6 +41,7 @@ DETAILED_GROUPS = (
     "visual_flash",
     "center_poke",
     "center_exit",
+    "response_entry",
     "response_side",
     "video",
     "history",
@@ -52,6 +53,7 @@ DISPLAY_LABELS = {
     "visual_flash": "Visual flash",
     "center_poke": "Center poke",
     "center_exit": "Center exit",
+    "response_entry": "Response entry",
     "response_side": "Response side",
 }
 GROUP_COLORS = {
@@ -160,6 +162,7 @@ def _fit_shuffled_model(
 
 
 def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
+    """Draw maximal deviance behind unique, so the shared part is the gap."""
     values = [
         np.asarray(
             [
@@ -169,11 +172,32 @@ def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
         )
         for group in groups
     ]
+    maximal = [
+        np.asarray(
+            [
+                record["groups"][group]["maximal_test_deviance_explained"]
+                for record in records
+            ]
+        )
+        for group in groups
+    ]
     positions = np.arange(len(groups))
+    axis.boxplot(
+        maximal,
+        positions=positions,
+        widths=0.78,
+        patch_artist=True,
+        showfliers=False,
+        boxprops={"facecolor": "0.90", "edgecolor": "0.65", "linewidth": 0.6},
+        medianprops={"color": "0.55", "linewidth": 0.8},
+        whiskerprops={"color": "0.7", "linewidth": 0.6},
+        capprops={"color": "0.7", "linewidth": 0.6},
+        zorder=1,
+    )
     boxes = axis.boxplot(
         values,
         positions=positions,
-        widths=0.55,
+        widths=0.42,
         patch_artist=True,
         showfliers=False,
         medianprops={"color": "black", "linewidth": 0.8},
@@ -214,8 +238,22 @@ def plot_conditional_deviance(records: list[dict], output: Path) -> tuple[Path, 
         )
         _plot_groups(axes[0], records, BROAD_GROUPS)
         _plot_groups(axes[1], records, DETAILED_GROUPS)
-        axes[0].set_ylabel("Unique test deviance explained ($\\Delta D^2$)")
-        axes[1].set_ylabel("Unique test deviance explained ($\\Delta D^2$)")
+        axes[0].set_ylabel("Test deviance explained ($\\Delta D^2$)")
+        axes[1].set_ylabel("Test deviance explained ($\\Delta D^2$)")
+        for y, label, color in (
+            (0.97, "maximal (block alone)", "0.55"),
+            (0.89, "unique (only this block)", "black"),
+        ):
+            axes[1].text(
+                0.99,
+                y,
+                label,
+                transform=axes[1].transAxes,
+                ha="right",
+                va="top",
+                color=color,
+                fontsize=7,
+            )
         for letter, axis in zip("ab", axes, strict=True):
             axis.text(
                 -0.12,
@@ -270,6 +308,9 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
                 ],
                 "unique_test_deviance_explained": record["groups"][group][
                     "unique_test_deviance_explained"
+                ],
+                "maximal_test_deviance_explained": record["groups"][group][
+                    "maximal_test_deviance_explained"
                 ],
                 "alpha": record["groups"][group]["alpha_path"]["best_alpha"],
             }
@@ -328,8 +369,8 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
         stability_param_id=0,
         include_metrics=False,
     )
-    if unit_set == "test":
-        unit_rows = test_unit_indices(len(units))
+    if unit_set == "sample":
+        unit_rows = sample_unit_indices(len(units))
     else:
         unit_rows = np.arange(len(units))
     output_dir = fit_dir / "unique_deviance_fit"
@@ -362,19 +403,44 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
             tests[unit_id]["plus_video"]["test"]["deviance_explained"]
         )
         group_results = {}
+        # Everything shuffled: the intercept-only reference for maximal deviance.
+        shuffled_all = design.copy()
+        for columns in dict.fromkeys(groups[group] for group in group_order):
+            shuffled_all[:, columns] = design[:, columns][within_trial]
+        intercept_only = _fit_shuffled_model(
+            shuffled_all, counts, train, validation, test
+        )["test"]["deviance_explained"]
+        del shuffled_all
+
         for group_position, group in enumerate(group_order, start=1):
             columns = groups[group]
             source = design[:, columns].copy()
+
+            # One-removed: shuffle this block only. Full minus this is unique.
             design[:, columns] = source[within_trial]
             fitted = _fit_shuffled_model(design, counts, train, validation, test)
             design[:, columns] = source
-            del source
+
+            # Single-block-only: shuffle every other block. This minus the
+            # all-shuffled reference is how much the block explains alone.
+            alone_design = design.copy()
+            for other in dict.fromkeys(
+                groups[name] for name in group_order if name != group
+            ):
+                if other != columns:
+                    alone_design[:, other] = design[:, other][within_trial]
+            alone = _fit_shuffled_model(alone_design, counts, train, validation, test)[
+                "test"
+            ]["deviance_explained"]
+            del alone_design, source
+
             fitted.update(
                 columns=columns.stop - columns.start,
                 shuffle="rows jointly within trial",
                 unique_test_deviance_explained=(
                     full_deviance - fitted["test"]["deviance_explained"]
                 ),
+                maximal_test_deviance_explained=alone - intercept_only,
             )
             group_results[group] = fitted
             print(

@@ -4,11 +4,12 @@ Scientific comparison
 ---------------------
 For GRB006 session 20240821_121447, predict V1 spikes from flashes, a
 center-poke kernel truncated at the first flash, peri-exit movement, pre-response
-choice side, additive video motion-energy PCs, and each unit's own strictly past
+choice side split into a side-independent and a contrast kernel, additive video
+motion-energy PCs, and each unit's own strictly past
 spike history. Bins after response entry are excluded. Whole trials are split
 randomly 60/20/20. No coupling between units, session drift, go cue, outcome, or
-punishment terms. Validation selects the motion-energy PC count. The 12-unit test
-set never scores held-out trials.
+punishment terms. Validation selects the motion-energy PC count. A 20-unit random sample is
+available for quick runs.
 """
 
 from __future__ import annotations
@@ -45,7 +46,8 @@ VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
 INITIAL_ALPHAS = tuple(np.logspace(-7, 1, 9))
 VIDEO_BASIS_COLUMNS = 3
 HISTORY_COLUMNS = 10
-TEST_UNITS = 12
+SAMPLE_UNITS = 20
+SAMPLE_SEED = 20260914
 CV_FOLDS = 10
 CV_SEED = 20260913
 CV_INNER_FRACTION = 0.25
@@ -71,6 +73,7 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
         "visual_flash": flash,
         "center_poke": poke,
         "center_exit": peri_exit,
+        "response_entry": pre_response,
         "response_side": pre_response,
     }
 
@@ -106,12 +109,20 @@ def build_task_design(
             "one event per completed trial",
         ),
         (
+            "response_entry",
+            trials["response_port_entry_s"].to_numpy(dtype=float),
+            None,
+            bases["response_entry"],
+            "task",
+            "every response; the side-independent part",
+        ),
+        (
             "response_side",
             trials["response_port_entry_s"].to_numpy(dtype=float),
             trials["response"].to_numpy(dtype=float),
             bases["response_side"],
             "task",
-            "left=-1, right=+1; pre-response only",
+            "left=-1, right=+1; the choice contrast",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
@@ -250,11 +261,12 @@ def build_video_component_design(
     return regressor.X
 
 
-def test_unit_indices(n_units: int) -> np.ndarray:
-    """Select deterministic indices spaced across depth-sorted eligible units."""
-    if n_units < TEST_UNITS:
-        raise ValueError("Not enough eligible units for the requested test set.")
-    return np.rint(np.linspace(0, n_units - 1, TEST_UNITS)).astype(int)
+def sample_unit_indices(n_units: int) -> np.ndarray:
+    """Draw a fixed random sample of units for quick runs, sorted by depth."""
+    if n_units < SAMPLE_UNITS:
+        raise ValueError("Not enough eligible units for the requested sample.")
+    rng = np.random.default_rng(SAMPLE_SEED)
+    return np.sort(rng.choice(n_units, size=SAMPLE_UNITS, replace=False))
 
 
 def poisson_nll(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -727,7 +739,9 @@ def crossvalidate(
         include_metrics=False,
     )
     unit_rows = (
-        test_unit_indices(len(units)) if unit_set == "test" else np.arange(len(units))
+        sample_unit_indices(len(units))
+        if unit_set == "sample"
+        else np.arange(len(units))
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(CV_SEED)
@@ -834,7 +848,9 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
         include_metrics=False,
     )
     unit_rows = (
-        test_unit_indices(len(units)) if unit_set == "test" else np.arange(len(units))
+        sample_unit_indices(len(units))
+        if unit_set == "sample"
+        else np.arange(len(units))
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -959,7 +975,7 @@ def main() -> None:
         ("figures", "Draw every figure for a completed fit"),
     ):
         command = subparsers.add_parser(name, help=help_text)
-        command.add_argument("--units", choices=("test", "all"), default="test")
+        command.add_argument("--units", choices=("sample", "all"), default="sample")
     args = parser.parse_args()
     model = PoissonGLM()
     if args.command == "prepare":
@@ -1013,7 +1029,7 @@ class PoissonGLM:
         else:
             prepare_common_design(self.windows, self.video, self.design)
 
-    def fit(self, units: str = "test") -> None:
+    def fit(self, units: str = "sample") -> None:
         """Choose the PC count, cross-validate at it, then refit on every trial.
 
         One command so the cross-validation cannot read a stale PC count, and so
@@ -1025,7 +1041,7 @@ class PoissonGLM:
             components = int(json.load(handle)["selected_video_components"])
         crossvalidate(self.windows, self.design, units, directory, components)
 
-    def unique(self, units: str = "test") -> None:
+    def unique(self, units: str = "sample") -> None:
         from thesis.ephys.analyses.glm_unique import run_unique
 
         run_unique(self.windows, self.design, self.fit_dir(units), units)
