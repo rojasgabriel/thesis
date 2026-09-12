@@ -87,7 +87,14 @@ Shuffle one block, refit, reselect α on validation, refit train+validation,
 score the held-out trial split. Shuffle only among valid bins, within trial.
 Motion-energy PCs stay one block.
 
-`unique test D² = complete D² − shuffled D²`
+`unique ΔD² = complete D² − one-removed D²`
+`maximal ΔD² = block-alone D² − all-shuffled D²`
+
+Both run inside the same 10 folds as `fit`, at the penalty that fold selected,
+so they are comparable with the cross-validated deviance. Reported as the mean
+across folds with its SEM. Following
+[Oesch et al. 2026](https://doi.org/10.1038/s41467-026-70639-1) and
+[Musall et al. 2019](https://www.nature.com/articles/s41593-019-0502-4).
 
 ```bash
 uv run python -m thesis.ephys.analyses.glm unique --units all
