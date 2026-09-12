@@ -622,6 +622,126 @@ def plot_design_matrix_trial(
         return _save_figure(figure, output)
 
 
+def _interspike_intervals(counts: np.ndarray) -> np.ndarray:
+    """Return within-trial interspike intervals in milliseconds."""
+    intervals = []
+    for row in np.asarray(counts):
+        bins = np.repeat(np.arange(len(row)), row.astype(int, copy=False))
+        if len(bins) > 1:
+            intervals.append(np.diff(bins))
+    if not intervals:
+        return np.empty(0)
+    return np.concatenate(intervals) * BINWIDTH_S * 1000
+
+
+def plot_generative_checks(
+    observed: np.ndarray, simulation: np.ndarray, unit_id: int, output: Path
+) -> tuple[Path, Path]:
+    """Compare spiking statistics the model was never fitted to reproduce.
+
+    Held-out trials. The model matched the mean rate by construction, so these
+    two panels are the informative ones: the interspike intervals show whether
+    the history filter captured refractoriness, and the per-trial counts show
+    whether the variability is right rather than only the mean.
+    """
+    observed_isi, simulated_isi = (
+        _interspike_intervals(observed),
+        _interspike_intervals(simulation),
+    )
+    observed_counts = np.asarray(observed).sum(axis=1)
+    simulated_counts = np.asarray(simulation).sum(axis=1)
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axes = plt.subplots(1, 2, figsize=(7.1, 2.9))
+        if len(observed_isi) and len(simulated_isi):
+            edges = np.logspace(0, np.log10(max(observed_isi.max(), 2)), 40)
+            for values, color, label in (
+                (observed_isi, OBSERVED_COLOR, "observed"),
+                (simulated_isi, MODEL_COLOR, "model"),
+            ):
+                axes[0].hist(
+                    values,
+                    bins=edges,
+                    density=True,
+                    histtype="step",
+                    color=color,
+                    linewidth=1.2,
+                    label=label,
+                )
+            axes[0].set_xscale("log")
+        axes[0].set_xlabel("Interspike interval (ms)")
+        axes[0].set_ylabel("Density")
+
+        low = max(int(min(observed_counts.min(), simulated_counts.min())) - 2, 0)
+        top = int(max(observed_counts.max(), simulated_counts.max(), 1))
+        edges = np.arange(low, top + 2) - 0.5
+        for values, color in (
+            (observed_counts, OBSERVED_COLOR),
+            (simulated_counts, MODEL_COLOR),
+        ):
+            axes[1].hist(
+                values,
+                bins=edges,
+                density=True,
+                histtype="step",
+                color=color,
+                linewidth=1.2,
+            )
+        axes[1].set_xlim(edges[0], edges[-1])
+        axes[1].set_xlabel("Spikes per held-out trial")
+        axes[1].set_ylabel("Density")
+        fano = [
+            float(values.var() / values.mean()) if values.mean() > 0 else np.nan
+            for values in (observed_counts, simulated_counts)
+        ]
+        axes[1].text(
+            0.97,
+            0.94,
+            f"Fano: observed {fano[0]:.2f}, model {fano[1]:.2f}",
+            transform=axes[1].transAxes,
+            ha="right",
+            va="top",
+            color="0.3",
+            fontsize=7,
+        )
+        for y, label, color in (
+            (0.94, "observed", OBSERVED_COLOR),
+            (0.85, "model", MODEL_COLOR),
+        ):
+            axes[0].text(
+                0.97,
+                y,
+                label,
+                transform=axes[0].transAxes,
+                ha="right",
+                va="top",
+                color=color,
+                fontweight="bold",
+            )
+        for letter, axis in zip("ab", axes, strict=True):
+            axis.text(
+                -0.12,
+                1.04,
+                letter,
+                transform=axis.transAxes,
+                ha="left",
+                va="bottom",
+                fontweight="bold",
+                fontsize=10,
+            )
+        figure.suptitle("")
+        figure.text(
+            0.5,
+            1.0,
+            f"Median-performance unit {unit_id}, simulated through its own history",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="0.3",
+        )
+        return _save_figure(figure, output)
+
+
 def plot_prediction_figure(
     relative_times: np.ndarray,
     observed: np.ndarray,
@@ -690,18 +810,25 @@ def plot_prediction_figure(
         sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
         rates = [
             gaussian_filter1d(values.mean(axis=0) / BINWIDTH_S, sigma_bins)
-            for values in (observed, prediction)
+            for values in (observed, prediction, simulation)
         ]
         rate_axis = axes[2]
-        for rate, color in zip(rates, raster_colors, strict=True):
-            rate_axis.plot(relative_times, rate, color=color, linewidth=1.25)
+        for rate, color, style in zip(
+            rates,
+            (OBSERVED_COLOR, MODEL_COLOR, MODEL_COLOR),
+            ("-", "-", "--"),
+            strict=True,
+        ):
+            rate_axis.plot(
+                relative_times, rate, color=color, linewidth=1.25, linestyle=style
+            )
         rate_axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
         rate_axis.set_ylabel("Mean rate (spikes/s)")
         rate_axis.set_xlabel("Time from first measured flash (s)")
         rate_axis.text(
             0.01,
             0.94,
-            "covariate-conditioned mean (no spike history)",
+            "solid: rate given the observed past; dashed: simulated spikes",
             transform=rate_axis.transAxes,
             ha="left",
             va="top",
@@ -710,7 +837,7 @@ def plot_prediction_figure(
         )
         for y, label, color in (
             (0.86, "observed", OBSERVED_COLOR),
-            (0.77, "complete model", MODEL_COLOR),
+            (0.77, "model", MODEL_COLOR),
         ):
             rate_axis.text(
                 0.99,
@@ -876,6 +1003,9 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
     simulation = simulate_spike_counts(
         base_eta, taps, history_offset, np.random.default_rng(SIMULATION_SEED)
     )
+    checks_pdf, checks_png = plot_generative_checks(
+        observed, simulation, unit_id, fit_dir / "generative_checks"
+    )
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
         observed,
@@ -897,6 +1027,8 @@ def make_figures(windows: Path, design: Path, fit_dir: Path) -> None:
                 "test_trials": trial_count,
                 "observed_spikes": int(observed.sum()),
                 "simulated_spikes": int(simulation.sum()),
+                "generative_checks_pdf": str(checks_pdf),
+                "generative_checks_png": str(checks_png),
                 "simulation_seed": SIMULATION_SEED,
                 "model_design_pdf": str(design_pdf),
                 "model_design_png": str(design_png),
