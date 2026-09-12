@@ -18,31 +18,37 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
+    HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
+    _design_with_history,
     _load_windows,
     _split_masks,
     _valid_bin_mask,
     _write_json_atomic,
     build_unit_counts,
+    build_unit_history,
     fit_poisson_alpha_path,
     fit_poisson_at_alpha,
     poisson_metrics,
     test_unit_indices,
+    training_zscore,
 )
 from thesis.ephys.units import fetch_unit_table
 
 SHUFFLE_SEED = 20260910
-BROAD_GROUPS = ("task", "video")
+BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
     "visual_flash",
     "center_poke",
     "center_exit",
     "response_side",
     "video",
+    "history",
 )
 DISPLAY_LABELS = {
     "task": "Task",
     "video": "Motion energy",
+    "history": "Spike history",
     "visual_flash": "Visual flash",
     "center_poke": "Center poke",
     "center_exit": "Center exit",
@@ -51,6 +57,7 @@ DISPLAY_LABELS = {
 GROUP_COLORS = {
     "task": "C0",
     "video": "C1",
+    "history": "C2",
 }
 FIGURE_STYLE = {
     "axes.spines.top": False,
@@ -69,6 +76,7 @@ def attribution_slices(metadata: dict, video_components: int) -> dict[str, slice
     groups = {
         "task": slice(0, task_columns),
         "video": slice(base_columns, video_stop),
+        "history": slice(video_stop, video_stop + HISTORY_COLUMNS),
     }
     cursor = 0
     for item in metadata["task_manifest"]:
@@ -343,10 +351,12 @@ def run_attribution(
             print(f"Loaded unit {position} of {len(unit_rows)}: {unit_id}", flush=True)
             continue
 
-        counts = build_unit_counts(
-            prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
+        spikes = np.asarray(unit["spike_times_s"], dtype=float)
+        counts = build_unit_counts(prepared["alignments"], spikes)
+        history, _, _ = training_zscore(
+            build_unit_history(prepared["alignments"], spikes), train | validation
         )
-        design = np.asarray(common[:, :common_columns])
+        design = _design_with_history(common, history, common_columns)
         if design.shape[1] != len(tests[unit_id]["plus_video"]["coefficients"]):
             raise ValueError("Saved full model and attribution design widths differ.")
 

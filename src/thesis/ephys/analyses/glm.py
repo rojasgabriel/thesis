@@ -4,10 +4,11 @@ Scientific comparison
 ---------------------
 For GRB006 session 20240821_121447, predict V1 spikes from flashes, a
 center-poke kernel truncated at the first flash, peri-exit movement, pre-response
-choice side, and additive video motion-energy PCs. Bins after response entry are
-excluded. Whole trials are split randomly 60/20/20. No spike history, session
-drift, go cue, outcome, or punishment terms. Validation selects the motion-energy
-PC count. The 12-unit test set never scores held-out trials.
+choice side, additive video motion-energy PCs, and each unit's own strictly past
+spike history. Bins after response entry are excluded. Whole trials are split
+randomly 60/20/20. No coupling between units, session drift, go cue, outcome, or
+punishment terms. Validation selects the motion-energy PC count. The 12-unit test
+set never scores held-out trials.
 """
 
 from __future__ import annotations
@@ -38,8 +39,12 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
-INITIAL_ALPHAS = tuple(np.logspace(-3, 3, 7))
+# Centred on the optimum measured for this design. The DAMN sweep put it at
+# 1e-6 with 168 targets, which is about 3e-4 on sklearn's scale for a single
+# neuron. The path still extends by a decade when an endpoint wins.
+INITIAL_ALPHAS = tuple(np.logspace(-7, 1, 9))
 VIDEO_BASIS_COLUMNS = 3
+HISTORY_COLUMNS = 10
 TEST_UNITS = 12
 MAX_ITER = 500
 TOL = 1e-7
@@ -169,6 +174,46 @@ def build_unit_counts(alignments: np.ndarray, spike_times: np.ndarray) -> np.nda
         alignments, spike_times, PRE_S, POST_S, BINWIDTH_S
     )
     return counts.ravel()
+
+
+def spike_history_basis() -> RaisedCosineBasis:
+    """Return 10 log-spaced functions at strictly past lags 1 through 100 ms."""
+    return RaisedCosineBasis(HISTORY_COLUMNS, 0, 0.1, BINWIDTH_S, log_scale=True)
+
+
+def build_unit_history(alignments: np.ndarray, spike_times: np.ndarray) -> np.ndarray:
+    """Return one unit's 10 strictly past self-history columns.
+
+    Shifting the spike times by one bin keeps the filter causal, so the count in
+    a bin is never a predictor of itself.
+    """
+    design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
+    design.add_regressor(
+        EventRegressor(
+            "self_history",
+            np.asarray(spike_times, dtype=float) + BINWIDTH_S,
+            BINWIDTH_S,
+            basis_objects=[spike_history_basis()],
+            tags="history",
+        )
+    )
+    design.build_matrix()
+    history = np.asarray(design.X)
+    if history.shape[1] != HISTORY_COLUMNS:
+        raise ValueError("Expected 10 strictly past self-history columns.")
+    return history
+
+
+def _design_with_history(
+    common: np.ndarray, history: np.ndarray, common_columns: int
+) -> np.ndarray:
+    """Append a unit's standardized history block to the shared design."""
+    design = np.empty(
+        (common.shape[0], common_columns + history.shape[1]), dtype=np.float32
+    )
+    design[:, :common_columns] = common[:, :common_columns]
+    design[:, common_columns:] = history
+    return design
 
 
 def video_temporal_basis() -> RaisedCosineBasis:
@@ -510,14 +555,16 @@ def _selection_for_unit(
     common: np.ndarray,
     base_columns: int,
     counts: np.ndarray,
+    history: np.ndarray,
     train: np.ndarray,
     validation: np.ndarray,
 ) -> dict:
     fit_mean = float(counts[train].mean())
     if fit_mean <= 0:
         raise ValueError("Each unit must have at least one training spike.")
+    history, _, _ = training_zscore(history, train)
 
-    baseline = common[:, :base_columns]
+    baseline = _design_with_history(common, history, base_columns)
     model, path = fit_poisson_alpha_path(
         baseline[train],
         counts[train],
@@ -538,7 +585,7 @@ def _selection_for_unit(
 
     for component_count in VIDEO_COMPONENT_COUNTS:
         common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
-        design = common[:, :common_columns]
+        design = _design_with_history(common, history, common_columns)
         model, path = fit_poisson_alpha_path(
             design[train],
             counts[train],
@@ -559,6 +606,7 @@ def _final_fit_for_unit(
     common: np.ndarray,
     base_columns: int,
     counts: np.ndarray,
+    history: np.ndarray,
     train: np.ndarray,
     validation: np.ndarray,
     test: np.ndarray,
@@ -567,14 +615,15 @@ def _final_fit_for_unit(
 ) -> dict:
     fit = train | validation
     fit_mean = float(counts[fit].mean())
-    baseline = common[:, :base_columns]
+    history, _, _ = training_zscore(history, fit)
+    baseline = _design_with_history(common, history, base_columns)
     baseline_model = fit_poisson_at_alpha(
         baseline[fit],
         counts[fit],
         selection["baseline"]["alpha_path"]["best_alpha"],
     )
     common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
-    full = common[:, :common_columns]
+    full = _design_with_history(common, history, common_columns)
     full_model = fit_poisson_at_alpha(
         full[fit],
         counts[fit],
@@ -632,17 +681,17 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
     for position, row in enumerate(unit_rows, start=1):
         unit = units.iloc[row]
         output = output_dir / f"unit_{int(unit['unit_id'])}_validation.json"
-        counts = build_unit_counts(
-            prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
-        )
         if output.exists():
             with output.open() as handle:
                 selection = json.load(handle)
         else:
+            spikes = np.asarray(unit["spike_times_s"], dtype=float)
+            counts = build_unit_counts(prepared["alignments"], spikes)
             selection = _selection_for_unit(
                 common,
                 design_metadata["base_columns"],
                 counts,
+                build_unit_history(prepared["alignments"], spikes),
                 train,
                 validation,
             )
@@ -695,17 +744,17 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
         ):
             unit = units.iloc[row]
             output = output_dir / f"unit_{int(unit['unit_id'])}_test.json"
-            counts = build_unit_counts(
-                prepared["alignments"], np.asarray(unit["spike_times_s"], dtype=float)
-            )
             if output.exists():
                 with output.open() as handle:
                     final = json.load(handle)
             else:
+                spikes = np.asarray(unit["spike_times_s"], dtype=float)
+                counts = build_unit_counts(prepared["alignments"], spikes)
                 final = _final_fit_for_unit(
                     common,
                     design_metadata["base_columns"],
                     counts,
+                    build_unit_history(prepared["alignments"], spikes),
                     train,
                     validation,
                     test,
