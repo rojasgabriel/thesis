@@ -962,20 +962,60 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
     print(json.dumps(summary, indent=2))
 
 
+PIPELINE = """\
+pipeline
+  uv run glm prepare                 trial windows, motion-energy PCs, design
+  uv run glm fit --units all         penalty, cross-validation, final refit
+  uv run glm unique --units all      unique and maximal deviance per block
+  uv run glm figures --units all     kernels, predictions, generative checks
+
+Artifacts go to figures/glm/<subject>_<session>/. Use --units sample for a
+20-unit smoke run on any command.
+"""
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    prepare = subparsers.add_parser(
-        "prepare", help="Windows, motion-energy SVD, and shared design"
+    parser = argparse.ArgumentParser(
+        prog="glm",
+        description=(
+            "Poisson GLM for V1 spiking from flashes, task events, movement, "
+            "and each unit's own spike history."
+        ),
+        epilog=PIPELINE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    prepare.add_argument("--frame-times", type=Path)
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, help_text in (
-        ("fit", "Select the PC count, cross-validate, and refit"),
-        ("unique", "Shuffle each block to get its unique explained deviance"),
-        ("figures", "Draw every figure for a completed fit"),
+        ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
+        ("fit", "Choose the PC count, cross-validate, then refit"),
+        ("unique", "Unique and maximal explained deviance per block"),
+        ("figures", "Kernels, predictions, and generative checks"),
     ):
-        command = subparsers.add_parser(name, help=help_text)
-        command.add_argument("--units", choices=("sample", "all"), default="sample")
+        command = subparsers.add_parser(
+            name, help=help_text, description=help_text + "."
+        )
+        command.add_argument("--subject", default="GRB006", help="Subject name.")
+        command.add_argument(
+            "--session", default="20240821_121447", help="Session name."
+        )
+        command.add_argument(
+            "--root",
+            type=Path,
+            help="Artifact directory. Defaults to figures/glm/<subject>_<session>.",
+        )
+        if name == "prepare":
+            command.add_argument(
+                "--frame-times",
+                type=Path,
+                help="Camera frame times. Defaults to frame_times.npy under the root.",
+            )
+            continue
+        command.add_argument(
+            "--units",
+            choices=("sample", "all"),
+            default="sample",
+            help="Fit 20 sampled units or every eligible one.",
+        )
         if name == "figures":
             command.add_argument(
                 "--output-dir",
@@ -989,7 +1029,11 @@ def main() -> None:
                 help="Which file formats to write.",
             )
     args = parser.parse_args()
-    model = PoissonGLM()
+    model = PoissonGLM(
+        subject=args.subject,
+        session=args.session,
+        root=args.root or Path("figures/glm") / f"{args.subject}_{args.session}",
+    )
     if args.command == "prepare":
         if args.frame_times is not None:
             model.frame_times = args.frame_times
@@ -1005,10 +1049,19 @@ def main() -> None:
 class PoissonGLM:
     """Default artifact layout and the commands that produce a fitted GLM."""
 
-    root: Path = Path("figures/glm")
     subject: str = "GRB006"
     session: str = "20240821_121447"
-    frame_times: Path = Path("figures/glm/frame_times.npy")
+    root: Path = Path("figures/glm/GRB006_20240821_121447")
+
+    @property
+    def frame_times(self) -> Path:
+        return self._frame_times or self.root / "frame_times.npy"
+
+    @frame_times.setter
+    def frame_times(self, value: Path) -> None:
+        self._frame_times = value
+
+    _frame_times: Path | None = None
 
     @property
     def windows(self) -> Path:
