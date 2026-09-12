@@ -47,6 +47,7 @@ TASK_LABELS = {
     "visual_flash": "Visual flash",
     "center_poke": "Center poke",
     "center_exit": "Center exit",
+    "response_entry": "Response entry",
     "response_side": "Response side\n(right − left)",
 }
 SMOOTHING_MS = 20
