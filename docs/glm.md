@@ -25,9 +25,9 @@ already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
   refits every eligible unit on train+validation and scores the held-out trial
   split once.
 - 294 completed trials, 168 units, 3502 flashes.
-- `crossvalidate` instead scores every trial once with 10 folds over whole
-  trials, choosing each unit's penalty inside the fold at the PC count `fit`
-  selected. Reports per-unit mean and SEM across folds.
+- `fit` then cross-validates at that PC count: 10 folds over whole trials, so
+  every trial is scored once and all 294 contribute. Reports per-unit mean and
+  SEM across folds.
 
 ## Design
 
@@ -81,7 +81,7 @@ uv run python -m thesis.ephys.analyses.glm fit --units test
 `test_fit_me/` (resumable), no held-out trial metric. `fit --units all` writes
 `all_fit_me/` only after the model is accepted.
 
-## Attribution
+## Unique explained deviance
 
 Shuffle one block, refit, reselect α on validation, refit train+validation,
 score the held-out trial split. Shuffle only among valid bins, within trial.
@@ -90,7 +90,7 @@ Motion-energy PCs stay one block.
 `unique test D² = complete D² − shuffled D²`
 
 ```bash
-uv run python -m thesis.ephys.analyses.glm attribute --units test
+uv run python -m thesis.ephys.analyses.glm unique --units all
 ```
 
 ## Figures

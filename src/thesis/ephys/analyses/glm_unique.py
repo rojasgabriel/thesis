@@ -1,4 +1,4 @@
-"""Measure conditional predictive contributions in the fitted V1 GLM.
+"""Measure each block's unique explained deviance in the fitted V1 GLM.
 
 Shuffle one regressor block, refit, and take complete minus shuffled test D².
 All bases of a block move together, within trial. One shuffle is shared across
@@ -68,7 +68,7 @@ FIGURE_STYLE = {
 }
 
 
-def attribution_slices(metadata: dict, video_components: int) -> dict[str, slice]:
+def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
     """Return the contiguous full-model columns for each reported block."""
     task_columns = int(metadata["task_columns"])
     base_columns = int(metadata["base_columns"])
@@ -290,9 +290,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
     return summary
 
 
-def run_attribution(
-    windows: Path, design_path: Path, fit_dir: Path, unit_set: str
-) -> None:
+def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -> None:
     """Fit same-width shuffled comparators and write the summary figure."""
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
@@ -308,7 +306,7 @@ def run_attribution(
     common_columns = int(metadata["base_columns"]) + (
         VIDEO_BASIS_COLUMNS * video_components
     )
-    groups = attribution_slices(metadata, video_components)
+    groups = block_slices(metadata, video_components)
     group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
     with np.load(windows, allow_pickle=False) as saved:
@@ -334,7 +332,7 @@ def run_attribution(
         unit_rows = test_unit_indices(len(units))
     else:
         unit_rows = np.arange(len(units))
-    output_dir = fit_dir / "conditional_deviance_fit"
+    output_dir = fit_dir / "unique_deviance_fit"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     records = []
