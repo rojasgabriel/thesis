@@ -18,6 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
+    _SHARED,
     CV_FOLDS,
     CV_SEED,
     HISTORY_COLUMNS,
@@ -30,6 +31,7 @@ from thesis.ephys.analyses.glm import (
     build_unit_history,
     fit_poisson_at_alpha,
     poisson_metrics,
+    run_over_units,
     sample_unit_indices,
     training_zscore,
     trial_folds,
@@ -322,7 +324,94 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
     return summary
 
 
-def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -> None:
+def _block_task(job: dict) -> dict | None:
+    """Score every block's unique and maximal deviance for one unit."""
+    output = Path(job["output"])
+    if output.exists():
+        with output.open() as handle:
+            record = json.load(handle)
+        if record["shuffle_seed"] != SHUFFLE_SEED:
+            raise ValueError(f"Shuffle seed differs in {output}.")
+        return record
+    prepared = _SHARED["prepared"]
+    common = _SHARED["common"]
+    spikes = np.asarray(job["spike_times"], dtype=float)
+    counts = build_unit_counts(prepared["alignments"], spikes)
+    raw_history = build_unit_history(prepared["alignments"], spikes)
+    groups, order = job["groups"], job["group_order"]
+    within = job["within_trial"]
+    per_fold = {name: {"unique": [], "maximal": []} for name in order}
+    complete_folds = []
+    for index, fold in enumerate(job["folds"]):
+        fit, test = fold["fit"], fold["test"]
+        if counts[test].sum() <= 0:
+            continue
+        alpha = float(job["alphas"][index])
+        history, _, _ = training_zscore(raw_history, fit)
+        design = _design_with_history(common, history, job["common_columns"])
+        complete = _shuffled_deviance(design, counts, fit, test, alpha)
+        complete_folds.append(complete)
+
+        shuffled_all = design.copy()
+        for columns in dict.fromkeys(groups[name] for name in order):
+            shuffled_all[:, columns] = design[:, columns][within]
+        reference = _shuffled_deviance(shuffled_all, counts, fit, test, alpha)
+        del shuffled_all
+
+        for group in order:
+            columns = groups[group]
+            source = design[:, columns].copy()
+            design[:, columns] = source[within]
+            removed = _shuffled_deviance(design, counts, fit, test, alpha)
+            design[:, columns] = source
+            alone_design = design.copy()
+            for other in dict.fromkeys(groups[name] for name in order if name != group):
+                if other != columns:
+                    alone_design[:, other] = design[:, other][within]
+            alone = _shuffled_deviance(alone_design, counts, fit, test, alpha)
+            del alone_design, source
+            per_fold[group]["unique"].append(complete - removed)
+            per_fold[group]["maximal"].append(alone - reference)
+        del design
+    if len(complete_folds) < 2:
+        return None
+    group_results = {}
+    for group in order:
+        unique = np.asarray(per_fold[group]["unique"])
+        maximal = np.asarray(per_fold[group]["maximal"])
+        group_results[group] = {
+            "columns": groups[group].stop - groups[group].start,
+            "shuffle": "rows jointly within trial",
+            "unique_test_deviance_explained": float(unique.mean()),
+            "unique_test_deviance_explained_sem": float(
+                unique.std(ddof=1) / np.sqrt(len(unique))
+            ),
+            "maximal_test_deviance_explained": float(maximal.mean()),
+            "maximal_test_deviance_explained_sem": float(
+                maximal.std(ddof=1) / np.sqrt(len(maximal))
+            ),
+            "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
+        }
+    record = {
+        "unit_id": job["unit_id"],
+        "depth": job["depth"],
+        "video_components": job["video_components"],
+        "shuffle_seed": SHUFFLE_SEED,
+        "folds": len(complete_folds),
+        "complete_test_deviance_explained": float(np.mean(complete_folds)),
+        "groups": group_results,
+    }
+    _write_json_atomic(output, record)
+    return record
+
+
+def run_unique(
+    windows: Path,
+    design_path: Path,
+    fit_dir: Path,
+    unit_set: str,
+    workers: int | None = None,
+) -> None:
     """Fit same-width shuffled comparators and write the summary figure."""
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
@@ -377,99 +466,32 @@ def run_unique(windows: Path, design_path: Path, fit_dir: Path, unit_set: str) -
     output_dir = fit_dir / "unique_deviance_fit"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    records = []
-    for position, row in enumerate(unit_rows, start=1):
-        unit = units.iloc[row]
-        unit_id = int(unit["unit_id"])
-        output = output_dir / f"unit_{unit_id}.json"
-        if output.exists():
-            with output.open() as handle:
-                record = json.load(handle)
-            if record["shuffle_seed"] != SHUFFLE_SEED:
-                raise ValueError(f"Shuffle seed differs in {output}.")
-            records.append(record)
-            print(f"Loaded unit {position} of {len(unit_rows)}: {unit_id}", flush=True)
-            continue
-
-        spikes = np.asarray(unit["spike_times_s"], dtype=float)
-        counts = build_unit_counts(prepared["alignments"], spikes)
-        raw_history = build_unit_history(prepared["alignments"], spikes)
-
-        # One pass per fold, matching the cross-validation that produced the
-        # headline deviance, so unique and complete numbers are comparable.
-        per_fold: dict[str, dict[str, list[float]]] = {
-            group: {"unique": [], "maximal": []} for group in group_order
-        }
-        complete_folds = []
-        for fold_index, fold in enumerate(folds):
-            test = fold["test"]
-            fit = fold["fit"]
-            if counts[test].sum() <= 0:
-                continue
-            alpha = float(fold_alphas[unit_id][fold_index])
-            history, _, _ = training_zscore(raw_history, fit)
-            design = _design_with_history(common, history, common_columns)
-            complete = _shuffled_deviance(design, counts, fit, test, alpha)
-            complete_folds.append(complete)
-
-            shuffled_all = design.copy()
-            for columns in dict.fromkeys(groups[name] for name in group_order):
-                shuffled_all[:, columns] = design[:, columns][within_trial]
-            reference = _shuffled_deviance(shuffled_all, counts, fit, test, alpha)
-            del shuffled_all
-
-            for group in group_order:
-                columns = groups[group]
-                source = design[:, columns].copy()
-
-                design[:, columns] = source[within_trial]
-                removed = _shuffled_deviance(design, counts, fit, test, alpha)
-                design[:, columns] = source
-
-                alone_design = design.copy()
-                for other in dict.fromkeys(
-                    groups[name] for name in group_order if name != group
-                ):
-                    if other != columns:
-                        alone_design[:, other] = design[:, other][within_trial]
-                alone = _shuffled_deviance(alone_design, counts, fit, test, alpha)
-                del alone_design, source
-
-                per_fold[group]["unique"].append(complete - removed)
-                per_fold[group]["maximal"].append(alone - reference)
-            del design
-
-        group_results = {}
-        for group in group_order:
-            unique = np.asarray(per_fold[group]["unique"])
-            maximal = np.asarray(per_fold[group]["maximal"])
-            fitted = {
-                "columns": groups[group].stop - groups[group].start,
-                "shuffle": "rows jointly within trial",
-                "unique_test_deviance_explained": float(unique.mean()),
-                "unique_test_deviance_explained_sem": float(
-                    unique.std(ddof=1) / np.sqrt(len(unique))
-                ),
-                "maximal_test_deviance_explained": float(maximal.mean()),
-                "maximal_test_deviance_explained_sem": float(
-                    maximal.std(ddof=1) / np.sqrt(len(maximal))
-                ),
-                "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
-            }
-            group_results[group] = fitted
-
-        record = {
-            "unit_id": unit_id,
-            "depth": float(unit["depth"]),
+    jobs = [
+        {
+            "unit_id": int(units.iloc[row]["unit_id"]),
+            "depth": float(units.iloc[row]["depth"]),
+            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
             "video_components": video_components,
-            "shuffle_seed": SHUFFLE_SEED,
-            "folds": len(folds),
-            "complete_test_deviance_explained": float(np.mean(complete_folds)),
-            "groups": group_results,
+            "common_columns": common_columns,
+            "groups": groups,
+            "group_order": group_order,
+            "within_trial": within_trial,
+            "folds": folds,
+            "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
+            "output": str(output_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"),
         }
-        _write_json_atomic(output, record)
+        for row in unit_rows
+        if int(units.iloc[row]["unit_id"]) in fold_alphas
+    ]
+    records = []
+    for position, record in enumerate(
+        run_over_units(_block_task, jobs, windows, design_path, workers), start=1
+    ):
+        if record is None:
+            print(f"Skipped unit {position} of {len(jobs)}", flush=True)
+            continue
         records.append(record)
-        print(f"Saved unit {position} of {len(unit_rows)}: {unit_id}", flush=True)
+        print(f"Saved unit {position} of {len(jobs)}: {record['unit_id']}", flush=True)
 
     summary = _write_summary(records, output_dir)
     pdf, png = plot_conditional_deviance(records, output_dir / "conditional_deviance")

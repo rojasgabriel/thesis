@@ -15,8 +15,10 @@ available for quick runs.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as futures
 import copy
 import json
+import os
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -692,6 +694,60 @@ def _final_fit_for_unit(
     }
 
 
+_SHARED: dict = {}
+
+
+def _init_worker(windows: Path, design: Path) -> None:
+    """Open the shared design and masks once per worker, not once per unit."""
+    prepared = _load_windows(windows)
+    valid = _valid_bin_mask(prepared)
+    train, validation, test = _split_masks(prepared["split"], valid)
+    _SHARED.update(
+        prepared=prepared,
+        common=np.load(design, mmap_mode="r", allow_pickle=False),
+        valid=valid,
+        train=train,
+        validation=validation,
+        test=test,
+    )
+
+
+def _worker_count(requested: int | None) -> int:
+    """Leave one core free so the machine stays usable."""
+    if requested is not None:
+        return max(1, requested)
+    return max(1, (os.cpu_count() or 2) - 1)
+
+
+def run_over_units(task, jobs: list, windows: Path, design: Path, workers: int | None):
+    """Run one task per unit, in parallel when that helps, and yield results.
+
+    Each unit is an independent fit that writes its own record, so a failed
+    worker costs that unit rather than the run. BLAS threading barely helps on
+    this design (8 threads buy about 1.3x), so workers run single-threaded and
+    the parallelism goes across units instead.
+    """
+    count = min(_worker_count(workers), len(jobs))
+    if count <= 1:
+        _init_worker(windows, design)
+        for job in jobs:
+            yield task(job)
+        return
+    for name in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ[name] = "1"
+    print(f"Running {len(jobs)} units across {count} workers.", flush=True)
+    with futures.ProcessPoolExecutor(
+        max_workers=count, initializer=_init_worker, initargs=(windows, design)
+    ) as pool:
+        yield from pool.map(task, jobs)
+
+
 def trial_folds(n_trials: int, n_folds: int, seed: int) -> np.ndarray:
     """Assign each trial to one fold, so every trial is tested exactly once."""
     if n_trials < n_folds:
@@ -732,8 +788,60 @@ def _fold_fit_for_unit(
     }
 
 
+def _fold_task(job: dict) -> dict | None:
+    """Score one unit across every fold and save its record."""
+    output = Path(job["output"])
+    if output.exists():
+        with output.open() as handle:
+            return json.load(handle)
+    prepared = _SHARED["prepared"]
+    spikes = np.asarray(job["spike_times"], dtype=float)
+    counts = build_unit_counts(prepared["alignments"], spikes)
+    history = build_unit_history(prepared["alignments"], spikes)
+    results, skipped = [], 0
+    for part in job["partitions"]:
+        if counts[part["test"]].sum() <= 0:
+            # Deviance explained is undefined with no spikes to explain.
+            skipped += 1
+            continue
+        results.append(
+            _fold_fit_for_unit(
+                _SHARED["common"],
+                job["common_columns"],
+                counts,
+                history,
+                part["train"],
+                part["inner"],
+                part["test"],
+            )
+        )
+    if len(results) < 2:
+        return None
+    deviance = np.asarray([item["test"]["deviance_explained"] for item in results])
+    bits = np.asarray([item["test"]["bits_per_spike"] for item in results])
+    record = {
+        "unit_id": job["unit_id"],
+        "depth": job["depth"],
+        "components": job["components"],
+        "folds_scored": len(results),
+        "folds_without_spikes": skipped,
+        "folds": results,
+        "deviance_explained_mean": float(deviance.mean()),
+        "deviance_explained_sem": float(deviance.std(ddof=1) / np.sqrt(len(deviance))),
+        "bits_per_spike_mean": float(bits.mean()),
+        "bits_per_spike_sem": float(bits.std(ddof=1) / np.sqrt(len(bits))),
+    }
+    _write_json_atomic(output, record)
+    return record
+
+
 def crossvalidate(
-    windows: Path, design: Path, unit_set: str, output_dir: Path, components: int
+    windows: Path,
+    design: Path,
+    unit_set: str,
+    output_dir: Path,
+    components: int,
+    workers: int | None = None,
 ) -> None:
     """Score every trial once through k-fold cross-validation over trials.
 
@@ -742,7 +850,6 @@ def crossvalidate(
     only each unit's penalty is chosen inside a fold.
     """
     prepared = _load_windows(windows)
-    common = np.load(design, mmap_mode="r", allow_pickle=False)
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     common_columns = int(design_metadata["base_columns"]) + (
@@ -768,81 +875,59 @@ def crossvalidate(
         else np.arange(len(units))
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(CV_SEED)
+    # Build every fold's partition once, so all units share the same splits and
+    # the result cannot depend on the order units happen to be processed in.
+    partitions = []
+    for fold in range(CV_FOLDS):
+        rest = np.flatnonzero(folds != fold)
+        inner_trials = np.random.default_rng([CV_SEED, fold]).choice(
+            rest,
+            size=max(1, int(round(CV_INNER_FRACTION * len(rest)))),
+            replace=False,
+        )
+        inner_mask = np.zeros(len(folds), dtype=bool)
+        inner_mask[inner_trials] = True
+        inner_rows = np.repeat(inner_mask, bins_per_trial)
+        partitions.append(
+            {
+                "test": (fold_rows == fold) & valid,
+                "inner": inner_rows & valid,
+                "train": ~inner_rows & (fold_rows != fold) & valid,
+            }
+        )
     print(
         f"{CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
         f"{len(unit_rows)} units, {components} motion-energy PCs.",
         flush=True,
     )
 
+    jobs = [
+        {
+            "unit_id": int(units.iloc[row]["unit_id"]),
+            "depth": float(units.iloc[row]["depth"]),
+            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
+            "components": components,
+            "common_columns": common_columns,
+            "partitions": partitions,
+            "output": str(
+                output_dir / f"unit_{int(units.iloc[row]['unit_id'])}_folds.json"
+            ),
+        }
+        for row in unit_rows
+    ]
     records = []
-    for position, row in enumerate(unit_rows, start=1):
-        unit = units.iloc[row]
-        unit_id = int(unit["unit_id"])
-        output = output_dir / f"unit_{unit_id}_folds.json"
-        if output.exists():
-            with output.open() as handle:
-                record = json.load(handle)
-            records.append(record)
-            print(f"Loaded unit {position} of {len(unit_rows)}: {unit_id}", flush=True)
-            continue
-
-        spikes = np.asarray(unit["spike_times_s"], dtype=float)
-        counts = build_unit_counts(prepared["alignments"], spikes)
-        history = build_unit_history(prepared["alignments"], spikes)
-        fold_results = []
-        skipped = 0
-        for fold in range(CV_FOLDS):
-            test = (fold_rows == fold) & valid
-            if counts[test].sum() <= 0:
-                # Deviance explained is undefined with no spikes to explain.
-                # A quiet unit can be silent through one fold's ~29 trials.
-                skipped += 1
-                continue
-            rest_trials = np.flatnonzero(folds != fold)
-            inner_trials = rng.choice(
-                rest_trials,
-                size=max(1, int(round(CV_INNER_FRACTION * len(rest_trials)))),
-                replace=False,
-            )
-            inner_mask = np.zeros(len(folds), dtype=bool)
-            inner_mask[inner_trials] = True
-            inner = np.repeat(inner_mask, bins_per_trial) & valid
-            train = ~np.repeat(inner_mask, bins_per_trial) & (fold_rows != fold) & valid
-            fold_results.append(
-                _fold_fit_for_unit(
-                    common, common_columns, counts, history, train, inner, test
-                )
-            )
-        if len(fold_results) < 2:
+    for position, record in enumerate(
+        run_over_units(_fold_task, jobs, windows, design, workers), start=1
+    ):
+        if record is None:
             print(
-                f"Skipped unit {position} of {len(unit_rows)}: {unit_id}  "
-                f"spikes in only {len(fold_results)} of {CV_FOLDS} folds",
+                f"Skipped unit {position} of {len(jobs)}: too few scored folds",
                 flush=True,
             )
             continue
-        deviance = np.asarray(
-            [item["test"]["deviance_explained"] for item in fold_results]
-        )
-        bits = np.asarray([item["test"]["bits_per_spike"] for item in fold_results])
-        record = {
-            "unit_id": unit_id,
-            "depth": float(unit["depth"]),
-            "components": components,
-            "folds_scored": len(fold_results),
-            "folds_without_spikes": skipped,
-            "folds": fold_results,
-            "deviance_explained_mean": float(deviance.mean()),
-            "deviance_explained_sem": float(
-                deviance.std(ddof=1) / np.sqrt(len(deviance))
-            ),
-            "bits_per_spike_mean": float(bits.mean()),
-            "bits_per_spike_sem": float(bits.std(ddof=1) / np.sqrt(len(bits))),
-        }
-        _write_json_atomic(output, record)
         records.append(record)
         print(
-            f"Scored unit {position} of {len(unit_rows)}: {unit_id}  "
+            f"Scored unit {position} of {len(jobs)}: {record['unit_id']}  "
             f"D2 {record['deviance_explained_mean']:.4f} "
             f"+- {record['deviance_explained_sem']:.4f}",
             flush=True,
@@ -867,7 +952,41 @@ def crossvalidate(
     print(json.dumps(summary, indent=2))
 
 
-def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> None:
+def _selection_task(job: dict) -> dict:
+    """Select each model width's penalty for one unit and save the record."""
+    output = Path(job["output"])
+    if output.exists():
+        with output.open() as handle:
+            return json.load(handle)
+    prepared = _SHARED["prepared"]
+    spikes = np.asarray(job["spike_times"], dtype=float)
+    counts = build_unit_counts(prepared["alignments"], spikes)
+    selection = _selection_for_unit(
+        _SHARED["common"],
+        job["base_columns"],
+        counts,
+        build_unit_history(prepared["alignments"], spikes),
+        _SHARED["train"],
+        _SHARED["validation"],
+    )
+    selection.update(
+        unit_id=job["unit_id"],
+        depth=job["depth"],
+        spikes_in_selection_bins=int(
+            counts[_SHARED["train"] | _SHARED["validation"]].sum()
+        ),
+    )
+    _write_json_atomic(output, selection)
+    return selection
+
+
+def fit_models(
+    windows: Path,
+    design: Path,
+    unit_set: str,
+    output_dir: Path,
+    workers: int | None = None,
+) -> None:
     """Run validation selection; score held-out trials only for the all-unit run."""
     prepared = _load_windows(windows)
     common = np.load(design, mmap_mode="r", allow_pickle=False)
@@ -893,33 +1012,25 @@ def fit_models(windows: Path, design: Path, unit_set: str, output_dir: Path) -> 
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    jobs = [
+        {
+            "unit_id": int(units.iloc[row]["unit_id"]),
+            "depth": float(units.iloc[row]["depth"]),
+            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
+            "base_columns": design_metadata["base_columns"],
+            "output": str(
+                output_dir / f"unit_{int(units.iloc[row]['unit_id'])}_validation.json"
+            ),
+        }
+        for row in unit_rows
+    ]
     selections = []
-    for position, row in enumerate(unit_rows, start=1):
-        unit = units.iloc[row]
-        output = output_dir / f"unit_{int(unit['unit_id'])}_validation.json"
-        if output.exists():
-            with output.open() as handle:
-                selection = json.load(handle)
-        else:
-            spikes = np.asarray(unit["spike_times_s"], dtype=float)
-            counts = build_unit_counts(prepared["alignments"], spikes)
-            selection = _selection_for_unit(
-                common,
-                design_metadata["base_columns"],
-                counts,
-                build_unit_history(prepared["alignments"], spikes),
-                train,
-                validation,
-            )
-            selection.update(
-                unit_id=int(unit["unit_id"]),
-                depth=float(unit["depth"]),
-                spikes_in_selection_bins=int(counts[train | validation].sum()),
-            )
-            _write_json_atomic(output, selection)
+    for position, selection in enumerate(
+        run_over_units(_selection_task, jobs, windows, design, workers), start=1
+    ):
         selections.append(selection)
         print(
-            f"Validated unit {position} of {len(unit_rows)}: {int(unit['unit_id'])}",
+            f"Validated unit {position} of {len(jobs)}: {selection['unit_id']}",
             flush=True,
         )
 
@@ -1055,6 +1166,11 @@ def main() -> None:
             default="sample",
             help="Fit 20 sampled units or every eligible one.",
         )
+        command.add_argument(
+            "--workers",
+            type=int,
+            help="Units to fit at once. Defaults to one less than the core count.",
+        )
         if name == "figures":
             command.add_argument(
                 "--output-dir",
@@ -1081,7 +1197,7 @@ def main() -> None:
     if args.command == "figures":
         model.figures(args.units, args.output_dir, args.format)
         return
-    getattr(model, args.command)(args.units)
+    getattr(model, args.command)(args.units, args.workers)
 
 
 @dataclass
@@ -1136,22 +1252,22 @@ class PoissonGLM:
         else:
             prepare_common_design(self.windows, self.video, self.design)
 
-    def fit(self, units: str = "sample") -> None:
+    def fit(self, units: str = "sample", workers: int | None = None) -> None:
         """Choose the PC count, cross-validate at it, then refit on every trial.
 
         One command so the cross-validation cannot read a stale PC count, and so
         the coefficients the figures use always come from the same run.
         """
         directory = self.fit_dir(units)
-        fit_models(self.windows, self.design, units, directory)
+        fit_models(self.windows, self.design, units, directory, workers)
         with (directory / "summary.json").open() as handle:
             components = int(json.load(handle)["selected_video_components"])
-        crossvalidate(self.windows, self.design, units, directory, components)
+        crossvalidate(self.windows, self.design, units, directory, components, workers)
 
-    def unique(self, units: str = "sample") -> None:
+    def unique(self, units: str = "sample", workers: int | None = None) -> None:
         from thesis.ephys.analyses.glm_unique import run_unique
 
-        run_unique(self.windows, self.design, self.fit_dir(units), units)
+        run_unique(self.windows, self.design, self.fit_dir(units), units, workers)
 
     def figures(
         self,
