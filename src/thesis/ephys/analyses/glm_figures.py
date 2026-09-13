@@ -180,7 +180,9 @@ def _save_figure(figure, output: Path) -> tuple[Path | None, Path | None]:
     return paths["pdf"], paths["png"]
 
 
-def plot_model_design(design_metadata: dict, output: Path) -> tuple[Path, Path]:
+def plot_model_design(
+    design_metadata: dict, output: Path
+) -> tuple[Path | None, Path | None]:
     """Show the temporal support and basis count of every design block."""
     supports = [
         (
@@ -243,7 +245,7 @@ def plot_model_design(design_metadata: dict, output: Path) -> tuple[Path, Path]:
 
 def plot_population_summary(
     results: list[dict], selections: list[dict], output: Path
-) -> tuple[Path, Path, float]:
+) -> tuple[Path | None, Path | None, float]:
     """Show camera selection, held-out performance, and its rate relation."""
     selected_components = {item["components"] for item in results}
     if len(selected_components) != 1:
@@ -454,7 +456,7 @@ def plot_kernel_figure(
     columns: int,
     xlabel: str,
     example_ylabel: str,
-) -> tuple[Path, Path]:
+) -> tuple[Path | None, Path | None]:
     """Show population filter heatmaps above the same filters for one unit."""
     example_row = unit_ids.index(representative_unit_id)
     displayed = {
@@ -535,7 +537,7 @@ def plot_design_matrix_trial(
     unit_id: int,
     trial_number: int,
     output: Path,
-) -> tuple[Path, Path]:
+) -> tuple[Path | None, Path | None]:
     """Show the response vector and exact standardized matrix for one test trial."""
     expected_columns = int(design_metadata["base_columns"]) + (
         VIDEO_BASIS_COLUMNS * selected_components
@@ -641,7 +643,7 @@ def _interspike_intervals(counts: np.ndarray) -> np.ndarray:
 
 def plot_generative_checks(
     observed: np.ndarray, simulation: np.ndarray, unit_id: int, output: Path
-) -> tuple[Path, Path]:
+) -> tuple[Path | None, Path | None]:
     """Compare spiking statistics the model was never fitted to reproduce.
 
     Held-out trials. The model matched the mean rate by construction, so these
@@ -755,7 +757,7 @@ def plot_prediction_figure(
     result: dict,
     population_median: float,
     output: Path,
-) -> tuple[Path, Path]:
+) -> tuple[Path | None, Path | None]:
     """Write the Pillow-style raster and conditional-rate comparison."""
     raster_data = (observed, simulation)
     raster_labels = (

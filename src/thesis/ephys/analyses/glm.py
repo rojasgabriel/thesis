@@ -64,7 +64,7 @@ RECORD_VERSIONS = {
     "selection": 1,
     "folds": 2,  # 2: fold partitions built once per fold, shared across units
     "final": 1,
-    "unique": 1,
+    "unique": 2,  # 2: maximal models keep the target block unshuffled
 }
 
 
@@ -726,7 +726,12 @@ def _final_task(job: dict) -> dict | None:
     return record
 
 
-def _init_worker(windows: Path, design: Path, shuffle_seed: int | None) -> None:
+def _init_worker(
+    windows: Path,
+    design: Path,
+    shuffle_seed: int | None,
+    common_columns: int | None,
+) -> None:
     """Rebuild the shared state once per worker, not once per unit.
 
     Everything here is a deterministic function of the window file and the
@@ -760,9 +765,12 @@ def _init_worker(windows: Path, design: Path, shuffle_seed: int | None) -> None:
                 "fit": (fold_rows != fold) & valid,
             }
         )
+    common = np.load(design, mmap_mode="r", allow_pickle=False)
+    if common_columns is not None:
+        common = np.ascontiguousarray(common[:, :common_columns])
     _SHARED.update(
         prepared=prepared,
-        common=np.load(design, mmap_mode="r", allow_pickle=False),
+        common=common,
         train=train,
         validation=validation,
         all_valid=valid,
@@ -793,8 +801,10 @@ def run_over_units(
     """
     # Leave one core free so the machine stays usable.
     count = min(max(1, workers or (os.cpu_count() or 2) - 1), len(jobs))
+    shared_columns = {job.get("common_columns") for job in jobs}
+    common_columns = shared_columns.pop() if len(shared_columns) == 1 else None
     if count <= 1:
-        _init_worker(windows, design, shuffle_seed)
+        _init_worker(windows, design, shuffle_seed, common_columns)
         for job in jobs:
             try:
                 yield task(job)
@@ -814,7 +824,7 @@ def run_over_units(
     with futures.ProcessPoolExecutor(
         max_workers=count,
         initializer=_init_worker,
-        initargs=(windows, design, shuffle_seed),
+        initargs=(windows, design, shuffle_seed, common_columns),
     ) as pool:
         for job, future in zip(
             jobs, [pool.submit(task, job) for job in jobs], strict=True
@@ -1175,7 +1185,7 @@ def refit_final(
         if unit_set == "sample"
         else np.arange(len(units))
     )
-    jobs = [
+    jobs: list[dict] = [
         {
             "unit_id": int(units.iloc[row]["unit_id"]),
             "depth": float(units.iloc[row]["depth"]),
