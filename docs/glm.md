@@ -124,6 +124,13 @@ are Poisson draws from one-step-ahead rates conditioned on the observed spike
 history, not free-running simulations. Post-response bins remain on the plotted
 grid but are excluded from likelihood and scores.
 
+The model-design figure draws the actual normalized temporal basis functions.
+The example-trial matrix includes every task regressor, each selected
+motion-energy PC, and self-history. Its display is clipped at ±1 standardized
+units, with zero shown in black; clipping does not alter the model input. The
+single kernel figure shows task and self-history traces for the
+median-performance unit.
+
 ## Related methods
 
 Same family as [Truccolo et al. 2005](https://pubmed.ncbi.nlm.nih.gov/15356183/)

@@ -1,7 +1,14 @@
 import numpy as np
 
-from thesis.ephys.analyses.glm import CV_FOLDS, cross_validation_partitions
-from thesis.ephys.analyses.glm_figures import select_prediction_examples
+from thesis.ephys.analyses.glm import (
+    CV_FOLDS,
+    HISTORY_COLUMNS,
+    VIDEO_BASIS_COLUMNS,
+    cross_validation_partitions,
+    spike_history_basis,
+    task_temporal_bases,
+)
+from thesis.ephys.analyses.glm_figures import fitted_kernels, select_prediction_examples
 
 
 def test_prediction_examples_are_distinct_and_out_of_fold() -> None:
@@ -52,5 +59,41 @@ def test_prediction_examples_are_distinct_and_out_of_fold() -> None:
     )
 
 
+def test_fitted_kernels_reverse_design_standardization() -> None:
+    bases = task_temporal_bases()
+    manifest = [
+        {"name": name, "columns": basis.basis.shape[1]} for name, basis in bases.items()
+    ]
+    task_columns = sum(basis.basis.shape[1] for basis in bases.values())
+    components = 2
+    common_columns = task_columns + VIDEO_BASIS_COLUMNS * components
+    coefficients = np.arange(1, common_columns + HISTORY_COLUMNS + 1, dtype=float)
+    common_scale = np.full(common_columns, 2.0)
+    history_scale = np.full(HISTORY_COLUMNS, 4.0)
+
+    kernels = fitted_kernels(
+        {"components": components, "coefficients": coefficients},
+        {
+            "base_columns": task_columns,
+            "task_columns": task_columns,
+            "task_manifest": manifest,
+            "training_scale": common_scale,
+        },
+        history_scale,
+    )
+
+    first = manifest[0]
+    first_stop = first["columns"]
+    np.testing.assert_allclose(
+        kernels[first["name"]][1],
+        bases[first["name"]].basis @ (coefficients[:first_stop] / 2),
+    )
+    np.testing.assert_allclose(
+        kernels["history"][1],
+        spike_history_basis().basis @ (coefficients[common_columns:] / 4),
+    )
+
+
 if __name__ == "__main__":
     test_prediction_examples_are_distinct_and_out_of_fold()
+    test_fitted_kernels_reverse_design_standardization()
