@@ -116,10 +116,9 @@ After the all-unit held-out fit:
 uv run glm figures --units all [--output-dir DIR] [--format {pdf,png,both}]
 ```
 
-The predicted raster is a recursive Poisson simulation: each sampled spike
-count feeds the model's self-history filter for later bins. The conditional
-rate uses the observed spike history. Post-response bins remain on the plotted
-grid but are excluded from likelihood and scores.
+The predicted raster is a Poisson draw from one-step-ahead rates conditioned on
+the observed spike history. It is not a free-running simulation. Post-response
+bins remain on the plotted grid but are excluded from likelihood and scores.
 
 ## Related methods
 

@@ -1,10 +1,9 @@
 """Create figures for the fitted V1 spike-prediction GLM.
 
-Held-out test trials, first-flash aligned. Rasters are recursive samples from
-the fitted model: each simulated spike feeds back through that unit's own
-history filter, so the raster is a draw from the model's generative process
-rather than a one-step-ahead prediction. Each trial starts with an empty
-history.
+Held-out test trials, first-flash aligned. Model rates condition on each
+trial's observed spike history, so every bin is a one-step-ahead prediction.
+The comparison raster is a Poisson draw from those conditional rates; it is
+not a free-running simulation.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from thesis.ephys.analyses.glm import (
     _valid_bin_mask,
     build_unit_counts,
     build_unit_history,
-    spike_history_basis,
     task_temporal_bases,
     training_zscore,
     video_temporal_basis,
@@ -51,9 +49,8 @@ TASK_LABELS = {
     "response_side": "Response side\n(right − left)",
 }
 SMOOTHING_MS = 20
-SIMULATION_SEED = 2008
-# Rebound by make_figures; read by _save_figure so the six plot functions keep
-# their signatures.
+PREDICTION_SEED = 2008
+# Rebound by make_figures; read by _save_figure so plot signatures stay small.
 FIGURE_FORMATS: tuple[str, ...] = ("pdf", "png")
 FIGURE_STYLE = {
     "axes.spines.top": False,
@@ -112,54 +109,6 @@ def training_rate_and_deviance(
     if not np.isfinite(test_deviance).all():
         raise ValueError("Cross-validated deviance must be finite.")
     return training_rate, test_deviance
-
-
-def history_filter(
-    coefficients: np.ndarray, scale: np.ndarray, mean: np.ndarray
-) -> tuple[np.ndarray, float]:
-    """Collapse the fitted history bases into one filter over past bins.
-
-    The design columns were standardized, so undo that here: the filter carries
-    the scaled weights and the centring becomes a constant added to the
-    intercept. Entry ``lag`` multiplies the spike count ``lag + 1`` bins back,
-    matching the one-bin shift used when the columns were built.
-    """
-    basis = np.asarray(spike_history_basis().basis, dtype=float)
-    if basis.shape[1] != len(coefficients):
-        raise ValueError("History coefficients and basis widths differ.")
-    weights = np.asarray(coefficients, dtype=float) / np.asarray(scale, dtype=float)
-    return basis @ weights, float(-np.sum(weights * np.asarray(mean, dtype=float)))
-
-
-def simulate_spike_counts(
-    base_eta: np.ndarray,
-    filter_taps: np.ndarray,
-    offset: float,
-    rng: np.random.Generator,
-) -> np.ndarray:
-    """Sample spike trains recursively, feeding each spike back through history.
-
-    ``base_eta`` holds the linear predictor from every non-history column, one
-    row per trial. Each trial starts with no history, so the first bins are
-    driven by the covariates alone.
-    """
-    base_eta = np.asarray(base_eta, dtype=float)
-    if base_eta.ndim != 2:
-        raise ValueError("Base linear predictor must be a trial-by-bin array.")
-    if not np.isfinite(base_eta).all():
-        raise ValueError("Base linear predictor must be finite.")
-    taps = np.asarray(filter_taps, dtype=float)
-    n_trials, n_bins = base_eta.shape
-    counts = np.zeros((n_trials, n_bins), dtype=np.int64)
-    for trial in range(n_trials):
-        recent = np.zeros(len(taps))
-        for step in range(n_bins):
-            rate = np.exp(base_eta[trial, step] + offset + float(recent @ taps))
-            draw = rng.poisson(min(rate, 1e6))
-            counts[trial, step] = draw
-            recent[1:] = recent[:-1]
-            recent[0] = draw
-    return counts
 
 
 def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
@@ -629,140 +578,20 @@ def plot_design_matrix_trial(
         return _save_figure(figure, output)
 
 
-def _interspike_intervals(counts: np.ndarray) -> np.ndarray:
-    """Return within-trial interspike intervals in milliseconds."""
-    intervals = []
-    for row in np.asarray(counts):
-        bins = np.repeat(np.arange(len(row)), row.astype(int, copy=False))
-        if len(bins) > 1:
-            intervals.append(np.diff(bins))
-    if not intervals:
-        return np.empty(0)
-    return np.concatenate(intervals) * BINWIDTH_S * 1000
-
-
-def plot_generative_checks(
-    observed: np.ndarray, simulation: np.ndarray, unit_id: int, output: Path
-) -> tuple[Path | None, Path | None]:
-    """Compare spiking statistics the model was never fitted to reproduce.
-
-    Held-out trials. The model matched the mean rate by construction, so these
-    two panels are the informative ones: the interspike intervals show whether
-    the history filter captured refractoriness, and the per-trial counts show
-    whether the variability is right rather than only the mean.
-    """
-    observed_isi, simulated_isi = (
-        _interspike_intervals(observed),
-        _interspike_intervals(simulation),
-    )
-    observed_counts = np.asarray(observed).sum(axis=1)
-    simulated_counts = np.asarray(simulation).sum(axis=1)
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(1, 2, figsize=(7.1, 2.9))
-        if len(observed_isi) and len(simulated_isi):
-            edges = np.logspace(0, np.log10(max(observed_isi.max(), 2)), 40)
-            for values, color, label in (
-                (observed_isi, OBSERVED_COLOR, "observed"),
-                (simulated_isi, MODEL_COLOR, "model"),
-            ):
-                axes[0].hist(
-                    values,
-                    bins=edges,
-                    density=True,
-                    histtype="step",
-                    color=color,
-                    linewidth=1.2,
-                    label=label,
-                )
-            axes[0].set_xscale("log")
-        axes[0].set_xlabel("Interspike interval (ms)")
-        axes[0].set_ylabel("Density")
-
-        low = max(int(min(observed_counts.min(), simulated_counts.min())) - 2, 0)
-        top = int(max(observed_counts.max(), simulated_counts.max(), 1))
-        edges = np.arange(low, top + 2) - 0.5
-        for values, color in (
-            (observed_counts, OBSERVED_COLOR),
-            (simulated_counts, MODEL_COLOR),
-        ):
-            axes[1].hist(
-                values,
-                bins=edges,
-                density=True,
-                histtype="step",
-                color=color,
-                linewidth=1.2,
-            )
-        axes[1].set_xlim(edges[0], edges[-1])
-        axes[1].set_xlabel("Spikes per held-out trial")
-        axes[1].set_ylabel("Density")
-        fano = [
-            float(values.var() / values.mean()) if values.mean() > 0 else np.nan
-            for values in (observed_counts, simulated_counts)
-        ]
-        axes[1].text(
-            0.97,
-            0.94,
-            f"Fano: observed {fano[0]:.2f}, model {fano[1]:.2f}",
-            transform=axes[1].transAxes,
-            ha="right",
-            va="top",
-            color="0.3",
-            fontsize=7,
-        )
-        for y, label, color in (
-            (0.94, "observed", OBSERVED_COLOR),
-            (0.85, "model", MODEL_COLOR),
-        ):
-            axes[0].text(
-                0.97,
-                y,
-                label,
-                transform=axes[0].transAxes,
-                ha="right",
-                va="top",
-                color=color,
-                fontweight="bold",
-            )
-        for letter, axis in zip("ab", axes, strict=True):
-            axis.text(
-                -0.12,
-                1.04,
-                letter,
-                transform=axis.transAxes,
-                ha="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=10,
-            )
-        figure.suptitle("")
-        figure.text(
-            0.5,
-            1.0,
-            f"Median-performance unit {unit_id}, simulated through its own history",
-            ha="center",
-            va="bottom",
-            fontsize=7,
-            color="0.3",
-        )
-        return _save_figure(figure, output)
-
-
 def plot_prediction_figure(
     relative_times: np.ndarray,
     observed: np.ndarray,
-    simulation: np.ndarray,
-    prediction: np.ndarray,
+    predicted: np.ndarray,
+    conditional: np.ndarray,
     result: dict,
     population_median: float,
     output: Path,
 ) -> tuple[Path | None, Path | None]:
-    """Write the Pillow-style raster and conditional-rate comparison."""
-    raster_data = (observed, simulation)
+    """Write held-out rasters and the one-step conditional-rate comparison."""
+    raster_data = (observed, predicted)
     raster_labels = (
         "observed held-out spikes",
-        "model-predicted spike trains",
+        "model-predicted spikes (given observed past)",
     )
     raster_colors = (OBSERVED_COLOR, MODEL_COLOR)
     trial_count = observed.shape[0]
@@ -801,16 +630,16 @@ def plot_prediction_figure(
         axes[1].set_ylabel("Test trials")
         axes[0].text(
             0.99,
-            1.02,
+            0.96,
             (
-                f"median-performance unit {int(result['unit_id'])}: "
+                f"median-performance unit {int(result['unit_id'])}\n"
                 f"cross-validated $D^2$="
                 f"{result['cross_validated_deviance_explained']:.3f}; "
                 f"population median={population_median:.3f}"
             ),
             transform=axes[0].transAxes,
             ha="right",
-            va="bottom",
+            va="top",
             color="0.3",
             fontsize=7,
         )
@@ -818,34 +647,21 @@ def plot_prediction_figure(
         sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
         rates = [
             gaussian_filter1d(values.mean(axis=0) / BINWIDTH_S, sigma_bins)
-            for values in (observed, prediction, simulation)
+            for values in (observed, conditional)
         ]
         rate_axis = axes[2]
-        for rate, color, style in zip(
+        for rate, color in zip(
             rates,
-            (OBSERVED_COLOR, MODEL_COLOR, MODEL_COLOR),
-            ("-", "-", "--"),
+            (OBSERVED_COLOR, MODEL_COLOR),
             strict=True,
         ):
-            rate_axis.plot(
-                relative_times, rate, color=color, linewidth=1.25, linestyle=style
-            )
+            rate_axis.plot(relative_times, rate, color=color, linewidth=1.25)
         rate_axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
         rate_axis.set_ylabel("Mean rate (spikes/s)")
         rate_axis.set_xlabel("Time from first measured flash (s)")
-        rate_axis.text(
-            0.01,
-            0.94,
-            "solid: rate given the observed past; dashed: simulated spikes",
-            transform=rate_axis.transAxes,
-            ha="left",
-            va="top",
-            color="0.3",
-            fontsize=7,
-        )
         for y, label, color in (
             (0.86, "observed", OBSERVED_COLOR),
-            (0.77, "model", MODEL_COLOR),
+            (0.77, "model (given observed past)", MODEL_COLOR),
         ):
             rate_axis.text(
                 0.99,
@@ -992,9 +808,6 @@ def make_figures(
     history_all = build_unit_history(prepared["alignments"], spike_times)
     _, history_mean, history_scale = training_zscore(history_all, train | validation)
     history = (history_all[test_rows] - history_mean) / history_scale
-    taps, history_offset = history_filter(
-        coefficients[common_columns:], history_scale, history_mean
-    )
 
     trial_count = len(test_alignments)
     bin_count = len(relative_times)
@@ -1003,8 +816,7 @@ def make_figures(
         float(result["intercept"])
         + np.asarray(common[:, :common_columns]) @ coefficients[:common_columns]
     ).reshape(trial_count, bin_count)
-    # Rate given the observed past, which is what the model predicts one step
-    # ahead. The raster below instead feeds its own samples back.
+    # Each bin conditions on the observed past, exactly as during held-out scoring.
     conditional = np.exp(
         base_eta
         + (history @ coefficients[common_columns:]).reshape(trial_count, bin_count)
@@ -1026,16 +838,11 @@ def make_figures(
         int(test_trial_numbers[typical_trial]),
         figure_dir / "design_matrix_trial",
     )
-    simulation = simulate_spike_counts(
-        base_eta, taps, history_offset, np.random.default_rng(SIMULATION_SEED)
-    )
-    checks_pdf, checks_png = plot_generative_checks(
-        observed, simulation, unit_id, figure_dir / "generative_checks"
-    )
+    predicted = np.random.default_rng(PREDICTION_SEED).poisson(conditional)
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
         observed,
-        simulation,
+        predicted,
         conditional,
         result,
         population_median,
@@ -1047,7 +854,6 @@ def make_figures(
         "fitted_task_kernels": (task_kernel_pdf, task_kernel_png),
         "fitted_video_kernels": (video_kernel_pdf, video_kernel_png),
         "design_matrix_trial": (design_matrix_pdf, design_matrix_png),
-        "generative_checks": (checks_pdf, checks_png),
         "predicted_spike_trains": (pdf_path, png_path),
     }
     print(
@@ -1061,8 +867,8 @@ def make_figures(
                 ],
                 "test_trials": trial_count,
                 "observed_spikes": int(observed.sum()),
-                "simulated_spikes": int(simulation.sum()),
-                "simulation_seed": SIMULATION_SEED,
+                "conditional_sampled_spikes": int(predicted.sum()),
+                "prediction_seed": PREDICTION_SEED,
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
                 "design_matrix_trial": int(test_trial_numbers[typical_trial]),
                 "figure_dir": str(figure_dir),
