@@ -335,14 +335,6 @@ def _block_task(job: dict) -> dict | None:
     counts = build_unit_counts(prepared["alignments"], spikes)
     raw_history = build_unit_history(prepared["alignments"], spikes)
     groups, order = job["groups"], job["group_order"]
-    if "within_trial" not in _SHARED:
-        # Same permutation for every unit and worker, derived from the seed.
-        _SHARED["within_trial"] = shuffle_permutations(
-            _SHARED["n_trials"],
-            _SHARED["bins_per_trial"],
-            SHUFFLE_SEED,
-            valid=_SHARED["valid"],
-        )
     within = _SHARED["within_trial"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
     complete_folds = []
@@ -474,7 +466,8 @@ def run_unique(
     ]
     records = []
     for position, record in enumerate(
-        run_over_units(_block_task, jobs, windows, design_path, workers), start=1
+        run_over_units(_block_task, jobs, windows, design_path, workers, SHUFFLE_SEED),
+        start=1,
     ):
         if record is None:
             print(f"Skipped unit {position} of {len(jobs)}", flush=True)

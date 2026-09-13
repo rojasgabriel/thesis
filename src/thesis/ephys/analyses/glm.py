@@ -697,7 +697,7 @@ def _final_fit_for_unit(
 _SHARED: dict = {}
 
 
-def _init_worker(windows: Path, design: Path) -> None:
+def _init_worker(windows: Path, design: Path, shuffle_seed: int | None) -> None:
     """Rebuild the shared state once per worker, not once per unit.
 
     Everything here is a deterministic function of the window file and the
@@ -734,24 +734,26 @@ def _init_worker(windows: Path, design: Path) -> None:
     _SHARED.update(
         prepared=prepared,
         common=np.load(design, mmap_mode="r", allow_pickle=False),
-        valid=valid,
         train=train,
         validation=validation,
-        test=test,
-        bins_per_trial=bins_per_trial,
         partitions=partitions,
-        n_trials=len(trial_split),
     )
+    if shuffle_seed is not None:
+        from thesis.ephys.analyses.glm_unique import shuffle_permutations
+
+        _SHARED["within_trial"] = shuffle_permutations(
+            len(trial_split), bins_per_trial, shuffle_seed, valid=valid
+        )
 
 
-def _worker_count(requested: int | None) -> int:
-    """Leave one core free so the machine stays usable."""
-    if requested is not None:
-        return max(1, requested)
-    return max(1, (os.cpu_count() or 2) - 1)
-
-
-def run_over_units(task, jobs: list, windows: Path, design: Path, workers: int | None):
+def run_over_units(
+    task,
+    jobs: list,
+    windows: Path,
+    design: Path,
+    workers: int | None,
+    shuffle_seed: int | None = None,
+):
     """Run one task per unit, in parallel when that helps, and yield results.
 
     Each unit is an independent fit that writes its own record, so a failed
@@ -759,9 +761,10 @@ def run_over_units(task, jobs: list, windows: Path, design: Path, workers: int |
     this design (8 threads buy about 1.3x), so workers run single-threaded and
     the parallelism goes across units instead.
     """
-    count = min(_worker_count(workers), len(jobs))
+    # Leave one core free so the machine stays usable.
+    count = min(max(1, workers or (os.cpu_count() or 2) - 1), len(jobs))
     if count <= 1:
-        _init_worker(windows, design)
+        _init_worker(windows, design, shuffle_seed)
         for job in jobs:
             try:
                 yield task(job)
@@ -779,10 +782,13 @@ def run_over_units(task, jobs: list, windows: Path, design: Path, workers: int |
         os.environ[name] = "1"
     print(f"Running {len(jobs)} units across {count} workers.", flush=True)
     with futures.ProcessPoolExecutor(
-        max_workers=count, initializer=_init_worker, initargs=(windows, design)
+        max_workers=count,
+        initializer=_init_worker,
+        initargs=(windows, design, shuffle_seed),
     ) as pool:
-        submitted = [pool.submit(task, job) for job in jobs]
-        for job, future in zip(jobs, submitted, strict=True):
+        for job, future in zip(
+            jobs, [pool.submit(task, job) for job in jobs], strict=True
+        ):
             try:
                 yield future.result()
             except Exception as error:  # noqa: BLE001
