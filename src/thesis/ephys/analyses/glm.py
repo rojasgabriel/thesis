@@ -8,8 +8,9 @@ choice side split into a side-independent and a contrast kernel, additive video
 motion-energy PCs, and each unit's own strictly past
 spike history. Bins after response entry are excluded. Whole trials are split
 randomly 60/20/20. No coupling between units, session drift, go cue, outcome, or
-punishment terms. Validation selects the motion-energy PC count. A 20-unit random sample is
-available for quick runs.
+punishment terms. Validation selects the motion-energy PC count; held-out
+performance is the ten-fold cross-validated deviance, so every trial is scored
+once. A 20-unit random sample is available for quick runs.
 """
 
 from __future__ import annotations
@@ -51,6 +52,8 @@ VIDEO_BASIS_COLUMNS = 3
 HISTORY_COLUMNS = 10
 SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
+# Per-worker state, filled by _init_worker.
+_SHARED: dict = {}
 CV_FOLDS = 10
 CV_SEED = 20260913
 CV_INNER_FRACTION = 0.25
@@ -651,58 +654,45 @@ def _selection_for_unit(
     return result
 
 
-def _final_fit_for_unit(
-    common: np.ndarray,
-    base_columns: int,
-    counts: np.ndarray,
-    history: np.ndarray,
-    train: np.ndarray,
-    validation: np.ndarray,
-    test: np.ndarray,
-    selection: dict,
-    component_count: int,
-) -> dict:
-    fit = train | validation
-    fit_mean = float(counts[fit].mean())
-    history, _, _ = training_zscore(history, fit)
-    baseline = _design_with_history(common, history, base_columns)
-    baseline_model = fit_poisson_at_alpha(
-        baseline[fit],
-        counts[fit],
-        selection["baseline"]["alpha_path"]["best_alpha"],
+def _final_task(job: dict) -> dict | None:
+    """Refit one unit on every valid trial and save the canonical model.
+
+    This is the model the figures and the block analysis read. It is not
+    scored here: its held-out performance is the cross-validated deviance,
+    carried over from the fold records.
+    """
+    output = Path(job["output"])
+    if output.exists():
+        with output.open() as handle:
+            return json.load(handle)
+    prepared = _SHARED["prepared"]
+    rows = _SHARED["all_valid"]
+    spikes = np.asarray(job["spike_times"], dtype=float)
+    counts = build_unit_counts(prepared["alignments"], spikes)
+    history, _, _ = training_zscore(
+        build_unit_history(prepared["alignments"], spikes), rows
     )
-    common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
-    full = _design_with_history(common, history, common_columns)
-    full_model = fit_poisson_at_alpha(
-        full[fit],
-        counts[fit],
-        selection["plus_video"][str(component_count)]["alpha_path"]["best_alpha"],
+    design = _design_with_history(
+        _SHARED["common"], history, job["common_columns"], rows
     )
-    return {
-        "fit_mean_count": fit_mean,
-        "baseline": {
-            "alpha": selection["baseline"]["alpha_path"]["best_alpha"],
-            "intercept": float(baseline_model.intercept_),
-            "coefficients": baseline_model.coef_.tolist(),
-            "test": poisson_metrics(
-                counts[test], baseline_model.predict(baseline[test]), fit_mean
-            ),
-        },
-        "plus_video": {
-            "components": component_count,
-            "alpha": selection["plus_video"][str(component_count)]["alpha_path"][
-                "best_alpha"
-            ],
-            "intercept": float(full_model.intercept_),
-            "coefficients": full_model.coef_.tolist(),
-            "test": poisson_metrics(
-                counts[test], full_model.predict(full[test]), fit_mean
-            ),
-        },
+    model = fit_poisson_at_alpha(design, counts[rows], job["alpha"])
+    folds = job["cross_validated"]
+    record = {
+        "unit_id": job["unit_id"],
+        "depth": job["depth"],
+        "components": job["components"],
+        "alpha": job["alpha"],
+        "fit_rows": int(np.count_nonzero(rows)),
+        "fit_mean_count": float(counts[rows].mean()),
+        "intercept": float(model.intercept_),
+        "coefficients": model.coef_.tolist(),
+        "cross_validated_deviance_explained": folds["deviance_explained_mean"],
+        "cross_validated_deviance_explained_sem": folds["deviance_explained_sem"],
+        "cross_validated_bits_per_spike": folds["bits_per_spike_mean"],
+        "folds_scored": folds["folds_scored"],
     }
-
-
-_SHARED: dict = {}
+    _write_json_atomic(output, record)
+    return record
 
 
 def _init_worker(windows: Path, design: Path, shuffle_seed: int | None) -> None:
@@ -744,6 +734,7 @@ def _init_worker(windows: Path, design: Path, shuffle_seed: int | None) -> None:
         common=np.load(design, mmap_mode="r", allow_pickle=False),
         train=train,
         validation=validation,
+        all_valid=valid,
         partitions=partitions,
     )
     if shuffle_seed is not None:
@@ -1097,7 +1088,6 @@ def fit_models(
     summary = {
         "unit_set": unit_set,
         "units": len(unit_rows),
-        "test_scored": unit_set == "all",
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_components,
         "fit_rows": {
@@ -1107,49 +1097,40 @@ def fit_models(
         },
     }
 
-    if unit_set == "all":
-        final_results = []
-        for position, (row, selection) in enumerate(
-            zip(unit_rows, selections, strict=True), start=1
-        ):
-            unit = units.iloc[row]
-            output = output_dir / f"unit_{int(unit['unit_id'])}_test.json"
-            if output.exists():
-                with output.open() as handle:
-                    final = json.load(handle)
-            else:
-                spikes = np.asarray(unit["spike_times_s"], dtype=float)
-                counts = build_unit_counts(prepared["alignments"], spikes)
-                final = _final_fit_for_unit(
-                    common,
-                    design_metadata["base_columns"],
-                    counts,
-                    build_unit_history(prepared["alignments"], spikes),
-                    train,
-                    validation,
-                    test,
-                    selection,
-                    selected_components,
-                )
-                final.update(unit_id=int(unit["unit_id"]), depth=float(unit["depth"]))
-                _write_json_atomic(output, final)
-            final_results.append(final)
-            print(
-                f"Tested unit {position} of {len(unit_rows)}: {int(unit['unit_id'])}",
-                flush=True,
-            )
-        differences = np.asarray(
-            [
-                item["plus_video"]["test"]["bits_per_spike"]
-                - item["baseline"]["test"]["bits_per_spike"]
-                for item in final_results
-            ]
-        )
-        summary["test_video_delta_bits_per_spike"] = {
-            "median": float(np.median(differences)),
-            "q25": float(np.quantile(differences, 0.25)),
-            "q75": float(np.quantile(differences, 0.75)),
+    # Refit each unit on every valid trial, which is the model the figures and
+    # the block analysis use. Its held-out score comes from cross-validation
+    # rather than from a second, weaker split.
+    fold_records = {
+        int(json.loads(path.read_text())["unit_id"]): json.loads(path.read_text())
+        for path in output_dir.glob("unit_*_folds.json")
+    }
+    final_jobs = [
+        {
+            "unit_id": job["unit_id"],
+            "depth": job["depth"],
+            "spike_times": job["spike_times"],
+            "components": selected_components,
+            "common_columns": int(design_metadata["base_columns"])
+            + VIDEO_BASIS_COLUMNS * selected_components,
+            "alpha": float(
+                np.median([f["alpha"] for f in fold_records[job["unit_id"]]["folds"]])
+            ),
+            "cross_validated": fold_records[job["unit_id"]],
+            "output": str(output_dir / f"unit_{job['unit_id']}_final.json"),
         }
+        for job in jobs
+        if job["unit_id"] in fold_records
+    ]
+    for position, record in enumerate(
+        run_over_units(_final_task, final_jobs, windows, design, workers), start=1
+    ):
+        if record is None:
+            continue
+        print(
+            f"Refitted unit {position} of {len(final_jobs)}: {record['unit_id']}",
+            flush=True,
+        )
+    summary["units_refitted"] = len(final_jobs)
 
     _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
     print(json.dumps(summary, indent=2))

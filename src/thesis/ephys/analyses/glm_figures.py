@@ -69,26 +69,26 @@ def select_representative_result(results: list[dict]) -> tuple[dict, float]:
     if not results:
         raise ValueError("No fitted unit results were found.")
     scores = np.asarray(
-        [item["plus_video"]["test"]["deviance_explained"] for item in results],
+        [item["cross_validated_deviance_explained"] for item in results],
         dtype=float,
     )
     if not np.isfinite(scores).all():
-        raise ValueError("Full-model test scores must be finite.")
+        raise ValueError("Cross-validated deviance must be finite.")
     median = float(np.median(scores))
     result = min(
         results,
         key=lambda item: (
-            abs(item["plus_video"]["test"]["deviance_explained"] - median),
+            abs(item["cross_validated_deviance_explained"] - median),
             int(item["unit_id"]),
         ),
     )
     return result, median
 
 
-def training_rate_and_test_deviance(
+def training_rate_and_deviance(
     results: list[dict], selections: list[dict]
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Pair training firing rate and full-model test score by unit ID."""
+    """Pair training firing rate and cross-validated deviance by unit ID."""
     selection_by_id = {int(item["unit_id"]): item for item in selections}
     result_ids = [int(item["unit_id"]) for item in results]
     if len(selection_by_id) != len(selections) or len(set(result_ids)) != len(results):
@@ -104,13 +104,13 @@ def training_rate_and_test_deviance(
         dtype=float,
     )
     test_deviance = np.asarray(
-        [item["plus_video"]["test"]["deviance_explained"] for item in results],
+        [item["cross_validated_deviance_explained"] for item in results],
         dtype=float,
     )
     if not np.isfinite(training_rate).all() or np.any(training_rate < 0):
         raise ValueError("Training firing rates must be finite and nonnegative.")
     if not np.isfinite(test_deviance).all():
-        raise ValueError("Full-model test scores must be finite.")
+        raise ValueError("Cross-validated deviance must be finite.")
     return training_rate, test_deviance
 
 
@@ -245,7 +245,7 @@ def plot_population_summary(
     results: list[dict], selections: list[dict], output: Path
 ) -> tuple[Path, Path, float]:
     """Show camera selection, held-out performance, and its rate relation."""
-    selected_components = {item["plus_video"]["components"] for item in results}
+    selected_components = {item["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
     selected = selected_components.pop()
@@ -267,9 +267,8 @@ def plot_population_summary(
             for count in VIDEO_COMPONENT_COUNTS
         ],
     ]
-    full_results = [item["plus_video"]["test"] for item in results]
-    training_rate, deviance = training_rate_and_test_deviance(results, selections)
-    bits = np.asarray([item["bits_per_spike"] for item in full_results])
+    training_rate, deviance = training_rate_and_deviance(results, selections)
+    bits = np.asarray([item["cross_validated_bits_per_spike"] for item in results])
     rate_deviance_rho = float(spearmanr(training_rate, deviance).statistic)
     if not np.isfinite(rate_deviance_rho):
         raise ValueError("Training firing rate and test score must vary across units.")
@@ -364,7 +363,7 @@ def fitted_kernel_matrices(
     if len(selection_by_id) != len(selections) or set(unit_ids) != set(selection_by_id):
         raise ValueError("Final and validation results contain different units.")
 
-    component_counts = {int(item["plus_video"]["components"]) for item in ordered}
+    component_counts = {int(item["components"]) for item in ordered}
     if len(component_counts) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
     video_components = component_counts.pop()
@@ -373,9 +372,7 @@ def fitted_kernel_matrices(
     common_columns = (
         int(design_metadata["base_columns"]) + VIDEO_BASIS_COLUMNS * video_components
     )
-    coefficients = np.asarray(
-        [item["plus_video"]["coefficients"] for item in ordered], dtype=float
-    )
+    coefficients = np.asarray([item["coefficients"] for item in ordered], dtype=float)
     if coefficients.shape != (len(ordered), common_columns):
         raise ValueError("Saved coefficient count does not match the selected design.")
 
@@ -805,7 +802,8 @@ def plot_prediction_figure(
             1.02,
             (
                 f"median-performance unit {int(result['unit_id'])}: "
-                f"test $D^2$={result['plus_video']['test']['deviance_explained']:.3f}; "
+                f"cross-validated $D^2$="
+                f"{result['cross_validated_deviance_explained']:.3f}; "
                 f"population median={population_median:.3f}"
             ),
             transform=axes[0].transAxes,
@@ -908,7 +906,7 @@ def make_figures(
     figure_dir = output_dir if output_dir is not None else fit_dir
     figure_dir.mkdir(parents=True, exist_ok=True)
     results = []
-    for path in sorted(fit_dir.glob("unit_*_test.json")):
+    for path in sorted(fit_dir.glob("unit_*_final.json")):
         with path.open() as handle:
             results.append(json.load(handle))
     selections = []
@@ -917,7 +915,7 @@ def make_figures(
             selections.append(json.load(handle))
     if len(results) != len(selections):
         raise ValueError("Final and validation result counts differ.")
-    selected_components = {item["plus_video"]["components"] for item in results}
+    selected_components = {item["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
     selected_components = int(selected_components.pop())
@@ -981,7 +979,7 @@ def make_figures(
     common = np.load(design, mmap_mode="r", allow_pickle=False)[test_rows]
     if len(common) != len(counts):
         raise ValueError("Test design and response rows differ.")
-    coefficients = np.asarray(result["plus_video"]["coefficients"], dtype=float)
+    coefficients = np.asarray(result["coefficients"], dtype=float)
     common_columns = len(coefficients) - HISTORY_COLUMNS
 
     # The history block is per unit, so rebuild it and standardize it the way
@@ -999,7 +997,7 @@ def make_figures(
     bin_count = len(relative_times)
     observed = counts.reshape(trial_count, bin_count)
     base_eta = (
-        float(result["plus_video"]["intercept"])
+        float(result["intercept"])
         + np.asarray(common[:, :common_columns]) @ coefficients[:common_columns]
     ).reshape(trial_count, bin_count)
     # Rate given the observed past, which is what the model predicts one step
@@ -1053,10 +1051,10 @@ def make_figures(
         json.dumps(
             {
                 "unit_id": unit_id,
-                "selection": "full-model test deviance explained nearest population median",
-                "population_median_test_deviance_explained": population_median,
-                "unit_test_deviance_explained": result["plus_video"]["test"][
-                    "deviance_explained"
+                "selection": "cross-validated deviance nearest the population median",
+                "population_median_cross_validated_deviance": population_median,
+                "unit_cross_validated_deviance_explained": result[
+                    "cross_validated_deviance_explained"
                 ],
                 "test_trials": trial_count,
                 "observed_spikes": int(observed.sum()),
