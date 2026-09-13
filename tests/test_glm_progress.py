@@ -4,7 +4,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import numpy as np
+
 from thesis.ephys.analyses.glm import _artifact_lock, run_over_units
+from thesis.ephys.analyses.glm_unique import _scored_folds
 
 
 def test_unit_progress_distinguishes_cache_and_failure() -> None:
@@ -49,6 +52,18 @@ def test_artifact_lock_rejects_a_second_command() -> None:
                 assert "Another GLM command is already running" in str(error)
 
 
+def test_unique_pairs_alphas_after_an_empty_fold() -> None:
+    partitions = [
+        {"test": np.array([True, False, False])},
+        {"test": np.array([False, True, False])},
+        {"test": np.array([False, False, True])},
+    ]
+    pairs = _scored_folds(np.array([1, 0, 1]), partitions, [0.1, 0.2])
+
+    assert pairs == [(partitions[0], 0.1), (partitions[2], 0.2)]
+
+
 if __name__ == "__main__":
     test_unit_progress_distinguishes_cache_and_failure()
     test_artifact_lock_rejects_a_second_command()
+    test_unique_pairs_alphas_after_an_empty_fold()
