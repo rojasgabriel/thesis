@@ -1181,7 +1181,7 @@ pipeline
   uv run glm prepare                 trial windows, motion-energy PCs, design
   uv run glm fit --units all         penalty, cross-validation, final refit
   uv run glm unique --units all      unique and maximal deviance per block
-  uv run glm figures --units all     kernels, predictions, generative checks
+  uv run glm figures --units all     kernels and held-out predictions
 
 Artifacts go to figures/glm/<subject>_<session>/. Restart checkpoints stay in
 the fit directory's checkpoints/ folder. Use --units sample for a 20-unit
@@ -1306,7 +1306,7 @@ def main() -> None:
         ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
         ("fit", "Choose the PC count, cross-validate, then refit"),
         ("unique", "Unique and maximal explained deviance per block"),
-        ("figures", "Kernels, predictions, and generative checks"),
+        ("figures", "Kernels and held-out predictions"),
     ):
         command = subparsers.add_parser(
             name, help=help_text, description=help_text + "."
