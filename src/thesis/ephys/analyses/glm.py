@@ -222,14 +222,22 @@ def build_unit_history(alignments: np.ndarray, spike_times: np.ndarray) -> np.nd
 
 
 def _design_with_history(
-    common: np.ndarray, history: np.ndarray, common_columns: int
+    common: np.ndarray,
+    history: np.ndarray,
+    common_columns: int,
+    rows: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Append a unit's standardized history block to the shared design."""
-    design = np.empty(
-        (common.shape[0], common_columns + history.shape[1]), dtype=np.float32
-    )
-    design[:, :common_columns] = common[:, :common_columns]
-    design[:, common_columns:] = history
+    """Append a unit's standardized history block to the shared design.
+
+    Pass `rows` to build only the rows a fit needs. Materializing all 775,866
+    and then slicing costs the full array plus every slice; roughly half those
+    rows are masked out after response entry and never scored.
+    """
+    index = slice(None) if rows is None else rows
+    height = common.shape[0] if rows is None else int(np.count_nonzero(rows))
+    design = np.empty((height, common_columns + history.shape[1]), dtype=np.float32)
+    design[:, :common_columns] = common[index, :common_columns]
+    design[:, common_columns:] = history[index]
     return design
 
 
@@ -823,17 +831,28 @@ def _fold_fit_for_unit(
     if fit_mean <= 0:
         raise ValueError("Each unit must have at least one training spike.")
     history, _, _ = training_zscore(history, fit)
-    design = _design_with_history(common, history, common_columns)
+    # Build each block of rows on its own, so the full-height design is never
+    # materialized alongside its slices.
     _, path = fit_poisson_alpha_path(
-        design[train], counts[train], design[inner], counts[inner]
+        _design_with_history(common, history, common_columns, train),
+        counts[train],
+        _design_with_history(common, history, common_columns, inner),
+        counts[inner],
     )
-    model = fit_poisson_at_alpha(design[fit], counts[fit], path["best_alpha"])
+    model = fit_poisson_at_alpha(
+        _design_with_history(common, history, common_columns, fit),
+        counts[fit],
+        path["best_alpha"],
+    )
+    prediction = model.predict(
+        _design_with_history(common, history, common_columns, test)
+    )
     return {
         "alpha": path["best_alpha"],
         "fit_mean_count": fit_mean,
         "intercept": float(model.intercept_),
         "coefficients": model.coef_.tolist(),
-        "test": poisson_metrics(counts[test], model.predict(design[test]), fit_mean),
+        "test": poisson_metrics(counts[test], prediction, fit_mean),
     }
 
 
