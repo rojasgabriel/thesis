@@ -21,13 +21,16 @@ already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
   window. Fitting **masks bins after that trial’s response entry**; it does not
   shorten the grid. 10.5% of responses are after 1.5 s; no flashes occur after
   response.
-- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Train fits,
-  validation chooses the motion-energy PC count and each unit's penalty, test
-  is scored once.
+- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Train fits and
+  validation chooses the motion-energy PC count and each unit's penalty. The
+  third block is not scored on its own; held-out performance comes from
+  cross-validation, which scores every trial.
 - `fit` then cross-validates at that PC count: 10 folds over whole trials
   (`CV_SEED = 20260913`), so every trial is scored once and all 294 contribute.
-  Reports per-unit mean and SEM across folds. It finally refits on every trial,
-  which is what the figures and `unique` use.
+  Reports per-unit mean and SEM across folds. It finally refits each unit on
+  every valid trial at the median fold penalty, writing `unit_*_final.json`:
+  that model carries the coefficients the figures and `unique` read, and its
+  held-out score is the cross-validated deviance rather than a second split.
 - 294 completed trials, 168 units, 3502 flashes.
 
 ## Design
