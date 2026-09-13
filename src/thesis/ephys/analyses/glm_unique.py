@@ -325,7 +325,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
 def _block_task(job: dict) -> dict | None:
     """Score every block's unique and maximal deviance for one unit."""
     output = Path(job["output"])
-    cached = _cached(output)
+    cached = _cached(output, "unique")
     if cached is not None:
         if cached["shuffle_seed"] != SHUFFLE_SEED:
             raise ValueError(f"Shuffle seed differs in {output}.")
@@ -410,7 +410,7 @@ def _block_task(job: dict) -> dict | None:
             "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
         }
     record = {
-        "code_version": code_version(),
+        "record_version": code_version("unique"),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "video_components": job["video_components"],
