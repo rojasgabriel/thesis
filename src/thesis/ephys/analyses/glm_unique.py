@@ -132,10 +132,10 @@ def _load_fold_records(fit_dir: Path) -> list[dict]:
 
 
 def _shuffled_deviance(
-    design: np.ndarray,
-    counts: np.ndarray,
-    fit: np.ndarray,
-    test: np.ndarray,
+    fit_design: np.ndarray,
+    fit_counts: np.ndarray,
+    test_design: np.ndarray,
+    test_counts: np.ndarray,
     alpha: float,
 ) -> float:
     """Refit one shuffled design at a fixed penalty and score the held-out fold.
@@ -145,9 +145,9 @@ def _shuffled_deviance(
     it fixed keeps the difference in deviance attributable to the shuffle rather
     than to two models landing on different penalties.
     """
-    fit_mean = float(counts[fit].mean())
-    model = fit_poisson_at_alpha(design[fit], counts[fit], alpha)
-    return poisson_metrics(counts[test], model.predict(design[test]), fit_mean)[
+    fit_mean = float(fit_counts.mean())
+    model = fit_poisson_at_alpha(fit_design, fit_counts, alpha)
+    return poisson_metrics(test_counts, model.predict(test_design), fit_mean)[
         "deviance_explained"
     ]
 
@@ -293,17 +293,21 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
                 "unit_id": record["unit_id"],
                 "depth": record["depth"],
                 "group": group,
-                "full_test_deviance_explained": record["full_test_deviance_explained"],
-                "shuffled_test_deviance_explained": record["groups"][group]["test"][
-                    "deviance_explained"
+                "complete_test_deviance_explained": record[
+                    "complete_test_deviance_explained"
                 ],
                 "unique_test_deviance_explained": record["groups"][group][
                     "unique_test_deviance_explained"
                 ],
+                "unique_test_deviance_explained_sem": record["groups"][group][
+                    "unique_test_deviance_explained_sem"
+                ],
                 "maximal_test_deviance_explained": record["groups"][group][
                     "maximal_test_deviance_explained"
                 ],
-                "alpha": record["groups"][group]["alpha_path"]["best_alpha"],
+                "maximal_test_deviance_explained_sem": record["groups"][group][
+                    "maximal_test_deviance_explained_sem"
+                ],
             }
             for record in records
         )
@@ -345,51 +349,55 @@ def _block_task(job: dict) -> dict | None:
             continue
         alpha = float(job["alphas"][index])
         history, _, _ = training_zscore(raw_history, fit)
-        design = _design_with_history(common, history, job["common_columns"])
-        complete = _shuffled_deviance(design, counts, fit, test, alpha)
+        fit_rows = np.flatnonzero(fit)
+        test_rows = np.flatnonzero(test)
+        fit_design = _design_with_history(common, history, job["common_columns"], fit)
+        test_design = _design_with_history(common, history, job["common_columns"], test)
+        fit_counts = counts[fit]
+        test_counts = counts[test]
+
+        def score() -> float:
+            return _shuffled_deviance(
+                fit_design, fit_counts, test_design, test_counts, alpha
+            )
+
+        complete = score()
         complete_folds.append(complete)
 
-        # Shuffle in place and restore from the originals. Copying the design
-        # twice per block dominated the worker's memory, and caching each block
-        # is no better since the broad groups overlap the detailed ones.
+        # Shuffle the two scored matrices in place and restore from the source.
+        # Each fold copies its train and test rows only once.
         def put(columns, shuffled):
             width = job["common_columns"]
             if columns.stop <= width:
                 source = np.asarray(common[:, columns])
             else:
                 source = history[:, columns.start - width : columns.stop - width]
-            design[:, columns] = source[within] if shuffled else source
+            for matrix, rows in ((fit_design, fit_rows), (test_design, test_rows)):
+                matrix[:, columns] = source[within[rows]] if shuffled else source[rows]
 
-        # Slices are unhashable before Python 3.12, so dedupe on the bounds.
-        blocks = list(
-            {(groups[n].start, groups[n].stop): groups[n] for n in order}.values()
-        )
+        # These detailed blocks are non-overlapping and cover the full model.
+        blocks = [groups[name] for name in DETAILED_GROUPS]
         for columns in blocks:
             put(columns, True)
-        reference = _shuffled_deviance(design, counts, fit, test, alpha)
+        reference = score()
         for columns in blocks:
             put(columns, False)
 
         for group in order:
             columns = groups[group]
             put(columns, True)
-            removed = _shuffled_deviance(design, counts, fit, test, alpha)
+            removed = score()
             put(columns, False)
 
-            others = [
-                other
-                for other in blocks
-                if (other.start, other.stop) != (columns.start, columns.stop)
-            ]
-            for other in others:
+            for other in blocks:
                 put(other, True)
-            alone = _shuffled_deviance(design, counts, fit, test, alpha)
-            for other in others:
+            put(columns, False)
+            alone = score()
+            for other in blocks:
                 put(other, False)
 
             per_fold[group]["unique"].append(complete - removed)
             per_fold[group]["maximal"].append(alone - reference)
-        design = None
     if len(complete_folds) < 2:
         return None
     group_results = {}
