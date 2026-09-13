@@ -3,11 +3,11 @@
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
 from flashes, a center-poke kernel truncated at the first flash, peri-exit
 movement, pre-response choice side, and additive camera motion-energy PCs.
-Coefficients are conditional associations, not causal effects.
+Each unit also has a strictly past self-history filter. Coefficients are
+conditional associations, not causal effects.
 
-`PoissonGLM` owns the `_me` artifact names. `prepare` skips a step if that file
-already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
-`video_features.npz`, `common_design.npy`, `all_fit/`) untouched.
+`prepare` reuses a completed artifact when that file exists. Only one `glm`
+command can use a subject/session output directory at a time.
 
 ## Data
 
@@ -36,16 +36,18 @@ already exists. Keep the previous sklearn run (`stimulus_windows.npz`,
 ## Design
 
 Training-row z-score on **valid** training bins; that scaling is frozen for
-validation and test. Intercept unpenalized. No spike history, session-time
-drift, go cue, outcome, punishment, or common response-entry kernel.
+validation and test. Intercept unpenalized. No session-time drift, go cue,
+outcome, or punishment kernel.
 
 | Group | Representation | Columns |
 | --- | --- | ---: |
 | Visual flashes | Every measured flash; 6 causal raised cosines, 0–150 ms | 6 |
-| Center poke | 6 causal raised cosines, 0–150 ms, zeroed at and after the first flash | 6 |
+| Center poke | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
 | Center exit | 9 raised cosines, −300–+300 ms | 9 |
+| Response entry | 6 bases, −300–0 ms; side-independent | 6 |
 | Response side | Left=−1, right=+1; 6 bases, −300–0 ms (pre-entry only). Displayed kernel is right−left = 2× fitted | 6 |
 | Motion energy | 3 raised cosines per PC, peaks at −200, 0, +200 ms | 3 / PC |
+| Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
 No same-bin history, cross-unit coupling, previous-trial, early-withdrawal, or
 interaction terms. Video filters are acausal nuisance associations. Pose
@@ -66,9 +68,9 @@ frames. Validation prefixes: 10, 25, 50, 100, 200.
 
 DAMN supplies the grid, convolution, resampling, and trial-edge truncation.
 Fits use sklearn `PoissonRegressor` (log link, unpenalized intercept, L2,
-LBFGS). History is omitted so a later DAMN population fit can share one X.
+LBFGS). Each unit's design appends its standardized self-history block.
 
-Per unit and model: L2 path from 1e−3 to 1e3, extend ×10 if a boundary wins,
+Per unit and model: L2 path from 1e−5 to 1e3, extend ×10 if a boundary wins,
 require convergence, break ties toward the stronger penalty. Choose
 motion-energy PC count by mean per-unit validation D². Null is a constant rate
 from training rows (train+validation rows for the held-out trial split). Report
@@ -82,14 +84,16 @@ uv run glm fit --units all
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
 `common_design_me.npy` under `figures/glm/<subject>_<session>/`. Pass
-`--subject`, `--session`, or `--root` to work on another dataset. `fit` writes `all_fit_me/`, which
-is resumable. Use `--units sample` for a 20-unit smoke run.
+`--subject`, `--session`, or `--root` to work on another dataset. `fit` writes
+named summaries under `all_fit_me/`. Restartable per-unit records stay under
+`all_fit_me/checkpoints/`; final figures stay under `all_fit_me/figures/`.
+Use `--units sample` for a 20-unit smoke run.
 
 ## Unique explained deviance
 
-Shuffle one block, refit, reselect α on validation, refit train+validation,
-score the held-out trial split. Shuffle only among valid bins, within trial.
-Motion-energy PCs stay one block.
+Within each cross-validation fold, shuffle one block and refit at that fold's
+full-model alpha. Shuffle only among valid bins, within trial. Motion-energy
+PCs stay one block.
 
 `unique ΔD² = complete D² − one-removed D²`
 `maximal ΔD² = block-alone D² − all-shuffled D²`
@@ -112,9 +116,10 @@ After the all-unit held-out fit:
 uv run glm figures --units all [--output-dir DIR] [--format {pdf,png,both}]
 ```
 
-Rasters are independent Poisson draws from the covariate-conditioned rate (no
-history simulation). Post-response bins remain on the plotted grid but are
-excluded from likelihood and scores.
+The predicted raster is a recursive Poisson simulation: each sampled spike
+count feeds the model's self-history filter for later bins. The conditional
+rate uses the observed spike history. Post-response bins remain on the plotted
+grid but are excluded from likelihood and scores.
 
 ## Related methods
 

@@ -326,7 +326,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
     return summary
 
 
-def _block_task(job: dict) -> dict | None:
+def _block_task(job: dict) -> dict:
     """Score every block's unique and maximal deviance for one unit."""
     output = Path(job["output"])
     cached = _cached(output, "unique")
@@ -399,7 +399,10 @@ def _block_task(job: dict) -> dict | None:
             per_fold[group]["unique"].append(complete - removed)
             per_fold[group]["maximal"].append(alone - reference)
     if len(complete_folds) < 2:
-        return None
+        raise ValueError(
+            f"only {len(complete_folds)} test folds contained spikes; "
+            "at least 2 are required"
+        )
     group_results = {}
     for group in order:
         unique = np.asarray(per_fold[group]["unique"])
@@ -443,7 +446,8 @@ def run_unique(
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
     with design_path.with_suffix(".json").open() as handle:
         metadata = json.load(handle)
-    fold_records = _load_fold_records(fit_dir)
+    checkpoints = fit_dir / "checkpoints"
+    fold_records = _load_fold_records(checkpoints)
     selected_components = {int(item["components"]) for item in fold_records}
     if len(selected_components) != 1:
         raise ValueError("All cross-validated fits must use one video-PC count.")
@@ -476,8 +480,9 @@ def run_unique(
         unit_rows = sample_unit_indices(len(units))
     else:
         unit_rows = np.arange(len(units))
-    output_dir = fit_dir / "unique_deviance_fit"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = fit_dir / "unique_deviance"
+    checkpoint_dir = checkpoints / "unique"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     jobs = [
         {
@@ -489,21 +494,48 @@ def run_unique(
             "groups": groups,
             "group_order": group_order,
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
-            "output": str(output_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"),
+            "output": str(
+                checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"
+            ),
         }
         for row in unit_rows
         if int(units.iloc[row]["unit_id"]) in fold_alphas
     ]
+    missing = len(unit_rows) - len(jobs)
+    if missing:
+        raise ValueError(
+            f"{missing} units have no cross-validated record; run fit again."
+        )
     records = []
-    for position, record in enumerate(
-        run_over_units(_block_task, jobs, windows, design_path, workers, SHUFFLE_SEED),
+    failures = 0
+    for position, (record, reused) in enumerate(
+        run_over_units(
+            _block_task,
+            jobs,
+            windows,
+            design_path,
+            workers,
+            "unique",
+            SHUFFLE_SEED,
+        ),
         start=1,
     ):
         if record is None:
-            print(f"Skipped unit {position} of {len(jobs)}", flush=True)
+            failures += 1
             continue
         records.append(record)
-        print(f"Saved unit {position} of {len(jobs)}: {record['unit_id']}", flush=True)
+        action = "Reused" if reused else "Completed"
+        print(
+            f"{action} unique analysis {position}/{len(jobs)}: "
+            f"unit {record['unit_id']}",
+            flush=True,
+        )
+    if failures:
+        raise RuntimeError(
+            f"Unique analysis incomplete: {failures}/{len(jobs)} units failed. "
+            "No summary or figure was written. Per-unit results are safe to reuse; "
+            "rerun the same command."
+        )
 
     summary = _write_summary(records, output_dir)
     pdf, png = plot_conditional_deviance(records, output_dir / "conditional_deviance")

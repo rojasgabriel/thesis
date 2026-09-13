@@ -897,22 +897,23 @@ def make_figures(
 ) -> None:
     """Write every figure for one completed fit directory.
 
-    Figures land beside the fit unless `output_dir` says otherwise. `formats`
-    selects which of pdf and png to write.
+    Figures land in the fit's figures directory unless `output_dir` says
+    otherwise. `formats` selects which of pdf and png to write.
     """
     global FIGURE_FORMATS
 
     if not set(formats) <= {"pdf", "png"} or not formats:
         raise ValueError("Formats must be a non-empty subset of pdf and png.")
     FIGURE_FORMATS = tuple(formats)
-    figure_dir = output_dir if output_dir is not None else fit_dir
+    figure_dir = output_dir if output_dir is not None else fit_dir / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
+    checkpoints = fit_dir / "checkpoints"
     results = []
-    for path in sorted(fit_dir.glob("unit_*_final.json")):
+    for path in sorted(checkpoints.glob("unit_*_final.json")):
         with path.open() as handle:
             results.append(json.load(handle))
     selections = []
-    for path in sorted(fit_dir.glob("unit_*_validation.json")):
+    for path in sorted(checkpoints.glob("unit_*_validation.json")):
         with path.open() as handle:
             selections.append(json.load(handle))
     if len(results) != len(selections):
