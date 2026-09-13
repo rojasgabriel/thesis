@@ -375,7 +375,7 @@ def fitted_kernel_matrices(
         int(design_metadata["base_columns"]) + VIDEO_BASIS_COLUMNS * video_components
     )
     coefficients = np.asarray([item["coefficients"] for item in ordered], dtype=float)
-    if coefficients.shape != (len(ordered), common_columns):
+    if coefficients.shape != (len(ordered), common_columns + HISTORY_COLUMNS):
         raise ValueError("Saved coefficient count does not match the selected design.")
 
     common_scale = np.asarray(design_metadata["training_scale"], dtype=float)[
