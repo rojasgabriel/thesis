@@ -20,7 +20,6 @@ import concurrent.futures as futures
 import copy
 import json
 import os
-import subprocess
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,41 +56,30 @@ SAMPLE_SEED = 20260914
 _SHARED: dict = {}
 
 
-def code_version() -> str:
-    """Identify the fitting code that produced a record.
-
-    Saved records are reused on a resume, so a record written by different code
-    has to be detectable. This is the last commit touching this file, plus a
-    dirty marker when it has uncommitted edits.
-    """
-    here = Path(__file__).resolve()
-    try:
-        commit = subprocess.run(
-            ["git", "log", "-1", "--format=%h", "--", str(here)],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=here.parent,
-        ).stdout.strip()
-        dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--", str(here)],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=here.parent,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-    return f"{commit or 'unknown'}{'+dirty' if dirty else ''}"
+# Bump the stage a record belongs to when its computation changes, so saved
+# records from older logic are recomputed instead of silently reused. Tying
+# this to a commit hash instead invalidates every record on any edit to this
+# file, including edits that cannot affect the result.
+RECORD_VERSIONS = {
+    "selection": 1,
+    "folds": 2,  # 2: fold partitions built once per fold, shared across units
+    "final": 1,
+    "unique": 1,
+}
 
 
-def _cached(output: Path) -> dict | None:
-    """Return a saved record only when this code wrote it."""
+def code_version(stage: str) -> int:
+    """Return the version of the logic that produces one kind of record."""
+    return RECORD_VERSIONS[stage]
+
+
+def _cached(output: Path, stage: str) -> dict | None:
+    """Return a saved record only when the current logic produced it."""
     if not output.exists():
         return None
     with output.open() as handle:
         record = json.load(handle)
-    if record.get("code_version") != code_version():
+    if record.get("record_version") != code_version(stage):
         return None
     return record
 
@@ -704,7 +692,7 @@ def _final_task(job: dict) -> dict | None:
     carried over from the fold records.
     """
     output = Path(job["output"])
-    cached = _cached(output)
+    cached = _cached(output, "final")
     if cached is not None:
         return cached
     prepared = _SHARED["prepared"]
@@ -720,7 +708,7 @@ def _final_task(job: dict) -> dict | None:
     model = fit_poisson_at_alpha(design, counts[rows], job["alpha"])
     folds = job["cross_validated"]
     record = {
-        "code_version": code_version(),
+        "record_version": code_version("final"),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "components": job["components"],
@@ -893,7 +881,7 @@ def _fold_fit_for_unit(
 def _fold_task(job: dict) -> dict | None:
     """Score one unit across every fold and save its record."""
     output = Path(job["output"])
-    cached = _cached(output)
+    cached = _cached(output, "folds")
     if cached is not None:
         return cached
     prepared = _SHARED["prepared"]
@@ -922,7 +910,7 @@ def _fold_task(job: dict) -> dict | None:
     deviance = np.asarray([item["test"]["deviance_explained"] for item in results])
     bits = np.asarray([item["test"]["bits_per_spike"] for item in results])
     record = {
-        "code_version": code_version(),
+        "record_version": code_version("folds"),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "components": job["components"],
@@ -1033,7 +1021,7 @@ def crossvalidate(
 def _selection_task(job: dict) -> dict:
     """Select each model width's penalty for one unit and save the record."""
     output = Path(job["output"])
-    cached = _cached(output)
+    cached = _cached(output, "selection")
     if cached is not None:
         return cached
     prepared = _SHARED["prepared"]
@@ -1048,7 +1036,7 @@ def _selection_task(job: dict) -> dict:
         _SHARED["validation"],
     )
     selection.update(
-        code_version=code_version(),
+        record_version=code_version("selection"),
         unit_id=job["unit_id"],
         depth=job["depth"],
         spikes_in_selection_bins=int(
@@ -1142,6 +1130,59 @@ def fit_models(
         },
     }
 
+    _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
+    print(json.dumps(summary, indent=2))
+
+
+PIPELINE = """\
+pipeline
+  uv run glm prepare                 trial windows, motion-energy PCs, design
+  uv run glm fit --units all         penalty, cross-validation, final refit
+  uv run glm unique --units all      unique and maximal deviance per block
+  uv run glm figures --units all     kernels, predictions, generative checks
+
+Artifacts go to figures/glm/<subject>_<session>/. Use --units sample for a
+20-unit smoke run on any command.
+"""
+
+
+def refit_final(
+    windows: Path,
+    design: Path,
+    unit_set: str,
+    output_dir: Path,
+    components: int,
+    workers: int | None = None,
+) -> None:
+    """Refit every unit on all valid trials, after cross-validation has run.
+
+    This is the canonical model the figures and the block analysis read. Its
+    penalty is the median of the penalties the folds chose, so it depends on
+    cross-validation having finished.
+    """
+    prepared = _load_windows(windows)
+    with design.with_suffix(".json").open() as handle:
+        design_metadata = json.load(handle)
+    units = fetch_unit_table(
+        prepared["metadata"]["subject_name"],
+        prepared["metadata"]["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
+    unit_rows = (
+        sample_unit_indices(len(units))
+        if unit_set == "sample"
+        else np.arange(len(units))
+    )
+    jobs = [
+        {
+            "unit_id": int(units.iloc[row]["unit_id"]),
+            "depth": float(units.iloc[row]["depth"]),
+            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
+        }
+        for row in unit_rows
+    ]
     # Refit each unit on every valid trial, which is the model the figures and
     # the block analysis use. Its held-out score comes from cross-validation
     # rather than from a second, weaker split.
@@ -1154,9 +1195,9 @@ def fit_models(
             "unit_id": job["unit_id"],
             "depth": job["depth"],
             "spike_times": job["spike_times"],
-            "components": selected_components,
+            "components": components,
             "common_columns": int(design_metadata["base_columns"])
-            + VIDEO_BASIS_COLUMNS * selected_components,
+            + VIDEO_BASIS_COLUMNS * components,
             "alpha": float(
                 np.median([f["alpha"] for f in fold_records[job["unit_id"]]["folds"]])
             ),
@@ -1175,22 +1216,11 @@ def fit_models(
             f"Refitted unit {position} of {len(final_jobs)}: {record['unit_id']}",
             flush=True,
         )
-    summary["units_refitted"] = len(final_jobs)
-
-    _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
-    print(json.dumps(summary, indent=2))
-
-
-PIPELINE = """\
-pipeline
-  uv run glm prepare                 trial windows, motion-energy PCs, design
-  uv run glm fit --units all         penalty, cross-validation, final refit
-  uv run glm unique --units all      unique and maximal deviance per block
-  uv run glm figures --units all     kernels, predictions, generative checks
-
-Artifacts go to figures/glm/<subject>_<session>/. Use --units sample for a
-20-unit smoke run on any command.
-"""
+    missing = len(jobs) - len(final_jobs)
+    if missing:
+        raise ValueError(
+            f"{missing} units have no cross-validated record; run fit first."
+        )
 
 
 def main() -> None:
@@ -1332,6 +1362,7 @@ class PoissonGLM:
         with (directory / "summary.json").open() as handle:
             components = int(json.load(handle)["selected_video_components"])
         crossvalidate(self.windows, self.design, units, directory, components, workers)
+        refit_final(self.windows, self.design, units, directory, components, workers)
 
     def unique(self, units: str = "sample", workers: int | None = None) -> None:
         from thesis.ephys.analyses.glm_unique import run_unique
