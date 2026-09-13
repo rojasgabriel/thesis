@@ -348,27 +348,47 @@ def _block_task(job: dict) -> dict | None:
         complete = _shuffled_deviance(design, counts, fit, test, alpha)
         complete_folds.append(complete)
 
-        shuffled_all = design.copy()
-        for columns in dict.fromkeys(groups[name] for name in order):
-            shuffled_all[:, columns] = design[:, columns][within]
-        reference = _shuffled_deviance(shuffled_all, counts, fit, test, alpha)
-        del shuffled_all
+        # Shuffle in place and restore from the originals. Copying the design
+        # twice per block dominated the worker's memory, and caching each block
+        # is no better since the broad groups overlap the detailed ones.
+        def put(columns, shuffled):
+            width = job["common_columns"]
+            if columns.stop <= width:
+                source = np.asarray(common[:, columns])
+            else:
+                source = history[:, columns.start - width : columns.stop - width]
+            design[:, columns] = source[within] if shuffled else source
+
+        # Slices are unhashable before Python 3.12, so dedupe on the bounds.
+        blocks = list(
+            {(groups[n].start, groups[n].stop): groups[n] for n in order}.values()
+        )
+        for columns in blocks:
+            put(columns, True)
+        reference = _shuffled_deviance(design, counts, fit, test, alpha)
+        for columns in blocks:
+            put(columns, False)
 
         for group in order:
             columns = groups[group]
-            source = design[:, columns].copy()
-            design[:, columns] = source[within]
+            put(columns, True)
             removed = _shuffled_deviance(design, counts, fit, test, alpha)
-            design[:, columns] = source
-            alone_design = design.copy()
-            for other in dict.fromkeys(groups[name] for name in order if name != group):
-                if other != columns:
-                    alone_design[:, other] = design[:, other][within]
-            alone = _shuffled_deviance(alone_design, counts, fit, test, alpha)
-            del alone_design, source
+            put(columns, False)
+
+            others = [
+                other
+                for other in blocks
+                if (other.start, other.stop) != (columns.start, columns.stop)
+            ]
+            for other in others:
+                put(other, True)
+            alone = _shuffled_deviance(design, counts, fit, test, alpha)
+            for other in others:
+                put(other, False)
+
             per_fold[group]["unique"].append(complete - removed)
             per_fold[group]["maximal"].append(alone - reference)
-        del design
+        design = None
     if len(complete_folds) < 2:
         return None
     group_results = {}
