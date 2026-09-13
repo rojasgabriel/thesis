@@ -746,27 +746,7 @@ def _init_worker(
     with np.load(windows, allow_pickle=False) as saved:
         trial_split = saved["trial_split"].copy()
     bins_per_trial = len(prepared["split"]) // len(trial_split)
-    folds = trial_folds(len(trial_split), CV_FOLDS, CV_SEED)
-    fold_rows = np.repeat(folds, bins_per_trial)
-    partitions = []
-    for fold in range(CV_FOLDS):
-        rest = np.flatnonzero(folds != fold)
-        inner_trials = np.random.default_rng([CV_SEED, fold]).choice(
-            rest,
-            size=max(1, int(round(CV_INNER_FRACTION * len(rest)))),
-            replace=False,
-        )
-        inner_mask = np.zeros(len(folds), dtype=bool)
-        inner_mask[inner_trials] = True
-        inner_rows = np.repeat(inner_mask, bins_per_trial)
-        partitions.append(
-            {
-                "test": (fold_rows == fold) & valid,
-                "inner": inner_rows & valid,
-                "train": ~inner_rows & (fold_rows != fold) & valid,
-                "fit": (fold_rows != fold) & valid,
-            }
-        )
+    partitions = cross_validation_partitions(len(trial_split), bins_per_trial, valid)
     common = np.load(design, mmap_mode="r", allow_pickle=False)
     if common_columns is not None:
         common = np.ascontiguousarray(common[:, :common_columns])
@@ -856,6 +836,39 @@ def trial_folds(n_trials: int, n_folds: int, seed: int) -> np.ndarray:
     for index, block in enumerate(np.array_split(order, n_folds)):
         folds[block] = index
     return folds
+
+
+def cross_validation_partitions(
+    n_trials: int, bins_per_trial: int, valid: np.ndarray
+) -> list[dict[str, np.ndarray]]:
+    """Recreate the exact whole-trial folds used for fitting and prediction."""
+    valid = np.asarray(valid, dtype=bool)
+    if valid.shape != (n_trials * bins_per_trial,):
+        raise ValueError("Validity mask does not match the trial grid.")
+    folds = trial_folds(n_trials, CV_FOLDS, CV_SEED)
+    fold_rows = np.repeat(folds, bins_per_trial)
+    partitions = []
+    for fold in range(CV_FOLDS):
+        held_out = fold_rows == fold
+        rest = np.flatnonzero(folds != fold)
+        inner_trials = np.random.default_rng([CV_SEED, fold]).choice(
+            rest,
+            size=max(1, int(round(CV_INNER_FRACTION * len(rest)))),
+            replace=False,
+        )
+        inner_rows = np.repeat(
+            np.isin(np.arange(n_trials), inner_trials), bins_per_trial
+        )
+        partitions.append(
+            {
+                "all": held_out,
+                "test": held_out & valid,
+                "inner": inner_rows & valid,
+                "train": ~inner_rows & ~held_out & valid,
+                "fit": ~held_out & valid,
+            }
+        )
+    return partitions
 
 
 def _fold_fit_for_unit(

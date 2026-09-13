@@ -1,9 +1,9 @@
 """Create figures for the fitted V1 spike-prediction GLM.
 
-Held-out test trials, first-flash aligned. Model rates condition on each
-trial's observed spike history, so every bin is a one-step-ahead prediction.
-The comparison raster is a Poisson draw from those conditional rates; it is
-not a free-running simulation.
+First-flash-aligned test trials. Each trial uses the cross-validation model
+that held out that trial. Model rates condition on observed spike history, so
+every bin is a one-step-ahead prediction. The comparison raster is a Poisson
+draw from those conditional rates, not a free-running simulation.
 """
 
 from __future__ import annotations
@@ -20,14 +20,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
+    CV_FOLDS,
     HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
     _load_windows,
-    _split_masks,
     _valid_bin_mask,
     build_unit_counts,
     build_unit_history,
+    cross_validation_partitions,
     task_temporal_bases,
     training_zscore,
     video_temporal_basis,
@@ -47,6 +48,20 @@ TASK_LABELS = {
     "center_exit": "Center exit",
     "response_entry": "Response entry",
     "response_side": "Response side\n(right − left)",
+}
+OTHER_RESPONSE_GROUPS = (
+    "center_poke",
+    "center_exit",
+    "response_entry",
+    "response_side",
+    "video",
+)
+OTHER_RESPONSE_LABELS = {
+    "center_poke": "center-poke contribution",
+    "center_exit": "center-exit contribution",
+    "response_entry": "response-entry contribution",
+    "response_side": "response-side contribution",
+    "video": "motion-energy contribution",
 }
 SMOOTHING_MS = 20
 PREDICTION_SEED = 2008
@@ -80,6 +95,83 @@ def select_representative_result(results: list[dict]) -> tuple[dict, float]:
         ),
     )
     return result, median
+
+
+def select_prediction_examples(
+    results: list[dict], unique_records: list[dict]
+) -> list[dict]:
+    """Select distinct best-fit, visual, and non-visual prediction examples."""
+    result_by_id = {int(item["unit_id"]): item for item in results}
+    unique_by_id = {int(item["unit_id"]): item for item in unique_records}
+    if (
+        len(result_by_id) != len(results)
+        or len(unique_by_id) != len(unique_records)
+        or set(result_by_id) != set(unique_by_id)
+    ):
+        raise ValueError("Final and unique results must contain the same unique units.")
+    eligible = [item for item in results if int(item["folds_scored"]) == CV_FOLDS]
+    if len(eligible) < 3:
+        raise ValueError("Three distinct units are required for prediction examples.")
+    full_scores = np.asarray(
+        [item["cross_validated_deviance_explained"] for item in eligible], dtype=float
+    )
+    if not np.isfinite(full_scores).all():
+        raise ValueError("Prediction-example scores must be finite.")
+
+    def unique_score(unit_id: int, group: str) -> float:
+        score = float(
+            unique_by_id[unit_id]["groups"][group]["unique_test_deviance_explained"]
+        )
+        if not np.isfinite(score):
+            raise ValueError("Prediction-example scores must be finite.")
+        return score
+
+    best = max(
+        eligible,
+        key=lambda item: (
+            float(item["cross_validated_deviance_explained"]),
+            -int(item["unit_id"]),
+        ),
+    )
+    used = {int(best["unit_id"])}
+    sensory = max(
+        (item for item in eligible if int(item["unit_id"]) not in used),
+        key=lambda item: (
+            unique_score(int(item["unit_id"]), "visual_flash"),
+            -int(item["unit_id"]),
+        ),
+    )
+    used.add(int(sensory["unit_id"]))
+
+    other_candidates = [
+        (unique_score(unit_id, group), -unit_id, group, result_by_id[unit_id])
+        for unit_id in (int(item["unit_id"]) for item in eligible)
+        if unit_id not in used
+        for group in OTHER_RESPONSE_GROUPS
+    ]
+    other_score, _, other_group, other = max(
+        other_candidates, key=lambda item: item[:2]
+    )
+    return [
+        {
+            "label": "best fit",
+            "result": best,
+            "selection_group": "full_model",
+            "selection_score": float(best["cross_validated_deviance_explained"]),
+        },
+        {
+            "label": "strongest visual-flash contribution",
+            "result": sensory,
+            "selection_group": "visual_flash",
+            "selection_score": unique_score(int(sensory["unit_id"]), "visual_flash"),
+        },
+        {
+            "label": f"strongest {OTHER_RESPONSE_LABELS[other_group]}",
+            "result": other,
+            "selection_group": other_group,
+            "selection_score": other_score,
+        },
+    ]
 
 
 def training_rate_and_deviance(
@@ -580,127 +672,137 @@ def plot_design_matrix_trial(
 
 def plot_prediction_figure(
     relative_times: np.ndarray,
-    observed: np.ndarray,
-    predicted: np.ndarray,
-    conditional: np.ndarray,
-    result: dict,
-    population_median: float,
+    examples: list[dict],
     output: Path,
 ) -> tuple[Path | None, Path | None]:
-    """Write held-out rasters and the one-step conditional-rate comparison."""
-    raster_data = (observed, predicted)
-    raster_labels = (
-        "observed held-out spikes",
-        "model-predicted spikes (given observed past)",
-    )
-    raster_colors = (OBSERVED_COLOR, MODEL_COLOR)
-    trial_count = observed.shape[0]
+    """Write three held-out one-step spike-prediction examples."""
+    if len(examples) != 3:
+        raise ValueError("Exactly three prediction examples are required.")
 
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             3,
-            1,
-            figsize=(7.1, 6.0),
+            3,
+            figsize=(10.5, 5.8),
             sharex=True,
-            gridspec_kw={"height_ratios": [1, 1, 1.35], "hspace": 0.28},
+            gridspec_kw={"height_ratios": [1, 1, 1.2]},
         )
-        for axis, counts, label, color in zip(
-            axes[:2], raster_data, raster_labels, raster_colors, strict=True
-        ):
-            axis.eventplot(
-                _raster_events(counts, relative_times),
-                colors=color,
-                lineoffsets=np.arange(1, trial_count + 1),
-                linelengths=0.8,
-                linewidths=0.35,
+        for column, example in enumerate(examples):
+            result = example["result"]
+            observed = np.asarray(example["observed"])
+            predicted = np.asarray(example["predicted"])
+            conditional = np.asarray(example["conditional"])
+            if observed.shape != predicted.shape or observed.shape != conditional.shape:
+                raise ValueError("Observed and predicted example arrays must match.")
+            trial_count = observed.shape[0]
+
+            for axis, counts, label, color in zip(
+                axes[:2, column],
+                (observed, predicted),
+                ("observed", "model (given observed past)"),
+                (OBSERVED_COLOR, MODEL_COLOR),
+                strict=True,
+            ):
+                axis.eventplot(
+                    _raster_events(counts, relative_times),
+                    colors=color,
+                    lineoffsets=np.arange(1, trial_count + 1),
+                    linelengths=0.8,
+                    linewidths=0.3,
+                )
+                axis.set_ylim(0.5, trial_count + 0.5)
+                axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
+                axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
+                axis.text(
+                    0.02,
+                    1.02,
+                    label,
+                    color=color,
+                    transform=axis.transAxes,
+                    ha="left",
+                    va="bottom",
+                    fontweight="bold",
+                    fontsize=7,
+                )
+
+            selection_score = float(example["selection_score"])
+            full_score = float(result["cross_validated_deviance_explained"])
+            score_text = (
+                f"cross-validated $D^2$={full_score:.3f}"
+                if example["selection_group"] == "full_model"
+                else f"unique $\u0394D^2$={selection_score:.3f}; full $D^2$={full_score:.3f}"
             )
-            axis.set_ylim(0.5, trial_count + 0.5)
-            axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
-            axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
-            axis.text(
-                0.01,
-                1.02,
-                label,
-                color=color,
-                transform=axis.transAxes,
-                ha="left",
+            axes[0, column].set_title(
+                f"{example['label']}\nunit {int(result['unit_id'])}; {score_text}",
+                loc="left",
                 va="bottom",
                 fontweight="bold",
+                fontsize=8,
+                pad=18,
             )
-        axes[1].set_ylabel("Test trials")
-        axes[0].text(
-            0.99,
-            0.96,
-            (
-                f"median-performance unit {int(result['unit_id'])}\n"
-                f"cross-validated $D^2$="
-                f"{result['cross_validated_deviance_explained']:.3f}; "
-                f"population median={population_median:.3f}"
-            ),
-            transform=axes[0].transAxes,
-            ha="right",
-            va="top",
-            color="0.3",
-            fontsize=7,
-        )
 
-        sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
-        rates = [
-            gaussian_filter1d(values.mean(axis=0) / BINWIDTH_S, sigma_bins)
-            for values in (observed, conditional)
-        ]
-        rate_axis = axes[2]
-        for rate, color in zip(
-            rates,
-            (OBSERVED_COLOR, MODEL_COLOR),
-            strict=True,
-        ):
-            rate_axis.plot(relative_times, rate, color=color, linewidth=1.25)
-        rate_axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
-        rate_axis.set_ylabel("Mean rate (spikes/s)")
-        rate_axis.set_xlabel("Time from first measured flash (s)")
-        for y, label, color in (
-            (0.86, "observed", OBSERVED_COLOR),
-            (0.77, "model (given observed past)", MODEL_COLOR),
-        ):
+            sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
+            rates = [
+                gaussian_filter1d(values.mean(axis=0) / BINWIDTH_S, sigma_bins)
+                for values in (observed, conditional)
+            ]
+            rate_axis = axes[2, column]
+            for rate, color in zip(
+                rates,
+                (OBSERVED_COLOR, MODEL_COLOR),
+                strict=True,
+            ):
+                rate_axis.plot(relative_times, rate, color=color, linewidth=1.15)
+            rate_axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
+            for y, label, color in (
+                (0.94, "observed", OBSERVED_COLOR),
+                (0.83, "model", MODEL_COLOR),
+            ):
+                rate_axis.text(
+                    0.97,
+                    y,
+                    label,
+                    color=color,
+                    transform=rate_axis.transAxes,
+                    ha="right",
+                    va="top",
+                    fontweight="bold",
+                    fontsize=7,
+                )
             rate_axis.text(
-                0.99,
-                y,
-                label,
-                color=color,
+                0.97,
+                0.03,
+                f"{SMOOTHING_MS} ms smoothing",
                 transform=rate_axis.transAxes,
                 ha="right",
-                va="top",
-                fontweight="bold",
+                va="bottom",
+                color="0.4",
+                fontsize=6.5,
             )
-        rate_axis.text(
-            0.99,
-            0.03,
-            f"{SMOOTHING_MS} ms Gaussian smoothing for display only",
-            transform=rate_axis.transAxes,
-            ha="right",
-            va="bottom",
-            color="0.4",
-            fontsize=7,
-        )
 
-        edges = (
-            relative_times[0] - BINWIDTH_S / 2,
-            relative_times[-1] + BINWIDTH_S / 2,
-        )
-        axes[-1].set_xlim(*edges)
-        for letter, axis in zip("abc", axes, strict=True):
-            axis.text(
-                -0.075,
-                1.02,
-                letter,
-                transform=axis.transAxes,
+            axes[0, column].text(
+                -0.13,
+                1.36,
+                "abc"[column],
+                transform=axes[0, column].transAxes,
                 ha="left",
                 va="bottom",
                 fontweight="bold",
                 fontsize=10,
             )
-        figure.align_ylabels(axes)
+        axes[0, 0].set_ylabel("Test trials")
+        axes[1, 0].set_ylabel("Test trials")
+        axes[2, 0].set_ylabel("Mean rate (spikes/s)")
+        edges = (
+            relative_times[0] - BINWIDTH_S / 2,
+            relative_times[-1] + BINWIDTH_S / 2,
+        )
+        axes[-1, 0].set_xlim(*edges)
+        figure.supxlabel("Time from first measured flash (s)", y=0.02)
+        figure.align_ylabels(axes[:, 0])
+        figure.subplots_adjust(
+            left=0.07, right=0.99, bottom=0.11, top=0.86, wspace=0.24, hspace=0.36
+        )
         return _save_figure(figure, output)
 
 
@@ -732,8 +834,16 @@ def make_figures(
     for path in sorted(checkpoints.glob("unit_*_validation.json")):
         with path.open() as handle:
             selections.append(json.load(handle))
-    if len(results) != len(selections):
-        raise ValueError("Final and validation result counts differ.")
+    fold_records = []
+    for path in sorted(checkpoints.glob("unit_*_folds.json")):
+        with path.open() as handle:
+            fold_records.append(json.load(handle))
+    unique_records = []
+    for path in sorted((checkpoints / "unique").glob("unit_*.json")):
+        with path.open() as handle:
+            unique_records.append(json.load(handle))
+    if len(results) != len(selections) or len(results) != len(fold_records):
+        raise ValueError("Final, validation, and fold result counts differ.")
     selected_components = {item["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
@@ -747,6 +857,7 @@ def make_figures(
         results, selections, figure_dir / "summary"
     )
     result, population_median = select_representative_result(results)
+    prediction_examples = select_prediction_examples(results, unique_records)
     unit_id = int(result["unit_id"])
     ordered_unit_ids, kernels = fitted_kernel_matrices(
         results, selections, design_metadata
@@ -788,41 +899,73 @@ def make_figures(
         stability_param_id=0,
         include_metrics=False,
     )
-    matching_units = units.loc[units["unit_id"] == unit_id]
-    if len(matching_units) != 1:
-        raise ValueError(f"Expected one eligible row for unit {unit_id}.")
-    spike_times = np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
-    counts = build_unit_counts(test_alignments, spike_times)
-
     test_rows = np.repeat(trial_split == 2, len(relative_times))
     common = np.load(design, mmap_mode="r", allow_pickle=False)[test_rows]
-    if len(common) != len(counts):
-        raise ValueError("Test design and response rows differ.")
-    coefficients = np.asarray(result["coefficients"], dtype=float)
-    common_columns = len(coefficients) - HISTORY_COLUMNS
-
-    # The history block is per unit, so rebuild it and standardize it the way
-    # the fit did: statistics from the train and validation rows only.
+    common_columns = int(design_metadata["base_columns"]) + (
+        VIDEO_BASIS_COLUMNS * selected_components
+    )
     valid = _valid_bin_mask(prepared)
-    train, validation, _ = _split_masks(prepared["split"], valid)
-    history_all = build_unit_history(prepared["alignments"], spike_times)
-    _, history_mean, history_scale = training_zscore(history_all, train | validation)
-    history = (history_all[test_rows] - history_mean) / history_scale
-
     trial_count = len(test_alignments)
     bin_count = len(relative_times)
-    observed = counts.reshape(trial_count, bin_count)
-    base_eta = (
-        float(result["intercept"])
-        + np.asarray(common[:, :common_columns]) @ coefficients[:common_columns]
-    ).reshape(trial_count, bin_count)
-    # Each bin conditions on the observed past, exactly as during held-out scoring.
-    conditional = np.exp(
-        base_eta
-        + (history @ coefficients[common_columns:]).reshape(trial_count, bin_count)
+    if len(common) != trial_count * bin_count:
+        raise ValueError("Test design and response grid differ.")
+    partitions = cross_validation_partitions(len(trial_split), bin_count, valid)
+    fold_by_id = {int(item["unit_id"]): item for item in fold_records}
+    if len(fold_by_id) != len(fold_records) or set(fold_by_id) != {
+        int(item["unit_id"]) for item in results
+    }:
+        raise ValueError("Final and fold results must contain the same unique units.")
+
+    def unit_spike_times(selected_unit: int) -> np.ndarray:
+        matching_units = units.loc[units["unit_id"] == selected_unit]
+        if len(matching_units) != 1:
+            raise ValueError(f"Expected one eligible row for unit {selected_unit}.")
+        return np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
+
+    observed = build_unit_counts(test_alignments, unit_spike_times(unit_id)).reshape(
+        trial_count, bin_count
     )
-    if not np.isfinite(conditional).all() or np.any(conditional <= 0):
-        raise ValueError("Conditional predictions must be finite and positive.")
+
+    def prediction_data(selected_result: dict) -> tuple[np.ndarray, np.ndarray]:
+        selected_unit = int(selected_result["unit_id"])
+        spike_times = unit_spike_times(selected_unit)
+        counts = build_unit_counts(prepared["alignments"], spike_times)
+        history_all = build_unit_history(prepared["alignments"], spike_times)
+        conditional = np.full(len(common), np.nan)
+        saved_folds = iter(fold_by_id[selected_unit]["folds"])
+        for partition in partitions:
+            if counts[partition["test"]].sum() <= 0:
+                continue
+            fold = next(saved_folds, None)
+            if fold is None:
+                raise ValueError("Saved fold count does not match fitted partitions.")
+            coefficients = np.asarray(fold["coefficients"], dtype=float)
+            if len(coefficients) != common_columns + HISTORY_COLUMNS:
+                raise ValueError(
+                    "Saved coefficient count does not match the selected design."
+                )
+            history, _, _ = training_zscore(history_all, partition["fit"])
+            plotted_rows = partition["all"][test_rows]
+            linear_predictor = (
+                float(fold["intercept"])
+                + np.asarray(common[plotted_rows, :common_columns])
+                @ coefficients[:common_columns]
+                + history[test_rows][plotted_rows] @ coefficients[common_columns:]
+            )
+            conditional[plotted_rows] = np.exp(linear_predictor)
+        if next(saved_folds, None) is not None:
+            raise ValueError("Saved fold count does not match the fitted partitions.")
+        if not np.isfinite(conditional).all() or np.any(conditional <= 0):
+            raise ValueError("Conditional predictions must be finite and positive.")
+        return (
+            counts[test_rows].reshape(trial_count, bin_count),
+            conditional.reshape(trial_count, bin_count),
+        )
+
+    cached_predictions = {
+        int(example["result"]["unit_id"]): prediction_data(example["result"])
+        for example in prediction_examples
+    }
     typical_trial = _select_count_typical_trial(observed)
     displayed_design = common[:, :common_columns].reshape(
         trial_count, bin_count, common_columns
@@ -838,14 +981,39 @@ def make_figures(
         int(test_trial_numbers[typical_trial]),
         figure_dir / "design_matrix_trial",
     )
-    predicted = np.random.default_rng(PREDICTION_SEED).poisson(conditional)
+    plotted_examples = []
+    prediction_manifest = []
+    for example in prediction_examples:
+        example_result = example["result"]
+        example_unit = int(example_result["unit_id"])
+        example_observed, conditional = cached_predictions[example_unit]
+        seed = PREDICTION_SEED + example_unit
+        predicted = np.random.default_rng(seed).poisson(conditional)
+        plotted_examples.append(
+            {
+                **example,
+                "observed": example_observed,
+                "conditional": conditional,
+                "predicted": predicted,
+            }
+        )
+        prediction_manifest.append(
+            {
+                "label": example["label"],
+                "unit_id": example_unit,
+                "selection_group": example["selection_group"],
+                "selection_score": float(example["selection_score"]),
+                "cross_validated_deviance_explained": float(
+                    example_result["cross_validated_deviance_explained"]
+                ),
+                "observed_spikes": int(example_observed.sum()),
+                "conditional_sampled_spikes": int(predicted.sum()),
+                "prediction_seed": seed,
+            }
+        )
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
-        observed,
-        predicted,
-        conditional,
-        result,
-        population_median,
+        plotted_examples,
         figure_dir / "predicted_spike_trains",
     )
     written = {
@@ -866,9 +1034,7 @@ def make_figures(
                     "cross_validated_deviance_explained"
                 ],
                 "test_trials": trial_count,
-                "observed_spikes": int(observed.sum()),
-                "conditional_sampled_spikes": int(predicted.sum()),
-                "prediction_seed": PREDICTION_SEED,
+                "prediction_examples": prediction_manifest,
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
                 "design_matrix_trial": int(test_trial_numbers[typical_trial]),
                 "figure_dir": str(figure_dir),
