@@ -20,6 +20,7 @@ import concurrent.futures as futures
 import copy
 import json
 import os
+import subprocess
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +55,47 @@ SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
 # Per-worker state, filled by _init_worker.
 _SHARED: dict = {}
+
+
+def code_version() -> str:
+    """Identify the fitting code that produced a record.
+
+    Saved records are reused on a resume, so a record written by different code
+    has to be detectable. This is the last commit touching this file, plus a
+    dirty marker when it has uncommitted edits.
+    """
+    here = Path(__file__).resolve()
+    try:
+        commit = subprocess.run(
+            ["git", "log", "-1", "--format=%h", "--", str(here)],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=here.parent,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--", str(here)],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=here.parent,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return f"{commit or 'unknown'}{'+dirty' if dirty else ''}"
+
+
+def _cached(output: Path) -> dict | None:
+    """Return a saved record only when this code wrote it."""
+    if not output.exists():
+        return None
+    with output.open() as handle:
+        record = json.load(handle)
+    if record.get("code_version") != code_version():
+        return None
+    return record
+
+
 CV_FOLDS = 10
 CV_SEED = 20260913
 CV_INNER_FRACTION = 0.25
@@ -662,9 +704,9 @@ def _final_task(job: dict) -> dict | None:
     carried over from the fold records.
     """
     output = Path(job["output"])
-    if output.exists():
-        with output.open() as handle:
-            return json.load(handle)
+    cached = _cached(output)
+    if cached is not None:
+        return cached
     prepared = _SHARED["prepared"]
     rows = _SHARED["all_valid"]
     spikes = np.asarray(job["spike_times"], dtype=float)
@@ -678,6 +720,7 @@ def _final_task(job: dict) -> dict | None:
     model = fit_poisson_at_alpha(design, counts[rows], job["alpha"])
     folds = job["cross_validated"]
     record = {
+        "code_version": code_version(),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "components": job["components"],
@@ -850,9 +893,9 @@ def _fold_fit_for_unit(
 def _fold_task(job: dict) -> dict | None:
     """Score one unit across every fold and save its record."""
     output = Path(job["output"])
-    if output.exists():
-        with output.open() as handle:
-            return json.load(handle)
+    cached = _cached(output)
+    if cached is not None:
+        return cached
     prepared = _SHARED["prepared"]
     spikes = np.asarray(job["spike_times"], dtype=float)
     counts = build_unit_counts(prepared["alignments"], spikes)
@@ -879,6 +922,7 @@ def _fold_task(job: dict) -> dict | None:
     deviance = np.asarray([item["test"]["deviance_explained"] for item in results])
     bits = np.asarray([item["test"]["bits_per_spike"] for item in results])
     record = {
+        "code_version": code_version(),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "components": job["components"],
@@ -989,9 +1033,9 @@ def crossvalidate(
 def _selection_task(job: dict) -> dict:
     """Select each model width's penalty for one unit and save the record."""
     output = Path(job["output"])
-    if output.exists():
-        with output.open() as handle:
-            return json.load(handle)
+    cached = _cached(output)
+    if cached is not None:
+        return cached
     prepared = _SHARED["prepared"]
     spikes = np.asarray(job["spike_times"], dtype=float)
     counts = build_unit_counts(prepared["alignments"], spikes)
@@ -1004,6 +1048,7 @@ def _selection_task(job: dict) -> dict:
         _SHARED["validation"],
     )
     selection.update(
+        code_version=code_version(),
         unit_id=job["unit_id"],
         depth=job["depth"],
         spikes_in_selection_bins=int(

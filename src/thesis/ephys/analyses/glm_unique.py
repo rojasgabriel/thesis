@@ -21,11 +21,13 @@ from thesis.ephys.analyses.glm import (
     _SHARED,
     HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
+    _cached,
     _design_with_history,
     _load_windows,
     _write_json_atomic,
     build_unit_counts,
     build_unit_history,
+    code_version,
     fit_poisson_at_alpha,
     poisson_metrics,
     run_over_units,
@@ -323,12 +325,11 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
 def _block_task(job: dict) -> dict | None:
     """Score every block's unique and maximal deviance for one unit."""
     output = Path(job["output"])
-    if output.exists():
-        with output.open() as handle:
-            record = json.load(handle)
-        if record["shuffle_seed"] != SHUFFLE_SEED:
+    cached = _cached(output)
+    if cached is not None:
+        if cached["shuffle_seed"] != SHUFFLE_SEED:
             raise ValueError(f"Shuffle seed differs in {output}.")
-        return record
+        return cached
     prepared = _SHARED["prepared"]
     common = _SHARED["common"]
     spikes = np.asarray(job["spike_times"], dtype=float)
@@ -409,6 +410,7 @@ def _block_task(job: dict) -> dict | None:
             "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
         }
     record = {
+        "code_version": code_version(),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "video_components": job["video_components"],
