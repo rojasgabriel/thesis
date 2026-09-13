@@ -18,9 +18,11 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as futures
 import copy
+import fcntl
 import json
 import os
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -684,7 +686,7 @@ def _selection_for_unit(
     return result
 
 
-def _final_task(job: dict) -> dict | None:
+def _final_task(job: dict) -> dict:
     """Refit one unit on every valid trial and save the canonical model.
 
     This is the model the figures and the block analysis read. It is not
@@ -790,6 +792,7 @@ def run_over_units(
     windows: Path,
     design: Path,
     workers: int | None,
+    stage: str,
     shuffle_seed: int | None = None,
 ):
     """Run one task per unit, in parallel when that helps, and yield results.
@@ -801,16 +804,20 @@ def run_over_units(
     """
     # Leave one core free so the machine stays usable.
     count = min(max(1, workers or (os.cpu_count() or 2) - 1), len(jobs))
+    reused = [_cached(Path(job["output"]), stage) is not None for job in jobs]
     shared_columns = {job.get("common_columns") for job in jobs}
     common_columns = shared_columns.pop() if len(shared_columns) == 1 else None
     if count <= 1:
         _init_worker(windows, design, shuffle_seed, common_columns)
-        for job in jobs:
+        for job, cache_hit in zip(jobs, reused, strict=True):
             try:
-                yield task(job)
+                yield task(job), cache_hit
             except Exception as error:  # noqa: BLE001
-                print(f"Unit {job['unit_id']} failed: {error}", flush=True)
-                yield None
+                print(
+                    f"Failed unit {job['unit_id']}: {type(error).__name__}: {error}",
+                    flush=True,
+                )
+                yield None, False
         return
     for name in (
         "OMP_NUM_THREADS",
@@ -826,15 +833,18 @@ def run_over_units(
         initializer=_init_worker,
         initargs=(windows, design, shuffle_seed, common_columns),
     ) as pool:
-        for job, future in zip(
-            jobs, [pool.submit(task, job) for job in jobs], strict=True
+        for job, cache_hit, future in zip(
+            jobs, reused, [pool.submit(task, job) for job in jobs], strict=True
         ):
             try:
-                yield future.result()
+                yield future.result(), cache_hit
             except Exception as error:  # noqa: BLE001
                 # One unit's failure should not discard the rest of the run.
-                print(f"Unit {job['unit_id']} failed: {error}", flush=True)
-                yield None
+                print(
+                    f"Failed unit {job['unit_id']}: {type(error).__name__}: {error}",
+                    flush=True,
+                )
+                yield None, False
 
 
 def trial_folds(n_trials: int, n_folds: int, seed: int) -> np.ndarray:
@@ -888,7 +898,7 @@ def _fold_fit_for_unit(
     }
 
 
-def _fold_task(job: dict) -> dict | None:
+def _fold_task(job: dict) -> dict:
     """Score one unit across every fold and save its record."""
     output = Path(job["output"])
     cached = _cached(output, "folds")
@@ -916,7 +926,9 @@ def _fold_task(job: dict) -> dict | None:
             )
         )
     if len(results) < 2:
-        return None
+        raise ValueError(
+            f"only {len(results)} test folds contained spikes; at least 2 are required"
+        )
     deviance = np.asarray([item["test"]["deviance_explained"] for item in results])
     bits = np.asarray([item["test"]["bits_per_spike"] for item in results])
     record = {
@@ -971,7 +983,8 @@ def crossvalidate(
         if unit_set == "sample"
         else np.arange(len(units))
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoints = output_dir / "checkpoints"
+    checkpoints.mkdir(parents=True, exist_ok=True)
     print(
         f"{CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
         f"{len(unit_rows)} units, {components} motion-energy PCs.",
@@ -986,27 +999,32 @@ def crossvalidate(
             "components": components,
             "common_columns": common_columns,
             "output": str(
-                output_dir / f"unit_{int(units.iloc[row]['unit_id'])}_folds.json"
+                checkpoints / f"unit_{int(units.iloc[row]['unit_id'])}_folds.json"
             ),
         }
         for row in unit_rows
     ]
     records = []
-    for position, record in enumerate(
-        run_over_units(_fold_task, jobs, windows, design, workers), start=1
+    failures = 0
+    for position, (record, reused) in enumerate(
+        run_over_units(_fold_task, jobs, windows, design, workers, "folds"), start=1
     ):
         if record is None:
-            print(
-                f"Skipped unit {position} of {len(jobs)}: too few scored folds",
-                flush=True,
-            )
+            failures += 1
             continue
         records.append(record)
+        action = "Reused" if reused else "Completed"
         print(
-            f"Scored unit {position} of {len(jobs)}: {record['unit_id']}  "
+            f"{action} cross-validation {position}/{len(jobs)}: "
+            f"unit {record['unit_id']}  "
             f"D2 {record['deviance_explained_mean']:.4f} "
             f"+- {record['deviance_explained_sem']:.4f}",
             flush=True,
+        )
+    if failures:
+        raise RuntimeError(
+            f"Cross-validation incomplete: {failures}/{len(jobs)} units failed. "
+            "Per-unit results already written are safe to reuse; rerun the same command."
         )
 
     means = np.asarray([item["deviance_explained_mean"] for item in records])
@@ -1024,7 +1042,9 @@ def crossvalidate(
             "q75": float(np.quantile(means, 0.75)),
         },
     }
-    _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
+    _write_json_atomic(
+        output_dir / "cross_validation_summary.json", summary, overwrite=True
+    )
     print(json.dumps(summary, indent=2))
 
 
@@ -1087,7 +1107,8 @@ def fit_models(
         if unit_set == "sample"
         else np.arange(len(units))
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoints = output_dir / "checkpoints"
+    checkpoints.mkdir(parents=True, exist_ok=True)
 
     jobs = [
         {
@@ -1096,19 +1117,30 @@ def fit_models(
             "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
             "base_columns": design_metadata["base_columns"],
             "output": str(
-                output_dir / f"unit_{int(units.iloc[row]['unit_id'])}_validation.json"
+                checkpoints / f"unit_{int(units.iloc[row]['unit_id'])}_validation.json"
             ),
         }
         for row in unit_rows
     ]
     selections = []
-    for position, selection in enumerate(
-        run_over_units(_selection_task, jobs, windows, design, workers), start=1
+    failures = 0
+    for position, (selection, reused) in enumerate(
+        run_over_units(_selection_task, jobs, windows, design, workers, "selection"),
+        start=1,
     ):
+        if selection is None:
+            failures += 1
+            continue
         selections.append(selection)
+        action = "Reused" if reused else "Completed"
         print(
-            f"Validated unit {position} of {len(jobs)}: {selection['unit_id']}",
+            f"{action} validation {position}/{len(jobs)}: unit {selection['unit_id']}",
             flush=True,
+        )
+    if failures:
+        raise RuntimeError(
+            f"Validation incomplete: {failures}/{len(jobs)} units failed. "
+            "Per-unit results already written are safe to reuse; rerun the same command."
         )
 
     mean_validation_deviance = {
@@ -1140,7 +1172,7 @@ def fit_models(
         },
     }
 
-    _write_json_atomic(output_dir / "summary.json", summary, overwrite=True)
+    _write_json_atomic(output_dir / "validation_summary.json", summary, overwrite=True)
     print(json.dumps(summary, indent=2))
 
 
@@ -1151,8 +1183,9 @@ pipeline
   uv run glm unique --units all      unique and maximal deviance per block
   uv run glm figures --units all     kernels, predictions, generative checks
 
-Artifacts go to figures/glm/<subject>_<session>/. Use --units sample for a
-20-unit smoke run on any command.
+Artifacts go to figures/glm/<subject>_<session>/. Restart checkpoints stay in
+the fit directory's checkpoints/ folder. Use --units sample for a 20-unit
+smoke run on any command.
 """
 
 
@@ -1196,9 +1229,10 @@ def refit_final(
     # Refit each unit on every valid trial, which is the model the figures and
     # the block analysis use. Its held-out score comes from cross-validation
     # rather than from a second, weaker split.
+    checkpoints = output_dir / "checkpoints"
     fold_records = {
         int(json.loads(path.read_text())["unit_id"]): json.loads(path.read_text())
-        for path in output_dir.glob("unit_*_folds.json")
+        for path in checkpoints.glob("unit_*_folds.json")
     }
     final_jobs = [
         {
@@ -1212,25 +1246,49 @@ def refit_final(
                 np.median([f["alpha"] for f in fold_records[job["unit_id"]]["folds"]])
             ),
             "cross_validated": fold_records[job["unit_id"]],
-            "output": str(output_dir / f"unit_{job['unit_id']}_final.json"),
+            "output": str(checkpoints / f"unit_{job['unit_id']}_final.json"),
         }
         for job in jobs
         if job["unit_id"] in fold_records
     ]
-    for position, record in enumerate(
-        run_over_units(_final_task, final_jobs, windows, design, workers), start=1
-    ):
-        if record is None:
-            continue
-        print(
-            f"Refitted unit {position} of {len(final_jobs)}: {record['unit_id']}",
-            flush=True,
-        )
     missing = len(jobs) - len(final_jobs)
     if missing:
         raise ValueError(
-            f"{missing} units have no cross-validated record; run fit first."
+            f"{missing} units have no cross-validated record; run fit again."
         )
+    failures = 0
+    for position, (record, reused) in enumerate(
+        run_over_units(_final_task, final_jobs, windows, design, workers, "final"),
+        start=1,
+    ):
+        if record is None:
+            failures += 1
+            continue
+        action = "Reused" if reused else "Completed"
+        print(
+            f"{action} final fit {position}/{len(final_jobs)}: "
+            f"unit {record['unit_id']}",
+            flush=True,
+        )
+    if failures:
+        raise RuntimeError(
+            f"Final refit incomplete: {failures}/{len(final_jobs)} units failed. "
+            "Per-unit results already written are safe to reuse; rerun the same command."
+        )
+
+
+@contextmanager
+def _artifact_lock(root: Path):
+    """Prevent two GLM commands from writing to one session at the same time."""
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / ".glm.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError(
+                f"Another GLM command is already running for {root}."
+            ) from None
+        yield
 
 
 def main() -> None:
@@ -1298,15 +1356,16 @@ def main() -> None:
         session=args.session,
         root=args.root or Path("figures/glm") / f"{args.subject}_{args.session}",
     )
-    if args.command == "prepare":
-        if args.frame_times is not None:
-            model.frame_times = args.frame_times
-        model.prepare()
-        return
-    if args.command == "figures":
-        model.figures(args.units, args.output_dir, args.format)
-        return
-    getattr(model, args.command)(args.units, args.workers)
+    with _artifact_lock(model.root):
+        if args.command == "prepare":
+            if args.frame_times is not None:
+                model.frame_times = args.frame_times
+            model.prepare()
+            return
+        if args.command == "figures":
+            model.figures(args.units, args.output_dir, args.format)
+            return
+        getattr(model, args.command)(args.units, args.workers)
 
 
 @dataclass
@@ -1347,19 +1406,22 @@ class PoissonGLM:
         from thesis.ephys.preprocessing.video_svd import write_motion_energy_features
 
         if self.windows.exists():
-            print(f"Skipping {self.windows}; file exists.", flush=True)
+            print(f"Reused prepared windows: {self.windows}", flush=True)
         else:
             write_stimulus_windows(
                 self.subject, self.session, self.windows, self.frame_times
             )
+            print(f"Completed prepared windows: {self.windows}", flush=True)
         if self.video.exists():
-            print(f"Skipping {self.video}; file exists.", flush=True)
+            print(f"Reused motion-energy features: {self.video}", flush=True)
         else:
             write_motion_energy_features(self.windows, self.video)
+            print(f"Completed motion-energy features: {self.video}", flush=True)
         if self.design.exists():
-            print(f"Skipping {self.design}; file exists.", flush=True)
+            print(f"Reused common design: {self.design}", flush=True)
         else:
             prepare_common_design(self.windows, self.video, self.design)
+            print(f"Completed common design: {self.design}", flush=True)
 
     def fit(self, units: str = "sample", workers: int | None = None) -> None:
         """Choose the PC count, cross-validate at it, then refit on every trial.
@@ -1369,7 +1431,7 @@ class PoissonGLM:
         """
         directory = self.fit_dir(units)
         fit_models(self.windows, self.design, units, directory, workers)
-        with (directory / "summary.json").open() as handle:
+        with (directory / "validation_summary.json").open() as handle:
             components = int(json.load(handle)["selected_video_components"])
         crossvalidate(self.windows, self.design, units, directory, components, workers)
         refit_final(self.windows, self.design, units, directory, components, workers)
