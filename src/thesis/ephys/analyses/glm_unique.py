@@ -152,6 +152,16 @@ def _shuffled_deviance(
     ]
 
 
+def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
+    """Pair saved alphas with the folds that contained test spikes."""
+    folds = [fold for fold in partitions if counts[fold["test"]].sum() > 0]
+    if len(folds) != len(alphas):
+        raise ValueError(
+            f"{len(folds)} folds contained spikes but {len(alphas)} alphas were saved."
+        )
+    return list(zip(folds, alphas, strict=True))
+
+
 def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
     """Draw maximal deviance behind unique, so the shared part is the gap."""
     values = [
@@ -343,11 +353,9 @@ def _block_task(job: dict) -> dict:
     within = _SHARED["within_trial"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
     complete_folds = []
-    for index, fold in enumerate(_SHARED["partitions"]):
+    for fold, alpha in _scored_folds(counts, _SHARED["partitions"], job["alphas"]):
         fit, test = fold["fit"], fold["test"]
-        if counts[test].sum() <= 0:
-            continue
-        alpha = float(job["alphas"][index])
+        alpha = float(alpha)
         history, _, _ = training_zscore(raw_history, fit)
         fit_rows = np.flatnonzero(fit)
         test_rows = np.flatnonzero(test)
