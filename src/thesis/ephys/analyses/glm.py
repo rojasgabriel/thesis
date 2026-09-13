@@ -698,10 +698,39 @@ _SHARED: dict = {}
 
 
 def _init_worker(windows: Path, design: Path) -> None:
-    """Open the shared design and masks once per worker, not once per unit."""
+    """Rebuild the shared state once per worker, not once per unit.
+
+    Everything here is a deterministic function of the window file and the
+    seeds, so each worker derives it rather than receiving it. Sending the
+    fold masks with every job instead would ship about 4 GB across 168 units.
+    """
     prepared = _load_windows(windows)
     valid = _valid_bin_mask(prepared)
     train, validation, test = _split_masks(prepared["split"], valid)
+    with np.load(windows, allow_pickle=False) as saved:
+        trial_split = saved["trial_split"].copy()
+    bins_per_trial = len(prepared["split"]) // len(trial_split)
+    folds = trial_folds(len(trial_split), CV_FOLDS, CV_SEED)
+    fold_rows = np.repeat(folds, bins_per_trial)
+    partitions = []
+    for fold in range(CV_FOLDS):
+        rest = np.flatnonzero(folds != fold)
+        inner_trials = np.random.default_rng([CV_SEED, fold]).choice(
+            rest,
+            size=max(1, int(round(CV_INNER_FRACTION * len(rest)))),
+            replace=False,
+        )
+        inner_mask = np.zeros(len(folds), dtype=bool)
+        inner_mask[inner_trials] = True
+        inner_rows = np.repeat(inner_mask, bins_per_trial)
+        partitions.append(
+            {
+                "test": (fold_rows == fold) & valid,
+                "inner": inner_rows & valid,
+                "train": ~inner_rows & (fold_rows != fold) & valid,
+                "fit": (fold_rows != fold) & valid,
+            }
+        )
     _SHARED.update(
         prepared=prepared,
         common=np.load(design, mmap_mode="r", allow_pickle=False),
@@ -709,6 +738,9 @@ def _init_worker(windows: Path, design: Path) -> None:
         train=train,
         validation=validation,
         test=test,
+        bins_per_trial=bins_per_trial,
+        partitions=partitions,
+        n_trials=len(trial_split),
     )
 
 
@@ -731,7 +763,11 @@ def run_over_units(task, jobs: list, windows: Path, design: Path, workers: int |
     if count <= 1:
         _init_worker(windows, design)
         for job in jobs:
-            yield task(job)
+            try:
+                yield task(job)
+            except Exception as error:  # noqa: BLE001
+                print(f"Unit {job['unit_id']} failed: {error}", flush=True)
+                yield None
         return
     for name in (
         "OMP_NUM_THREADS",
@@ -745,7 +781,14 @@ def run_over_units(task, jobs: list, windows: Path, design: Path, workers: int |
     with futures.ProcessPoolExecutor(
         max_workers=count, initializer=_init_worker, initargs=(windows, design)
     ) as pool:
-        yield from pool.map(task, jobs)
+        submitted = [pool.submit(task, job) for job in jobs]
+        for job, future in zip(jobs, submitted, strict=True):
+            try:
+                yield future.result()
+            except Exception as error:  # noqa: BLE001
+                # One unit's failure should not discard the rest of the run.
+                print(f"Unit {job['unit_id']} failed: {error}", flush=True)
+                yield None
 
 
 def trial_folds(n_trials: int, n_folds: int, seed: int) -> np.ndarray:
@@ -799,7 +842,7 @@ def _fold_task(job: dict) -> dict | None:
     counts = build_unit_counts(prepared["alignments"], spikes)
     history = build_unit_history(prepared["alignments"], spikes)
     results, skipped = [], 0
-    for part in job["partitions"]:
+    for part in _SHARED["partitions"]:
         if counts[part["test"]].sum() <= 0:
             # Deviance explained is undefined with no spikes to explain.
             skipped += 1
@@ -855,12 +898,8 @@ def crossvalidate(
     common_columns = int(design_metadata["base_columns"]) + (
         VIDEO_BASIS_COLUMNS * components
     )
-    valid = _valid_bin_mask(prepared)
     with np.load(windows, allow_pickle=False) as saved:
         trial_split = saved["trial_split"].copy()
-    bins_per_trial = len(prepared["split"]) // len(trial_split)
-    folds = trial_folds(len(trial_split), CV_FOLDS, CV_SEED)
-    fold_rows = np.repeat(folds, bins_per_trial)
 
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
@@ -875,26 +914,6 @@ def crossvalidate(
         else np.arange(len(units))
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Build every fold's partition once, so all units share the same splits and
-    # the result cannot depend on the order units happen to be processed in.
-    partitions = []
-    for fold in range(CV_FOLDS):
-        rest = np.flatnonzero(folds != fold)
-        inner_trials = np.random.default_rng([CV_SEED, fold]).choice(
-            rest,
-            size=max(1, int(round(CV_INNER_FRACTION * len(rest)))),
-            replace=False,
-        )
-        inner_mask = np.zeros(len(folds), dtype=bool)
-        inner_mask[inner_trials] = True
-        inner_rows = np.repeat(inner_mask, bins_per_trial)
-        partitions.append(
-            {
-                "test": (fold_rows == fold) & valid,
-                "inner": inner_rows & valid,
-                "train": ~inner_rows & (fold_rows != fold) & valid,
-            }
-        )
     print(
         f"{CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
         f"{len(unit_rows)} units, {components} motion-energy PCs.",
@@ -908,7 +927,6 @@ def crossvalidate(
             "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
             "components": components,
             "common_columns": common_columns,
-            "partitions": partitions,
             "output": str(
                 output_dir / f"unit_{int(units.iloc[row]['unit_id'])}_folds.json"
             ),

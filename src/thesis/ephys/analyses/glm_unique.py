@@ -19,13 +19,10 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
     _SHARED,
-    CV_FOLDS,
-    CV_SEED,
     HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
     _design_with_history,
     _load_windows,
-    _valid_bin_mask,
     _write_json_atomic,
     build_unit_counts,
     build_unit_history,
@@ -34,7 +31,6 @@ from thesis.ephys.analyses.glm import (
     run_over_units,
     sample_unit_indices,
     training_zscore,
-    trial_folds,
 )
 from thesis.ephys.units import fetch_unit_table
 
@@ -339,10 +335,18 @@ def _block_task(job: dict) -> dict | None:
     counts = build_unit_counts(prepared["alignments"], spikes)
     raw_history = build_unit_history(prepared["alignments"], spikes)
     groups, order = job["groups"], job["group_order"]
-    within = job["within_trial"]
+    if "within_trial" not in _SHARED:
+        # Same permutation for every unit and worker, derived from the seed.
+        _SHARED["within_trial"] = shuffle_permutations(
+            _SHARED["n_trials"],
+            _SHARED["bins_per_trial"],
+            SHUFFLE_SEED,
+            valid=_SHARED["valid"],
+        )
+    within = _SHARED["within_trial"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
     complete_folds = []
-    for index, fold in enumerate(job["folds"]):
+    for index, fold in enumerate(_SHARED["partitions"]):
         fit, test = fold["fit"], fold["test"]
         if counts[test].sum() <= 0:
             continue
@@ -434,19 +438,6 @@ def run_unique(
     bins_per_trial = len(relative_times)
     if len(common) != len(trial_split) * bins_per_trial:
         raise ValueError("Common design rows do not match the saved trial grid.")
-    valid = _valid_bin_mask(prepared)
-    within_trial = shuffle_permutations(
-        len(trial_split), bins_per_trial, SHUFFLE_SEED, valid=valid
-    )
-    fold_index = trial_folds(len(trial_split), CV_FOLDS, CV_SEED)
-    fold_rows = np.repeat(fold_index, bins_per_trial)
-    folds = [
-        {
-            "test": (fold_rows == index) & valid,
-            "fit": (fold_rows != index) & valid,
-        }
-        for index in range(CV_FOLDS)
-    ]
     fold_alphas = {
         int(item["unit_id"]): [float(entry["alpha"]) for entry in item["folds"]]
         for item in fold_records
@@ -475,8 +466,6 @@ def run_unique(
             "common_columns": common_columns,
             "groups": groups,
             "group_order": group_order,
-            "within_trial": within_trial,
-            "folds": folds,
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(output_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"),
         }
