@@ -110,15 +110,19 @@ uv run glm unique --units all
 
 ## Figures
 
-After the all-unit held-out fit:
+After the all-unit fit and unique-deviance analysis:
 
 ```bash
 uv run glm figures --units all [--output-dir DIR] [--format {pdf,png,both}]
 ```
 
-The predicted raster is a Poisson draw from one-step-ahead rates conditioned on
-the observed spike history. It is not a free-running simulation. Post-response
-bins remain on the plotted grid but are excluded from likelihood and scores.
+The prediction figure shows three distinct units: the best full-model fit, the
+largest unique visual-flash contribution, and the largest unique contribution
+from another task or motion-energy block. Each plotted trial uses its saved
+out-of-fold model, so that model did not train on the trial. Predicted rasters
+are Poisson draws from one-step-ahead rates conditioned on the observed spike
+history, not free-running simulations. Post-response bins remain on the plotted
+grid but are excluded from likelihood and scores.
 
 ## Related methods
 
