@@ -64,10 +64,10 @@ _SHARED: dict = {}
 # this to a commit hash instead invalidates every record on any edit to this
 # file, including edits that cannot affect the result.
 RECORD_VERSIONS = {
-    "selection": 3,
-    "folds": 4,
-    "final": 3,
-    "unique": 4,
+    "selection": 2,
+    "folds": 3,
+    "final": 2,
+    "unique": 3,
 }
 
 
