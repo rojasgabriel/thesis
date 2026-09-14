@@ -1,69 +1,55 @@
 import numpy as np
+from damn.alignment import construct_timebins
 
 from thesis.ephys.analyses.glm import (
-    CV_FOLDS,
     HISTORY_COLUMNS,
-    VIDEO_BASIS_COLUMNS,
     build_unit_counts,
     build_unit_history,
+    build_video_component_design,
     cross_validation_partitions,
     spike_history_basis,
+    split_flash_events,
     task_temporal_bases,
 )
 from thesis.ephys.analyses.glm_figures import (
     fitted_kernels,
     fitted_trial_contributions,
-    select_design_example_result,
-    select_prediction_examples,
 )
+from thesis.ephys.analyses.glm_unique import block_slices
+from thesis.ephys.preprocessing.prepare_glm import BINWIDTH_S, POST_S, PRE_S
 
 
-def test_prediction_examples_are_distinct_and_out_of_fold() -> None:
-    results = [
-        {
-            "unit_id": unit_id,
-            "folds_scored": CV_FOLDS - (unit_id == 4),
-            "cross_validated_deviance_explained": score,
-        }
-        for unit_id, score in ((1, 0.5), (2, 0.3), (3, 0.2), (4, 0.9))
-    ]
-    groups = (
-        "visual_flash",
-        "center_poke",
-        "center_exit",
-        "response_entry",
-        "response_side",
-        "video",
-    )
-    unique_records = []
-    for unit_id in range(1, 5):
-        scores = {group: 0.01 for group in groups}
-        scores["visual_flash"] = {1: 0.9, 2: 0.8, 3: 0.1, 4: 1.0}[unit_id]
-        scores["response_entry"] = {1: 0.1, 2: 0.2, 3: 0.7, 4: 1.0}[unit_id]
-        unique_records.append(
-            {
-                "unit_id": unit_id,
-                "groups": {
-                    group: {"unique_test_deviance_explained": score}
-                    for group, score in scores.items()
-                },
-            }
-        )
-
-    examples = select_prediction_examples(results, unique_records)
-    assert [item["result"]["unit_id"] for item in examples] == [1, 2, 3]
-    assert [item["selection_group"] for item in examples] == [
-        "full_model",
-        "visual_flash",
-        "response_entry",
-    ]
-
+def test_cross_validation_holds_out_each_trial_once() -> None:
     partitions = cross_validation_partitions(20, 2, np.ones(40, dtype=bool))
     held_out = np.stack([partition["all"] for partition in partitions])
     assert np.all(held_out.sum(axis=0) == 1)
     assert all(
         not np.any(partition["fit"] & partition["all"]) for partition in partitions
     )
+
+
+def test_flashes_split_at_center_exit() -> None:
+    stationary, running = split_flash_events(
+        {
+            "stim_pulse_times_s": [[1.0, 1.1, 1.2, 1.3], [2.0, 2.2]],
+            "center_entry_s": [0.9, 1.9],
+            "center_exit_s": [1.2, 2.1],
+            "response_port_entry_s": [1.3, 2.3],
+        }
+    )
+    np.testing.assert_array_equal(stationary, [1.0, 1.1, 2.0])
+    np.testing.assert_array_equal(running, [1.2, 1.3, 2.2])
+
+
+def test_video_pc_is_one_contemporaneous_column() -> None:
+    alignments = np.array([10.0])
+    relative_times, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
+    frame_times = alignments[0] + np.array([-0.2, 0.0, 0.2, 3.0])
+    scores = np.array([-1.0, 0.0, 1.0, 2.0])
+    design = build_video_component_design(alignments, frame_times, scores)
+    expected = np.interp(alignments[0] + relative_times, frame_times, scores)
+    assert design.shape == (len(relative_times), 1)
+    np.testing.assert_allclose(design[:, 0], expected)
 
 
 def test_fitted_kernels_reverse_design_standardization() -> None:
@@ -73,7 +59,7 @@ def test_fitted_kernels_reverse_design_standardization() -> None:
     ]
     task_columns = sum(basis.basis.shape[1] for basis in bases.values())
     components = 2
-    common_columns = task_columns + VIDEO_BASIS_COLUMNS * components
+    common_columns = task_columns + components
     coefficients = np.arange(1, common_columns + HISTORY_COLUMNS + 1, dtype=float)
     common_scale = np.full(common_columns, 2.0)
     history_scale = np.full(HISTORY_COLUMNS, 4.0)
@@ -101,26 +87,13 @@ def test_fitted_kernels_reverse_design_standardization() -> None:
     )
 
 
-def test_design_example_uses_training_rate_percentile() -> None:
-    results = [
-        {"unit_id": unit_id, "cross_validated_deviance_explained": 0.1}
-        for unit_id in (1, 2, 3, 4, 5)
-    ]
-    selections = [
-        {"unit_id": unit_id, "training_mean_count": rate * 0.001}
-        for unit_id, rate in zip((1, 2, 3, 4, 5), (1, 2, 3, 4, 20), strict=True)
-    ]
-    result, rate = select_design_example_result(results, selections)
-    assert result["unit_id"] == 5
-    assert rate == 20
-
-
 def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
     manifest = [
-        {"name": "visual_flash", "columns": 2},
+        {"name": "stationary_flash", "columns": 2},
+        {"name": "running_flash", "columns": 2},
         {"name": "center_exit", "columns": 1},
     ]
-    common_columns = 3 + VIDEO_BASIS_COLUMNS
+    common_columns = 6
     design = (
         np.arange(4 * (common_columns + HISTORY_COLUMNS), dtype=float).reshape(4, -1)
         / 10
@@ -134,16 +107,35 @@ def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
     contributions, linear_predictor, rate, error = fitted_trial_contributions(
         design,
         result,
-        {"base_columns": 3, "task_manifest": manifest},
+        {"base_columns": 5, "task_manifest": manifest},
     )
 
     np.testing.assert_allclose(
-        contributions["visual"], design[:, :2] @ coefficients[:2]
+        contributions["visual"], design[:, :4] @ coefficients[:4]
     )
-    np.testing.assert_allclose(contributions["task"], design[:, 2] * coefficients[2])
+    np.testing.assert_allclose(contributions["task"], design[:, 4] * coefficients[4])
     np.testing.assert_allclose(linear_predictor, -2 + design @ coefficients)
     np.testing.assert_allclose(rate, np.exp(linear_predictor) / 0.001)
     assert error < 1e-12
+
+
+def test_unique_motion_block_has_one_column_per_pc() -> None:
+    manifest = [
+        {"name": "stationary_flash", "columns": 2},
+        {"name": "running_flash", "columns": 2},
+        {"name": "center_exit", "columns": 1},
+    ]
+    groups = block_slices(
+        {"task_columns": 5, "base_columns": 5, "task_manifest": manifest}, 10
+    )
+    assert groups["video"] == slice(5, 15)
+    assert groups["history"] == slice(15, 15 + HISTORY_COLUMNS)
+
+
+def test_final_design_has_57_columns() -> None:
+    task_columns = sum(basis.basis.shape[1] for basis in task_temporal_bases().values())
+    assert task_columns == 37
+    assert task_columns + 10 + HISTORY_COLUMNS == 57
 
 
 def test_spike_history_starts_one_bin_after_each_spike() -> None:
@@ -155,8 +147,11 @@ def test_spike_history_starts_one_bin_after_each_spike() -> None:
 
 
 if __name__ == "__main__":
-    test_prediction_examples_are_distinct_and_out_of_fold()
+    test_cross_validation_holds_out_each_trial_once()
+    test_flashes_split_at_center_exit()
+    test_video_pc_is_one_contemporaneous_column()
     test_fitted_kernels_reverse_design_standardization()
-    test_design_example_uses_training_rate_percentile()
     test_fitted_trial_contributions_reproduce_the_linear_predictor()
+    test_unique_motion_block_has_one_column_per_pc()
+    test_final_design_has_57_columns()
     test_spike_history_starts_one_bin_after_each_spike()

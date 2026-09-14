@@ -1,6 +1,6 @@
 """Create figures for the fitted V1 spike-prediction GLM.
 
-Prediction examples use the cross-validation model that held out each plotted
+The prediction figure uses the cross-validation model that held out each plotted
 trial. The model-design example instead decomposes the canonical final refit,
 which was fit on every valid bin. All rates condition on observed spike history.
 """
@@ -12,7 +12,6 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from matplotlib.colors import ListedColormap
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import spearmanr
 
@@ -20,10 +19,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
-    CV_FOLDS,
     HISTORY_COLUMNS,
-    VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
+    VIDEO_COMPONENTS,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
@@ -31,6 +29,7 @@ from thesis.ephys.analyses.glm import (
     build_unit_history,
     cross_validation_partitions,
     spike_history_basis,
+    split_flash_events,
     task_temporal_bases,
     training_zscore,
 )
@@ -46,29 +45,16 @@ GROUP_COLORS = {
     "history": "C3",
 }
 TASK_LABELS = {
-    "visual_flash": "Visual flash",
+    "stationary_flash": "Stationary flash",
+    "running_flash": "Running flash",
     "center_poke": "Center poke",
     "center_exit": "Center exit",
     "response_entry": "Response entry",
     "response_side": "Response side\n(right − left)",
 }
-OTHER_RESPONSE_GROUPS = (
-    "center_poke",
-    "center_exit",
-    "response_entry",
-    "response_side",
-    "video",
-)
-OTHER_RESPONSE_LABELS = {
-    "center_poke": "center-poke contribution",
-    "center_exit": "center-exit contribution",
-    "response_entry": "response-entry contribution",
-    "response_side": "response-side contribution",
-    "video": "motion-energy contribution",
-}
 SMOOTHING_MS = 20
 PREDICTION_SEED = 2008
-DESIGN_RATE_PERCENTILE = 90
+EXAMPLE_UNIT_ID = 197
 # Rebound by make_figures; read by _save_figure so plot signatures stay small.
 FIGURE_FORMATS: tuple[str, ...] = ("pdf", "png")
 FIGURE_STYLE = {
@@ -78,104 +64,6 @@ FIGURE_STYLE = {
     "pdf.fonttype": 42,
     "ps.fonttype": 42,
 }
-
-
-def select_representative_result(results: list[dict]) -> tuple[dict, float]:
-    """Return the full-model result nearest the population median test score."""
-    if not results:
-        raise ValueError("No fitted unit results were found.")
-    scores = np.asarray(
-        [item["cross_validated_deviance_explained"] for item in results],
-        dtype=float,
-    )
-    if not np.isfinite(scores).all():
-        raise ValueError("Cross-validated deviance must be finite.")
-    median = float(np.median(scores))
-    result = min(
-        results,
-        key=lambda item: (
-            abs(item["cross_validated_deviance_explained"] - median),
-            int(item["unit_id"]),
-        ),
-    )
-    return result, median
-
-
-def select_prediction_examples(
-    results: list[dict], unique_records: list[dict]
-) -> list[dict]:
-    """Select distinct best-fit, visual, and non-visual prediction examples."""
-    result_by_id = {int(item["unit_id"]): item for item in results}
-    unique_by_id = {int(item["unit_id"]): item for item in unique_records}
-    if (
-        len(result_by_id) != len(results)
-        or len(unique_by_id) != len(unique_records)
-        or set(result_by_id) != set(unique_by_id)
-    ):
-        raise ValueError("Final and unique results must contain the same unique units.")
-    eligible = [item for item in results if int(item["folds_scored"]) == CV_FOLDS]
-    if len(eligible) < 3:
-        raise ValueError("Three distinct units are required for prediction examples.")
-    full_scores = np.asarray(
-        [item["cross_validated_deviance_explained"] for item in eligible], dtype=float
-    )
-    if not np.isfinite(full_scores).all():
-        raise ValueError("Prediction-example scores must be finite.")
-
-    def unique_score(unit_id: int, group: str) -> float:
-        score = float(
-            unique_by_id[unit_id]["groups"][group]["unique_test_deviance_explained"]
-        )
-        if not np.isfinite(score):
-            raise ValueError("Prediction-example scores must be finite.")
-        return score
-
-    best = max(
-        eligible,
-        key=lambda item: (
-            float(item["cross_validated_deviance_explained"]),
-            -int(item["unit_id"]),
-        ),
-    )
-    used = {int(best["unit_id"])}
-    sensory = max(
-        (item for item in eligible if int(item["unit_id"]) not in used),
-        key=lambda item: (
-            unique_score(int(item["unit_id"]), "visual_flash"),
-            -int(item["unit_id"]),
-        ),
-    )
-    used.add(int(sensory["unit_id"]))
-
-    other_candidates = [
-        (unique_score(unit_id, group), -unit_id, group, result_by_id[unit_id])
-        for unit_id in (int(item["unit_id"]) for item in eligible)
-        if unit_id not in used
-        for group in OTHER_RESPONSE_GROUPS
-    ]
-    other_score, _, other_group, other = max(
-        other_candidates, key=lambda item: item[:2]
-    )
-    return [
-        {
-            "label": "best fit",
-            "result": best,
-            "selection_group": "full_model",
-            "selection_score": float(best["cross_validated_deviance_explained"]),
-        },
-        {
-            "label": "strongest visual-flash contribution",
-            "result": sensory,
-            "selection_group": "visual_flash",
-            "selection_score": unique_score(int(sensory["unit_id"]), "visual_flash"),
-        },
-        {
-            "label": f"strongest {OTHER_RESPONSE_LABELS[other_group]}",
-            "result": other,
-            "selection_group": other_group,
-            "selection_score": other_score,
-        },
-    ]
 
 
 def training_rate_and_deviance(
@@ -207,26 +95,13 @@ def training_rate_and_deviance(
     return training_rate, test_deviance
 
 
-def select_design_example_result(
-    results: list[dict], selections: list[dict]
-) -> tuple[dict, float]:
-    """Select the unit nearest the requested training-rate percentile."""
-    if not results:
-        raise ValueError("No fitted unit results were found.")
-    training_rate, _ = training_rate_and_deviance(results, selections)
-    target = float(np.percentile(training_rate, DESIGN_RATE_PERCENTILE))
-    index = min(
-        range(len(results)),
-        key=lambda position: (
-            abs(training_rate[position] - target),
-            int(results[position]["unit_id"]),
-        ),
-    )
-    return results[index], float(training_rate[index])
-
-
-def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
-    return [np.repeat(times, row.astype(int, copy=False)) for row in np.asarray(counts)]
+def _raster_events(
+    counts: np.ndarray, times: np.ndarray, valid: np.ndarray
+) -> list[np.ndarray]:
+    return [
+        np.repeat(times[keep], row[keep].astype(int, copy=False))
+        for row, keep in zip(np.asarray(counts), np.asarray(valid), strict=True)
+    ]
 
 
 def _save_figure(figure, output: Path) -> tuple[Path | None, Path | None]:
@@ -249,9 +124,7 @@ def fitted_trial_contributions(
     """Decompose one fitted trial into exact groupwise log-rate terms."""
     design = np.asarray(design, dtype=float)
     components = int(result["components"])
-    common_columns = int(design_metadata["base_columns"]) + (
-        VIDEO_BASIS_COLUMNS * components
-    )
+    common_columns = int(design_metadata["base_columns"]) + components
     coefficients = np.asarray(result["coefficients"], dtype=float)
     expected_columns = common_columns + HISTORY_COLUMNS
     if design.ndim != 2 or design.shape[1] != expected_columns:
@@ -266,7 +139,7 @@ def fitted_trial_contributions(
     cursor = 0
     for item in design_metadata["task_manifest"]:
         stop = cursor + int(item["columns"])
-        target = visual if item["name"] == "visual_flash" else task
+        target = visual if item["name"].endswith("_flash") else task
         target += design[:, cursor:stop] @ coefficients[cursor:stop]
         cursor = stop
     if cursor != int(design_metadata["base_columns"]):
@@ -305,10 +178,6 @@ def plot_model_design(
     linear_predictor: np.ndarray,
     rate: np.ndarray,
     design_metadata: dict,
-    selected_components: int,
-    unit_id: int,
-    training_rate: float,
-    trial_number: int,
     output: Path,
 ) -> tuple[Path | None, Path | None]:
     """Show observed inputs, fitted log-rate terms, and rate for one trial."""
@@ -341,7 +210,8 @@ def plot_model_design(
     ):
         raise ValueError("Model-design values must be finite.")
     expected_events = {
-        "visual_flash",
+        "stationary_flash",
+        "running_flash",
         "center_poke",
         "center_exit",
         "response_entry",
@@ -368,24 +238,25 @@ def plot_model_design(
     manifest = {item["name"]: item for item in design_metadata["task_manifest"]}
     event_order = (
         "center_poke",
-        "visual_flash",
+        "stationary_flash",
+        "running_flash",
         "center_exit",
         "response_entry",
         "response_side",
     )
     event_labels = {
         "center_poke": "Center poke",
-        "visual_flash": "Visual flashes",
+        "stationary_flash": "Stationary flashes",
+        "running_flash": "Running flashes",
         "center_exit": "Center exit",
         "response_entry": "Response entry",
-        "response_side": (
-            "Response side: right (+1)"
-            if response_side == 1
-            else "Response side: left (−1)"
-        ),
+        "response_side": "Response side: right"
+        if response_side == 1
+        else "Response side: left",
     }
     event_colors = {
-        "visual_flash": GROUP_COLORS["visual"],
+        "stationary_flash": GROUP_COLORS["visual"],
+        "running_flash": GROUP_COLORS["visual"],
         "center_poke": GROUP_COLORS["task"],
         "center_exit": GROUP_COLORS["task"],
         "response_entry": GROUP_COLORS["task"],
@@ -439,17 +310,6 @@ def plot_model_design(
                 )
         event_axis.set_yticks(positions, [event_labels[name] for name in event_order])
         event_axis.set_ylim(-0.65, len(event_order) - 0.35)
-        event_axis.text(
-            0.99,
-            0.97,
-            "shading = temporal support; flash support repeats after every flash",
-            transform=event_axis.transAxes,
-            ha="right",
-            va="top",
-            fontsize=7,
-            color="0.3",
-        )
-
         for index, linestyle in enumerate(("-", "--", ":")):
             motion_axis.plot(
                 1000 * motion_times,
@@ -462,17 +322,6 @@ def plot_model_design(
         motion_axis.axhline(0, color="black", linewidth=0.45)
         motion_axis.legend(loc="upper left", frameon=False, fontsize=7)
         motion_axis.set_ylabel("Motion-energy\nPC score")
-        motion_axis.text(
-            0.01,
-            0.04,
-            f"PCs 1–3 of {selected_components}; continuous filter spans ±200 ms "
-            "around every bin",
-            transform=motion_axis.transAxes,
-            ha="left",
-            va="bottom",
-            fontsize=7,
-            color="0.3",
-        )
 
         for spike_time in spike_times_ms:
             start = spike_time + 1000 * BINWIDTH_S
@@ -496,16 +345,6 @@ def plot_model_design(
         history_axis.vlines(spike_times_ms, -0.28, 0.28, color="black", linewidth=0.7)
         history_axis.set_yticks((0, 1), ("Observed spikes", "History support"))
         history_axis.set_ylim(-0.55, 1.55)
-        history_axis.text(
-            0.99,
-            0.93,
-            "history starts 1 ms after each spike",
-            transform=history_axis.transAxes,
-            ha="right",
-            va="top",
-            fontsize=7,
-            color="0.3",
-        )
 
         trace_specs = (
             ("visual", "Visual flashes", GROUP_COLORS["visual"]),
@@ -548,13 +387,6 @@ def plot_model_design(
             axis.set_xlim(left_ms, right_ms)
         for axis in all_axes[:-1]:
             axis.tick_params(axis="x", labelbottom=False)
-        event_axis.set_title(
-            "Observed regressors and temporal support", loc="left", fontsize=9
-        )
-        contribution_axes[0].set_title(
-            "Fitted contribution to log firing rate", loc="left", fontsize=9
-        )
-        rate_axis.set_title("Prediction", loc="left", fontsize=9)
         for letter, axis in zip(
             "abc", (event_axis, contribution_axes[0], rate_axis), strict=True
         ):
@@ -567,16 +399,6 @@ def plot_model_design(
                 fontsize=10,
                 va="bottom",
             )
-        figure.text(
-            0.99,
-            0.995,
-            f"unit {unit_id}: {training_rate:.1f} spikes/s in training; "
-            f"example test trial {trial_number}",
-            ha="right",
-            va="top",
-            color="0.3",
-            fontsize=7,
-        )
         figure.subplots_adjust(left=0.23, right=0.98, bottom=0.07, top=0.97)
         return _save_figure(figure, output)
 
@@ -618,7 +440,13 @@ def plot_population_summary(
         axes = axes.ravel()
 
         positions = np.arange(len(component_counts))
-        axes[0].plot(positions, validation_deviance, color="black", marker="o")
+        axes[0].plot(
+            positions,
+            validation_deviance,
+            color="black",
+            marker="o",
+            markerfacecolor="white",
+        )
         selected_position = component_counts.index(selected)
         axes[0].scatter(
             selected_position,
@@ -626,14 +454,6 @@ def plot_population_summary(
             color="black",
             s=75,
             zorder=3,
-        )
-        axes[0].text(
-            selected_position,
-            validation_deviance[selected_position],
-            "selected",
-            color="black",
-            ha="center",
-            va="bottom",
         )
         axes[0].set_xticks(positions, component_counts)
         axes[0].set_xlabel("Candidate motion-energy PCs")
@@ -696,9 +516,7 @@ def fitted_kernels(
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Reconstruct one unit's task and self-history filters."""
     components = int(result["components"])
-    common_columns = int(design_metadata["base_columns"]) + (
-        VIDEO_BASIS_COLUMNS * components
-    )
+    common_columns = int(design_metadata["base_columns"]) + components
     coefficients = np.asarray(result["coefficients"], dtype=float)
     if coefficients.shape != (common_columns + HISTORY_COLUMNS,):
         raise ValueError("Saved coefficient count does not match the selected design.")
@@ -747,16 +565,27 @@ def task_kernel_display_values(name: str, values: np.ndarray) -> np.ndarray:
 
 def plot_kernel_figure(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    representative_unit_id: int,
     task_names: list[str],
     output: Path,
 ) -> tuple[Path | None, Path | None]:
-    """Show every interpretable kernel trace for one representative unit."""
+    """Show every interpretable task and history kernel for the example unit."""
     names = [*task_names, "history"]
+    rows = int(np.ceil(len(names) / 2))
 
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(3, 2, figsize=(7.4, 7.0))
-        for letter, axis, name in zip("abcdef", axes.ravel(), names, strict=True):
+        figure = plt.figure(figsize=(7.4, 2.25 * rows))
+        grid = figure.add_gridspec(rows, 2)
+        axes = []
+        for index in range(len(names)):
+            location = (
+                grid[index // 2, :]
+                if len(names) % 2 and index == len(names) - 1
+                else grid[index // 2, index % 2]
+            )
+            axes.append(figure.add_subplot(location))
+        for letter, axis, name in zip(
+            "abcdefghijklmnopqrstuvwxyz", axes, names, strict=False
+        ):
             times_ms, values = kernels[name]
             values = task_kernel_display_values(name, values)
             axis.plot(times_ms, values, color="black", linewidth=1.1)
@@ -771,9 +600,9 @@ def plot_kernel_figure(
                 "Time since spike (ms)" if name == "history" else "Time from event (ms)"
             )
             axis.set_ylabel(
-                "$\Delta$ log rate / spike"
+                r"$\Delta$ log rate / spike"
                 if name == "history"
-                else "$\Delta$ log rate",
+                else r"$\Delta$ log rate",
                 fontsize=7,
             )
             axis.text(
@@ -786,16 +615,7 @@ def plot_kernel_figure(
                 fontweight="bold",
                 fontsize=10,
             )
-        figure.text(
-            0.99,
-            0.995,
-            f"Median-performance unit {representative_unit_id}",
-            ha="right",
-            va="top",
-            color="0.3",
-            fontsize=7,
-        )
-        figure.tight_layout(h_pad=1.8, w_pad=1.8, rect=(0, 0, 1, 0.98))
+        figure.tight_layout(h_pad=1.8, w_pad=1.8)
         return _save_figure(figure, output)
 
 
@@ -810,258 +630,106 @@ def _select_count_typical_trial(observed: np.ndarray) -> int:
     )
 
 
-def plot_design_matrix_trial(
-    relative_times: np.ndarray,
-    counts: np.ndarray,
-    design: np.ndarray,
-    design_metadata: dict,
-    selected_components: int,
-    unit_id: int,
-    training_rate: float,
-    trial_number: int,
-    output: Path,
-) -> tuple[Path | None, Path | None]:
-    """Show the response vector and basis-expanded input for one test trial."""
-    task_stop = int(design_metadata["task_columns"])
-    common_columns = int(design_metadata["base_columns"]) + (
-        VIDEO_BASIS_COLUMNS * selected_components
-    )
-    expected_columns = common_columns + HISTORY_COLUMNS
-    if design.shape != (len(relative_times), expected_columns):
-        raise ValueError("Displayed trial design has the wrong shape.")
-    if counts.shape != relative_times.shape:
-        raise ValueError("Displayed counts and times must match.")
-    if not np.isfinite(design).all() or not np.isfinite(counts).all():
-        raise ValueError("Displayed trial values must be finite.")
-
-    blocks = []
-    cursor = 0
-    for item in design_metadata["task_manifest"]:
-        stop = cursor + int(item["columns"])
-        blocks.append((cursor, stop, TASK_LABELS[item["name"]].replace("\n", " ")))
-        cursor = stop
-    if cursor != task_stop or int(design_metadata["base_columns"]) != task_stop:
-        raise ValueError("Task manifest and task-column count differ.")
-    for component in range(selected_components):
-        stop = cursor + VIDEO_BASIS_COLUMNS
-        blocks.append((cursor, stop, f"ME PC {component + 1}"))
-        cursor = stop
-    blocks.append((cursor, cursor + HISTORY_COLUMNS, "Spike history (1–100 ms)"))
-    cursor += HISTORY_COLUMNS
-    if cursor != expected_columns:
-        raise ValueError("Regressor labels do not cover the displayed design.")
-    if float(np.max(np.abs(design))) <= 0:
-        raise ValueError("Displayed design matrix cannot be all zero.")
-    mids = [(start + stop) / 2 for start, stop, _ in blocks]
-    labels = [label for _, _, label in blocks]
-    edges = (
-        relative_times[0] - BINWIDTH_S / 2,
-        relative_times[-1] + BINWIDTH_S / 2,
-    )
-    colors = plt.get_cmap()(np.linspace(0, 1, 257))
-    colors[len(colors) // 2] = (0, 0, 0, 1)
-    colormap = ListedColormap(colors)
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(8.0, 8.5))
-        grid = figure.add_gridspec(
-            2,
-            2,
-            height_ratios=[0.8, 5.2],
-            width_ratios=[1, 0.025],
-            hspace=0.14,
-            wspace=0.08,
-        )
-        count_axis = figure.add_subplot(grid[0, 0])
-        matrix_axis = figure.add_subplot(grid[1, 0], sharex=count_axis)
-        colorbar_axis = figure.add_subplot(grid[1, 1])
-        figure.add_subplot(grid[0, 1]).axis("off")
-
-        count_axis.step(
-            relative_times, counts, where="mid", color="black", linewidth=0.7
-        )
-        count_axis.set_ylabel("Spike count\nper 1 ms")
-        count_axis.set_ylim(-0.05, max(1, int(counts.max())) + 0.25)
-        count_axis.set_yticks(range(max(1, int(counts.max())) + 1))
-        count_axis.tick_params(axis="x", labelbottom=False)
-        count_axis.text(
-            0.99,
-            1.02,
-            f"unit {unit_id}: {training_rate:.1f} spikes/s in training; "
-            f"example test trial {trial_number}",
-            transform=count_axis.transAxes,
-            ha="right",
-            va="bottom",
-        )
-
-        image = matrix_axis.imshow(
-            design.T,
-            aspect="auto",
-            interpolation="nearest",
-            extent=(*edges, expected_columns, 0),
-            cmap=colormap,
-            vmin=-1,
-            vmax=1,
-            rasterized=True,
-        )
-        matrix_axis.set_yticks(mids, labels)
-        matrix_axis.tick_params(axis="y", labelsize=6)
-        matrix_axis.set_xlabel("Time from first measured flash (s)")
-        matrix_axis.set_ylabel("Regressor")
-        figure.colorbar(
-            image,
-            cax=colorbar_axis,
-            ticks=[-1, 0, 1],
-            label="Standardized model input\n(display clipped at ±1)",
-        )
-        matrix_axis.set_xlim(*edges)
-
-        for letter, axis in zip("ab", (count_axis, matrix_axis), strict=True):
-            axis.text(
-                -0.12,
-                1.03,
-                letter,
-                transform=axis.transAxes,
-                fontweight="bold",
-                fontsize=10,
-                va="bottom",
-            )
-        return _save_figure(figure, output)
-
-
 def plot_prediction_figure(
     relative_times: np.ndarray,
-    examples: list[dict],
+    observed: np.ndarray,
+    predicted: np.ndarray,
+    conditional: np.ndarray,
+    valid: np.ndarray,
     output: Path,
 ) -> tuple[Path | None, Path | None]:
-    """Write three held-out one-step spike-prediction examples."""
-    if len(examples) != 3:
-        raise ValueError("Exactly three prediction examples are required.")
+    """Compare held-out observed and one-step-predicted spikes for unit 197."""
+    observed = np.asarray(observed)
+    predicted = np.asarray(predicted)
+    conditional = np.asarray(conditional)
+    valid = np.asarray(valid, dtype=bool)
+    if not (
+        observed.shape == predicted.shape == conditional.shape == valid.shape
+        and observed.ndim == 2
+    ):
+        raise ValueError(
+            "Observed, predicted, conditional, and valid grids must match."
+        )
+    if observed.shape[1] != len(relative_times) or not valid.any():
+        raise ValueError("Prediction grids must match a nonempty time axis.")
+    if np.any(np.diff(valid.astype(int), axis=1) > 0):
+        raise ValueError("Each plotted trial must contain one leading valid interval.")
+    trial_count = observed.shape[0]
+    shown = valid.any(axis=0)
+    edges = (
+        relative_times[np.flatnonzero(shown)[0]] - BINWIDTH_S / 2,
+        relative_times[np.flatnonzero(shown)[-1]] + BINWIDTH_S / 2,
+    )
 
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             3,
-            3,
-            figsize=(10.5, 5.8),
+            1,
+            figsize=(4.5, 5.8),
             sharex=True,
             gridspec_kw={"height_ratios": [1, 1, 1.2]},
         )
-        for column, example in enumerate(examples):
-            result = example["result"]
-            observed = np.asarray(example["observed"])
-            predicted = np.asarray(example["predicted"])
-            conditional = np.asarray(example["conditional"])
-            if observed.shape != predicted.shape or observed.shape != conditional.shape:
-                raise ValueError("Observed and predicted example arrays must match.")
-            trial_count = observed.shape[0]
-
-            for axis, counts, label, color in zip(
-                axes[:2, column],
-                (observed, predicted),
-                ("observed", "model (given observed past)"),
-                (OBSERVED_COLOR, MODEL_COLOR),
-                strict=True,
-            ):
-                axis.eventplot(
-                    _raster_events(counts, relative_times),
-                    colors=color,
-                    lineoffsets=np.arange(1, trial_count + 1),
-                    linelengths=0.8,
-                    linewidths=0.3,
-                )
-                axis.set_ylim(0.5, trial_count + 0.5)
-                axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
-                axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
-                axis.text(
-                    0.02,
-                    1.02,
-                    label,
-                    color=color,
-                    transform=axis.transAxes,
-                    ha="left",
-                    va="bottom",
-                    fontweight="bold",
-                    fontsize=7,
-                )
-
-            selection_score = float(example["selection_score"])
-            full_score = float(result["cross_validated_deviance_explained"])
-            score_text = (
-                f"cross-validated $D^2$={full_score:.3f}"
-                if example["selection_group"] == "full_model"
-                else f"unique $\u0394D^2$={selection_score:.3f}; full $D^2$={full_score:.3f}"
+        for axis, counts, color in zip(
+            axes[:2], (observed, predicted), (OBSERVED_COLOR, MODEL_COLOR), strict=True
+        ):
+            for trial, keep in enumerate(valid, start=1):
+                missing = np.flatnonzero(~keep & shown)
+                if missing.size:
+                    axis.fill_betweenx(
+                        (trial - 0.4, trial + 0.4),
+                        relative_times[missing[0]] - BINWIDTH_S / 2,
+                        edges[1],
+                        color="0.94",
+                        linewidth=0,
+                        zorder=0,
+                    )
+            axis.eventplot(
+                _raster_events(counts, relative_times, valid),
+                colors=color,
+                lineoffsets=np.arange(1, trial_count + 1),
+                linelengths=0.8,
+                linewidths=0.3,
             )
-            axes[0, column].set_title(
-                f"{example['label']}\nunit {int(result['unit_id'])}; {score_text}",
-                loc="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=8,
-                pad=18,
-            )
+            axis.set_ylim(0.5, trial_count + 0.5)
+            axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
+            axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
 
-            sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
-            rates = [
-                gaussian_filter1d(values.mean(axis=0) / BINWIDTH_S, sigma_bins)
-                for values in (observed, conditional)
-            ]
-            rate_axis = axes[2, column]
-            for rate, color in zip(
-                rates,
-                (OBSERVED_COLOR, MODEL_COLOR),
-                strict=True,
-            ):
-                rate_axis.plot(relative_times, rate, color=color, linewidth=1.15)
-            rate_axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
-            for y, label, color in (
-                (0.94, "observed", OBSERVED_COLOR),
-                (0.83, "model", MODEL_COLOR),
-            ):
-                rate_axis.text(
-                    0.97,
-                    y,
-                    label,
-                    color=color,
-                    transform=rate_axis.transAxes,
-                    ha="right",
-                    va="top",
-                    fontweight="bold",
-                    fontsize=7,
-                )
-            rate_axis.text(
-                0.97,
-                0.03,
-                f"{SMOOTHING_MS} ms smoothing",
-                transform=rate_axis.transAxes,
-                ha="right",
-                va="bottom",
-                color="0.4",
-                fontsize=6.5,
+        sigma_bins = SMOOTHING_MS / (BINWIDTH_S * 1000)
+        denominator = gaussian_filter1d(valid.sum(axis=0).astype(float), sigma_bins)
+        rates = [
+            np.divide(
+                gaussian_filter1d(np.where(valid, values, 0).sum(axis=0), sigma_bins),
+                denominator * BINWIDTH_S,
+                out=np.full(len(relative_times), np.nan),
+                where=denominator > 0,
             )
+            for values in (observed, conditional)
+        ]
+        for rate, label, color in zip(
+            rates, ("Observed", "Model"), (OBSERVED_COLOR, MODEL_COLOR), strict=True
+        ):
+            axes[2].plot(relative_times, rate, color=color, linewidth=1.15, label=label)
+        axes[2].legend(frameon=False)
+        axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
 
-            axes[0, column].text(
+        for letter, axis in zip("abc", axes, strict=True):
+            axis.text(
                 -0.13,
-                1.36,
-                "abc"[column],
-                transform=axes[0, column].transAxes,
+                1.05,
+                letter,
+                transform=axis.transAxes,
                 ha="left",
                 va="bottom",
                 fontweight="bold",
                 fontsize=10,
             )
-        axes[0, 0].set_ylabel("Test trials")
-        axes[1, 0].set_ylabel("Test trials")
-        axes[2, 0].set_ylabel("Mean rate (spikes/s)")
-        edges = (
-            relative_times[0] - BINWIDTH_S / 2,
-            relative_times[-1] + BINWIDTH_S / 2,
-        )
-        axes[-1, 0].set_xlim(*edges)
-        figure.supxlabel("Time from first measured flash (s)", y=0.02)
-        figure.align_ylabels(axes[:, 0])
-        figure.subplots_adjust(
-            left=0.07, right=0.99, bottom=0.11, top=0.86, wspace=0.24, hspace=0.36
-        )
+        axes[0].set_ylabel("Observed\nheld-out trials")
+        axes[1].set_ylabel("Predicted\nheld-out trials")
+        axes[2].set_ylabel(f"{SMOOTHING_MS}-ms smoothed\nmean rate (spikes/s)")
+        axes[-1].set_xlim(*edges)
+        axes[-1].set_xlabel("Time from first measured flash (s)")
+        figure.align_ylabels(axes)
+        figure.tight_layout(h_pad=0.8)
         return _save_figure(figure, output)
 
 
@@ -1097,35 +765,37 @@ def make_figures(
     for path in sorted(checkpoints.glob("unit_*_folds.json")):
         with path.open() as handle:
             fold_records.append(json.load(handle))
-    unique_records = []
-    for path in sorted((checkpoints / "unique").glob("unit_*.json")):
-        with path.open() as handle:
-            unique_records.append(json.load(handle))
     if len(results) != len(selections) or len(results) != len(fold_records):
         raise ValueError("Final, validation, and fold result counts differ.")
     selected_components = {item["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
     selected_components = int(selected_components.pop())
+    if selected_components != VIDEO_COMPONENTS:
+        raise ValueError(f"Figures require the fixed {VIDEO_COMPONENTS}-PC model.")
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
+    if int(design_metadata.get("video_columns_per_component", 0)) != 1:
+        raise ValueError("Figures require one contemporaneous column per video PC.")
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
         results, selections, figure_dir / "summary"
     )
-    kernel_result, population_median = select_representative_result(results)
-    design_result, design_training_rate = select_design_example_result(
-        results, selections
+    result_by_id = {int(item["unit_id"]): item for item in results}
+    selection_by_id = {int(item["unit_id"]): item for item in selections}
+    if len(result_by_id) != len(results) or len(selection_by_id) != len(selections):
+        raise ValueError("Fit results must contain unique unit IDs.")
+    if EXAMPLE_UNIT_ID not in result_by_id or EXAMPLE_UNIT_ID not in selection_by_id:
+        raise ValueError(f"Example unit {EXAMPLE_UNIT_ID} is not in the fitted units.")
+    example_result = result_by_id[EXAMPLE_UNIT_ID]
+    example_training_rate = (
+        float(selection_by_id[EXAMPLE_UNIT_ID]["training_mean_count"]) / BINWIDTH_S
     )
-    prediction_examples = select_prediction_examples(results, unique_records)
-    kernel_unit_id = int(kernel_result["unit_id"])
-    design_unit_id = int(design_result["unit_id"])
     task_names = [item["name"] for item in design_metadata["task_manifest"]]
 
     prepared = _load_windows(windows)
     with np.load(windows, allow_pickle=False) as saved:
         relative_times = saved["relative_bin_centers_s"].copy()
         trial_split = saved["trial_split"].copy()
-    test_alignments = prepared["alignments"][trial_split == 2]
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
         prepared["metadata"]["session_name"],
@@ -1135,11 +805,9 @@ def make_figures(
     )
     test_rows = np.repeat(trial_split == 2, len(relative_times))
     common = np.load(design, mmap_mode="r", allow_pickle=False)[test_rows]
-    common_columns = int(design_metadata["base_columns"]) + (
-        VIDEO_BASIS_COLUMNS * selected_components
-    )
+    common_columns = int(design_metadata["base_columns"]) + selected_components
     valid = _valid_bin_mask(prepared)
-    trial_count = len(test_alignments)
+    trial_count = int(np.count_nonzero(trial_split == 2))
     bin_count = len(relative_times)
     if len(common) != trial_count * bin_count:
         raise ValueError("Test design and response grid differ.")
@@ -1157,14 +825,14 @@ def make_figures(
             raise ValueError(f"Expected one eligible row for unit {selected_unit}.")
         return np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
 
+    example_spikes = unit_spike_times(EXAMPLE_UNIT_ID)
     _, _, kernel_history_scale = training_zscore(
-        build_unit_history(prepared["alignments"], unit_spike_times(kernel_unit_id)),
+        build_unit_history(prepared["alignments"], example_spikes),
         valid,
     )
-    kernels = fitted_kernels(kernel_result, design_metadata, kernel_history_scale)
+    kernels = fitted_kernels(example_result, design_metadata, kernel_history_scale)
     kernel_pdf, kernel_png = plot_kernel_figure(
         kernels,
-        kernel_unit_id,
         task_names,
         figure_dir / "fitted_kernels",
     )
@@ -1172,11 +840,10 @@ def make_figures(
         for suffix in (".pdf", ".png"):
             (figure_dir / old_stem).with_suffix(suffix).unlink(missing_ok=True)
 
-    design_spikes = unit_spike_times(design_unit_id)
-    design_counts = build_unit_counts(prepared["alignments"], design_spikes)
-    design_history_raw = build_unit_history(prepared["alignments"], design_spikes)
-    count_grid = design_counts.reshape(len(trial_split), bin_count)
-    history_grid = design_history_raw.reshape(
+    example_counts = build_unit_counts(prepared["alignments"], example_spikes)
+    example_history_raw = build_unit_history(prepared["alignments"], example_spikes)
+    count_grid = example_counts.reshape(len(trial_split), bin_count)
+    history_grid = example_history_raw.reshape(
         len(trial_split), bin_count, HISTORY_COLUMNS
     )
     valid_grid = valid.reshape(len(trial_split), bin_count)
@@ -1186,18 +853,14 @@ def make_figures(
         count_grid[:, :-1][adjacent_valid],
     ):
         raise ValueError("Spike history is not one bin behind spikes on valid rows.")
-    design_history, _, _ = training_zscore(design_history_raw, valid)
-    observed = design_counts[test_rows].reshape(trial_count, bin_count)
+    example_history, _, _ = training_zscore(example_history_raw, valid)
+    observed = example_counts[test_rows].reshape(trial_count, bin_count)
 
-    def prediction_data(selected_result: dict) -> tuple[np.ndarray, np.ndarray]:
-        selected_unit = int(selected_result["unit_id"])
-        spike_times = unit_spike_times(selected_unit)
-        counts = build_unit_counts(prepared["alignments"], spike_times)
-        history_all = build_unit_history(prepared["alignments"], spike_times)
+    def prediction_data() -> tuple[np.ndarray, np.ndarray]:
         conditional = np.full(len(common), np.nan)
-        saved_folds = iter(fold_by_id[selected_unit]["folds"])
+        saved_folds = iter(fold_by_id[EXAMPLE_UNIT_ID]["folds"])
         for partition in partitions:
-            if counts[partition["test"]].sum() <= 0:
+            if example_counts[partition["test"]].sum() <= 0:
                 continue
             fold = next(saved_folds, None)
             if fold is None:
@@ -1207,8 +870,8 @@ def make_figures(
                 raise ValueError(
                     "Saved coefficient count does not match the selected design."
                 )
-            history, _, _ = training_zscore(history_all, partition["fit"])
-            plotted_rows = partition["all"][test_rows]
+            history, _, _ = training_zscore(example_history_raw, partition["fit"])
+            plotted_rows = partition["test"][test_rows]
             linear_predictor = (
                 float(fold["intercept"])
                 + np.asarray(common[plotted_rows, :common_columns])
@@ -1218,24 +881,24 @@ def make_figures(
             conditional[plotted_rows] = np.exp(linear_predictor)
         if next(saved_folds, None) is not None:
             raise ValueError("Saved fold count does not match the fitted partitions.")
-        if not np.isfinite(conditional).all() or np.any(conditional <= 0):
+        plotted = test_valid.ravel()
+        if not np.isfinite(conditional[plotted]).all() or np.any(
+            conditional[plotted] <= 0
+        ):
             raise ValueError("Conditional predictions must be finite and positive.")
         return (
-            counts[test_rows].reshape(trial_count, bin_count),
+            example_counts[test_rows].reshape(trial_count, bin_count),
             conditional.reshape(trial_count, bin_count),
         )
 
-    cached_predictions = {
-        int(example["result"]["unit_id"]): prediction_data(example["result"])
-        for example in prediction_examples
-    }
+    prediction_observed, conditional = prediction_data()
     typical_trial = _select_count_typical_trial(np.where(test_valid, observed, 0))
     displayed_design = np.column_stack(
         (
             common[:, :common_columns].reshape(trial_count, bin_count, common_columns)[
                 typical_trial
             ],
-            design_history[test_rows].reshape(trial_count, bin_count, HISTORY_COLUMNS)[
+            example_history[test_rows].reshape(trial_count, bin_count, HISTORY_COLUMNS)[
                 typical_trial
             ],
         )
@@ -1249,24 +912,32 @@ def make_figures(
     model_counts = observed[typical_trial, displayed_rows]
     model_design = displayed_design[displayed_rows]
     contributions, linear_predictor, fitted_rate, contribution_error = (
-        fitted_trial_contributions(model_design, design_result, design_metadata)
+        fitted_trial_contributions(model_design, example_result, design_metadata)
     )
 
     trials = _load_selected_trials(prepared)
     trial = trials.iloc[selected_trial_row]
     alignment = float(prepared["alignments"][selected_trial_row])
-    flashes = np.asarray(trial["stim_pulse_times_s"], dtype=float) - alignment
+    flashes = np.asarray(trial["stim_pulse_times_s"], dtype=float)
+    center_entry = float(trial["center_entry_s"])
+    center_exit = float(trial["center_exit_s"])
+    response_entry = float(trial["response_port_entry_s"])
     response_time = float(trial["response_port_entry_s"]) - alignment
+    stationary_flashes, running_flashes = split_flash_events(
+        trials.iloc[[selected_trial_row]]
+    )
+    modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
     if (
-        len(flashes) == 0
-        or not np.isclose(flashes[0], 0, atol=BINWIDTH_S)
-        or np.any(flashes > response_time)
+        len(modeled_flashes) == 0
+        or len(stationary_flashes) + len(running_flashes) != len(modeled_flashes)
+        or not np.isclose(modeled_flashes[0] - alignment, 0, atol=BINWIDTH_S)
     ):
-        raise ValueError("Every displayed flash must be measured before response.")
+        raise ValueError("Every displayed flash must have one movement condition.")
     events = {
-        "visual_flash": flashes,
-        "center_poke": np.asarray([float(trial["center_entry_s"]) - alignment]),
-        "center_exit": np.asarray([float(trial["center_exit_s"]) - alignment]),
+        "stationary_flash": stationary_flashes - alignment,
+        "running_flash": running_flashes - alignment,
+        "center_poke": np.asarray([center_entry - alignment]),
+        "center_exit": np.asarray([center_exit - alignment]),
         "response_entry": np.asarray([response_time]),
         "response_side": np.asarray([response_time]),
     }
@@ -1293,88 +964,46 @@ def make_figures(
         linear_predictor,
         fitted_rate,
         design_metadata,
-        selected_components,
-        design_unit_id,
-        design_training_rate,
-        int(test_trial_numbers[typical_trial]),
         figure_dir / "model_design",
     )
-    design_matrix_pdf, design_matrix_png = plot_design_matrix_trial(
-        relative_times,
-        observed[typical_trial],
-        displayed_design,
-        design_metadata,
-        selected_components,
-        design_unit_id,
-        design_training_rate,
-        int(test_trial_numbers[typical_trial]),
-        figure_dir / "design_matrix_trial",
-    )
-    plotted_examples = []
-    prediction_manifest = []
-    for example in prediction_examples:
-        example_result = example["result"]
-        example_unit = int(example_result["unit_id"])
-        example_observed, conditional = cached_predictions[example_unit]
-        seed = PREDICTION_SEED + example_unit
-        predicted = np.random.default_rng(seed).poisson(conditional)
-        plotted_examples.append(
-            {
-                **example,
-                "observed": example_observed,
-                "conditional": conditional,
-                "predicted": predicted,
-            }
-        )
-        prediction_manifest.append(
-            {
-                "label": example["label"],
-                "unit_id": example_unit,
-                "selection_group": example["selection_group"],
-                "selection_score": float(example["selection_score"]),
-                "cross_validated_deviance_explained": float(
-                    example_result["cross_validated_deviance_explained"]
-                ),
-                "observed_spikes": int(example_observed.sum()),
-                "conditional_sampled_spikes": int(predicted.sum()),
-                "prediction_seed": seed,
-            }
-        )
+    for suffix in (".pdf", ".png"):
+        (figure_dir / "design_matrix_trial").with_suffix(suffix).unlink(missing_ok=True)
+    seed = PREDICTION_SEED + EXAMPLE_UNIT_ID
+    predicted = np.zeros_like(prediction_observed, dtype=int)
+    predicted[test_valid] = np.random.default_rng(seed).poisson(conditional[test_valid])
     pdf_path, png_path = plot_prediction_figure(
         relative_times,
-        plotted_examples,
+        prediction_observed,
+        predicted,
+        conditional,
+        test_valid,
         figure_dir / "predicted_spike_trains",
     )
     written = {
         "model_design": (design_pdf, design_png),
         "summary": (summary_pdf, summary_png),
         "fitted_kernels": (kernel_pdf, kernel_png),
-        "design_matrix_trial": (design_matrix_pdf, design_matrix_png),
         "predicted_spike_trains": (pdf_path, png_path),
     }
     print(
         json.dumps(
             {
-                "kernel_unit_id": kernel_unit_id,
-                "kernel_selection": (
-                    "cross-validated deviance nearest the population median"
-                ),
-                "population_median_cross_validated_deviance": population_median,
-                "kernel_unit_cross_validated_deviance_explained": kernel_result[
+                "example_unit_id": EXAMPLE_UNIT_ID,
+                "example_unit_training_rate_spikes_s": example_training_rate,
+                "example_unit_cross_validated_deviance_explained": example_result[
                     "cross_validated_deviance_explained"
                 ],
                 "test_trials": trial_count,
-                "prediction_examples": prediction_manifest,
-                "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
-                "design_matrix_unit_id": design_unit_id,
-                "design_matrix_unit_training_rate_spikes_s": design_training_rate,
-                "design_matrix_unit_selection": (
-                    f"nearest the {DESIGN_RATE_PERCENTILE}th percentile of "
-                    "training firing rate"
+                "prediction_observed_spikes": int(
+                    prediction_observed[test_valid].sum()
                 ),
-                "design_matrix_trial": int(test_trial_numbers[typical_trial]),
+                "prediction_sampled_spikes": int(predicted[test_valid].sum()),
+                "prediction_seed": seed,
+                "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
+                "model_design_trial": int(test_trial_numbers[typical_trial]),
                 "model_design_group_sum_max_abs_error": contribution_error,
-                "model_design_flashes": len(flashes),
+                "model_design_stationary_flashes": len(stationary_flashes),
+                "model_design_running_flashes": len(running_flashes),
                 "model_design_valid_bins": int(displayed_rows.sum()),
                 "figure_dir": str(figure_dir),
                 "formats": list(FIGURE_FORMATS),
