@@ -1179,8 +1179,13 @@ def make_figures(
     history_grid = design_history_raw.reshape(
         len(trial_split), bin_count, HISTORY_COLUMNS
     )
-    if not np.array_equal(history_grid[:, 1:, 0], count_grid[:, :-1]):
-        raise ValueError("Spike history is not shifted exactly one bin after spikes.")
+    valid_grid = valid.reshape(len(trial_split), bin_count)
+    adjacent_valid = valid_grid[:, 1:] & valid_grid[:, :-1]
+    if not np.array_equal(
+        history_grid[:, 1:, 0][adjacent_valid],
+        count_grid[:, :-1][adjacent_valid],
+    ):
+        raise ValueError("Spike history is not one bin behind spikes on valid rows.")
     design_history, _, _ = training_zscore(design_history_raw, valid)
     observed = design_counts[test_rows].reshape(trial_count, bin_count)
 
