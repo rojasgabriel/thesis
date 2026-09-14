@@ -12,6 +12,7 @@ from thesis.ephys.analyses.glm import (
 )
 from thesis.ephys.analyses.glm_figures import (
     fitted_kernels,
+    fitted_trial_contributions,
     select_design_example_result,
     select_prediction_examples,
 )
@@ -114,6 +115,37 @@ def test_design_example_uses_training_rate_percentile() -> None:
     assert rate == 20
 
 
+def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
+    manifest = [
+        {"name": "visual_flash", "columns": 2},
+        {"name": "center_exit", "columns": 1},
+    ]
+    common_columns = 3 + VIDEO_BASIS_COLUMNS
+    design = (
+        np.arange(4 * (common_columns + HISTORY_COLUMNS), dtype=float).reshape(4, -1)
+        / 10
+    )
+    coefficients = np.linspace(-0.2, 0.3, design.shape[1])
+    result = {
+        "components": 1,
+        "intercept": -2.0,
+        "coefficients": coefficients,
+    }
+    contributions, linear_predictor, rate, error = fitted_trial_contributions(
+        design,
+        result,
+        {"base_columns": 3, "task_manifest": manifest},
+    )
+
+    np.testing.assert_allclose(
+        contributions["visual"], design[:, :2] @ coefficients[:2]
+    )
+    np.testing.assert_allclose(contributions["task"], design[:, 2] * coefficients[2])
+    np.testing.assert_allclose(linear_predictor, -2 + design @ coefficients)
+    np.testing.assert_allclose(rate, np.exp(linear_predictor) / 0.001)
+    assert error < 1e-12
+
+
 def test_spike_history_starts_one_bin_after_each_spike() -> None:
     alignments = np.array([10.0])
     spikes = alignments[0] + np.array([0.0001, 0.05051, 0.1009])
@@ -126,4 +158,5 @@ if __name__ == "__main__":
     test_prediction_examples_are_distinct_and_out_of_fold()
     test_fitted_kernels_reverse_design_standardization()
     test_design_example_uses_training_rate_percentile()
+    test_fitted_trial_contributions_reproduce_the_linear_predictor()
     test_spike_history_starts_one_bin_after_each_spike()

@@ -124,13 +124,24 @@ are Poisson draws from one-step-ahead rates conditioned on the observed spike
 history, not free-running simulations. Post-response bins remain on the plotted
 grid but are excluded from likelihood and scores.
 
-The model-design figure draws the actual normalized temporal basis functions.
+The model-design figure uses one real test trial from the unit nearest the 90th
+percentile of training firing rate. The trial is nearest the unit's median
+pre-response spike count. Panel a shows every measured flash, the other task
+events and their filter support, the first three continuous motion-energy PC
+scores, and the observed spikes with strictly past history support. Panel b
+shows the exact fitted terms `X_g β_g` for visual, other task, all selected
+motion-energy, and history columns. Their sum plus the intercept is checked
+against the full linear predictor. Panel c converts that predictor to the
+conditional rate in spikes/s. This explanatory panel uses the final model fit
+on all valid bins; held-out predictions stay in the separate prediction
+figure. Post-response bins are not shown. The acausal motion term is a
+predictive association, not a causal neural response.
+
 The example-trial matrix includes every task regressor, each selected
 motion-energy PC, and self-history. Its display is clipped at ±1 standardized
-units, with zero shown in black; clipping does not alter the model input. The
-matrix uses the unit nearest the 90th percentile of training firing rate and
-that unit's median-count test trial. The single kernel figure shows task and
-self-history traces for the median-performance unit.
+units, with zero shown in black; clipping does not alter the model input. It
+uses the same unit and trial as the model-design figure. The single kernel
+figure shows task and self-history traces for the median-performance unit.
 
 ## Related methods
 
