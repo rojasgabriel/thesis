@@ -320,7 +320,9 @@ def _block_task(job: dict) -> dict:
     within = _SHARED["within_trial"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
     complete_folds = []
-    for fold, alpha in _scored_folds(counts, _SHARED["partitions"], job["alphas"]):
+    for fold_index, (fold, alpha) in enumerate(
+        _scored_folds(counts, _SHARED["partitions"], job["alphas"]), start=1
+    ):
         fit, test = fold["fit"], fold["test"]
         alpha = float(alpha)
         history, _, _ = training_zscore(raw_history, fit)
@@ -331,12 +333,17 @@ def _block_task(job: dict) -> dict:
         fit_counts = counts[fit]
         test_counts = counts[test]
 
-        def score() -> float:
-            return _shuffled_deviance(
-                fit_design, fit_counts, test_design, test_counts, alpha
-            )
+        def score(comparison: str) -> float:
+            try:
+                return _shuffled_deviance(
+                    fit_design, fit_counts, test_design, test_counts, alpha
+                )
+            except Exception as error:
+                raise RuntimeError(
+                    f"fold {fold_index}, {comparison}: {error}"
+                ) from error
 
-        complete = score()
+        complete = score("full model")
         complete_folds.append(complete)
 
         # Shuffle the two scored matrices in place and restore from the source.
@@ -354,20 +361,20 @@ def _block_task(job: dict) -> dict:
         blocks = [groups[name] for name in DETAILED_GROUPS]
         for columns in blocks:
             put(columns, True)
-        reference = score()
+        reference = score("all regressor groups shuffled")
         for columns in blocks:
             put(columns, False)
 
         for group in order:
             columns = groups[group]
             put(columns, True)
-            removed = score()
+            removed = score(f"{group} shuffled")
             put(columns, False)
 
             for other in blocks:
                 put(other, True)
             put(columns, False)
-            alone = score()
+            alone = score(f"only {group} unshuffled")
             for other in blocks:
                 put(other, False)
 
@@ -479,6 +486,11 @@ def run_unique(
         raise ValueError(
             f"{missing} units have no cross-validated record; run fit again."
         )
+    print(
+        f"Starting unique-deviance analysis: {len(jobs)} units, "
+        "full and shuffled comparator fits within each cross-validation fold.",
+        flush=True,
+    )
     records = []
     failures = 0
     for position, (record, reused) in enumerate(

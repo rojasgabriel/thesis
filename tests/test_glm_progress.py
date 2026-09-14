@@ -44,7 +44,10 @@ def test_unit_progress_distinguishes_cache_and_failure() -> None:
             )
 
     assert results == [({"unit_id": 1}, True), (None, False)]
-    assert "Failed unit 2: ValueError: test failure" in output.getvalue()
+    assert (
+        "Failed cross-validation for unit 2: ValueError: test failure"
+        in output.getvalue()
+    )
     assert "Skipped" not in output.getvalue()
 
 

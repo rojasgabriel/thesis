@@ -817,6 +817,12 @@ def run_over_units(
     """
     # Leave one core free so the machine stays usable.
     count = min(max(1, workers or (os.cpu_count() or 2) - 1), len(jobs))
+    label = {
+        "selection": "model selection",
+        "folds": "cross-validation",
+        "final": "final full-data fit",
+        "unique": "unique-deviance analysis",
+    }[stage]
     reused = [_cached(Path(job["output"]), stage) is not None for job in jobs]
     shared_columns = {job.get("common_columns") for job in jobs}
     common_columns = shared_columns.pop() if len(shared_columns) == 1 else None
@@ -827,7 +833,8 @@ def run_over_units(
                 yield task(job), cache_hit
             except Exception as error:  # noqa: BLE001
                 print(
-                    f"Failed unit {job['unit_id']}: {type(error).__name__}: {error}",
+                    f"Failed {label} for unit {job['unit_id']}: "
+                    f"{type(error).__name__}: {error}",
                     flush=True,
                 )
                 yield None, False
@@ -840,7 +847,7 @@ def run_over_units(
         "NUMEXPR_NUM_THREADS",
     ):
         os.environ[name] = "1"
-    print(f"Running {len(jobs)} units across {count} workers.", flush=True)
+    print(f"Running {label} for {len(jobs)} units across {count} workers.", flush=True)
     with futures.ProcessPoolExecutor(
         max_workers=count,
         initializer=_init_worker,
@@ -854,7 +861,8 @@ def run_over_units(
             except Exception as error:  # noqa: BLE001
                 # One unit's failure should not discard the rest of the run.
                 print(
-                    f"Failed unit {job['unit_id']}: {type(error).__name__}: {error}",
+                    f"Failed {label} for unit {job['unit_id']}: "
+                    f"{type(error).__name__}: {error}",
                     flush=True,
                 )
                 yield None, False
@@ -1030,7 +1038,7 @@ def crossvalidate(
     checkpoints = output_dir / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
     print(
-        f"{CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
+        f"Starting {CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
         f"{len(unit_rows)} units, {components} motion-energy PCs.",
         flush=True,
     )
@@ -1153,6 +1161,11 @@ def fit_models(
     )
     checkpoints = output_dir / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
+    print(
+        "Starting model-selection fits: training/validation split, "
+        "alpha selection, and motion-energy PC comparison.",
+        flush=True,
+    )
 
     jobs = [
         {
@@ -1295,6 +1308,11 @@ def refit_final(
         raise ValueError(
             f"{missing} units have no cross-validated record; run fit again."
         )
+    print(
+        f"Starting final full-data fits: {len(final_jobs)} units, "
+        f"{components} motion-energy PCs.",
+        flush=True,
+    )
     failures = 0
     for position, (record, reused) in enumerate(
         run_over_units(_final_task, final_jobs, windows, design, workers, "final"),
