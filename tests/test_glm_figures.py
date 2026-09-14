@@ -4,11 +4,17 @@ from thesis.ephys.analyses.glm import (
     CV_FOLDS,
     HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
+    build_unit_counts,
+    build_unit_history,
     cross_validation_partitions,
     spike_history_basis,
     task_temporal_bases,
 )
-from thesis.ephys.analyses.glm_figures import fitted_kernels, select_prediction_examples
+from thesis.ephys.analyses.glm_figures import (
+    fitted_kernels,
+    select_design_example_result,
+    select_prediction_examples,
+)
 
 
 def test_prediction_examples_are_distinct_and_out_of_fold() -> None:
@@ -94,6 +100,30 @@ def test_fitted_kernels_reverse_design_standardization() -> None:
     )
 
 
+def test_design_example_uses_training_rate_percentile() -> None:
+    results = [
+        {"unit_id": unit_id, "cross_validated_deviance_explained": 0.1}
+        for unit_id in (1, 2, 3, 4, 5)
+    ]
+    selections = [
+        {"unit_id": unit_id, "training_mean_count": rate * 0.001}
+        for unit_id, rate in zip((1, 2, 3, 4, 5), (1, 2, 3, 4, 20), strict=True)
+    ]
+    result, rate = select_design_example_result(results, selections)
+    assert result["unit_id"] == 5
+    assert rate == 20
+
+
+def test_spike_history_starts_one_bin_after_each_spike() -> None:
+    alignments = np.array([10.0])
+    spikes = alignments[0] + np.array([0.0001, 0.05051, 0.1009])
+    counts = build_unit_counts(alignments, spikes)
+    history = build_unit_history(alignments, spikes)
+    np.testing.assert_array_equal(history[1:, 0], counts[:-1])
+
+
 if __name__ == "__main__":
     test_prediction_examples_are_distinct_and_out_of_fold()
     test_fitted_kernels_reverse_design_standardization()
+    test_design_example_uses_training_rate_percentile()
+    test_spike_history_starts_one_bin_after_each_spike()
