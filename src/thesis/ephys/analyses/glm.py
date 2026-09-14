@@ -2,15 +2,16 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, predict V1 spikes from flashes, a
-center-poke kernel truncated at the first flash, peri-exit movement, pre-response
-choice side split into a side-independent and a contrast kernel, additive video
-motion-energy PCs, and each unit's own strictly past
-spike history. Bins after response entry are excluded. Whole trials are split
-randomly 60/20/20. No coupling between units, session drift, go cue, outcome, or
-punishment terms. Validation selects the motion-energy PC count; held-out
-performance is the ten-fold cross-validated deviance, so every trial is scored
-once. A 20-unit random sample is available for quick runs.
+For GRB006 session 20240821_121447, predict V1 spikes from flashes split at
+center exit into stationary and running conditions, a center-poke kernel
+truncated at the first flash, peri-exit movement, pre-response choice side split
+into a side-independent and a contrast kernel, 10 additive video motion-energy
+PCs, and each unit's own strictly past spike history. Bins after response entry
+are excluded. Whole trials are split randomly 60/20/20. No coupling between
+units, session drift, go cue, outcome, or punishment terms. Validation compares
+motion-energy PC counts, while the fitted model uses 10 PCs. Held-out performance
+is the ten-fold cross-validated deviance, so every trial is scored once. A
+20-unit random sample is available for quick runs.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ import numpy as np
 from damn.alignment import compute_spike_count, construct_timebins
 from damn.objects.basis_function_objects import RaisedCosineBasis
 from damn.objects.design_matrix_objects import DesignMatrix
-from damn.objects.regressor_objects import ContinuousRegressor, EventRegressor
+from damn.objects.regressor_objects import EventRegressor
 from scipy.special import xlogy
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import PoissonRegressor
@@ -45,12 +46,12 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
+VIDEO_COMPONENTS = 10
 # The optimum for this design sits near 3e-4. Below about 1e-5 the fit is
 # effectively unpenalized and LBFGS stops hitting its iteration limit rather
 # than converging, so the grid starts above that. It still extends by a decade
 # when an endpoint wins, and a penalty that fails to converge is dropped.
 INITIAL_ALPHAS = tuple(np.logspace(-5, 3, 9))
-VIDEO_BASIS_COLUMNS = 3
 HISTORY_COLUMNS = 10
 SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
@@ -63,10 +64,10 @@ _SHARED: dict = {}
 # this to a commit hash instead invalidates every record on any edit to this
 # file, including edits that cannot affect the result.
 RECORD_VERSIONS = {
-    "selection": 1,
-    "folds": 2,  # 2: fold partitions built once per fold, shared across units
-    "final": 1,
-    "unique": 2,  # 2: maximal models keep the target block unshuffled
+    "selection": 2,
+    "folds": 3,
+    "final": 2,
+    "unique": 3,
 }
 
 
@@ -110,7 +111,8 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     peri_exit = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
     pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
     return {
-        "visual_flash": flash,
+        "stationary_flash": flash,
+        "running_flash": flash,
         "center_poke": poke,
         "center_exit": peri_exit,
         "response_entry": pre_response,
@@ -118,19 +120,47 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     }
 
 
+def split_flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
+    """Split every modeled flash at center exit for each completed trial."""
+    stationary, running = [], []
+    for flashes, center_entry, center_exit, response_entry in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["center_exit_s"],
+        trials["response_port_entry_s"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        stationary.append(flashes[(flashes >= center_entry) & (flashes < center_exit)])
+        running.append(flashes[(flashes >= center_exit) & (flashes <= response_entry)])
+        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
+        if len(stationary[-1]) + len(running[-1]) != len(modeled):
+            raise ValueError("Every modeled flash must be classified exactly once.")
+    return _flatten_events(stationary), _flatten_events(running)
+
+
 def build_task_design(
     alignments: np.ndarray, trials
 ) -> tuple[DesignMatrix, list[dict]]:
     """Build sensory and task regressors with the accepted DAMN interface."""
     bases = task_temporal_bases()
+    stationary_flashes, running_flashes = split_flash_events(trials)
     specifications = [
         (
-            "visual_flash",
-            _flatten_events(trials["stim_pulse_times_s"]),
+            "stationary_flash",
+            stationary_flashes,
             None,
-            bases["visual_flash"],
+            bases["stationary_flash"],
             "sensory",
-            "each measured flash",
+            "each measured flash before center exit",
+        ),
+        (
+            "running_flash",
+            running_flashes,
+            None,
+            bases["running_flash"],
+            "sensory",
+            "each measured flash from center exit through response entry",
         ),
         (
             "center_poke",
@@ -278,35 +308,28 @@ def _design_with_history(
     return design
 
 
-def video_temporal_basis() -> RaisedCosineBasis:
-    """Return three smooth acausal motion-energy terms spanning -200 to +200 ms."""
-    return RaisedCosineBasis(3, 0.201, 0.201, BINWIDTH_S)
-
-
 def build_video_component_design(
     alignments: np.ndarray,
     frame_times: np.ndarray,
     score: np.ndarray,
-    component: int = 0,
 ) -> np.ndarray:
-    """Build one native DAMN continuous regressor with three temporal terms."""
+    """Interpolate one contemporaneous motion-energy PC onto the DAMN grid."""
     frame_times = np.asarray(frame_times, dtype=float)
     score = np.asarray(score, dtype=float)
     if frame_times.ndim != 1 or score.ndim != 1 or len(frame_times) != len(score):
         raise ValueError("Video times and one component must be matching vectors.")
-    regressor = ContinuousRegressor(
-        f"video_pc_{component + 1:03d}",
-        frame_times,
-        score,
-        BINWIDTH_S,
-        zscore=False,
-        basis_objects=[video_temporal_basis()],
-        tags="video",
-    )
-    regressor.build_regressor(alignments, PRE_S, POST_S)
-    if regressor.X.shape[1] != VIDEO_BASIS_COLUMNS:
-        raise ValueError("Expected three temporal columns per video component.")
-    return regressor.X
+    if (
+        not np.isfinite(frame_times).all()
+        or not np.isfinite(score).all()
+        or np.any(np.diff(frame_times) <= 0)
+    ):
+        raise ValueError("Video times and scores must be finite and time ordered.")
+    alignments = np.asarray(alignments, dtype=float)
+    if alignments.ndim != 1 or not np.isfinite(alignments).all():
+        raise ValueError("Trial alignments must be a finite vector.")
+    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
+    prediction_times = (alignments[:, None] + centers).ravel()
+    return np.interp(prediction_times, frame_times, score, left=0, right=0)[:, None]
 
 
 def sample_unit_indices(n_units: int) -> np.ndarray:
@@ -557,13 +580,13 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     scaled_base, base_mean, base_scale = training_zscore(task_values, train_rows)
     base_names = task_column_names(task_manifest)
     base_columns = len(base_names)
-    total_columns = base_columns + VIDEO_BASIS_COLUMNS * scores.shape[1]
+    total_columns = base_columns + scores.shape[1]
 
     output.parent.mkdir(parents=True, exist_ok=True)
     matrix_partial = output.with_name(f"{output.name}.partial")
     metadata_path = output.with_suffix(".json")
     metadata_partial = metadata_path.with_name(f"{metadata_path.name}.partial")
-    for path in (output, matrix_partial, metadata_path, metadata_partial):
+    for path in (matrix_partial, metadata_partial):
         if path.exists():
             raise FileExistsError(path)
     matrix = np.lib.format.open_memmap(
@@ -583,17 +606,13 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
             prepared["alignments"],
             frame_times,
             scores[:, component],
-            component,
         )
         scaled, mean, scale = training_zscore(block, train_rows)
-        start = base_columns + VIDEO_BASIS_COLUMNS * component
-        matrix[:, start : start + VIDEO_BASIS_COLUMNS] = scaled.astype(np.float32)
+        start = base_columns + component
+        matrix[:, start] = scaled[:, 0].astype(np.float32)
         video_mean.extend(mean.tolist())
         video_scale.extend(scale.tolist())
-        video_names.extend(
-            f"video_pc_{component + 1:03d}_basis_{index + 1:02d}"
-            for index in range(VIDEO_BASIS_COLUMNS)
-        )
+        video_names.append(f"video_pc_{component + 1:03d}")
         if (component + 1) % 10 == 0:
             matrix.flush()
             print(
@@ -601,7 +620,6 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
                 flush=True,
             )
 
-    basis = video_temporal_basis()
     metadata = {
         "rows": matrix.shape[0],
         "columns": matrix.shape[1],
@@ -610,12 +628,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "drift_columns": 0,
         "base_columns": base_columns,
         "video_components": scores.shape[1],
-        "video_basis_columns_per_component": VIDEO_BASIS_COLUMNS,
-        "video_basis_range_s": basis.basis_time[[0, -1]].tolist(),
-        "video_basis_peak_s": [
-            float(basis.basis_time[np.argmax(basis.basis[:, index])])
-            for index in range(VIDEO_BASIS_COLUMNS)
-        ],
+        "video_columns_per_component": 1,
         "video_component_candidates": list(VIDEO_COMPONENT_COUNTS),
         "column_names": base_names + video_names,
         "task_manifest": task_manifest,
@@ -634,6 +647,26 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         json.dumps(
             {key: metadata[key] for key in metadata if key not in omitted}, indent=2
         )
+    )
+
+
+def _common_design_is_current(output: Path) -> bool:
+    """Return whether a saved design has the current task and video columns."""
+    metadata_path = output.with_suffix(".json")
+    if not output.exists() or not metadata_path.exists():
+        return False
+    try:
+        with metadata_path.open() as handle:
+            metadata = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    bases = task_temporal_bases()
+    manifest = metadata.get("task_manifest", [])
+    return (
+        metadata.get("video_columns_per_component") == 1
+        and [item.get("name") for item in manifest] == list(bases)
+        and [item.get("columns") for item in manifest]
+        == [basis.basis.shape[1] for basis in bases.values()]
     )
 
 
@@ -670,7 +703,7 @@ def _selection_for_unit(
     del model
 
     for component_count in VIDEO_COMPONENT_COUNTS:
-        common_columns = base_columns + VIDEO_BASIS_COLUMNS * component_count
+        common_columns = base_columns + component_count
         design = _design_with_history(common, history, common_columns)
         model, path = fit_poisson_alpha_path(
             design[train],
@@ -726,7 +759,7 @@ def _final_task(job: dict) -> dict:
         "cross_validated_bits_per_spike": folds["bits_per_spike_mean"],
         "folds_scored": folds["folds_scored"],
     }
-    _write_json_atomic(output, record)
+    _write_json_atomic(output, record, overwrite=True)
     return record
 
 
@@ -959,7 +992,7 @@ def _fold_task(job: dict) -> dict:
         "bits_per_spike_mean": float(bits.mean()),
         "bits_per_spike_sem": float(bits.std(ddof=1) / np.sqrt(len(bits))),
     }
-    _write_json_atomic(output, record)
+    _write_json_atomic(output, record, overwrite=True)
     return record
 
 
@@ -980,9 +1013,7 @@ def crossvalidate(
     prepared = _load_windows(windows)
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
-    common_columns = int(design_metadata["base_columns"]) + (
-        VIDEO_BASIS_COLUMNS * components
-    )
+    common_columns = int(design_metadata["base_columns"]) + components
     with np.load(windows, allow_pickle=False) as saved:
         trial_split = saved["trial_split"].copy()
 
@@ -1088,7 +1119,7 @@ def _selection_task(job: dict) -> dict:
             counts[_SHARED["train"] | _SHARED["validation"]].sum()
         ),
     )
-    _write_json_atomic(output, selection)
+    _write_json_atomic(output, selection, overwrite=True)
     return selection
 
 
@@ -1171,15 +1202,11 @@ def fit_models(
         )
         for count in VIDEO_COMPONENT_COUNTS
     }
-    selected_components = max(
-        VIDEO_COMPONENT_COUNTS,
-        key=lambda count: mean_validation_deviance[str(count)],
-    )
     summary = {
         "unit_set": unit_set,
         "units": len(unit_rows),
         "mean_validation_deviance_explained": mean_validation_deviance,
-        "selected_video_components": selected_components,
+        "selected_video_components": VIDEO_COMPONENTS,
         "fit_rows": {
             "train": int(train.sum()),
             "validation": int(validation.sum()),
@@ -1255,8 +1282,7 @@ def refit_final(
             "depth": job["depth"],
             "spike_times": job["spike_times"],
             "components": components,
-            "common_columns": int(design_metadata["base_columns"])
-            + VIDEO_BASIS_COLUMNS * components,
+            "common_columns": int(design_metadata["base_columns"]) + components,
             "alpha": float(
                 np.median([f["alpha"] for f in fold_records[job["unit_id"]]["folds"]])
             ),
@@ -1319,7 +1345,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, help_text in (
         ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
-        ("fit", "Choose the PC count, cross-validate, then refit"),
+        ("fit", "Compare PC counts, cross-validate 10 PCs, then refit"),
         ("unique", "Unique and maximal explained deviance per block"),
         ("figures", "Kernels and held-out predictions"),
     ):
@@ -1432,17 +1458,16 @@ class PoissonGLM:
         else:
             write_motion_energy_features(self.windows, self.video)
             print(f"Completed motion-energy features: {self.video}", flush=True)
-        if self.design.exists():
+        if _common_design_is_current(self.design):
             print(f"Reused common design: {self.design}", flush=True)
         else:
             prepare_common_design(self.windows, self.video, self.design)
             print(f"Completed common design: {self.design}", flush=True)
 
     def fit(self, units: str = "sample", workers: int | None = None) -> None:
-        """Choose the PC count, cross-validate at it, then refit on every trial.
+        """Compare PC counts, cross-validate 10 PCs, then refit on every trial.
 
-        One command so the cross-validation cannot read a stale PC count, and so
-        the coefficients the figures use always come from the same run.
+        One command keeps the coefficients and comparisons in the same run.
         """
         directory = self.fit_dir(units)
         fit_models(self.windows, self.design, units, directory, workers)

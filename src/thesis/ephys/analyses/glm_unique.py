@@ -20,7 +20,6 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import (
     _SHARED,
     HISTORY_COLUMNS,
-    VIDEO_BASIS_COLUMNS,
     _cached,
     _design_with_history,
     _load_windows,
@@ -39,7 +38,8 @@ from thesis.ephys.units import fetch_unit_table
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
-    "visual_flash",
+    "stationary_flash",
+    "running_flash",
     "center_poke",
     "center_exit",
     "response_entry",
@@ -51,7 +51,8 @@ DISPLAY_LABELS = {
     "task": "Task",
     "video": "Motion energy",
     "history": "Spike history",
-    "visual_flash": "Visual flash",
+    "stationary_flash": "Stationary flash",
+    "running_flash": "Running flash",
     "center_poke": "Center poke",
     "center_exit": "Center exit",
     "response_entry": "Response entry",
@@ -75,7 +76,7 @@ def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
     """Return the contiguous full-model columns for each reported block."""
     task_columns = int(metadata["task_columns"])
     base_columns = int(metadata["base_columns"])
-    video_stop = base_columns + VIDEO_BASIS_COLUMNS * video_components
+    video_stop = base_columns + video_components
     groups = {
         "task": slice(0, task_columns),
         "video": slice(base_columns, video_stop),
@@ -162,43 +163,22 @@ def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
     return list(zip(folds, alphas, strict=True))
 
 
-def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
-    """Draw maximal deviance behind unique, so the shared part is the gap."""
+def _plot_groups(
+    axis,
+    records: list[dict],
+    groups: tuple[str, ...],
+    metric: str,
+) -> None:
+    """Draw one population box plot for the requested deviance measure."""
     values = [
-        np.asarray(
-            [
-                record["groups"][group]["unique_test_deviance_explained"]
-                for record in records
-            ]
-        )
-        for group in groups
-    ]
-    maximal = [
-        np.asarray(
-            [
-                record["groups"][group]["maximal_test_deviance_explained"]
-                for record in records
-            ]
-        )
+        np.asarray([record["groups"][group][metric] for record in records])
         for group in groups
     ]
     positions = np.arange(len(groups))
-    axis.boxplot(
-        maximal,
-        positions=positions,
-        widths=0.78,
-        patch_artist=True,
-        showfliers=False,
-        boxprops={"facecolor": "0.90", "edgecolor": "0.65", "linewidth": 0.6},
-        medianprops={"color": "0.55", "linewidth": 0.8},
-        whiskerprops={"color": "0.7", "linewidth": 0.6},
-        capprops={"color": "0.7", "linewidth": 0.6},
-        zorder=1,
-    )
     boxes = axis.boxplot(
         values,
         positions=positions,
-        widths=0.42,
+        widths=0.58,
         patch_artist=True,
         showfliers=False,
         medianprops={"color": "black", "linewidth": 0.8},
@@ -228,33 +208,18 @@ def _plot_groups(axis, records: list[dict], groups: tuple[str, ...]) -> None:
     axis.margins(x=0.04)
 
 
-def plot_conditional_deviance(records: list[dict], output: Path) -> tuple[Path, Path]:
-    """Plot Oesch-style conditional deviance for broad and detailed blocks."""
+def plot_deviance_explained(records: list[dict], output: Path) -> tuple[Path, Path]:
+    """Plot maximal and unique deviance for each model regressor."""
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1,
-            2,
-            figsize=(7.5, 3.5),
-            gridspec_kw={"width_ratios": [0.85, 2.15], "wspace": 0.3},
+        figure, axes = plt.subplots(1, 2, figsize=(9.0, 3.5))
+        _plot_groups(
+            axes[0], records, DETAILED_GROUPS, "maximal_test_deviance_explained"
         )
-        _plot_groups(axes[0], records, BROAD_GROUPS)
-        _plot_groups(axes[1], records, DETAILED_GROUPS)
-        axes[0].set_ylabel("Test deviance explained ($\\Delta D^2$)")
-        axes[1].set_ylabel("Test deviance explained ($\\Delta D^2$)")
-        for y, label, color in (
-            (0.97, "maximal (block alone)", "0.55"),
-            (0.89, "unique (only this block)", "black"),
-        ):
-            axes[1].text(
-                0.99,
-                y,
-                label,
-                transform=axes[1].transAxes,
-                ha="right",
-                va="top",
-                color=color,
-                fontsize=7,
-            )
+        _plot_groups(
+            axes[1], records, DETAILED_GROUPS, "unique_test_deviance_explained"
+        )
+        axes[0].set_ylabel("Maximal deviance explained")
+        axes[1].set_ylabel("Unique deviance explained")
         for letter, axis in zip("ab", axes, strict=True):
             axis.text(
                 -0.12,
@@ -266,7 +231,9 @@ def plot_conditional_deviance(records: list[dict], output: Path) -> tuple[Path, 
                 fontweight="bold",
                 fontsize=10,
             )
-        figure.subplots_adjust(bottom=0.35, left=0.09, right=0.99, top=0.94)
+        figure.subplots_adjust(
+            bottom=0.35, left=0.08, right=0.99, top=0.94, wspace=0.28
+        )
         output.parent.mkdir(parents=True, exist_ok=True)
         pdf = output.with_suffix(".pdf")
         png = output.with_suffix(".png")
@@ -438,7 +405,7 @@ def _block_task(job: dict) -> dict:
         "complete_test_deviance_explained": float(np.mean(complete_folds)),
         "groups": group_results,
     }
-    _write_json_atomic(output, record)
+    _write_json_atomic(output, record, overwrite=True)
     return record
 
 
@@ -460,9 +427,7 @@ def run_unique(
     if len(selected_components) != 1:
         raise ValueError("All cross-validated fits must use one video-PC count.")
     video_components = selected_components.pop()
-    common_columns = int(metadata["base_columns"]) + (
-        VIDEO_BASIS_COLUMNS * video_components
-    )
+    common_columns = int(metadata["base_columns"]) + video_components
     groups = block_slices(metadata, video_components)
     group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
@@ -546,7 +511,11 @@ def run_unique(
         )
 
     summary = _write_summary(records, output_dir)
-    pdf, png = plot_conditional_deviance(records, output_dir / "conditional_deviance")
+    pdf, png = plot_deviance_explained(records, output_dir / "deviance_explained")
+    for suffix in (".pdf", ".png"):
+        (output_dir / "conditional_deviance").with_suffix(suffix).unlink(
+            missing_ok=True
+        )
     print(
         json.dumps(
             {
