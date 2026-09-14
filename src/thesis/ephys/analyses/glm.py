@@ -64,10 +64,10 @@ _SHARED: dict = {}
 # this to a commit hash instead invalidates every record on any edit to this
 # file, including edits that cannot affect the result.
 RECORD_VERSIONS = {
-    "selection": 2,
-    "folds": 3,
-    "final": 2,
-    "unique": 3,
+    "selection": 3,
+    "folds": 4,
+    "final": 3,
+    "unique": 4,
 }
 
 
@@ -91,7 +91,6 @@ CV_FOLDS = 10
 CV_SEED = 20260913
 CV_INNER_FRACTION = 0.25
 MAX_ITER = 500
-TOL = 1e-7
 MAX_ALPHA_EXTENSIONS = 6
 
 
@@ -395,7 +394,6 @@ def fit_poisson_at_alpha(
             fit_intercept=True,
             solver="lbfgs",
             max_iter=MAX_ITER,
-            tol=TOL,
             warm_start=True,
         )
     else:
