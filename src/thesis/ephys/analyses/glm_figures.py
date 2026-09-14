@@ -68,6 +68,7 @@ OTHER_RESPONSE_LABELS = {
 }
 SMOOTHING_MS = 20
 PREDICTION_SEED = 2008
+DESIGN_RATE_PERCENTILE = 90
 # Rebound by make_figures; read by _save_figure so plot signatures stay small.
 FIGURE_FORMATS: tuple[str, ...] = ("pdf", "png")
 FIGURE_STYLE = {
@@ -204,6 +205,24 @@ def training_rate_and_deviance(
     if not np.isfinite(test_deviance).all():
         raise ValueError("Cross-validated deviance must be finite.")
     return training_rate, test_deviance
+
+
+def select_design_example_result(
+    results: list[dict], selections: list[dict]
+) -> tuple[dict, float]:
+    """Select the unit nearest the requested training-rate percentile."""
+    if not results:
+        raise ValueError("No fitted unit results were found.")
+    training_rate, _ = training_rate_and_deviance(results, selections)
+    target = float(np.percentile(training_rate, DESIGN_RATE_PERCENTILE))
+    index = min(
+        range(len(results)),
+        key=lambda position: (
+            abs(training_rate[position] - target),
+            int(results[position]["unit_id"]),
+        ),
+    )
+    return results[index], float(training_rate[index])
 
 
 def _raster_events(counts: np.ndarray, times: np.ndarray) -> list[np.ndarray]:
@@ -546,6 +565,7 @@ def plot_design_matrix_trial(
     design_metadata: dict,
     selected_components: int,
     unit_id: int,
+    training_rate: float,
     trial_number: int,
     output: Path,
 ) -> tuple[Path | None, Path | None]:
@@ -574,7 +594,7 @@ def plot_design_matrix_trial(
         stop = cursor + VIDEO_BASIS_COLUMNS
         blocks.append((cursor, stop, f"ME PC {component + 1}"))
         cursor = stop
-    blocks.append((cursor, cursor + HISTORY_COLUMNS, "Spike history"))
+    blocks.append((cursor, cursor + HISTORY_COLUMNS, "Spike history (1–100 ms)"))
     cursor += HISTORY_COLUMNS
     if cursor != expected_columns:
         raise ValueError("Regressor labels do not cover the displayed design.")
@@ -615,7 +635,8 @@ def plot_design_matrix_trial(
         count_axis.text(
             0.99,
             1.02,
-            f"example trial {trial_number}; median-performance unit {unit_id}",
+            f"unit {unit_id}: {training_rate:.1f} spikes/s in training; "
+            f"example test trial {trial_number}",
             transform=count_axis.transAxes,
             ha="right",
             va="bottom",
@@ -842,9 +863,13 @@ def make_figures(
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
         results, selections, figure_dir / "summary"
     )
-    result, population_median = select_representative_result(results)
+    kernel_result, population_median = select_representative_result(results)
+    design_result, design_training_rate = select_design_example_result(
+        results, selections
+    )
     prediction_examples = select_prediction_examples(results, unique_records)
-    unit_id = int(result["unit_id"])
+    kernel_unit_id = int(kernel_result["unit_id"])
+    design_unit_id = int(design_result["unit_id"])
     task_names = [item["name"] for item in design_metadata["task_manifest"]]
 
     prepared = _load_windows(windows)
@@ -882,23 +907,32 @@ def make_figures(
             raise ValueError(f"Expected one eligible row for unit {selected_unit}.")
         return np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
 
-    representative_spikes = unit_spike_times(unit_id)
-    observed = build_unit_counts(test_alignments, representative_spikes).reshape(
-        trial_count, bin_count
+    _, _, kernel_history_scale = training_zscore(
+        build_unit_history(prepared["alignments"], unit_spike_times(kernel_unit_id)),
+        valid,
     )
-    representative_history, _, history_scale = training_zscore(
-        build_unit_history(prepared["alignments"], representative_spikes), valid
-    )
-    kernels = fitted_kernels(result, design_metadata, history_scale)
+    kernels = fitted_kernels(kernel_result, design_metadata, kernel_history_scale)
     kernel_pdf, kernel_png = plot_kernel_figure(
         kernels,
-        unit_id,
+        kernel_unit_id,
         task_names,
         figure_dir / "fitted_kernels",
     )
     for old_stem in ("fitted_task_kernels", "fitted_video_kernels"):
         for suffix in (".pdf", ".png"):
             (figure_dir / old_stem).with_suffix(suffix).unlink(missing_ok=True)
+
+    design_spikes = unit_spike_times(design_unit_id)
+    design_counts = build_unit_counts(prepared["alignments"], design_spikes)
+    design_history_raw = build_unit_history(prepared["alignments"], design_spikes)
+    count_grid = design_counts.reshape(len(trial_split), bin_count)
+    history_grid = design_history_raw.reshape(
+        len(trial_split), bin_count, HISTORY_COLUMNS
+    )
+    if not np.array_equal(history_grid[:, 1:, 0], count_grid[:, :-1]):
+        raise ValueError("Spike history is not shifted exactly one bin after spikes.")
+    design_history, _, _ = training_zscore(design_history_raw, valid)
+    observed = design_counts[test_rows].reshape(trial_count, bin_count)
 
     def prediction_data(selected_result: dict) -> tuple[np.ndarray, np.ndarray]:
         selected_unit = int(selected_result["unit_id"])
@@ -946,9 +980,9 @@ def make_figures(
             common[:, :common_columns].reshape(trial_count, bin_count, common_columns)[
                 typical_trial
             ],
-            representative_history[test_rows].reshape(
-                trial_count, bin_count, HISTORY_COLUMNS
-            )[typical_trial],
+            design_history[test_rows].reshape(trial_count, bin_count, HISTORY_COLUMNS)[
+                typical_trial
+            ],
         )
     )
     test_trial_numbers = prepared["selected_trial_numbers"][trial_split == 2]
@@ -958,7 +992,8 @@ def make_figures(
         displayed_design,
         design_metadata,
         selected_components,
-        unit_id,
+        design_unit_id,
+        design_training_rate,
         int(test_trial_numbers[typical_trial]),
         figure_dir / "design_matrix_trial",
     )
@@ -1007,15 +1042,23 @@ def make_figures(
     print(
         json.dumps(
             {
-                "unit_id": unit_id,
-                "selection": "cross-validated deviance nearest the population median",
+                "kernel_unit_id": kernel_unit_id,
+                "kernel_selection": (
+                    "cross-validated deviance nearest the population median"
+                ),
                 "population_median_cross_validated_deviance": population_median,
-                "unit_cross_validated_deviance_explained": result[
+                "kernel_unit_cross_validated_deviance_explained": kernel_result[
                     "cross_validated_deviance_explained"
                 ],
                 "test_trials": trial_count,
                 "prediction_examples": prediction_manifest,
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
+                "design_matrix_unit_id": design_unit_id,
+                "design_matrix_unit_training_rate_spikes_s": design_training_rate,
+                "design_matrix_unit_selection": (
+                    f"nearest the {DESIGN_RATE_PERCENTILE}th percentile of "
+                    "training firing rate"
+                ),
                 "design_matrix_trial": int(test_trial_numbers[typical_trial]),
                 "figure_dir": str(figure_dir),
                 "formats": list(FIGURE_FORMATS),

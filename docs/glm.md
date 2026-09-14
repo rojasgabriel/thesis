@@ -41,7 +41,7 @@ outcome, or punishment kernel.
 
 | Group | Representation | Columns |
 | --- | --- | ---: |
-| Visual flashes | Every measured flash; 6 causal raised cosines, 0–150 ms | 6 |
+| Visual flashes | Every measured flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
 | Center poke | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
 | Center exit | 9 raised cosines, −300–+300 ms | 9 |
 | Response entry | 6 bases, −300–0 ms; side-independent | 6 |
@@ -128,8 +128,9 @@ The model-design figure draws the actual normalized temporal basis functions.
 The example-trial matrix includes every task regressor, each selected
 motion-energy PC, and self-history. Its display is clipped at ±1 standardized
 units, with zero shown in black; clipping does not alter the model input. The
-single kernel figure shows task and self-history traces for the
-median-performance unit.
+matrix uses the unit nearest the 90th percentile of training firing rate and
+that unit's median-count test trial. The single kernel figure shows task and
+self-history traces for the median-performance unit.
 
 ## Related methods
 

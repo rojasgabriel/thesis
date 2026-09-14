@@ -101,6 +101,8 @@ def _flatten_events(values) -> np.ndarray:
 
 def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     """Return the temporal basis used for each sensory or task regressor."""
+    # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
+    # short response window instead of spending log-spaced bases below 10 ms.
     flash = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
     # Poke leads the first flash by 54 ms median, 113 ms at most, and the kernel
     # is truncated there, so bases past 90 ms would be empty on every trial.
