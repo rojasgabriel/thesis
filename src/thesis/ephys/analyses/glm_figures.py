@@ -343,7 +343,7 @@ def plot_model_design(
                     linewidth=0.6,
                 )
         history_axis.vlines(spike_times_ms, -0.28, 0.28, color="black", linewidth=0.7)
-        history_axis.set_yticks((0, 1), ("Observed spikes", "History support"))
+        history_axis.set_yticks((0, 1), ("Observed spikes", "Spike history"))
         history_axis.set_ylim(-0.55, 1.55)
 
         trace_specs = (
