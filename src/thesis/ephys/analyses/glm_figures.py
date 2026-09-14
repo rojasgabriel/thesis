@@ -1,9 +1,8 @@
 """Create figures for the fitted V1 spike-prediction GLM.
 
-First-flash-aligned test trials. Each trial uses the cross-validation model
-that held out that trial. Model rates condition on observed spike history, so
-every bin is a one-step-ahead prediction. The comparison raster is a Poisson
-draw from those conditional rates, not a free-running simulation.
+Prediction examples use the cross-validation model that held out each plotted
+trial. The model-design example instead decomposes the canonical final refit,
+which was fit on every valid bin. All rates condition on observed spike history.
 """
 
 from __future__ import annotations
@@ -25,6 +24,7 @@ from thesis.ephys.analyses.glm import (
     HISTORY_COLUMNS,
     VIDEO_BASIS_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
+    _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
     build_unit_counts,
@@ -33,7 +33,6 @@ from thesis.ephys.analyses.glm import (
     spike_history_basis,
     task_temporal_bases,
     training_zscore,
-    video_temporal_basis,
 )
 from thesis.ephys.preprocessing.prepare_glm import BINWIDTH_S
 from thesis.ephys.units import fetch_unit_table
@@ -41,9 +40,10 @@ from thesis.ephys.units import fetch_unit_table
 OBSERVED_COLOR = "black"
 MODEL_COLOR = "C0"
 GROUP_COLORS = {
-    "task": "C0",
-    "video": "C1",
-    "history": "C2",
+    "visual": "C0",
+    "task": "C1",
+    "video": "C2",
+    "history": "C3",
 }
 TASK_LABELS = {
     "visual_flash": "Visual flash",
@@ -243,89 +243,341 @@ def _save_figure(figure, output: Path) -> tuple[Path | None, Path | None]:
     return paths["pdf"], paths["png"]
 
 
+def fitted_trial_contributions(
+    design: np.ndarray, result: dict, design_metadata: dict
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, float]:
+    """Decompose one fitted trial into exact groupwise log-rate terms."""
+    design = np.asarray(design, dtype=float)
+    components = int(result["components"])
+    common_columns = int(design_metadata["base_columns"]) + (
+        VIDEO_BASIS_COLUMNS * components
+    )
+    coefficients = np.asarray(result["coefficients"], dtype=float)
+    expected_columns = common_columns + HISTORY_COLUMNS
+    if design.ndim != 2 or design.shape[1] != expected_columns:
+        raise ValueError("Trial design and fitted coefficient counts differ.")
+    if coefficients.shape != (expected_columns,):
+        raise ValueError("Saved coefficient count does not match the trial design.")
+    if not np.isfinite(design).all() or not np.isfinite(coefficients).all():
+        raise ValueError("Trial design and coefficients must be finite.")
+
+    visual = np.zeros(len(design))
+    task = np.zeros(len(design))
+    cursor = 0
+    for item in design_metadata["task_manifest"]:
+        stop = cursor + int(item["columns"])
+        target = visual if item["name"] == "visual_flash" else task
+        target += design[:, cursor:stop] @ coefficients[cursor:stop]
+        cursor = stop
+    if cursor != int(design_metadata["base_columns"]):
+        raise ValueError("Task manifest and task-column count differ.")
+    contributions: dict[str, np.ndarray] = {
+        "visual": visual,
+        "task": task,
+        "video": design[:, cursor:common_columns] @ coefficients[cursor:common_columns],
+        "history": design[:, common_columns:] @ coefficients[common_columns:],
+    }
+    linear_predictor = float(result["intercept"]) + (
+        contributions["visual"]
+        + contributions["task"]
+        + contributions["video"]
+        + contributions["history"]
+    )
+    direct = float(result["intercept"]) + design @ coefficients
+    error = float(np.max(np.abs(linear_predictor - direct), initial=0.0))
+    if not np.allclose(linear_predictor, direct, rtol=1e-11, atol=1e-12):
+        raise ValueError("Group contributions do not reproduce the fitted predictor.")
+    with np.errstate(over="ignore"):
+        rate = np.exp(linear_predictor) / BINWIDTH_S
+    if not np.isfinite(rate).all() or np.any(rate <= 0):
+        raise ValueError("Fitted trial rates must be finite and positive.")
+    return contributions, linear_predictor, rate, error
+
+
 def plot_model_design(
-    design_metadata: dict, selected_components: int, output: Path
+    relative_times: np.ndarray,
+    counts: np.ndarray,
+    motion_times: np.ndarray,
+    motion_scores: np.ndarray,
+    events: dict[str, np.ndarray],
+    response_side: int,
+    contributions: dict[str, np.ndarray],
+    linear_predictor: np.ndarray,
+    rate: np.ndarray,
+    design_metadata: dict,
+    selected_components: int,
+    unit_id: int,
+    training_rate: float,
+    trial_number: int,
+    output: Path,
 ) -> tuple[Path | None, Path | None]:
-    """Show the actual temporal bases used by every design block."""
-    task_bases = task_temporal_bases()
-    entries = [
-        (
-            TASK_LABELS[item["name"]].split("\n")[0],
-            1000 * task_bases[item["name"]].basis_time,
-            task_bases[item["name"]].basis,
-            GROUP_COLORS["task"],
+    """Show observed inputs, fitted log-rate terms, and rate for one trial."""
+    relative_times = np.asarray(relative_times, dtype=float)
+    counts = np.asarray(counts, dtype=float)
+    motion_times = np.asarray(motion_times, dtype=float)
+    motion_scores = np.asarray(motion_scores, dtype=float)
+    if relative_times.ndim != 1 or len(relative_times) == 0:
+        raise ValueError("Model-design times must be a nonempty vector.")
+    if counts.shape != relative_times.shape or rate.shape != relative_times.shape:
+        raise ValueError("Model-design counts, rates, and times must match.")
+    if linear_predictor.shape != relative_times.shape or any(
+        values.shape != relative_times.shape for values in contributions.values()
+    ):
+        raise ValueError("Every fitted contribution must match the model time grid.")
+    if motion_scores.ndim != 2 or motion_scores.shape[1] != 3:
+        raise ValueError("The model-design figure requires three motion-PC traces.")
+    if motion_times.shape != (len(motion_scores),):
+        raise ValueError("Motion-PC times and scores must match.")
+    if not all(
+        np.isfinite(values).all()
+        for values in (
+            relative_times,
+            counts,
+            motion_times,
+            motion_scores,
+            linear_predictor,
+            rate,
         )
-        for item in design_metadata["task_manifest"]
-    ]
-    video_basis = video_temporal_basis()
-    entries.append(
-        (
-            f"Motion energy\n({selected_components} PCs)",
-            1000 * video_basis.basis_time,
-            video_basis.basis,
-            GROUP_COLORS["video"],
-        )
+    ):
+        raise ValueError("Model-design values must be finite.")
+    expected_events = {
+        "visual_flash",
+        "center_poke",
+        "center_exit",
+        "response_entry",
+        "response_side",
+    }
+    if set(events) != expected_events or response_side not in (-1, 1):
+        raise ValueError("Model-design task events are incomplete.")
+
+    event_arrays = {
+        name: np.asarray(values, dtype=float) for name, values in events.items()
+    }
+    if any(
+        values.ndim != 1 or not np.isfinite(values).all()
+        for values in event_arrays.values()
+    ):
+        raise ValueError("Model-design event times must be finite vectors.")
+    times_ms = 1000 * relative_times
+    model_left_ms = 1000 * (relative_times[0] - BINWIDTH_S / 2)
+    model_right_ms = 1000 * (relative_times[-1] + BINWIDTH_S / 2)
+    event_values_ms = 1000 * np.concatenate(list(event_arrays.values()))
+    left_ms = min(model_left_ms, float(event_values_ms.min()))
+    right_ms = max(model_right_ms, float(event_values_ms.max()))
+    spike_times_ms = np.repeat(times_ms, counts.astype(int, copy=False))
+    manifest = {item["name"]: item for item in design_metadata["task_manifest"]}
+    event_order = (
+        "center_poke",
+        "visual_flash",
+        "center_exit",
+        "response_entry",
+        "response_side",
     )
-    history_basis = spike_history_basis()
-    history_times = -(1 + 1000 * history_basis.basis_time)
-    order = np.argsort(history_times)
-    entries.append(
-        (
-            "Spike history",
-            history_times[order],
-            history_basis.basis[order],
-            GROUP_COLORS["history"],
-        )
-    )
+    event_labels = {
+        "center_poke": "Center poke",
+        "visual_flash": "Visual flashes",
+        "center_exit": "Center exit",
+        "response_entry": "Response entry",
+        "response_side": (
+            "Response side: right (+1)"
+            if response_side == 1
+            else "Response side: left (−1)"
+        ),
+    }
+    event_colors = {
+        "visual_flash": GROUP_COLORS["visual"],
+        "center_poke": GROUP_COLORS["task"],
+        "center_exit": GROUP_COLORS["task"],
+        "response_entry": GROUP_COLORS["task"],
+        "response_side": GROUP_COLORS["task"],
+    }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure, axis = plt.subplots(figsize=(7.4, 3.8))
-        positions = np.arange(len(entries))[::-1]
-        for position, (label, times, basis, color) in zip(
-            positions, entries, strict=True
-        ):
-            peaks = np.max(np.abs(basis), axis=0)
-            if np.any(peaks <= 0):
-                raise ValueError(f"Basis functions for {label} must vary.")
-            axis.plot(
-                times,
-                position + 0.55 * basis / peaks,
-                color=color,
-                linewidth=0.8,
-            )
-            axis.hlines(
-                position,
-                float(times[0]),
-                float(times[-1]),
-                color=color,
-                linewidth=0.6,
-                alpha=0.45,
-            )
-        axis.axvline(0, color="0.7", linewidth=0.8, zorder=0)
-        axis.set_yticks(positions, [item[0] for item in entries])
-        axis.set_ylim(-0.35, len(entries) - 0.3)
-        axis.set_xlim(-330, 330)
-        axis.set_xticks(np.arange(-300, 301, 100))
-        axis.set_xlabel("Time relative to event or current bin (ms)")
-        axis.text(
+        figure = plt.figure(figsize=(7.4, 9.0))
+        outer = figure.add_gridspec(3, 1, height_ratios=(3.2, 4.0, 2.0), hspace=0.34)
+        observed_grid = outer[0].subgridspec(
+            3, 1, height_ratios=(1.8, 1.15, 0.72), hspace=0.08
+        )
+        event_axis = figure.add_subplot(observed_grid[0])
+        motion_axis = figure.add_subplot(observed_grid[1], sharex=event_axis)
+        history_axis = figure.add_subplot(observed_grid[2], sharex=event_axis)
+        contribution_grid = outer[1].subgridspec(5, 1, hspace=0.08)
+        contribution_axes = [
+            figure.add_subplot(contribution_grid[index], sharex=event_axis)
+            for index in range(5)
+        ]
+        prediction_grid = outer[2].subgridspec(
+            2, 1, height_ratios=(2.0, 0.55), hspace=0.05
+        )
+        rate_axis = figure.add_subplot(prediction_grid[0], sharex=event_axis)
+        spike_axis = figure.add_subplot(prediction_grid[1], sharex=event_axis)
+
+        positions = np.arange(len(event_order))[::-1]
+        for position, name in zip(positions, event_order, strict=True):
+            color = event_colors[name]
+            kernel_start, kernel_stop = manifest[name]["kernel_range_s"]
+            for event_time in event_arrays[name]:
+                support_start = max(left_ms, 1000 * (event_time + kernel_start))
+                support_stop = min(right_ms, 1000 * (event_time + kernel_stop))
+                if name == "center_poke":
+                    support_stop = min(support_stop, 0.0)
+                if support_stop > support_start:
+                    event_axis.fill_betweenx(
+                        (position - 0.28, position + 0.28),
+                        support_start,
+                        support_stop,
+                        color=color,
+                        alpha=0.18,
+                        linewidth=0,
+                    )
+                event_axis.vlines(
+                    1000 * event_time,
+                    position - 0.34,
+                    position + 0.34,
+                    color=color,
+                    linewidth=0.9,
+                )
+        event_axis.set_yticks(positions, [event_labels[name] for name in event_order])
+        event_axis.set_ylim(-0.65, len(event_order) - 0.35)
+        event_axis.text(
             0.99,
-            0.02,
-            "Basis amplitude normalized for display",
-            transform=axis.transAxes,
+            0.97,
+            "shading = temporal support; flash support repeats after every flash",
+            transform=event_axis.transAxes,
             ha="right",
+            va="top",
+            fontsize=7,
+            color="0.3",
+        )
+
+        for index, linestyle in enumerate(("-", "--", ":")):
+            motion_axis.plot(
+                1000 * motion_times,
+                motion_scores[:, index],
+                color=GROUP_COLORS["video"],
+                linewidth=0.8,
+                linestyle=linestyle,
+                label=f"PC {index + 1}",
+            )
+        motion_axis.axhline(0, color="black", linewidth=0.45)
+        motion_axis.legend(loc="upper left", frameon=False, fontsize=7)
+        motion_axis.set_ylabel("Motion-energy\nPC score")
+        motion_axis.text(
+            0.01,
+            0.04,
+            f"PCs 1–3 of {selected_components}; continuous filter spans ±200 ms "
+            "around every bin",
+            transform=motion_axis.transAxes,
+            ha="left",
             va="bottom",
+            fontsize=7,
+            color="0.3",
+        )
+
+        for spike_time in spike_times_ms:
+            start = spike_time + 1000 * BINWIDTH_S
+            stop = min(spike_time + 100, right_ms)
+            if stop > start:
+                history_axis.fill_betweenx(
+                    (0.72, 1.28),
+                    start,
+                    stop,
+                    color=GROUP_COLORS["history"],
+                    alpha=0.15,
+                    linewidth=0,
+                )
+                history_axis.vlines(
+                    start,
+                    0.72,
+                    1.28,
+                    color=GROUP_COLORS["history"],
+                    linewidth=0.6,
+                )
+        history_axis.vlines(spike_times_ms, -0.28, 0.28, color="black", linewidth=0.7)
+        history_axis.set_yticks((0, 1), ("Observed spikes", "History support"))
+        history_axis.set_ylim(-0.55, 1.55)
+        history_axis.text(
+            0.99,
+            0.93,
+            "history starts 1 ms after each spike",
+            transform=history_axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+            color="0.3",
+        )
+
+        trace_specs = (
+            ("visual", "Visual flashes", GROUP_COLORS["visual"]),
+            ("task", "Other task events", GROUP_COLORS["task"]),
+            ("video", "Motion-energy PCs", GROUP_COLORS["video"]),
+            ("history", "Spike history", GROUP_COLORS["history"]),
+        )
+        for axis, (name, label, color) in zip(
+            contribution_axes[:4], trace_specs, strict=True
+        ):
+            axis.plot(times_ms, contributions[name], color=color, linewidth=0.9)
+            axis.axhline(0, color="black", linewidth=0.45, linestyle="--")
+            axis.set_ylabel(label, color=color, rotation=0, ha="right", va="center")
+        contribution_axes[-1].plot(
+            times_ms, linear_predictor, color="black", linewidth=1.0
+        )
+        contribution_axes[-1].set_ylabel(
+            "Sum + intercept", rotation=0, ha="right", va="center"
+        )
+        for axis in contribution_axes:
+            axis.tick_params(axis="y", labelsize=6)
+
+        rate_axis.plot(times_ms, rate, color="black", linewidth=1.0)
+        rate_axis.set_ylabel("Predicted rate\n(spikes/s)")
+        spike_axis.vlines(spike_times_ms, 0, 1, color="black", linewidth=0.7)
+        spike_axis.set_yticks((0.5,), ("Observed spikes",))
+        spike_axis.set_ylim(0, 1)
+        spike_axis.set_xlabel("Time from first measured flash (ms)")
+
+        all_axes = [
+            event_axis,
+            motion_axis,
+            history_axis,
+            *contribution_axes,
+            rate_axis,
+            spike_axis,
+        ]
+        for axis in all_axes:
+            axis.axvline(0, color="0.65", linewidth=0.6, zorder=0)
+            axis.set_xlim(left_ms, right_ms)
+        for axis in all_axes[:-1]:
+            axis.tick_params(axis="x", labelbottom=False)
+        event_axis.set_title(
+            "Observed regressors and temporal support", loc="left", fontsize=9
+        )
+        contribution_axes[0].set_title(
+            "Fitted contribution to log firing rate", loc="left", fontsize=9
+        )
+        rate_axis.set_title("Prediction", loc="left", fontsize=9)
+        for letter, axis in zip(
+            "abc", (event_axis, contribution_axes[0], rate_axis), strict=True
+        ):
+            axis.text(
+                -0.15,
+                1.08,
+                letter,
+                transform=axis.transAxes,
+                fontweight="bold",
+                fontsize=10,
+                va="bottom",
+            )
+        figure.text(
+            0.99,
+            0.995,
+            f"unit {unit_id}: {training_rate:.1f} spikes/s in training; "
+            f"example test trial {trial_number}",
+            ha="right",
+            va="top",
             color="0.3",
             fontsize=7,
         )
-        axis.text(
-            -0.11,
-            1.03,
-            "a",
-            transform=axis.transAxes,
-            fontweight="bold",
-            fontsize=10,
-            va="bottom",
-        )
+        figure.subplots_adjust(left=0.23, right=0.98, bottom=0.07, top=0.97)
         return _save_figure(figure, output)
 
 
@@ -857,9 +1109,6 @@ def make_figures(
     selected_components = int(selected_components.pop())
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
-    design_pdf, design_png = plot_model_design(
-        design_metadata, selected_components, figure_dir / "model_design"
-    )
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
         results, selections, figure_dir / "summary"
     )
@@ -894,6 +1143,7 @@ def make_figures(
     bin_count = len(relative_times)
     if len(common) != trial_count * bin_count:
         raise ValueError("Test design and response grid differ.")
+    test_valid = valid[test_rows].reshape(trial_count, bin_count)
     partitions = cross_validation_partitions(len(trial_split), bin_count, valid)
     fold_by_id = {int(item["unit_id"]): item for item in fold_records}
     if len(fold_by_id) != len(fold_records) or set(fold_by_id) != {
@@ -974,7 +1224,7 @@ def make_figures(
         int(example["result"]["unit_id"]): prediction_data(example["result"])
         for example in prediction_examples
     }
-    typical_trial = _select_count_typical_trial(observed)
+    typical_trial = _select_count_typical_trial(np.where(test_valid, observed, 0))
     displayed_design = np.column_stack(
         (
             common[:, :common_columns].reshape(trial_count, bin_count, common_columns)[
@@ -986,6 +1236,64 @@ def make_figures(
         )
     )
     test_trial_numbers = prepared["selected_trial_numbers"][trial_split == 2]
+    selected_trial_row = int(np.flatnonzero(trial_split == 2)[typical_trial])
+    displayed_rows = test_valid[typical_trial]
+    if not displayed_rows.any() or np.any(np.diff(displayed_rows.astype(int)) > 0):
+        raise ValueError("The displayed model interval must be one leading block.")
+    model_times = relative_times[displayed_rows]
+    model_counts = observed[typical_trial, displayed_rows]
+    model_design = displayed_design[displayed_rows]
+    contributions, linear_predictor, fitted_rate, contribution_error = (
+        fitted_trial_contributions(model_design, design_result, design_metadata)
+    )
+
+    trials = _load_selected_trials(prepared)
+    trial = trials.iloc[selected_trial_row]
+    alignment = float(prepared["alignments"][selected_trial_row])
+    flashes = np.asarray(trial["stim_pulse_times_s"], dtype=float) - alignment
+    response_time = float(trial["response_port_entry_s"]) - alignment
+    if (
+        len(flashes) == 0
+        or not np.isclose(flashes[0], 0, atol=BINWIDTH_S)
+        or np.any(flashes > response_time)
+    ):
+        raise ValueError("Every displayed flash must be measured before response.")
+    events = {
+        "visual_flash": flashes,
+        "center_poke": np.asarray([float(trial["center_entry_s"]) - alignment]),
+        "center_exit": np.asarray([float(trial["center_exit_s"]) - alignment]),
+        "response_entry": np.asarray([response_time]),
+        "response_side": np.asarray([response_time]),
+    }
+    with np.load(
+        windows.with_name("video_me_features.npz"), allow_pickle=False
+    ) as data:
+        frame_rows = data["frame_trial_row"] == selected_trial_row
+        motion_times = data["frame_times_s"][frame_rows] - alignment
+        motion_scores = data["scores"][frame_rows, :3]
+    if (
+        len(motion_times) < 2
+        or motion_times[0] > model_times[0] - BINWIDTH_S / 2
+        or motion_times[-1] < model_times[-1] + BINWIDTH_S / 2
+    ):
+        raise ValueError("Motion-PC samples do not span the displayed model interval.")
+    design_pdf, design_png = plot_model_design(
+        model_times,
+        model_counts,
+        motion_times,
+        motion_scores,
+        events,
+        int(trial["response"]),
+        contributions,
+        linear_predictor,
+        fitted_rate,
+        design_metadata,
+        selected_components,
+        design_unit_id,
+        design_training_rate,
+        int(test_trial_numbers[typical_trial]),
+        figure_dir / "model_design",
+    )
     design_matrix_pdf, design_matrix_png = plot_design_matrix_trial(
         relative_times,
         observed[typical_trial],
@@ -1060,6 +1368,9 @@ def make_figures(
                     "training firing rate"
                 ),
                 "design_matrix_trial": int(test_trial_numbers[typical_trial]),
+                "model_design_group_sum_max_abs_error": contribution_error,
+                "model_design_flashes": len(flashes),
+                "model_design_valid_bins": int(displayed_rows.sum()),
                 "figure_dir": str(figure_dir),
                 "formats": list(FIGURE_FORMATS),
                 "figures": {
