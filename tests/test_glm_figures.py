@@ -7,12 +7,12 @@ from thesis.ephys.analyses.glm import (
     build_unit_history,
     build_video_component_design,
     cross_validation_partitions,
+    flash_events,
     spike_history_basis,
-    split_flash_events,
     task_temporal_bases,
 )
 from thesis.ephys.analyses.glm_figures import (
-    binned_smoothed_counts,
+    binned_rates,
     fitted_kernels,
     fitted_trial_contributions,
 )
@@ -29,8 +29,8 @@ def test_cross_validation_holds_out_each_trial_once() -> None:
     )
 
 
-def test_flashes_split_at_withdrawal() -> None:
-    stationary, running = split_flash_events(
+def test_flash_interactions_use_symmetric_contrasts() -> None:
+    flashes, state, first = flash_events(
         {
             "stim_pulse_times_s": [[1.0, 1.1, 1.2, 1.3], [2.0, 2.2]],
             "center_entry_s": [0.9, 1.9],
@@ -38,8 +38,9 @@ def test_flashes_split_at_withdrawal() -> None:
             "response_port_entry_s": [1.3, 2.3],
         }
     )
-    np.testing.assert_array_equal(stationary, [1.0, 1.1, 2.0])
-    np.testing.assert_array_equal(running, [1.2, 1.3, 2.2])
+    np.testing.assert_array_equal(flashes, [1.0, 1.1, 1.2, 1.3, 2.0, 2.2])
+    np.testing.assert_array_equal(state, [-0.5, -0.5, 0.5, 0.5, -0.5, 0.5])
+    np.testing.assert_array_equal(first, [0.5, -0.5, -0.5, -0.5, 0.5, -0.5])
 
 
 def test_video_pc_is_one_contemporaneous_column() -> None:
@@ -90,9 +91,9 @@ def test_fitted_kernels_reverse_design_standardization() -> None:
 
 def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
     manifest = [
-        {"name": "stationary_flash", "columns": 2},
-        {"name": "running_flash", "columns": 2},
-        {"name": "withdrawal", "columns": 1},
+        {"name": "visual_flash", "group": "sensory", "columns": 2},
+        {"name": "flash_pre_post_withdrawal", "group": "sensory", "columns": 2},
+        {"name": "withdrawal", "group": "task", "columns": 1},
     ]
     common_columns = 6
     design = (
@@ -122,8 +123,8 @@ def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
 
 def test_unique_motion_block_has_one_column_per_pc() -> None:
     manifest = [
-        {"name": "stationary_flash", "columns": 2},
-        {"name": "running_flash", "columns": 2},
+        {"name": "visual_flash", "columns": 2},
+        {"name": "flash_pre_post_withdrawal", "columns": 2},
         {"name": "withdrawal", "columns": 1},
     ]
     groups = block_slices(
@@ -133,24 +134,25 @@ def test_unique_motion_block_has_one_column_per_pc() -> None:
     assert groups["history"] == slice(15, 15 + HISTORY_COLUMNS)
 
 
-def test_final_design_has_51_columns() -> None:
+def test_final_design_has_72_columns_with_25_video_pcs() -> None:
     bases = task_temporal_bases()
     assert list(bases) == [
-        "stationary_flash",
-        "running_flash",
+        "visual_flash",
+        "flash_pre_post_withdrawal",
+        "flash_first_later",
         "initiation",
         "withdrawal",
         "response_entry",
     ]
     task_columns = sum(basis.basis.shape[1] for basis in bases.values())
-    assert task_columns == 31
-    assert task_columns + 10 + HISTORY_COLUMNS == 51
+    assert task_columns == 37
+    assert task_columns + 25 + HISTORY_COLUMNS == 72
 
 
-def test_binned_smoothed_counts_preserve_constant_counts() -> None:
+def test_binned_rates_convert_counts_to_spikes_per_second() -> None:
     values = np.ones((2, 30))
-    smoothed, valid = binned_smoothed_counts(values, np.ones_like(values, dtype=bool))
-    np.testing.assert_allclose(smoothed, 10)
+    rate, valid = binned_rates(values, np.ones_like(values, dtype=bool))
+    np.testing.assert_allclose(rate, 1000)
     np.testing.assert_array_equal(valid, True)
 
 
@@ -164,11 +166,11 @@ def test_spike_history_starts_one_bin_after_each_spike() -> None:
 
 if __name__ == "__main__":
     test_cross_validation_holds_out_each_trial_once()
-    test_flashes_split_at_withdrawal()
+    test_flash_interactions_use_symmetric_contrasts()
     test_video_pc_is_one_contemporaneous_column()
     test_fitted_kernels_reverse_design_standardization()
     test_fitted_trial_contributions_reproduce_the_linear_predictor()
     test_unique_motion_block_has_one_column_per_pc()
-    test_final_design_has_51_columns()
-    test_binned_smoothed_counts_preserve_constant_counts()
+    test_final_design_has_72_columns_with_25_video_pcs()
+    test_binned_rates_convert_counts_to_spikes_per_second()
     test_spike_history_starts_one_bin_after_each_spike()

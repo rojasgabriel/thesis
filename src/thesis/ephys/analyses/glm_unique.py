@@ -19,18 +19,19 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
     _SHARED,
+    EXCLUDED_UNIT_IDS,
     HISTORY_COLUMNS,
     _cached,
     _design_with_history,
     _load_windows,
     _write_json_atomic,
+    analysis_unit_indices,
     build_unit_counts,
     build_unit_history,
     code_version,
     fit_poisson_at_alpha,
     poisson_metrics,
     run_over_units,
-    sample_unit_indices,
     training_zscore,
 )
 from thesis.ephys.units import fetch_unit_table
@@ -38,8 +39,9 @@ from thesis.ephys.units import fetch_unit_table
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
-    "stationary_flash",
-    "running_flash",
+    "visual_flash",
+    "flash_pre_post_withdrawal",
+    "flash_first_later",
     "initiation",
     "withdrawal",
     "response_entry",
@@ -51,8 +53,9 @@ DISPLAY_LABELS = {
     "task": "Task",
     "video": "Motion energy",
     "history": "Spike history",
-    "stationary_flash": "Stationary flash",
-    "running_flash": "Running flash",
+    "visual_flash": "Visual flash",
+    "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
+    "flash_first_later": "Flash: first - later",
     "initiation": "Initiation",
     "withdrawal": "Withdrawal",
     "response_entry": "Response entry",
@@ -126,7 +129,9 @@ def _load_fold_records(fit_dir: Path) -> list[dict]:
     records = []
     for path in sorted(fit_dir.glob("unit_*_folds.json")):
         with path.open() as handle:
-            records.append(json.load(handle))
+            record = json.load(handle)
+        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+            records.append(record)
     if not records:
         raise ValueError(f"No cross-validated fits in {fit_dir}; run `fit` first.")
     return records
@@ -192,20 +197,9 @@ def _plot_groups(
         whiskerprops={"color": "0.3", "linewidth": 0.7},
         capprops={"color": "0.3", "linewidth": 0.7},
     )
-    for position, (group, group_values, patch) in enumerate(
-        zip(groups, values, boxes["boxes"], strict=True)
-    ):
+    for group, patch in zip(groups, boxes["boxes"], strict=True):
         color = GROUP_COLORS.get(group, GROUP_COLORS["task"])
         patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
-        axis.scatter(
-            position,
-            np.mean(group_values),
-            facecolor="white",
-            edgecolor="0.25",
-            linewidth=0.6,
-            s=20,
-            zorder=4,
-        )
     axis.axhline(0, color="0.35", linestyle="--", linewidth=0.7, zorder=0)
     axis.set_xticks(positions, [DISPLAY_LABELS[group] for group in groups])
     axis.tick_params(axis="x", labelrotation=48)
@@ -215,7 +209,7 @@ def _plot_groups(
     axis.margins(x=0.04)
 
 
-def plot_deviance_explained(records: list[dict], output: Path) -> tuple[Path, Path]:
+def plot_deviance_explained(records: list[dict], output: Path) -> Path:
     """Plot maximal and unique deviance for each model regressor."""
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(1, 3, figsize=(10.5, 3.5))
@@ -247,11 +241,10 @@ def plot_deviance_explained(records: list[dict], output: Path) -> tuple[Path, Pa
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         pdf = output.with_suffix(".pdf")
-        png = output.with_suffix(".png")
         figure.savefig(pdf, bbox_inches="tight")
-        figure.savefig(png, dpi=300, bbox_inches="tight")
+        output.with_suffix(".png").unlink(missing_ok=True)
         plt.close(figure)
-    return pdf, png
+    return pdf
 
 
 def _write_summary(records: list[dict], output_dir: Path) -> dict:
@@ -467,10 +460,7 @@ def run_unique(
         stability_param_id=0,
         include_metrics=False,
     )
-    if unit_set == "sample":
-        unit_rows = sample_unit_indices(len(units))
-    else:
-        unit_rows = np.arange(len(units))
+    unit_rows = analysis_unit_indices(units, unit_set)
     output_dir = fit_dir / "unique_deviance"
     checkpoint_dir = checkpoints / "unique"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -534,17 +524,15 @@ def run_unique(
         )
 
     summary = _write_summary(records, output_dir)
-    pdf, png = plot_deviance_explained(records, output_dir / "deviance_explained")
-    for suffix in (".pdf", ".png"):
-        (output_dir / "conditional_deviance").with_suffix(suffix).unlink(
-            missing_ok=True
-        )
+    pdf = plot_deviance_explained(records, fit_dir.parent / "deviance_explained")
+    for stem in ("conditional_deviance", "deviance_explained"):
+        for suffix in (".pdf", ".png"):
+            (output_dir / stem).with_suffix(suffix).unlink(missing_ok=True)
     print(
         json.dumps(
             {
                 **summary,
                 "pdf": str(pdf),
-                "png": str(png),
             },
             indent=2,
         )
