@@ -12,6 +12,7 @@ from thesis.ephys.analyses.glm import (
     task_temporal_bases,
 )
 from thesis.ephys.analyses.glm_figures import (
+    binned_smoothed_counts,
     fitted_kernels,
     fitted_trial_contributions,
 )
@@ -28,7 +29,7 @@ def test_cross_validation_holds_out_each_trial_once() -> None:
     )
 
 
-def test_flashes_split_at_center_exit() -> None:
+def test_flashes_split_at_withdrawal() -> None:
     stationary, running = split_flash_events(
         {
             "stim_pulse_times_s": [[1.0, 1.1, 1.2, 1.3], [2.0, 2.2]],
@@ -91,7 +92,7 @@ def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
     manifest = [
         {"name": "stationary_flash", "columns": 2},
         {"name": "running_flash", "columns": 2},
-        {"name": "center_exit", "columns": 1},
+        {"name": "withdrawal", "columns": 1},
     ]
     common_columns = 6
     design = (
@@ -104,7 +105,7 @@ def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
         "intercept": -2.0,
         "coefficients": coefficients,
     }
-    contributions, linear_predictor, rate, error = fitted_trial_contributions(
+    contributions, linear_predictor, expected_count, error = fitted_trial_contributions(
         design,
         result,
         {"base_columns": 5, "task_manifest": manifest},
@@ -115,7 +116,7 @@ def test_fitted_trial_contributions_reproduce_the_linear_predictor() -> None:
     )
     np.testing.assert_allclose(contributions["task"], design[:, 4] * coefficients[4])
     np.testing.assert_allclose(linear_predictor, -2 + design @ coefficients)
-    np.testing.assert_allclose(rate, np.exp(linear_predictor) / 0.001)
+    np.testing.assert_allclose(expected_count, np.exp(linear_predictor))
     assert error < 1e-12
 
 
@@ -123,7 +124,7 @@ def test_unique_motion_block_has_one_column_per_pc() -> None:
     manifest = [
         {"name": "stationary_flash", "columns": 2},
         {"name": "running_flash", "columns": 2},
-        {"name": "center_exit", "columns": 1},
+        {"name": "withdrawal", "columns": 1},
     ]
     groups = block_slices(
         {"task_columns": 5, "base_columns": 5, "task_manifest": manifest}, 10
@@ -132,10 +133,25 @@ def test_unique_motion_block_has_one_column_per_pc() -> None:
     assert groups["history"] == slice(15, 15 + HISTORY_COLUMNS)
 
 
-def test_final_design_has_57_columns() -> None:
-    task_columns = sum(basis.basis.shape[1] for basis in task_temporal_bases().values())
-    assert task_columns == 37
-    assert task_columns + 10 + HISTORY_COLUMNS == 57
+def test_final_design_has_51_columns() -> None:
+    bases = task_temporal_bases()
+    assert list(bases) == [
+        "stationary_flash",
+        "running_flash",
+        "initiation",
+        "withdrawal",
+        "response_entry",
+    ]
+    task_columns = sum(basis.basis.shape[1] for basis in bases.values())
+    assert task_columns == 31
+    assert task_columns + 10 + HISTORY_COLUMNS == 51
+
+
+def test_binned_smoothed_counts_preserve_constant_counts() -> None:
+    values = np.ones((2, 30))
+    smoothed, valid = binned_smoothed_counts(values, np.ones_like(values, dtype=bool))
+    np.testing.assert_allclose(smoothed, 10)
+    np.testing.assert_array_equal(valid, True)
 
 
 def test_spike_history_starts_one_bin_after_each_spike() -> None:
@@ -148,10 +164,11 @@ def test_spike_history_starts_one_bin_after_each_spike() -> None:
 
 if __name__ == "__main__":
     test_cross_validation_holds_out_each_trial_once()
-    test_flashes_split_at_center_exit()
+    test_flashes_split_at_withdrawal()
     test_video_pc_is_one_contemporaneous_column()
     test_fitted_kernels_reverse_design_standardization()
     test_fitted_trial_contributions_reproduce_the_linear_predictor()
     test_unique_motion_block_has_one_column_per_pc()
-    test_final_design_has_57_columns()
+    test_final_design_has_51_columns()
+    test_binned_smoothed_counts_preserve_constant_counts()
     test_spike_history_starts_one_bin_after_each_spike()
