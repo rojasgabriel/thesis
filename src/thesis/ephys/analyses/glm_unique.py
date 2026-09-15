@@ -40,25 +40,25 @@ BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
     "stationary_flash",
     "running_flash",
-    "center_poke",
-    "center_exit",
+    "initiation",
+    "withdrawal",
     "response_entry",
-    "response_side",
     "video",
     "history",
 )
 DISPLAY_LABELS = {
+    "full_model": "Full model",
     "task": "Task",
     "video": "Motion energy",
     "history": "Spike history",
     "stationary_flash": "Stationary flash",
     "running_flash": "Running flash",
-    "center_poke": "Center poke",
-    "center_exit": "Center exit",
+    "initiation": "Initiation",
+    "withdrawal": "Withdrawal",
     "response_entry": "Response entry",
-    "response_side": "Response side",
 }
 GROUP_COLORS = {
+    "full_model": "black",
     "task": "C0",
     "video": "C1",
     "history": "C2",
@@ -171,7 +171,14 @@ def _plot_groups(
 ) -> None:
     """Draw one population box plot for the requested deviance measure."""
     values = [
-        np.asarray([record["groups"][group][metric] for record in records])
+        np.asarray(
+            [
+                record[metric]
+                if group == "full_model"
+                else record["groups"][group][metric]
+                for record in records
+            ]
+        )
         for group in groups
     ]
     positions = np.arange(len(groups))
@@ -211,16 +218,20 @@ def _plot_groups(
 def plot_deviance_explained(records: list[dict], output: Path) -> tuple[Path, Path]:
     """Plot maximal and unique deviance for each model regressor."""
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(1, 2, figsize=(9.0, 3.5))
+        figure, axes = plt.subplots(1, 3, figsize=(10.5, 3.5))
         _plot_groups(
-            axes[0], records, DETAILED_GROUPS, "maximal_test_deviance_explained"
+            axes[0], records, ("full_model",), "complete_test_deviance_explained"
         )
         _plot_groups(
-            axes[1], records, DETAILED_GROUPS, "unique_test_deviance_explained"
+            axes[1], records, DETAILED_GROUPS, "maximal_test_deviance_explained"
         )
-        axes[0].set_ylabel("Maximal deviance explained")
-        axes[1].set_ylabel("Unique deviance explained")
-        for letter, axis in zip("ab", axes, strict=True):
+        _plot_groups(
+            axes[2], records, DETAILED_GROUPS, "unique_test_deviance_explained"
+        )
+        axes[0].set_ylabel(r"Full-model test deviance explained ($D^2$)")
+        axes[1].set_ylabel(r"Maximal deviance explained ($\Delta D^2$)")
+        axes[2].set_ylabel(r"Unique deviance explained ($\Delta D^2$)")
+        for letter, axis in zip("abc", axes, strict=True):
             axis.text(
                 -0.12,
                 1.04,
@@ -232,7 +243,7 @@ def plot_deviance_explained(records: list[dict], output: Path) -> tuple[Path, Pa
                 fontsize=10,
             )
         figure.subplots_adjust(
-            bottom=0.35, left=0.08, right=0.99, top=0.94, wspace=0.28
+            bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         pdf = output.with_suffix(".pdf")

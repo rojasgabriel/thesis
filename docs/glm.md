@@ -1,10 +1,10 @@
 # V1 GLM
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from flashes, a center-poke kernel truncated at the first flash, peri-exit
-movement, pre-response choice side, and additive camera motion-energy PCs.
-Each unit also has a strictly past self-history filter. Coefficients are
-conditional associations, not causal effects.
+from stationary and running flashes, an initiation kernel truncated at the
+first flash, peri-withdrawal movement, response entry, and additive camera
+motion-energy PCs. Each unit also has a strictly past self-history filter.
+Coefficients are conditional associations, not causal effects.
 
 `prepare` reuses a completed artifact when that file exists. Only one `glm`
 command can use a subject/session output directory at a time.
@@ -14,8 +14,8 @@ command can use a subject/session output directory at a time.
 - Units: quality 1, stability 0. No sensory-response filter. 168 eligible
   units; a fixed random sample of 20 for `--units sample`
   (`SAMPLE_SEED = 20260914`).
-- Trials: completed left/right, no early withdrawal. Require ordered center
-  entry, first measured flash, center exit, response entry.
+- Trials: completed left/right. Require ordered initiation, first measured
+  flash, withdrawal, and response entry.
 - Align to the first measured flash, not the Bpod stimulus command.
 - Grid: DAMN 1 ms, pre=100 ms, post=2.54 s (2,639 centers). Keep the full
   window. Fitting **masks bins after that trial’s response entry**; it does not
@@ -41,17 +41,17 @@ outcome, or punishment kernel.
 
 | Group | Representation | Columns |
 | --- | --- | ---: |
-| Visual flashes | Every measured flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
-| Center poke | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
-| Center exit | 9 raised cosines, −300–+300 ms | 9 |
-| Response entry | 6 bases, −300–0 ms; side-independent | 6 |
-| Response side | Left=−1, right=+1; 6 bases, −300–0 ms (pre-entry only). Displayed kernel is right−left = 2× fitted | 6 |
-| Motion energy | 3 raised cosines per PC, peaks at −200, 0, +200 ms | 3 / PC |
+| Stationary flashes | Every measured flash before withdrawal; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
+| Running flashes | Every measured flash from withdrawal through response entry; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
+| Initiation | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
+| Withdrawal | 9 raised cosines, −300–+300 ms | 9 |
+| Response entry | 6 bases, −300–0 ms | 6 |
+| Motion energy | One contemporaneous value per selected PC; no temporal basis | 1 / PC |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
-No same-bin history, cross-unit coupling, previous-trial, early-withdrawal, or
-interaction terms. Video filters are acausal nuisance associations. Pose
-tracking and flash×movement state are later, not this pass.
+No response-side, same-bin history, cross-unit coupling, previous-trial, or
+interaction terms. Motion-energy coefficients are contemporaneous nuisance
+associations. Pose tracking is not included.
 
 ## Video
 
@@ -116,32 +116,26 @@ After the all-unit fit and unique-deviance analysis:
 uv run glm figures --units all [--output-dir DIR] [--format {pdf,png,both}]
 ```
 
-The prediction figure shows three distinct units: the best full-model fit, the
-largest unique visual-flash contribution, and the largest unique contribution
-from another task or motion-energy block. Each plotted trial uses its saved
+The prediction figure shows unit 197. Each plotted trial uses its saved
 out-of-fold model, so that model did not train on the trial. Predicted rasters
-are Poisson draws from one-step-ahead rates conditioned on the observed spike
-history, not free-running simulations. Post-response bins remain on the plotted
-grid but are excluded from likelihood and scores.
+are Poisson draws from one-step-ahead expected counts conditioned on observed
+spike history, not free-running simulations. The trace compares observed and
+expected counts in 10-ms bins with 20-ms Gaussian smoothing. Post-response bins
+remain on the plotted grid but are excluded from likelihood and scores.
 
-The model-design figure uses one real test trial from the unit nearest the 90th
-percentile of training firing rate. The trial is nearest the unit's median
-pre-response spike count. Panel a shows every measured flash, the other task
+The model-design figure uses one real test trial from unit 197. The trial is
+nearest the unit's median pre-response spike count. Panel a shows every
+measured flash, the other task
 events and their filter support, the first three continuous motion-energy PC
-scores, and the observed spikes with strictly past history support. Panel b
+scores, and strictly past history support. Panel b
 shows the exact fitted terms `X_g β_g` for visual, other task, all selected
 motion-energy, and history columns. Their sum plus the intercept is checked
-against the full linear predictor. Panel c converts that predictor to the
-conditional rate in spikes/s. This explanatory panel uses the final model fit
-on all valid bins; held-out predictions stay in the separate prediction
-figure. Post-response bins are not shown. The acausal motion term is a
-predictive association, not a causal neural response.
-
-The example-trial matrix includes every task regressor, each selected
-motion-energy PC, and self-history. Its display is clipped at ±1 standardized
-units, with zero shown in black; clipping does not alter the model input. It
-uses the same unit and trial as the model-design figure. The single kernel
-figure shows task and self-history traces for the median-performance unit.
+against the full linear predictor. Panel c compares predicted and observed
+counts in 10-ms bins with 20-ms Gaussian smoothing and no conversion to
+spikes/s. This explanatory panel uses the final model fit on all valid bins;
+held-out predictions stay in the separate prediction figure. Post-response
+bins are not shown. The single kernel figure shows task and self-history traces
+for unit 197.
 
 ## Related methods
 

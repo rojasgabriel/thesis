@@ -3,15 +3,15 @@
 Scientific comparison
 ---------------------
 For GRB006 session 20240821_121447, predict V1 spikes from flashes split at
-center exit into stationary and running conditions, a center-poke kernel
-truncated at the first flash, peri-exit movement, pre-response choice side split
-into a side-independent and a contrast kernel, 10 additive video motion-energy
-PCs, and each unit's own strictly past spike history. Bins after response entry
-are excluded. Whole trials are split randomly 60/20/20. No coupling between
-units, session drift, go cue, outcome, or punishment terms. Validation compares
-motion-energy PC counts, while the fitted model uses 10 PCs. Held-out performance
-is the ten-fold cross-validated deviance, so every trial is scored once. A
-20-unit random sample is available for quick runs.
+withdrawal into stationary and running conditions, an initiation kernel
+truncated at the first flash, peri-withdrawal movement, response entry, 10
+additive video motion-energy PCs, and each unit's own strictly past spike
+history. Bins after response entry are excluded. Whole trials are split randomly
+60/20/20. No response-side, coupling, session-drift, go-cue, outcome, or
+punishment terms. Validation compares motion-energy PC counts, while the fitted
+model uses 10 PCs. Held-out performance is the ten-fold cross-validated
+deviance, so every trial is scored once. A 20-unit random sample is available
+for quick runs.
 """
 
 from __future__ import annotations
@@ -64,10 +64,10 @@ _SHARED: dict = {}
 # this to a commit hash instead invalidates every record on any edit to this
 # file, including edits that cannot affect the result.
 RECORD_VERSIONS = {
-    "selection": 2,
-    "folds": 3,
-    "final": 2,
-    "unique": 3,
+    "selection": 3,
+    "folds": 4,
+    "final": 3,
+    "unique": 4,
 }
 
 
@@ -112,15 +112,14 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     return {
         "stationary_flash": flash,
         "running_flash": flash,
-        "center_poke": poke,
-        "center_exit": peri_exit,
+        "initiation": poke,
+        "withdrawal": peri_exit,
         "response_entry": pre_response,
-        "response_side": pre_response,
     }
 
 
 def split_flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
-    """Split every modeled flash at center exit for each completed trial."""
+    """Split every modeled flash at withdrawal for each completed trial."""
     stationary, running = [], []
     for flashes, center_entry, center_exit, response_entry in zip(
         trials["stim_pulse_times_s"],
@@ -151,7 +150,7 @@ def build_task_design(
             None,
             bases["stationary_flash"],
             "sensory",
-            "each measured flash before center exit",
+            "each measured flash before withdrawal",
         ),
         (
             "running_flash",
@@ -159,23 +158,23 @@ def build_task_design(
             None,
             bases["running_flash"],
             "sensory",
-            "each measured flash from center exit through response entry",
+            "each measured flash from withdrawal through response entry",
         ),
         (
-            "center_poke",
+            "initiation",
             trials["center_entry_s"].to_numpy(dtype=float),
             None,
-            bases["center_poke"],
+            bases["initiation"],
             "task",
-            "center poke truncated at the first flash",
+            "initiation truncated at the first flash",
         ),
         (
-            "center_exit",
+            "withdrawal",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
-            bases["center_exit"],
+            bases["withdrawal"],
             "task",
-            "one event per completed trial",
+            "one withdrawal per completed trial",
         ),
         (
             "response_entry",
@@ -184,14 +183,6 @@ def build_task_design(
             bases["response_entry"],
             "task",
             "every response; the side-independent part",
-        ),
-        (
-            "response_side",
-            trials["response_port_entry_s"].to_numpy(dtype=float),
-            trials["response"].to_numpy(dtype=float),
-            bases["response_side"],
-            "task",
-            "left=-1, right=+1; the choice contrast",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
@@ -221,12 +212,12 @@ def build_task_design(
             }
         )
     design.build_matrix()
-    poke = design.regressors["center_poke"]
-    rows_per_trial = poke.X.shape[0] // len(alignments)
+    initiation = design.regressors["initiation"]
+    rows_per_trial = initiation.X.shape[0] // len(alignments)
     centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
-    truncated = np.asarray(poke.X).reshape(len(alignments), rows_per_trial, -1)
+    truncated = np.asarray(initiation.X).reshape(len(alignments), rows_per_trial, -1)
     truncated[:, np.asarray(centers) >= 0] = 0
-    poke._X = truncated.reshape(-1, poke.X.shape[1])
+    initiation._X = truncated.reshape(-1, initiation.X.shape[1])
     values = np.asarray(design.X)
     start = 0
     widths = [regressor.X.shape[1] for regressor in design.regressors.values()]
