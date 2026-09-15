@@ -12,24 +12,23 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 from scipy.stats import spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import (
+    EXCLUDED_UNIT_IDS,
     HISTORY_COLUMNS,
     VIDEO_COMPONENT_COUNTS,
-    VIDEO_COMPONENTS,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
     build_unit_counts,
     build_unit_history,
     cross_validation_partitions,
+    flash_events,
     spike_history_basis,
-    split_flash_events,
     task_temporal_bases,
     training_zscore,
 )
@@ -45,18 +44,16 @@ GROUP_COLORS = {
     "history": "C3",
 }
 TASK_LABELS = {
-    "stationary_flash": "Stationary flash",
-    "running_flash": "Running flash",
+    "visual_flash": "Visual flash",
+    "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
+    "flash_first_later": "Flash: first - later",
     "initiation": "Initiation",
     "withdrawal": "Withdrawal",
     "response_entry": "Response entry",
 }
 COUNT_BIN_MS = 10
-SMOOTHING_MS = 20
 PREDICTION_SEED = 2008
 EXAMPLE_UNIT_ID = 197
-# Rebound by make_figures; read by _save_figure so plot signatures stay small.
-FIGURE_FORMATS: tuple[str, ...] = ("pdf", "png")
 FIGURE_STYLE = {
     "axes.spines.top": False,
     "axes.spines.right": False,
@@ -105,17 +102,13 @@ def _raster_events(
 
 
 def _save_figure(figure, output: Path) -> tuple[Path | None, Path | None]:
-    """Write the figure in the formats FIGURE_FORMATS names, skipping the rest."""
+    """Write one publication figure as PDF."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    paths: dict[str, Path | None] = {"pdf": None, "png": None}
-    if "pdf" in FIGURE_FORMATS:
-        paths["pdf"] = output.with_suffix(".pdf")
-        figure.savefig(paths["pdf"], bbox_inches="tight")
-    if "png" in FIGURE_FORMATS:
-        paths["png"] = output.with_suffix(".png")
-        figure.savefig(paths["png"], dpi=300, bbox_inches="tight")
+    pdf = output.with_suffix(".pdf")
+    figure.savefig(pdf, bbox_inches="tight")
+    output.with_suffix(".png").unlink(missing_ok=True)
     plt.close(figure)
-    return paths["pdf"], paths["png"]
+    return pdf, None
 
 
 def fitted_trial_contributions(
@@ -139,7 +132,7 @@ def fitted_trial_contributions(
     cursor = 0
     for item in design_metadata["task_manifest"]:
         stop = cursor + int(item["columns"])
-        target = visual if item["name"].endswith("_flash") else task
+        target = visual if item["group"] == "sensory" else task
         target += design[:, cursor:stop] @ coefficients[cursor:stop]
         cursor = stop
     if cursor != int(design_metadata["base_columns"]):
@@ -167,10 +160,10 @@ def fitted_trial_contributions(
     return contributions, linear_predictor, expected_count, error
 
 
-def binned_smoothed_counts(
+def binned_rates(
     values: np.ndarray, valid: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return mean count per 10-ms bin with 20-ms Gaussian smoothing."""
+    """Return the unsmoothed mean firing rate in complete 10-ms bins."""
     values = np.atleast_2d(np.asarray(values, dtype=float))
     valid = np.atleast_2d(np.asarray(valid, dtype=bool))
     if values.shape != valid.shape or values.shape[1] < COUNT_BIN_MS:
@@ -180,16 +173,15 @@ def binned_smoothed_counts(
     values = values[:, : bins * samples].reshape(len(values), bins, samples)
     complete = valid[:, : bins * samples].reshape(len(valid), bins, samples).all(axis=2)
     totals = values.sum(axis=2)
-    sigma = SMOOTHING_MS / COUNT_BIN_MS
-    numerator = gaussian_filter1d(np.where(complete, totals, 0).sum(axis=0), sigma)
-    denominator = gaussian_filter1d(complete.sum(axis=0).astype(float), sigma)
+    numerator = np.where(complete, totals, 0).sum(axis=0)
+    denominator = complete.sum(axis=0).astype(float)
     mean = np.divide(
         numerator,
         denominator,
         out=np.full(bins, np.nan),
         where=denominator > 0,
     )
-    return mean, complete.any(axis=0)
+    return mean / (samples * BINWIDTH_S), complete.any(axis=0)
 
 
 def plot_model_design(
@@ -236,13 +228,7 @@ def plot_model_design(
         )
     ):
         raise ValueError("Model-design values must be finite.")
-    expected_events = {
-        "stationary_flash",
-        "running_flash",
-        "initiation",
-        "withdrawal",
-        "response_entry",
-    }
+    expected_events = {"visual_flash", "initiation", "withdrawal", "response_entry"}
     if set(events) != expected_events:
         raise ValueError("Model-design task events are incomplete.")
 
@@ -264,21 +250,18 @@ def plot_model_design(
     manifest = {item["name"]: item for item in design_metadata["task_manifest"]}
     event_order = (
         "initiation",
-        "stationary_flash",
-        "running_flash",
+        "visual_flash",
         "withdrawal",
         "response_entry",
     )
     event_labels = {
         "initiation": "Initiation",
-        "stationary_flash": "Stationary flashes",
-        "running_flash": "Running flashes",
+        "visual_flash": "Visual flashes",
         "withdrawal": "Withdrawal",
         "response_entry": "Response entry",
     }
     event_colors = {
-        "stationary_flash": GROUP_COLORS["visual"],
-        "running_flash": GROUP_COLORS["visual"],
+        "visual_flash": GROUP_COLORS["visual"],
         "initiation": GROUP_COLORS["task"],
         "withdrawal": GROUP_COLORS["task"],
         "response_entry": GROUP_COLORS["task"],
@@ -393,19 +376,16 @@ def plot_model_design(
             (counts, "Observed", OBSERVED_COLOR),
             (expected_count, "Predicted", MODEL_COLOR),
         ):
-            smoothed, shown = binned_smoothed_counts(
-                values, np.ones_like(values, dtype=bool)
-            )
+            rate, shown = binned_rates(values, np.ones_like(values, dtype=bool))
             count_axis.plot(
                 binned_times_ms[shown],
-                smoothed[shown],
+                rate[shown],
                 color=color,
                 linewidth=1.0,
                 label=label,
+                drawstyle="steps-mid",
             )
-        count_axis.set_ylabel(
-            f"{SMOOTHING_MS}-ms smoothed count\nper {COUNT_BIN_MS}-ms bin"
-        )
+        count_axis.set_ylabel(f"Firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
         count_axis.set_xlabel("Time from first measured flash (ms)")
         count_axis.legend(frameon=False)
 
@@ -520,13 +500,13 @@ def plot_population_summary(
         axes[3].set_xlabel("mean firing rate (spikes/s)")
         axes[3].set_ylabel(r"test deviance explained ($D^2$)")
         axes[3].text(
+            0.98,
             0.04,
-            0.94,
             f"Spearman ρ = {rate_deviance_rho:.2f}\nn = {len(results)} units",
             color="black",
             transform=axes[3].transAxes,
-            ha="left",
-            va="top",
+            ha="right",
+            va="bottom",
         )
 
         for letter, axis in zip("abcd", axes, strict=True):
@@ -642,6 +622,12 @@ def plot_kernel_figure(
                 fontweight="bold",
                 fontsize=10,
             )
+        task_limit = 1.05 * max(
+            np.max(np.abs(kernels[name][1]), initial=0.0) for name in task_names
+        )
+        if task_limit > 0:
+            for axis in axes[: len(task_names)]:
+                axis.set_ylim(-task_limit, task_limit)
         figure.tight_layout(h_pad=1.8, w_pad=1.8)
         return _save_figure(figure, output)
 
@@ -733,13 +719,14 @@ def plot_prediction_figure(
             (OBSERVED_COLOR, MODEL_COLOR),
             strict=True,
         ):
-            smoothed, keep = binned_smoothed_counts(values, valid)
+            rate, keep = binned_rates(values, valid)
             axes[2].plot(
                 binned_times[keep],
-                smoothed[keep],
+                rate[keep],
                 color=color,
                 linewidth=1.15,
                 label=label,
+                drawstyle="steps-mid",
             )
         axes[2].legend(frameon=False)
         axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
@@ -757,9 +744,7 @@ def plot_prediction_figure(
             )
         axes[0].set_ylabel("Observed\nheld-out trials")
         axes[1].set_ylabel("Predicted\nheld-out trials")
-        axes[2].set_ylabel(
-            f"{SMOOTHING_MS}-ms smoothed count\nper {COUNT_BIN_MS}-ms bin"
-        )
+        axes[2].set_ylabel(f"Firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
         axes[-1].set_xlim(*edges)
         axes[-1].set_xlabel("Time from first measured flash (s)")
         figure.align_ylabels(axes)
@@ -772,41 +757,35 @@ def make_figures(
     design: Path,
     fit_dir: Path,
     output_dir: Path | None = None,
-    formats: tuple[str, ...] = ("pdf", "png"),
 ) -> None:
-    """Write every figure for one completed fit directory.
-
-    Figures land in the fit's figures directory unless `output_dir` says
-    otherwise. `formats` selects which of pdf and png to write.
-    """
-    global FIGURE_FORMATS
-
-    if not set(formats) <= {"pdf", "png"} or not formats:
-        raise ValueError("Formats must be a non-empty subset of pdf and png.")
-    FIGURE_FORMATS = tuple(formats)
-    figure_dir = output_dir if output_dir is not None else fit_dir / "figures"
+    """Write every PDF for one completed fit into the session root."""
+    figure_dir = output_dir if output_dir is not None else fit_dir.parent
     figure_dir.mkdir(parents=True, exist_ok=True)
     checkpoints = fit_dir / "checkpoints"
     results = []
     for path in sorted(checkpoints.glob("unit_*_final.json")):
         with path.open() as handle:
-            results.append(json.load(handle))
+            record = json.load(handle)
+        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+            results.append(record)
     selections = []
     for path in sorted(checkpoints.glob("unit_*_validation.json")):
         with path.open() as handle:
-            selections.append(json.load(handle))
+            record = json.load(handle)
+        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+            selections.append(record)
     fold_records = []
     for path in sorted(checkpoints.glob("unit_*_folds.json")):
         with path.open() as handle:
-            fold_records.append(json.load(handle))
+            record = json.load(handle)
+        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+            fold_records.append(record)
     if len(results) != len(selections) or len(results) != len(fold_records):
         raise ValueError("Final, validation, and fold result counts differ.")
     selected_components = {item["components"] for item in results}
     if len(selected_components) != 1:
         raise ValueError("All final fits must use one camera-PC count.")
     selected_components = int(selected_components.pop())
-    if selected_components != VIDEO_COMPONENTS:
-        raise ValueError(f"Figures require the fixed {VIDEO_COMPONENTS}-PC model.")
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     if int(design_metadata.get("video_columns_per_component", 0)) != 1:
@@ -957,19 +936,18 @@ def make_figures(
     center_exit = float(trial["center_exit_s"])
     response_entry = float(trial["response_port_entry_s"])
     response_time = float(trial["response_port_entry_s"]) - alignment
-    stationary_flashes, running_flashes = split_flash_events(
+    modeled_flash_times, state_values, first_values = flash_events(
         trials.iloc[[selected_trial_row]]
     )
     modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
     if (
         len(modeled_flashes) == 0
-        or len(stationary_flashes) + len(running_flashes) != len(modeled_flashes)
+        or len(modeled_flash_times) != len(modeled_flashes)
         or not np.isclose(modeled_flashes[0] - alignment, 0, atol=BINWIDTH_S)
     ):
-        raise ValueError("Every displayed flash must have one movement condition.")
+        raise ValueError("Every displayed flash must be represented exactly once.")
     events = {
-        "stationary_flash": stationary_flashes - alignment,
-        "running_flash": running_flashes - alignment,
+        "visual_flash": modeled_flash_times - alignment,
         "initiation": np.asarray([center_entry - alignment]),
         "withdrawal": np.asarray([center_exit - alignment]),
         "response_entry": np.asarray([response_time]),
@@ -1017,6 +995,12 @@ def make_figures(
         "fitted_kernels": (kernel_pdf, kernel_png),
         "predicted_spike_trains": (pdf_path, png_path),
     }
+    for legacy_dir in (fit_dir / "figures", fit_dir / "unique_deviance"):
+        for pattern in ("*.pdf", "*.png"):
+            for legacy in legacy_dir.glob(pattern):
+                legacy.unlink()
+    for png in figure_dir.glob("*.png"):
+        png.unlink()
     print(
         json.dumps(
             {
@@ -1034,11 +1018,14 @@ def make_figures(
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
                 "model_design_trial": int(test_trial_numbers[typical_trial]),
                 "model_design_group_sum_max_abs_error": contribution_error,
-                "model_design_stationary_flashes": len(stationary_flashes),
-                "model_design_running_flashes": len(running_flashes),
+                "model_design_flashes": len(modeled_flash_times),
+                "model_design_pre_withdrawal_flashes": int(
+                    np.count_nonzero(state_values < 0)
+                ),
+                "model_design_first_flashes": int(np.count_nonzero(first_values > 0)),
                 "model_design_valid_bins": int(displayed_rows.sum()),
                 "figure_dir": str(figure_dir),
-                "formats": list(FIGURE_FORMATS),
+                "format": "pdf",
                 "figures": {
                     name: [str(path) for path in paths if path is not None]
                     for name, paths in written.items()

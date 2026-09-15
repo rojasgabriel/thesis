@@ -2,16 +2,16 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, predict V1 spikes from flashes split at
-withdrawal into stationary and running conditions, an initiation kernel
-truncated at the first flash, peri-withdrawal movement, response entry, 10
-additive video motion-energy PCs, and each unit's own strictly past spike
-history. Bins after response entry are excluded. Whole trials are split randomly
-60/20/20. No response-side, coupling, session-drift, go-cue, outcome, or
-punishment terms. Validation compares motion-energy PC counts, while the fitted
-model uses 10 PCs. Held-out performance is the ten-fold cross-validated
-deviance, so every trial is scored once. A 20-unit random sample is available
-for quick runs.
+For GRB006 session 20240821_121447, predict V1 spikes from a common flash
+kernel, pre/post-withdrawal and first/later-flash contrasts, an initiation
+kernel truncated at the first flash, peri-withdrawal movement, response entry,
+validation-selected additive video motion-energy PCs, and each unit's own
+strictly past spike history. Bins after response entry are excluded. Whole
+trials are split randomly 60/20/20. No response-side, coupling, session-drift,
+go-cue, outcome, or punishment terms. Unit 212 is excluded because its fitted
+spike-history term extrapolates unstably across held-out folds. Held-out
+performance is the ten-fold cross-validated deviance, so every trial is scored
+once. A 20-unit random sample is available for quick runs.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
-VIDEO_COMPONENTS = 10
+EXCLUDED_UNIT_IDS = {212: "unstable out-of-fold spike-history extrapolation"}
 # The optimum for this design sits near 3e-4. Below about 1e-5 the fit is
 # effectively unpenalized and LBFGS stops hitting its iteration limit rather
 # than converging, so the grid starts above that. It still extends by a decade
@@ -64,10 +64,10 @@ _SHARED: dict = {}
 # this to a commit hash instead invalidates every record on any edit to this
 # file, including edits that cannot affect the result.
 RECORD_VERSIONS = {
-    "selection": 3,
-    "folds": 4,
-    "final": 3,
-    "unique": 4,
+    "selection": 4,
+    "folds": 5,
+    "final": 4,
+    "unique": 5,
 }
 
 
@@ -110,17 +110,18 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     peri_exit = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
     pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
     return {
-        "stationary_flash": flash,
-        "running_flash": flash,
+        "visual_flash": flash,
+        "flash_pre_post_withdrawal": flash,
+        "flash_first_later": flash,
         "initiation": poke,
         "withdrawal": peri_exit,
         "response_entry": pre_response,
     }
 
 
-def split_flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
-    """Split every modeled flash at withdrawal for each completed trial."""
-    stationary, running = [], []
+def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return modeled flashes and symmetric state and serial-position contrasts."""
+    times, state_values, first_values = [], [], []
     for flashes, center_entry, center_exit, response_entry in zip(
         trials["stim_pulse_times_s"],
         trials["center_entry_s"],
@@ -129,12 +130,19 @@ def split_flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
         strict=True,
     ):
         flashes = np.asarray(flashes, dtype=float)
-        stationary.append(flashes[(flashes >= center_entry) & (flashes < center_exit)])
-        running.append(flashes[(flashes >= center_exit) & (flashes <= response_entry)])
         modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
-        if len(stationary[-1]) + len(running[-1]) != len(modeled):
-            raise ValueError("Every modeled flash must be classified exactly once.")
-    return _flatten_events(stationary), _flatten_events(running)
+        if not len(modeled):
+            raise ValueError("Every modeled trial must contain at least one flash.")
+        times.append(modeled)
+        state_values.append(np.where(modeled < center_exit, -0.5, 0.5))
+        serial = np.full(len(modeled), -0.5)
+        serial[0] = 0.5
+        first_values.append(serial)
+    return (
+        _flatten_events(times),
+        _flatten_events(state_values),
+        _flatten_events(first_values),
+    )
 
 
 def build_task_design(
@@ -142,23 +150,31 @@ def build_task_design(
 ) -> tuple[DesignMatrix, list[dict]]:
     """Build sensory and task regressors with the accepted DAMN interface."""
     bases = task_temporal_bases()
-    stationary_flashes, running_flashes = split_flash_events(trials)
+    flashes, state_values, first_values = flash_events(trials)
     specifications = [
         (
-            "stationary_flash",
-            stationary_flashes,
+            "visual_flash",
+            flashes,
             None,
-            bases["stationary_flash"],
+            bases["visual_flash"],
             "sensory",
-            "each measured flash before withdrawal",
+            "each measured flash from initiation through response entry",
         ),
         (
-            "running_flash",
-            running_flashes,
-            None,
-            bases["running_flash"],
+            "flash_pre_post_withdrawal",
+            flashes,
+            state_values,
+            bases["flash_pre_post_withdrawal"],
             "sensory",
-            "each measured flash from withdrawal through response entry",
+            "pre-withdrawal=-0.5, post-withdrawal=+0.5",
+        ),
+        (
+            "flash_first_later",
+            flashes,
+            first_values,
+            bases["flash_first_later"],
+            "sensory",
+            "later=-0.5, first=+0.5",
         ),
         (
             "initiation",
@@ -328,6 +344,19 @@ def sample_unit_indices(n_units: int) -> np.ndarray:
         raise ValueError("Not enough eligible units for the requested sample.")
     rng = np.random.default_rng(SAMPLE_SEED)
     return np.sort(rng.choice(n_units, size=SAMPLE_UNITS, replace=False))
+
+
+def analysis_unit_indices(units, unit_set: str) -> np.ndarray:
+    """Return requested eligible rows after explicit technical exclusions."""
+    unit_ids = units["unit_id"].to_numpy(dtype=int)
+    keep = np.flatnonzero(~np.isin(unit_ids, list(EXCLUDED_UNIT_IDS)))
+    excluded = sorted(set(unit_ids) & set(EXCLUDED_UNIT_IDS))
+    for unit_id in excluded:
+        print(
+            f"Excluded unit {unit_id}: {EXCLUDED_UNIT_IDS[unit_id]}.",
+            flush=True,
+        )
+    return keep[sample_unit_indices(len(keep))] if unit_set == "sample" else keep
 
 
 def poisson_nll(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -1021,11 +1050,7 @@ def crossvalidate(
         stability_param_id=0,
         include_metrics=False,
     )
-    unit_rows = (
-        sample_unit_indices(len(units))
-        if unit_set == "sample"
-        else np.arange(len(units))
-    )
+    unit_rows = analysis_unit_indices(units, unit_set)
     checkpoints = output_dir / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
     print(
@@ -1145,11 +1170,7 @@ def fit_models(
         stability_param_id=0,
         include_metrics=False,
     )
-    unit_rows = (
-        sample_unit_indices(len(units))
-        if unit_set == "sample"
-        else np.arange(len(units))
-    )
+    unit_rows = analysis_unit_indices(units, unit_set)
     checkpoints = output_dir / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
     print(
@@ -1204,11 +1225,17 @@ def fit_models(
         )
         for count in VIDEO_COMPONENT_COUNTS
     }
+    selected_video_components = max(
+        VIDEO_COMPONENT_COUNTS,
+        key=lambda count: mean_validation_deviance[str(count)],
+    )
     summary = {
         "unit_set": unit_set,
         "units": len(unit_rows),
+        "excluded_unit_ids": sorted(EXCLUDED_UNIT_IDS),
         "mean_validation_deviance_explained": mean_validation_deviance,
-        "selected_video_components": VIDEO_COMPONENTS,
+        "selected_video_components": selected_video_components,
+        "video_component_selection_rule": "highest mean validation D2",
         "fit_rows": {
             "train": int(train.sum()),
             "validation": int(validation.sum()),
@@ -1257,11 +1284,7 @@ def refit_final(
         stability_param_id=0,
         include_metrics=False,
     )
-    unit_rows = (
-        sample_unit_indices(len(units))
-        if unit_set == "sample"
-        else np.arange(len(units))
-    )
+    unit_rows = analysis_unit_indices(units, unit_set)
     jobs: list[dict] = [
         {
             "unit_id": int(units.iloc[row]["unit_id"]),
@@ -1381,22 +1404,11 @@ def main() -> None:
             default="sample",
             help="Fit 20 sampled units or every eligible one.",
         )
-        command.add_argument(
-            "--workers",
-            type=int,
-            help="Units to fit at once. Defaults to one less than the core count.",
-        )
-        if name == "figures":
+        if name in {"fit", "unique"}:
             command.add_argument(
-                "--output-dir",
-                type=Path,
-                help="Write figures here instead of beside the fit.",
-            )
-            command.add_argument(
-                "--format",
-                choices=("pdf", "png", "both"),
-                default="both",
-                help="Which file formats to write.",
+                "--workers",
+                type=int,
+                help="Units to fit at once. Defaults to one less than the core count.",
             )
     args = parser.parse_args()
     model = PoissonGLM(
@@ -1411,7 +1423,7 @@ def main() -> None:
             model.prepare()
             return
         if args.command == "figures":
-            model.figures(args.units, args.output_dir, args.format)
+            model.figures(args.units)
             return
         getattr(model, args.command)(args.units, args.workers)
 
@@ -1491,8 +1503,6 @@ class PoissonGLM:
     def figures(
         self,
         units: str = "all",
-        output_dir: Path | None = None,
-        formats: str = "both",
     ) -> None:
         from thesis.ephys.analyses.glm_figures import make_figures
 
@@ -1500,8 +1510,6 @@ class PoissonGLM:
             self.windows,
             self.design,
             self.fit_dir(units),
-            output_dir,
-            ("pdf", "png") if formats == "both" else (formats,),
         )
 
 
