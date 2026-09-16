@@ -122,11 +122,8 @@ def flash_adaptation(modeled: np.ndarray, tau_s: float) -> np.ndarray:
     of the neuron's own spikes. Integrating tau da/dt = -a + sum_j delta(t - t_j)
     and reading a out just before each flash gives the sum above.
     """
-    index = np.zeros(len(modeled))
-    for position in range(1, len(modeled)):
-        earlier = modeled[:position]
-        index[position] = np.sum(np.exp(-(modeled[position] - earlier) / tau_s))
-    return index
+    lag = modeled[:, None] - modeled[None, :]
+    return np.where(lag > 0, np.exp(-lag / tau_s), 0.0).sum(axis=1)
 
 
 def flash_events(
@@ -273,7 +270,6 @@ def build_task_design(
     for item in manifest:
         if item["name"] == "flash_adaptation":
             item["adapt_tau_s"] = adapt_tau_s
-            item["adapt_center"] = adapt_center
             item["adapt_levels_centered"] = adapt_levels
     return design, manifest
 
@@ -424,9 +420,6 @@ def poisson_metrics(
         "deviance_explained": float(1 - model_deviance / null_deviance),
         "bits_per_spike": float((ll_model - ll_null) / (np.log(2) * spikes)),
         "observed_spikes": spikes,
-        "predicted_spikes": float(y_pred.sum()),
-        "predicted_count_max": float(y_pred.max()),
-        "predicted_count_p999": float(np.quantile(y_pred, 0.999)),
     }
 
 
@@ -543,7 +536,6 @@ def fit_poisson_alpha_path(
         "best_alpha": best,
         "best_index": ordered.index(best),
         "endpoint_plateau": endpoint_plateau,
-        "unconverged_alphas": sorted(failed),
     }
     return models[best], path
 
@@ -607,11 +599,11 @@ def _write_json_atomic(path: Path, value: dict, *, overwrite: bool = False) -> N
     partial.replace(path)
 
 
-def load_selected_tau(root: Path, default_s: float = DEFAULT_ADAPT_TAU_S) -> float:
+def load_selected_tau(root: Path) -> float:
     """Return the flash-adaptation tau chosen by `select-tau`, or the default."""
     path = root / "adaptation_tau.json"
     if not path.exists():
-        return default_s
+        return DEFAULT_ADAPT_TAU_S
     with path.open() as handle:
         return float(json.load(handle)["selected_tau_s"])
 
