@@ -47,9 +47,25 @@ TASK_LABELS = {
     "visual_flash": "Visual flash",
     "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
     "flash_first_later": "Flash: first - later",
+    "flash_first": "First flash",
+    "flash_later_pre": "Later flash, pre-withdrawal",
+    "flash_later_post": "Later flash, post-withdrawal",
     "initiation": "Initiation",
     "withdrawal": "Withdrawal",
     "response_entry": "Response entry",
+}
+# The design codes flashes as a common kernel plus two symmetric contrasts:
+# state (pre-withdrawal -0.5, post-withdrawal +0.5) and serial (first +0.5,
+# later -0.5). These are the three flash conditions that actually occur, with
+# their (state, serial) values. The first flash is always pre-withdrawal, so a
+# first-and-post-withdrawal condition never happens and is omitted.
+FLASH_COMMON = "visual_flash"
+FLASH_STATE = "flash_pre_post_withdrawal"
+FLASH_SERIAL = "flash_first_later"
+FLASH_CONDITIONS = {
+    "flash_first": (-0.5, 0.5),
+    "flash_later_pre": (-0.5, -0.5),
+    "flash_later_post": (0.5, -0.5),
 }
 COUNT_BIN_MS = 10
 PREDICTION_SEED = 2008
@@ -571,6 +587,45 @@ def fitted_kernels(
     return kernels
 
 
+def combined_flash_kernels(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Combine the common flash kernel and its two contrasts by condition.
+
+    A flash's log-rate contribution is the common kernel plus its state and
+    serial contrasts weighted by that flash's contrast values, so each occurring
+    condition is one interpretable kernel instead of two hard-to-read contrasts.
+    """
+    times, common = kernels[FLASH_COMMON]
+    _, state = kernels[FLASH_STATE]
+    _, serial = kernels[FLASH_SERIAL]
+    combined = {
+        name: (times, common + state_value * state + serial_value * serial)
+        for name, (state_value, serial_value) in FLASH_CONDITIONS.items()
+    }
+    if not all(np.isfinite(values).all() for _, values in combined.values()):
+        raise ValueError("Combined flash kernels must be finite.")
+    return combined
+
+
+def flash_condition_display(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]], task_names: list[str]
+) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
+    """Replace the raw flash regressors with the three combined conditions."""
+    display = {
+        name: values
+        for name, values in kernels.items()
+        if name not in (FLASH_COMMON, FLASH_STATE, FLASH_SERIAL)
+    }
+    display.update(combined_flash_kernels(kernels))
+    remaining = [
+        name
+        for name in task_names
+        if name not in (FLASH_COMMON, FLASH_STATE, FLASH_SERIAL)
+    ]
+    return display, [*FLASH_CONDITIONS, *remaining]
+
+
 def plot_kernel_figure(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
     task_names: list[str],
@@ -844,9 +899,10 @@ def make_figures(
         valid,
     )
     kernels = fitted_kernels(example_result, design_metadata, kernel_history_scale)
+    display_kernels, display_task_names = flash_condition_display(kernels, task_names)
     kernel_pdf, kernel_png = plot_kernel_figure(
-        kernels,
-        task_names,
+        display_kernels,
+        display_task_names,
         figure_dir / "fitted_kernels",
     )
     for old_stem in ("fitted_task_kernels", "fitted_video_kernels"):
