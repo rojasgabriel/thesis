@@ -120,13 +120,14 @@ def _raster_events(
 
 
 def _save_figure(figure, output: Path) -> tuple[Path | None, Path | None]:
-    """Write one publication figure as PDF."""
+    """Write one publication figure as SVG."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    pdf = output.with_suffix(".pdf")
-    figure.savefig(pdf, bbox_inches="tight")
-    output.with_suffix(".png").unlink(missing_ok=True)
+    svg = output.with_suffix(".svg")
+    figure.savefig(svg, bbox_inches="tight")
+    for stale in (".pdf", ".png"):
+        output.with_suffix(stale).unlink(missing_ok=True)
     plt.close(figure)
-    return pdf, None
+    return svg, None
 
 
 def fitted_trial_contributions(
@@ -914,7 +915,7 @@ def make_figures(
         figure_dir / "fitted_kernels",
     )
     for old_stem in ("fitted_task_kernels", "fitted_video_kernels"):
-        for suffix in (".pdf", ".png"):
+        for suffix in (".pdf", ".png", ".svg"):
             (figure_dir / old_stem).with_suffix(suffix).unlink(missing_ok=True)
 
     example_counts = build_unit_counts(prepared["alignments"], example_spikes)
@@ -1040,7 +1041,7 @@ def make_figures(
         design_metadata,
         figure_dir / "model_design",
     )
-    for suffix in (".pdf", ".png"):
+    for suffix in (".pdf", ".png", ".svg"):
         (figure_dir / "design_matrix_trial").with_suffix(suffix).unlink(missing_ok=True)
     seed = PREDICTION_SEED + EXAMPLE_UNIT_ID
     predicted = np.zeros_like(prediction_observed, dtype=int)
@@ -1060,11 +1061,12 @@ def make_figures(
         "predicted_spike_trains": (pdf_path, png_path),
     }
     for legacy_dir in (fit_dir / "figures", fit_dir / "unique_deviance"):
-        for pattern in ("*.pdf", "*.png"):
+        for pattern in ("*.pdf", "*.png", "*.svg"):
             for legacy in legacy_dir.glob(pattern):
                 legacy.unlink()
-    for png in figure_dir.glob("*.png"):
-        png.unlink()
+    for pattern in ("*.png", "*.pdf"):
+        for stale in figure_dir.glob(pattern):
+            stale.unlink()
     print(
         json.dumps(
             {
@@ -1089,7 +1091,7 @@ def make_figures(
                 "model_design_first_flashes": int(np.count_nonzero(adapt_values == 0)),
                 "model_design_valid_bins": int(displayed_rows.sum()),
                 "figure_dir": str(figure_dir),
-                "format": "pdf",
+                "format": "svg",
                 "figures": {
                     name: [str(path) for path in paths if path is not None]
                     for name, paths in written.items()
