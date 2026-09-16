@@ -240,11 +240,12 @@ def plot_deviance_explained(records: list[dict], output: Path) -> Path:
             bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
         )
         output.parent.mkdir(parents=True, exist_ok=True)
-        pdf = output.with_suffix(".pdf")
-        figure.savefig(pdf, bbox_inches="tight")
-        output.with_suffix(".png").unlink(missing_ok=True)
+        svg = output.with_suffix(".svg")
+        figure.savefig(svg, bbox_inches="tight")
+        for stale in (".pdf", ".png"):
+            output.with_suffix(stale).unlink(missing_ok=True)
         plt.close(figure)
-    return pdf
+    return svg
 
 
 def _write_summary(records: list[dict], output_dir: Path) -> dict:
@@ -524,15 +525,17 @@ def run_unique(
         )
 
     summary = _write_summary(records, output_dir)
-    pdf = plot_deviance_explained(records, fit_dir.parent / "deviance_explained")
+    figure_path = plot_deviance_explained(
+        records, fit_dir.parent / "deviance_explained"
+    )
     for stem in ("conditional_deviance", "deviance_explained"):
-        for suffix in (".pdf", ".png"):
+        for suffix in (".pdf", ".png", ".svg"):
             (output_dir / stem).with_suffix(suffix).unlink(missing_ok=True)
     print(
         json.dumps(
             {
                 **summary,
-                "pdf": str(pdf),
+                "figure": str(figure_path),
             },
             indent=2,
         )

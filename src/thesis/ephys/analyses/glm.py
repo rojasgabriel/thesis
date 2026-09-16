@@ -766,35 +766,42 @@ def select_adaptation_tau(
         include_metrics=False,
     )
     unit_rows = analysis_unit_indices(units, unit_set)
-    scores: dict[float, float] = {}
+    # Only the task design depends on tau, so build and standardize it once per
+    # candidate. Each unit's counts and history are tau-independent, so score
+    # every tau with the unit loop outside to build them only once per unit.
+    scaled_tasks = {}
     for tau in ADAPT_TAU_CANDIDATES_S:
         task, _ = build_task_design(prepared["alignments"], trials, tau)
-        scaled_task, _, _ = training_zscore(np.asarray(task.X), train)
-        scaled_task = scaled_task.astype(np.float32)
-        per_unit = []
-        for row in unit_rows:
-            spikes = np.asarray(units.iloc[row]["spike_times_s"], dtype=float)
-            counts = build_unit_counts(prepared["alignments"], spikes)
-            if counts[train].sum() <= 0 or counts[validation].sum() <= 0:
-                continue
-            history, _, _ = training_zscore(
-                build_unit_history(prepared["alignments"], spikes), train
-            )
+        scaled, _, _ = training_zscore(np.asarray(task.X), train)
+        scaled_tasks[tau] = scaled.astype(np.float32)
+    per_unit: dict[float, list[float]] = {tau: [] for tau in ADAPT_TAU_CANDIDATES_S}
+    for row in unit_rows:
+        spikes = np.asarray(units.iloc[row]["spike_times_s"], dtype=float)
+        counts = build_unit_counts(prepared["alignments"], spikes)
+        if counts[train].sum() <= 0 or counts[validation].sum() <= 0:
+            continue
+        history, _, _ = training_zscore(
+            build_unit_history(prepared["alignments"], spikes), train
+        )
+        fit_mean = float(counts[train].mean())
+        for tau, scaled_task in scaled_tasks.items():
             design = _design_with_history(scaled_task, history, scaled_task.shape[1])
             model, _ = fit_poisson_alpha_path(
                 design[train], counts[train], design[validation], counts[validation]
             )
-            per_unit.append(
+            per_unit[tau].append(
                 poisson_metrics(
-                    counts[validation],
-                    model.predict(design[validation]),
-                    float(counts[train].mean()),
+                    counts[validation], model.predict(design[validation]), fit_mean
                 )["deviance_explained"]
             )
-        scores[tau] = float(np.mean(per_unit)) if per_unit else float("-inf")
+    scores = {
+        tau: (float(np.mean(values)) if values else float("-inf"))
+        for tau, values in per_unit.items()
+    }
+    for tau in ADAPT_TAU_CANDIDATES_S:
         print(
             f"tau={tau * 1000:.0f} ms  mean validation D^2 = {scores[tau]:.4f} "
-            f"({len(per_unit)} units)",
+            f"({len(per_unit[tau])} units)",
             flush=True,
         )
     best = max(scores, key=scores.get)
