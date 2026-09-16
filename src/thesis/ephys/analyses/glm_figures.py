@@ -46,7 +46,7 @@ GROUP_COLORS = {
 TASK_LABELS = {
     "visual_flash": "Visual flash",
     "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
-    "flash_first_later": "Flash: first - later",
+    "flash_adaptation": "Flash: adaptation",
     "flash_first": "First flash",
     "flash_later_pre": "Later flash, pre-withdrawal",
     "flash_later_post": "Later flash, post-withdrawal",
@@ -54,18 +54,20 @@ TASK_LABELS = {
     "withdrawal": "Withdrawal",
     "response_entry": "Response entry",
 }
-# The design codes flashes as a common kernel plus two symmetric contrasts:
-# state (pre-withdrawal -0.5, post-withdrawal +0.5) and serial (first +0.5,
-# later -0.5). These are the three flash conditions that actually occur, with
-# their (state, serial) values. The first flash is always pre-withdrawal, so a
-# first-and-post-withdrawal condition never happens and is omitted.
+# The design codes flashes as a common kernel plus a state contrast (pre-withdrawal
+# -0.5, post-withdrawal +0.5) and a graded adaptation index. These are the three
+# flash conditions that actually occur, each as a (state value, adaptation-level
+# key). The level key selects a representative centered adaptation value from the
+# design metadata: "first" (raw index 0) or "late" (a typical adapted flash). The
+# first flash is always pre-withdrawal, so first-and-post never occurs and is
+# omitted.
 FLASH_COMMON = "visual_flash"
 FLASH_STATE = "flash_pre_post_withdrawal"
-FLASH_SERIAL = "flash_first_later"
+FLASH_ADAPT = "flash_adaptation"
 FLASH_CONDITIONS = {
-    "flash_first": (-0.5, 0.5),
-    "flash_later_pre": (-0.5, -0.5),
-    "flash_later_post": (0.5, -0.5),
+    "flash_first": (-0.5, "first"),
+    "flash_later_pre": (-0.5, "late"),
+    "flash_later_post": (0.5, "late"),
 }
 COUNT_BIN_MS = 10
 PREDICTION_SEED = 2008
@@ -589,19 +591,21 @@ def fitted_kernels(
 
 def combined_flash_kernels(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    adapt_levels: dict[str, float],
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Combine the common flash kernel and its two contrasts by condition.
+    """Combine the common flash kernel, the state contrast, and adaptation.
 
-    A flash's log-rate contribution is the common kernel plus its state and
-    serial contrasts weighted by that flash's contrast values, so each occurring
-    condition is one interpretable kernel instead of two hard-to-read contrasts.
+    A flash's log-rate contribution is the common kernel plus the state contrast
+    scaled by its pre/post value plus the adaptation kernel scaled by its centered
+    adaptation index. Evaluating that at representative levels gives one
+    interpretable kernel per occurring condition.
     """
     times, common = kernels[FLASH_COMMON]
     _, state = kernels[FLASH_STATE]
-    _, serial = kernels[FLASH_SERIAL]
+    _, adapt = kernels[FLASH_ADAPT]
     combined = {
-        name: (times, common + state_value * state + serial_value * serial)
-        for name, (state_value, serial_value) in FLASH_CONDITIONS.items()
+        name: (times, common + state_value * state + adapt_levels[level_key] * adapt)
+        for name, (state_value, level_key) in FLASH_CONDITIONS.items()
     }
     if not all(np.isfinite(values).all() for _, values in combined.values()):
         raise ValueError("Combined flash kernels must be finite.")
@@ -609,20 +613,17 @@ def combined_flash_kernels(
 
 
 def flash_condition_display(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]], task_names: list[str]
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    task_names: list[str],
+    adapt_levels: dict[str, float],
 ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
     """Replace the raw flash regressors with the three combined conditions."""
+    flash_blocks = (FLASH_COMMON, FLASH_STATE, FLASH_ADAPT)
     display = {
-        name: values
-        for name, values in kernels.items()
-        if name not in (FLASH_COMMON, FLASH_STATE, FLASH_SERIAL)
+        name: values for name, values in kernels.items() if name not in flash_blocks
     }
-    display.update(combined_flash_kernels(kernels))
-    remaining = [
-        name
-        for name in task_names
-        if name not in (FLASH_COMMON, FLASH_STATE, FLASH_SERIAL)
-    ]
+    display.update(combined_flash_kernels(kernels, adapt_levels))
+    remaining = [name for name in task_names if name not in flash_blocks]
     return display, [*FLASH_CONDITIONS, *remaining]
 
 
@@ -899,7 +900,14 @@ def make_figures(
         valid,
     )
     kernels = fitted_kernels(example_result, design_metadata, kernel_history_scale)
-    display_kernels, display_task_names = flash_condition_display(kernels, task_names)
+    adapt_levels = next(
+        item["adapt_levels_centered"]
+        for item in design_metadata["task_manifest"]
+        if item["name"] == "flash_adaptation"
+    )
+    display_kernels, display_task_names = flash_condition_display(
+        kernels, task_names, adapt_levels
+    )
     kernel_pdf, kernel_png = plot_kernel_figure(
         display_kernels,
         display_task_names,
@@ -992,8 +1000,8 @@ def make_figures(
     center_exit = float(trial["center_exit_s"])
     response_entry = float(trial["response_port_entry_s"])
     response_time = float(trial["response_port_entry_s"]) - alignment
-    modeled_flash_times, state_values, first_values = flash_events(
-        trials.iloc[[selected_trial_row]]
+    modeled_flash_times, state_values, adapt_values = flash_events(
+        trials.iloc[[selected_trial_row]], design_metadata["adapt_tau_s"]
     )
     modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
     if (
@@ -1078,7 +1086,7 @@ def make_figures(
                 "model_design_pre_withdrawal_flashes": int(
                     np.count_nonzero(state_values < 0)
                 ),
-                "model_design_first_flashes": int(np.count_nonzero(first_values > 0)),
+                "model_design_first_flashes": int(np.count_nonzero(adapt_values == 0)),
                 "model_design_valid_bins": int(displayed_rows.sum()),
                 "figure_dir": str(figure_dir),
                 "format": "pdf",

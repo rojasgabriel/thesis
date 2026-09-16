@@ -41,7 +41,7 @@ BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
     "visual_flash",
     "flash_pre_post_withdrawal",
-    "flash_first_later",
+    "flash_adaptation",
     "initiation",
     "withdrawal",
     "response_entry",
@@ -55,7 +55,7 @@ DISPLAY_LABELS = {
     "history": "Spike history",
     "visual_flash": "Visual flash",
     "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
-    "flash_first_later": "Flash: first - later",
+    "flash_adaptation": "Flash: adaptation",
     "initiation": "Initiation",
     "withdrawal": "Withdrawal",
     "response_entry": "Response entry",
