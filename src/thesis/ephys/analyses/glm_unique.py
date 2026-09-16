@@ -28,7 +28,6 @@ from thesis.ephys.analyses.glm import (
     analysis_unit_indices,
     build_unit_counts,
     build_unit_history,
-    code_version,
     fit_poisson_at_alpha,
     poisson_metrics,
     run_over_units,
@@ -311,7 +310,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
 def _block_task(job: dict) -> dict:
     """Score every block's unique and maximal deviance for one unit."""
     output = Path(job["output"])
-    cached = _cached(output, "unique")
+    cached = _cached(output)
     if cached is not None:
         if cached["shuffle_seed"] != SHUFFLE_SEED:
             raise ValueError(f"Shuffle seed differs in {output}.")
@@ -408,7 +407,6 @@ def _block_task(job: dict) -> dict:
             "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
         }
     record = {
-        "record_version": code_version("unique"),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "video_components": job["video_components"],
