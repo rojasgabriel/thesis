@@ -64,32 +64,17 @@ DEFAULT_ADAPT_TAU_S = 0.04
 _SHARED: dict = {}
 
 
-# Bump the stage a record belongs to when its computation changes, so saved
-# records from older logic are recomputed instead of silently reused. Tying
-# this to a commit hash instead invalidates every record on any edit to this
-# file, including edits that cannot affect the result.
-RECORD_VERSIONS = {
-    "selection": 4,
-    "folds": 5,
-    "final": 4,
-    "unique": 5,
-}
+def _cached(output: Path) -> dict | None:
+    """Return a saved per-unit record if one exists, so a killed run resumes.
 
-
-def code_version(stage: str) -> int:
-    """Return the version of the logic that produces one kind of record."""
-    return RECORD_VERSIONS[stage]
-
-
-def _cached(output: Path, stage: str) -> dict | None:
-    """Return a saved record only when the current logic produced it."""
+    Reuse is purely by presence: a record is trusted whenever its file exists.
+    Change an input (the design, tau, the fit logic) and the old records are no
+    longer valid, so delete the fit directory's checkpoints before rerunning.
+    """
     if not output.exists():
         return None
     with output.open() as handle:
-        record = json.load(handle)
-    if record.get("record_version") != code_version(stage):
-        return None
-    return record
+        return json.load(handle)
 
 
 CV_FOLDS = 10
@@ -868,7 +853,7 @@ def _final_task(job: dict) -> dict:
     carried over from the fold records.
     """
     output = Path(job["output"])
-    cached = _cached(output, "final")
+    cached = _cached(output)
     if cached is not None:
         return cached
     prepared = _SHARED["prepared"]
@@ -884,7 +869,6 @@ def _final_task(job: dict) -> dict:
     model = fit_poisson_at_alpha(design, counts[rows], job["alpha"])
     folds = job["cross_validated"]
     record = {
-        "record_version": code_version("final"),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "components": job["components"],
@@ -964,7 +948,7 @@ def run_over_units(
         "final": "final full-data fit",
         "unique": "unique-deviance analysis",
     }[stage]
-    reused = [_cached(Path(job["output"]), stage) is not None for job in jobs]
+    reused = [_cached(Path(job["output"])) is not None for job in jobs]
     shared_columns = {job.get("common_columns") for job in jobs}
     common_columns = shared_columns.pop() if len(shared_columns) == 1 else None
     if count <= 1:
@@ -1096,7 +1080,7 @@ def _fold_fit_for_unit(
 def _fold_task(job: dict) -> dict:
     """Score one unit across every fold and save its record."""
     output = Path(job["output"])
-    cached = _cached(output, "folds")
+    cached = _cached(output)
     if cached is not None:
         return cached
     prepared = _SHARED["prepared"]
@@ -1127,7 +1111,6 @@ def _fold_task(job: dict) -> dict:
     deviance = np.asarray([item["test"]["deviance_explained"] for item in results])
     bits = np.asarray([item["test"]["bits_per_spike"] for item in results])
     record = {
-        "record_version": code_version("folds"),
         "unit_id": job["unit_id"],
         "depth": job["depth"],
         "components": job["components"],
@@ -1240,7 +1223,7 @@ def crossvalidate(
 def _selection_task(job: dict) -> dict:
     """Select each model width's penalty for one unit and save the record."""
     output = Path(job["output"])
-    cached = _cached(output, "selection")
+    cached = _cached(output)
     if cached is not None:
         return cached
     prepared = _SHARED["prepared"]
@@ -1255,7 +1238,6 @@ def _selection_task(job: dict) -> dict:
         _SHARED["validation"],
     )
     selection.update(
-        record_version=code_version("selection"),
         unit_id=job["unit_id"],
         depth=job["depth"],
         spikes_in_selection_bins=int(
