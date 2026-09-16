@@ -989,8 +989,8 @@ def make_figures(
     model_times = relative_times[displayed_rows]
     model_counts = observed[typical_trial, displayed_rows]
     model_design = displayed_design[displayed_rows]
-    contributions, linear_predictor, fitted_count, contribution_error = (
-        fitted_trial_contributions(model_design, example_result, design_metadata)
+    contributions, linear_predictor, fitted_count, _ = fitted_trial_contributions(
+        model_design, example_result, design_metadata
     )
 
     trials = _load_selected_trials(prepared)
@@ -1083,7 +1083,6 @@ def make_figures(
                 "prediction_seed": seed,
                 "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
                 "model_design_trial": int(test_trial_numbers[typical_trial]),
-                "model_design_group_sum_max_abs_error": contribution_error,
                 "model_design_flashes": len(modeled_flash_times),
                 "model_design_pre_withdrawal_flashes": int(
                     np.count_nonzero(state_values < 0)
