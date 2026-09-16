@@ -3,9 +3,9 @@
 Scientific comparison
 ---------------------
 For GRB006 session 20240821_121447, predict V1 spikes from a common flash
-kernel, a pre/post-withdrawal contrast, an exponential flash-adaptation index,
-an initiation kernel truncated at the first flash, peri-withdrawal movement,
-response entry,
+kernel, a pre/post-withdrawal contrast, a synaptic-resource flash-adaptation
+term, an initiation kernel truncated at the first flash, peri-withdrawal
+movement, response entry,
 validation-selected additive video motion-energy PCs, and each unit's own
 strictly past spike history. Bins after response entry are excluded. Whole
 trials are split randomly 60/20/20. No response-side, coupling, session-drift,
@@ -56,10 +56,11 @@ INITIAL_ALPHAS = tuple(np.logspace(-5, 3, 9))
 HISTORY_COLUMNS = 10
 SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
-# Candidate flash-adaptation time constants (seconds) for `glm select-tau`, and
-# the fallback used when no selection has been written yet.
-ADAPT_TAU_CANDIDATES_S = (0.02, 0.04, 0.08, 0.16)
-DEFAULT_ADAPT_TAU_S = 0.04
+# Short-term synaptic-depression parameters for the flash-adaptation covariate:
+# each flash spends fraction ADAPT_U of the available resource, which recovers
+# toward full with time constant ADAPT_TAU_RECOVER_S between flashes.
+ADAPT_U = 0.5
+ADAPT_TAU_RECOVER_S = 0.2
 # Per-worker state, filled by _init_worker.
 _SHARED: dict = {}
 
@@ -109,32 +110,36 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     }
 
 
-def flash_adaptation(modeled: np.ndarray, tau_s: float) -> np.ndarray:
-    """Graded stimulus-history adaptation index for one trial's flashes.
+def flash_resource(modeled: np.ndarray, u: float, tau_recover_s: float) -> np.ndarray:
+    """Available synaptic resource at each flash, from short-term depression.
 
-    Each flash gets a_n = sum over earlier flashes j of exp(-(t_n - t_j) / tau_s):
-    an adaptation variable that jumps at each flash and then decays with time
-    constant tau_s. The first flash gets 0, because no earlier flash precedes it.
+    A resource pool starts full (R = 1). Each flash spends fraction `u` of what
+    is available, then the pool recovers toward 1 with time constant
+    `tau_recover_s` before the next flash. Returns R just before each flash: the
+    first flash sees a full pool (R = 1, the strongest response) and later
+    flashes in a dense train see a depleted pool (graded adaptation).
 
-    This is the adaptation-current form of Gerstner, Kistler, Naud & Paninski,
-    Neuronal Dynamics (Cambridge University Press, 2014), Eq. 6.2, with the
-    subthreshold coupling removed (a_k = 0) and driven by stimulus flashes instead
-    of the neuron's own spikes. Integrating tau da/dt = -a + sum_j delta(t - t_j)
-    and reading a out just before each flash gives the sum above.
+    This is the Tsodyks-Markram depression model (Tsodyks & Markram, 1997, PNAS),
+    driven by stimulus flashes.
     """
-    lag = modeled[:, None] - modeled[None, :]
-    return np.where(lag > 0, np.exp(-lag / tau_s), 0.0).sum(axis=1)
+    resource = np.ones(len(modeled))
+    available = 1.0
+    for position in range(len(modeled)):
+        resource[position] = available
+        available *= 1 - u
+        if position + 1 < len(modeled):
+            gap = modeled[position + 1] - modeled[position]
+            available = 1 - (1 - available) * np.exp(-gap / tau_recover_s)
+    return resource
 
 
-def flash_events(
-    trials, adapt_tau_s: float
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return modeled flashes, the pre/post state contrast, and a raw adaptation index.
+def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return modeled flashes, the pre/post state contrast, and the raw resource.
 
-    The adaptation index is the exponential stimulus-history trace from
-    `flash_adaptation`, left uncentered here. `build_task_design` centers it.
+    The resource is the available-pool trace from `flash_resource` (R = 1 at the
+    first flash, lower for adapted later flashes). `build_task_design` centers it.
     """
-    times, state_values, adapt_values = [], [], []
+    times, state_values, resource_values = [], [], []
     for flashes, center_entry, center_exit, response_entry in zip(
         trials["stim_pulse_times_s"],
         trials["center_entry_s"],
@@ -148,29 +153,31 @@ def flash_events(
             raise ValueError("Every modeled trial must contain at least one flash.")
         times.append(modeled)
         state_values.append(np.where(modeled < center_exit, -0.5, 0.5))
-        adapt_values.append(flash_adaptation(modeled, adapt_tau_s))
+        resource_values.append(flash_resource(modeled, ADAPT_U, ADAPT_TAU_RECOVER_S))
     return (
         _flatten_events(times),
         _flatten_events(state_values),
-        _flatten_events(adapt_values),
+        _flatten_events(resource_values),
     )
 
 
 def build_task_design(
-    alignments: np.ndarray, trials, adapt_tau_s: float
+    alignments: np.ndarray, trials
 ) -> tuple[DesignMatrix, list[dict]]:
     """Build sensory and task regressors with the accepted DAMN interface."""
     bases = task_temporal_bases()
-    flashes, state_values, adapt_raw = flash_events(trials, adapt_tau_s)
-    # Center the adaptation index so the common flash kernel stays the average
-    # response. First flashes carry a raw index of exactly 0; later flashes are
-    # positive. Store two representative centered levels for the kernel figure.
-    adapt_center = float(adapt_raw.mean()) if len(adapt_raw) else 0.0
-    adapt_values = adapt_raw - adapt_center
-    later = adapt_raw[adapt_raw > 0]
+    flashes, state_values, resource_raw = flash_events(trials)
+    # Center the resource so the common flash kernel stays the average response.
+    # A first flash sees a full pool (R = 1); adapted later flashes see less.
+    # Store two representative centered levels for the kernel figure.
+    adapt_center = float(resource_raw.mean()) if len(resource_raw) else 0.0
+    adapt_values = resource_raw - adapt_center
+    later = resource_raw[resource_raw < 1.0]
     adapt_levels = {
-        "first": -adapt_center,
-        "late": (float(later.mean()) - adapt_center) if len(later) else -adapt_center,
+        "first": 1.0 - adapt_center,
+        "late": (float(later.mean()) - adapt_center)
+        if len(later)
+        else 1.0 - adapt_center,
     }
     specifications = [
         (
@@ -195,7 +202,8 @@ def build_task_design(
             adapt_values,
             bases["flash_adaptation"],
             "sensory",
-            f"centered exponential stimulus-history index, tau={adapt_tau_s * 1000:.0f} ms",
+            f"centered depression resource, u={ADAPT_U}, "
+            f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
         ),
         (
             "initiation",
@@ -269,7 +277,8 @@ def build_task_design(
         start = stop
     for item in manifest:
         if item["name"] == "flash_adaptation":
-            item["adapt_tau_s"] = adapt_tau_s
+            item["adapt_u"] = ADAPT_U
+            item["adapt_tau_recover_s"] = ADAPT_TAU_RECOVER_S
             item["adapt_levels_centered"] = adapt_levels
     return design, manifest
 
@@ -599,15 +608,6 @@ def _write_json_atomic(path: Path, value: dict, *, overwrite: bool = False) -> N
     partial.replace(path)
 
 
-def load_selected_tau(root: Path) -> float:
-    """Return the flash-adaptation tau chosen by `select-tau`, or the default."""
-    path = root / "adaptation_tau.json"
-    if not path.exists():
-        return DEFAULT_ADAPT_TAU_S
-    with path.open() as handle:
-        return float(json.load(handle)["selected_tau_s"])
-
-
 def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     """Build and save the shared task and motion-energy design columns."""
     prepared = _load_windows(windows)
@@ -620,8 +620,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     if len(frame_times) != len(scores):
         raise ValueError("Video times and score rows must match.")
 
-    adapt_tau_s = load_selected_tau(output.parent)
-    task, task_manifest = build_task_design(prepared["alignments"], trials, adapt_tau_s)
+    task, task_manifest = build_task_design(prepared["alignments"], trials)
     task_values = task.X
     task_columns = task_values.shape[1]
     valid = _valid_bin_mask(prepared)
@@ -684,7 +683,8 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "training_mean": base_mean.tolist() + video_mean,
         "training_scale": base_scale.tolist() + video_scale,
         "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
-        "adapt_tau_s": adapt_tau_s,
+        "adapt_u": ADAPT_U,
+        "adapt_tau_recover_s": ADAPT_TAU_RECOVER_S,
     }
     matrix.flush()
     del matrix
@@ -717,73 +717,9 @@ def _common_design_is_current(output: Path) -> bool:
         and [item.get("name") for item in manifest] == list(bases)
         and [item.get("columns") for item in manifest]
         == [basis.basis.shape[1] for basis in bases.values()]
-        and metadata.get("adapt_tau_s") == load_selected_tau(output.parent)
+        and metadata.get("adapt_u") == ADAPT_U
+        and metadata.get("adapt_tau_recover_s") == ADAPT_TAU_RECOVER_S
     )
-
-
-def select_adaptation_tau(
-    windows: Path, unit_set: str = "sample"
-) -> tuple[float, dict[float, float]]:
-    """Choose the flash-adaptation time constant by held-out baseline deviance.
-
-    Each candidate tau changes the flash terms, so the task design is rebuilt and
-    the baseline model (task columns plus spike history, no video) is scored on
-    the inner validation split. The video sweep is not rebuilt, which keeps this
-    much cheaper than a full fit. Returns the best tau and every candidate score.
-    """
-    prepared = _load_windows(windows)
-    trials = _load_selected_trials(prepared)
-    valid = _valid_bin_mask(prepared)
-    train, validation, _ = _split_masks(prepared["split"], valid)
-    units = fetch_unit_table(
-        prepared["metadata"]["subject_name"],
-        prepared["metadata"]["session_name"],
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    unit_rows = analysis_unit_indices(units, unit_set)
-    # Only the task design depends on tau, so build and standardize it once per
-    # candidate. Each unit's counts and history are tau-independent, so score
-    # every tau with the unit loop outside to build them only once per unit.
-    scaled_tasks = {}
-    for tau in ADAPT_TAU_CANDIDATES_S:
-        task, _ = build_task_design(prepared["alignments"], trials, tau)
-        scaled, _, _ = training_zscore(np.asarray(task.X), train)
-        scaled_tasks[tau] = scaled.astype(np.float32)
-    per_unit: dict[float, list[float]] = {tau: [] for tau in ADAPT_TAU_CANDIDATES_S}
-    for row in unit_rows:
-        spikes = np.asarray(units.iloc[row]["spike_times_s"], dtype=float)
-        counts = build_unit_counts(prepared["alignments"], spikes)
-        if counts[train].sum() <= 0 or counts[validation].sum() <= 0:
-            continue
-        history, _, _ = training_zscore(
-            build_unit_history(prepared["alignments"], spikes), train
-        )
-        fit_mean = float(counts[train].mean())
-        for tau, scaled_task in scaled_tasks.items():
-            design = _design_with_history(scaled_task, history, scaled_task.shape[1])
-            model, _ = fit_poisson_alpha_path(
-                design[train], counts[train], design[validation], counts[validation]
-            )
-            per_unit[tau].append(
-                poisson_metrics(
-                    counts[validation], model.predict(design[validation]), fit_mean
-                )["deviance_explained"]
-            )
-    scores = {
-        tau: (float(np.mean(values)) if values else float("-inf"))
-        for tau, values in per_unit.items()
-    }
-    for tau in ADAPT_TAU_CANDIDATES_S:
-        print(
-            f"tau={tau * 1000:.0f} ms  mean validation D^2 = {scores[tau]:.4f} "
-            f"({len(per_unit[tau])} units)",
-            flush=True,
-        )
-    best = max(scores, key=scores.get)
-    print(f"Selected adaptation tau = {best * 1000:.0f} ms.", flush=True)
-    return best, scores
 
 
 def _selection_for_unit(
@@ -1344,7 +1280,6 @@ def fit_models(
 
 PIPELINE = """\
 pipeline
-  uv run glm select-tau --units all  flash-adaptation time constant (optional)
   uv run glm prepare                 trial windows, motion-energy PCs, design
   uv run glm fit --units all         penalty, cross-validation, final refit
   uv run glm unique --units all      unique and maximal deviance per block
@@ -1471,10 +1406,6 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, help_text in (
         ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
-        (
-            "select-tau",
-            "Choose the flash-adaptation time constant by held-out deviance",
-        ),
         ("fit", "Compare PC counts, cross-validate 10 PCs, then refit"),
         ("unique", "Unique and maximal explained deviance per block"),
         ("figures", "Kernels and held-out predictions"),
@@ -1521,9 +1452,6 @@ def main() -> None:
             if args.frame_times is not None:
                 model.frame_times = args.frame_times
             model.prepare()
-            return
-        if args.command == "select-tau":
-            model.select_tau(args.units)
             return
         if args.command == "figures":
             model.figures(args.units)
@@ -1585,30 +1513,6 @@ class PoissonGLM:
         else:
             prepare_common_design(self.windows, self.video, self.design)
             print(f"Completed common design: {self.design}", flush=True)
-
-    def select_tau(self, units: str = "sample") -> None:
-        """Choose the flash-adaptation time constant by held-out deviance."""
-        if not self.windows.exists():
-            from thesis.ephys.preprocessing.prepare_glm import write_stimulus_windows
-
-            write_stimulus_windows(
-                self.subject, self.session, self.windows, self.frame_times
-            )
-        best, scores = select_adaptation_tau(self.windows, units)
-        output = self.root / "adaptation_tau.json"
-        with output.open("w") as handle:
-            json.dump(
-                {
-                    "selected_tau_s": best,
-                    "candidates_s": list(ADAPT_TAU_CANDIDATES_S),
-                    "validation_deviance_by_tau": {
-                        f"{tau:g}": score for tau, score in scores.items()
-                    },
-                },
-                handle,
-                indent=2,
-            )
-        print(f"Selected tau = {best * 1000:.0f} ms; wrote {output}", flush=True)
 
     def fit(self, units: str = "sample", workers: int | None = None) -> None:
         """Compare PC counts, cross-validate 10 PCs, then refit on every trial.

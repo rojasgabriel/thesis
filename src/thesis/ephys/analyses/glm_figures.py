@@ -1001,8 +1001,8 @@ def make_figures(
     center_exit = float(trial["center_exit_s"])
     response_entry = float(trial["response_port_entry_s"])
     response_time = float(trial["response_port_entry_s"]) - alignment
-    modeled_flash_times, state_values, adapt_values = flash_events(
-        trials.iloc[[selected_trial_row]], design_metadata["adapt_tau_s"]
+    modeled_flash_times, state_values, resource_values = flash_events(
+        trials.iloc[[selected_trial_row]]
     )
     modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
     if (
@@ -1087,7 +1087,9 @@ def make_figures(
                 "model_design_pre_withdrawal_flashes": int(
                     np.count_nonzero(state_values < 0)
                 ),
-                "model_design_first_flashes": int(np.count_nonzero(adapt_values == 0)),
+                "model_design_first_flashes": int(
+                    np.count_nonzero(resource_values == 1.0)
+                ),
                 "model_design_valid_bins": int(displayed_rows.sum()),
                 "figure_dir": str(figure_dir),
                 "format": "svg",
