@@ -385,28 +385,22 @@ def plot_model_design(
         for axis in contribution_axes:
             axis.tick_params(axis="y", labelsize=6)
 
-        samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
-        binned_times_ms = (
-            times_ms[: len(times_ms) // samples * samples]
-            .reshape(-1, samples)
-            .mean(axis=1)
+        predicted_counts = np.random.default_rng(
+            PREDICTION_SEED + EXAMPLE_UNIT_ID
+        ).poisson(expected_count)
+        predicted_spike_times_ms = np.repeat(
+            times_ms, predicted_counts.astype(int, copy=False)
         )
-        for values, label, color in (
-            (counts, "Observed", OBSERVED_COLOR),
-            (expected_count, "Predicted", MODEL_COLOR),
-        ):
-            rate, shown = binned_rates(values, np.ones_like(values, dtype=bool))
-            count_axis.plot(
-                binned_times_ms[shown],
-                rate[shown],
-                color=color,
-                linewidth=1.0,
-                label=label,
-                drawstyle="steps-mid",
-            )
-        count_axis.set_ylabel(f"Firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
+        count_axis.eventplot(
+            [spike_times_ms, predicted_spike_times_ms],
+            colors=[OBSERVED_COLOR, MODEL_COLOR],
+            lineoffsets=[1, 0],
+            linelengths=0.8,
+            linewidths=0.5,
+        )
+        count_axis.set_yticks([1, 0], ["Observed", "Predicted"])
+        count_axis.set_ylim(-0.6, 1.6)
         count_axis.set_xlabel("Time from first measured flash (ms)")
-        count_axis.legend(frameon=False)
 
         all_axes = [
             event_axis,
