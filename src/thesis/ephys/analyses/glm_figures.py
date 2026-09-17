@@ -538,6 +538,34 @@ def plot_population_summary(
         return pdf_path, png_path, rate_deviance_rho
 
 
+def plot_bits_vs_deviance(results: list[dict], output: Path) -> Path | None:
+    """Scatter each unit's absolute prediction against its explained fraction."""
+    bits = np.asarray([item["cross_validated_bits_per_spike"] for item in results])
+    deviance = np.asarray(
+        [item["cross_validated_deviance_explained"] for item in results]
+    )
+    rho = float(spearmanr(bits, deviance).statistic)
+
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axis = plt.subplots(figsize=(3.7, 3.5))
+        axis.scatter(bits, deviance, color="black", alpha=0.65, s=16)
+        axis.axhline(0, color="0.65", linestyle="--", linewidth=0.8)
+        axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
+        axis.set_xlabel("Test prediction (bits/spike)")
+        axis.set_ylabel(r"Test deviance explained ($D^2$)")
+        axis.text(
+            0.98,
+            0.04,
+            f"Spearman ρ = {rho:.2f}\nn = {len(results)} units",
+            color="black",
+            transform=axis.transAxes,
+            ha="right",
+            va="bottom",
+        )
+        figure.tight_layout()
+        return _save_figure(figure, output)[0]
+
+
 def fitted_kernels(
     result: dict, design_metadata: dict, history_scale: np.ndarray
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -844,6 +872,7 @@ def make_figures(
     summary_pdf, summary_png, rate_deviance_rho = plot_population_summary(
         results, selections, figure_dir / "summary"
     )
+    plot_bits_vs_deviance(results, figure_dir / "bits_vs_deviance")
     result_by_id = {int(item["unit_id"]): item for item in results}
     selection_by_id = {int(item["unit_id"]): item for item in selections}
     if len(result_by_id) != len(results) or len(selection_by_id) != len(selections):
