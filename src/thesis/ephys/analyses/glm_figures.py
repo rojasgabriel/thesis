@@ -937,10 +937,6 @@ def make_figures(
         display_task_names,
         figure_dir / "fitted_kernels",
     )
-    for old_stem in ("fitted_task_kernels", "fitted_video_kernels"):
-        for suffix in (".pdf", ".png", ".svg"):
-            (figure_dir / old_stem).with_suffix(suffix).unlink(missing_ok=True)
-
     example_counts = build_unit_counts(prepared["alignments"], example_spikes)
     example_history_raw = build_unit_history(prepared["alignments"], example_spikes)
     count_grid = example_counts.reshape(len(trial_split), bin_count)
@@ -1064,8 +1060,6 @@ def make_figures(
         design_metadata,
         figure_dir / "model_design",
     )
-    for suffix in (".pdf", ".png", ".svg"):
-        (figure_dir / "design_matrix_trial").with_suffix(suffix).unlink(missing_ok=True)
     seed = PREDICTION_SEED + EXAMPLE_UNIT_ID
     predicted = np.zeros_like(prediction_observed, dtype=int)
     predicted[test_valid] = np.random.default_rng(seed).poisson(conditional[test_valid])
@@ -1083,13 +1077,6 @@ def make_figures(
         "fitted_kernels": (kernel_pdf, kernel_png),
         "predicted_spike_trains": (pdf_path, png_path),
     }
-    for legacy_dir in (fit_dir / "figures", fit_dir / "unique_deviance"):
-        for pattern in ("*.pdf", "*.png", "*.svg"):
-            for legacy in legacy_dir.glob(pattern):
-                legacy.unlink()
-    for pattern in ("*.png", "*.pdf"):
-        for stale in figure_dir.glob(pattern):
-            stale.unlink()
     print(
         json.dumps(
             {

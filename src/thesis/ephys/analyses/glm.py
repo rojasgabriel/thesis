@@ -48,11 +48,11 @@ from thesis.ephys.units import fetch_unit_table
 
 VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
 EXCLUDED_UNIT_IDS = {212: "unstable out-of-fold spike-history extrapolation"}
-# The optimum for this design sits near 3e-4. Below about 1e-5 the fit is
-# effectively unpenalized and LBFGS stops hitting its iteration limit rather
-# than converging, so the grid starts above that. It still extends by a decade
-# when an endpoint wins, and a penalty that fails to converge is dropped.
-INITIAL_ALPHAS = tuple(np.logspace(-5, 3, 9))
+# The optimum for this design sits near 3e-4, so a fixed 1e-6..1e4 grid brackets
+# it with a decade of margin on each side. Penalties that fail to converge (weak
+# ones hit the iteration limit, strong ones collapse to zero) are dropped per
+# unit; widen the grid if a unit's best penalty lands on an endpoint.
+ALPHAS = tuple(np.logspace(-6, 4, 11))
 HISTORY_COLUMNS = 10
 SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
@@ -82,7 +82,6 @@ CV_FOLDS = 10
 CV_SEED = 20260913
 CV_INNER_FRACTION = 0.25
 MAX_ITER = 500
-MAX_ALPHA_EXTENSIONS = 6
 
 
 def _flatten_events(values) -> np.ndarray:
@@ -468,83 +467,53 @@ def fit_poisson_alpha_path(
     X_validation: np.ndarray,
     y_validation: np.ndarray,
     *,
-    initial_alphas: tuple[float, ...] = INITIAL_ALPHAS,
+    alphas: tuple[float, ...] = ALPHAS,
 ) -> tuple[PoissonRegressor, dict]:
-    """Select L2 strength on validation data and extend endpoint grids."""
-    pending = {float(alpha) for alpha in initial_alphas}
-    if not pending or min(pending) <= 0:
+    """Select the L2 penalty with the lowest validation loss on a fixed grid.
+
+    Penalties are fit from strong to weak, each warm-started from the nearest
+    already-fit model, with a cold retry when the warm start fails. A penalty
+    that still fails to converge is dropped (weak ones hit the iteration limit,
+    strong ones collapse to zero coefficients); only a unit with no converged
+    penalty raises. Validation-loss ties break toward the stronger penalty.
+    """
+    candidates = sorted({float(alpha) for alpha in alphas}, reverse=True)
+    if not candidates or candidates[-1] <= 0:
         raise ValueError("Alpha candidates must be positive.")
     models: dict[float, PoissonRegressor] = {}
     losses: dict[float, float] = {}
-    failed: set[float] = set()
-    endpoint_plateau = False
-    for extension in range(MAX_ALPHA_EXTENSIONS + 1):
-        unfitted = pending - models.keys()
-        while unfitted:
-            errors = {}
-            fitted = 0
-            for alpha in sorted(unfitted, reverse=True):
-                warm_model = None
-                if models:
-                    nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
-                    warm_model = copy.deepcopy(models[nearest])
-                try:
-                    model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
-                except RuntimeError as error:
-                    if warm_model is not None:
-                        try:
-                            model = fit_poisson_at_alpha(X_train, y_train, alpha)
-                        except RuntimeError as cold_error:
-                            errors[alpha] = cold_error
-                            continue
-                    else:
-                        errors[alpha] = error
-                        continue
-                losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
-                models[alpha] = model
-                fitted += 1
-            unfitted = pending - models.keys()
-            if unfitted and not fitted:
-                # LBFGS can stop without converging at either extreme: weak
-                # penalties hit the iteration limit, strong ones terminate
-                # abnormally once the coefficients are driven to zero. Neither
-                # says the unit is unfittable, so drop those penalties and keep
-                # the ones that worked. Only give up when none converged.
-                if not models:
-                    detail = "; ".join(str(errors[alpha]) for alpha in sorted(unfitted))
-                    raise RuntimeError(f"No converged penalty initialization: {detail}")
-                failed |= unfitted
-                pending -= unfitted
-                unfitted = set()
-        ordered = sorted(losses)
-        minimum = min(losses.values())
-        tied = [
-            alpha
-            for alpha in ordered
-            if np.isclose(losses[alpha], minimum, rtol=1e-10, atol=1e-12)
-        ]
-        best = max(tied)
-        index = ordered.index(best)
-        if 0 < index < len(ordered) - 1:
-            break
-        neighbor = ordered[1] if index == 0 else ordered[-2]
-        if np.isclose(losses[best], losses[neighbor], rtol=1e-10, atol=1e-12):
-            endpoint_plateau = True
-            break
-        candidate = best / 10 if index == 0 else best * 10
-        if candidate in failed:
-            # The grid already reaches as far as this design can be fitted.
-            endpoint_plateau = True
-            break
-        if extension == MAX_ALPHA_EXTENSIONS:
-            raise RuntimeError("Best L2 penalty remains at an extended grid endpoint.")
-        pending.add(candidate)
+    for alpha in candidates:
+        warm_model = None
+        if models:
+            nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
+            warm_model = copy.deepcopy(models[nearest])
+        try:
+            model = fit_poisson_at_alpha(X_train, y_train, alpha, warm_model)
+        except RuntimeError:
+            if warm_model is None:
+                continue
+            try:
+                model = fit_poisson_at_alpha(X_train, y_train, alpha)
+            except RuntimeError:
+                continue
+        models[alpha] = model
+        losses[alpha] = poisson_nll(y_validation, model.predict(X_validation))
+    if not models:
+        raise RuntimeError("No penalty on the grid produced a converged fit.")
+    ordered = sorted(losses)
+    minimum = min(losses.values())
+    tied = [
+        alpha
+        for alpha in ordered
+        if np.isclose(losses[alpha], minimum, rtol=1e-10, atol=1e-12)
+    ]
+    best = max(tied)
     path = {
         "alphas": ordered,
         "validation_mean_nll": [losses[alpha] for alpha in ordered],
         "best_alpha": best,
         "best_index": ordered.index(best),
-        "endpoint_plateau": endpoint_plateau,
+        "best_at_endpoint": best in (ordered[0], ordered[-1]),
     }
     return models[best], path
 
@@ -592,16 +561,13 @@ def _split_masks(
     return tuple((split == value) & valid for value in (0, 1, 2))
 
 
-def _write_json_atomic(path: Path, value: dict, *, overwrite: bool = False) -> None:
+def _write_json_atomic(path: Path, value: dict) -> None:
     """Write JSON through a partial file so a kill cannot leave a half record.
 
-    Per-unit records refuse to overwrite, which is what makes a run resumable.
-    Derived summaries pass overwrite, since they are recomputed from those
-    records every time and a stale one would otherwise block the resume.
+    Resumability comes from `_cached` skipping units whose record already
+    exists, so this always replaces the target rather than guarding against it.
     """
     partial = path.with_name(f"{path.name}.partial")
-    if not overwrite and path.exists():
-        raise FileExistsError(path)
     partial.unlink(missing_ok=True)
     with partial.open("x") as handle:
         json.dump(value, handle, indent=2)
@@ -774,16 +740,12 @@ def _selection_for_unit(
 
 
 def _final_task(job: dict) -> dict:
-    """Refit one unit on every valid trial and save the canonical model.
+    """Refit one unit on every valid trial; return the canonical model record.
 
     This is the model the figures and the block analysis read. It is not
     scored here: its held-out performance is the cross-validated deviance,
     carried over from the fold records.
     """
-    output = Path(job["output"])
-    cached = _cached(output)
-    if cached is not None:
-        return cached
     prepared = _SHARED["prepared"]
     rows = _SHARED["all_valid"]
     spikes = np.asarray(job["spike_times"], dtype=float)
@@ -810,7 +772,6 @@ def _final_task(job: dict) -> dict:
         "cross_validated_bits_per_spike": folds["bits_per_spike_mean"],
         "folds_scored": folds["folds_scored"],
     }
-    _write_json_atomic(output, record, overwrite=True)
     return record
 
 
@@ -852,45 +813,58 @@ def _init_worker(
         )
 
 
+def _run_one(task, job) -> tuple[dict, bool]:
+    """Reuse a saved per-unit record, or compute one, persist it, and return it.
+
+    Returns (record, reused). Reuse is by file presence (`_cached`), so a rerun
+    skips finished units, while a failed unit writes nothing and is retried.
+    """
+    output = Path(job["output"])
+    cached = _cached(output)
+    if cached is not None:
+        return cached, True
+    record = task(job)
+    _write_json_atomic(output, record)
+    return record, False
+
+
 def run_over_units(
     task,
     jobs: list,
     windows: Path,
     design: Path,
     workers: int | None,
-    stage: str,
+    label: str,
     shuffle_seed: int | None = None,
 ):
-    """Run one task per unit, in parallel when that helps, and yield results.
+    """Run one task per unit, in parallel when that helps, yielding (record, reused).
 
-    Each unit is an independent fit that writes its own record, so a failed
-    worker costs that unit rather than the run. BLAS threading barely helps on
-    this design (8 threads buy about 1.3x), so workers run single-threaded and
-    the parallelism goes across units instead.
+    Each unit reuses or writes its own record, so a failed worker costs that
+    unit rather than the run. BLAS threading barely helps on this design (8
+    threads buy about 1.3x), so workers run single-threaded and the parallelism
+    goes across units instead.
     """
     # Leave one core free so the machine stays usable.
     count = min(max(1, workers or (os.cpu_count() or 2) - 1), len(jobs))
-    label = {
-        "selection": "model selection",
-        "folds": "cross-validation",
-        "final": "final full-data fit",
-        "unique": "unique-deviance analysis",
-    }[stage]
-    reused = [_cached(Path(job["output"])) is not None for job in jobs]
     shared_columns = {job.get("common_columns") for job in jobs}
     common_columns = shared_columns.pop() if len(shared_columns) == 1 else None
+
+    def guarded(job, produce):
+        try:
+            return produce()
+        except Exception as error:  # noqa: BLE001
+            # One unit's failure should not discard the rest of the run.
+            print(
+                f"Failed {label} for unit {job['unit_id']}: "
+                f"{type(error).__name__}: {error}",
+                flush=True,
+            )
+            return None, False
+
     if count <= 1:
         _init_worker(windows, design, shuffle_seed, common_columns)
-        for job, cache_hit in zip(jobs, reused, strict=True):
-            try:
-                yield task(job), cache_hit
-            except Exception as error:  # noqa: BLE001
-                print(
-                    f"Failed {label} for unit {job['unit_id']}: "
-                    f"{type(error).__name__}: {error}",
-                    flush=True,
-                )
-                yield None, False
+        for job in jobs:
+            yield guarded(job, lambda job=job: _run_one(task, job))
         return
     for name in (
         "OMP_NUM_THREADS",
@@ -906,19 +880,50 @@ def run_over_units(
         initializer=_init_worker,
         initargs=(windows, design, shuffle_seed, common_columns),
     ) as pool:
-        for job, cache_hit, future in zip(
-            jobs, reused, [pool.submit(task, job) for job in jobs], strict=True
-        ):
-            try:
-                yield future.result(), cache_hit
-            except Exception as error:  # noqa: BLE001
-                # One unit's failure should not discard the rest of the run.
-                print(
-                    f"Failed {label} for unit {job['unit_id']}: "
-                    f"{type(error).__name__}: {error}",
-                    flush=True,
-                )
-                yield None, False
+        submitted = [pool.submit(_run_one, task, job) for job in jobs]
+        for job, future in zip(jobs, submitted, strict=True):
+            yield guarded(job, future.result)
+
+
+def collect_records(
+    label: str,
+    task,
+    jobs: list,
+    windows: Path,
+    design: Path,
+    workers: int | None,
+    *,
+    shuffle_seed: int | None = None,
+    detail=None,
+) -> list[dict]:
+    """Drive one task over every unit, print progress, and return the records.
+
+    Successful records are already persisted per unit, so this raises if any
+    unit failed and a rerun resumes from what finished. `detail(record)` adds a
+    per-unit progress suffix when given.
+    """
+    records: list[dict] = []
+    failures = 0
+    for position, (record, reused) in enumerate(
+        run_over_units(task, jobs, windows, design, workers, label, shuffle_seed),
+        start=1,
+    ):
+        if record is None:
+            failures += 1
+            continue
+        records.append(record)
+        action = "Reused" if reused else "Completed"
+        suffix = f"  {detail(record)}" if detail else ""
+        print(
+            f"{action} {label} {position}/{len(jobs)}: unit {record['unit_id']}{suffix}",
+            flush=True,
+        )
+    if failures:
+        raise RuntimeError(
+            f"{label} incomplete: {failures}/{len(jobs)} units failed. "
+            "Per-unit results already written are safe to reuse; rerun the same command."
+        )
+    return records
 
 
 def trial_folds(n_trials: int, n_folds: int, seed: int) -> np.ndarray:
@@ -1006,11 +1011,7 @@ def _fold_fit_for_unit(
 
 
 def _fold_task(job: dict) -> dict:
-    """Score one unit across every fold and save its record."""
-    output = Path(job["output"])
-    cached = _cached(output)
-    if cached is not None:
-        return cached
+    """Score one unit across every fold and return its record."""
     prepared = _SHARED["prepared"]
     spikes = np.asarray(job["spike_times"], dtype=float)
     counts = build_unit_counts(prepared["alignments"], spikes)
@@ -1050,7 +1051,6 @@ def _fold_task(job: dict) -> dict:
         "bits_per_spike_mean": float(bits.mean()),
         "bits_per_spike_sem": float(bits.std(ddof=1) / np.sqrt(len(bits))),
     }
-    _write_json_atomic(output, record, overwrite=True)
     return record
 
 
@@ -1104,28 +1104,18 @@ def crossvalidate(
         }
         for row in unit_rows
     ]
-    records = []
-    failures = 0
-    for position, (record, reused) in enumerate(
-        run_over_units(_fold_task, jobs, windows, design, workers, "folds"), start=1
-    ):
-        if record is None:
-            failures += 1
-            continue
-        records.append(record)
-        action = "Reused" if reused else "Completed"
-        print(
-            f"{action} cross-validation {position}/{len(jobs)}: "
-            f"unit {record['unit_id']}  "
+    records = collect_records(
+        "cross-validation",
+        _fold_task,
+        jobs,
+        windows,
+        design,
+        workers,
+        detail=lambda record: (
             f"D2 {record['deviance_explained_mean']:.4f} "
-            f"+- {record['deviance_explained_sem']:.4f}",
-            flush=True,
-        )
-    if failures:
-        raise RuntimeError(
-            f"Cross-validation incomplete: {failures}/{len(jobs)} units failed. "
-            "Per-unit results already written are safe to reuse; rerun the same command."
-        )
+            f"+- {record['deviance_explained_sem']:.4f}"
+        ),
+    )
 
     means = np.asarray([item["deviance_explained_mean"] for item in records])
     summary = {
@@ -1142,18 +1132,12 @@ def crossvalidate(
             "q75": float(np.quantile(means, 0.75)),
         },
     }
-    _write_json_atomic(
-        output_dir / "cross_validation_summary.json", summary, overwrite=True
-    )
+    _write_json_atomic(output_dir / "cross_validation_summary.json", summary)
     print(json.dumps(summary, indent=2))
 
 
 def _selection_task(job: dict) -> dict:
-    """Select each model width's penalty for one unit and save the record."""
-    output = Path(job["output"])
-    cached = _cached(output)
-    if cached is not None:
-        return cached
+    """Select each model width's penalty for one unit and return the record."""
     prepared = _SHARED["prepared"]
     spikes = np.asarray(job["spike_times"], dtype=float)
     counts = build_unit_counts(prepared["alignments"], spikes)
@@ -1172,7 +1156,6 @@ def _selection_task(job: dict) -> dict:
             counts[_SHARED["train"] | _SHARED["validation"]].sum()
         ),
     )
-    _write_json_atomic(output, selection, overwrite=True)
     return selection
 
 
@@ -1222,26 +1205,9 @@ def fit_models(
         }
         for row in unit_rows
     ]
-    selections = []
-    failures = 0
-    for position, (selection, reused) in enumerate(
-        run_over_units(_selection_task, jobs, windows, design, workers, "selection"),
-        start=1,
-    ):
-        if selection is None:
-            failures += 1
-            continue
-        selections.append(selection)
-        action = "Reused" if reused else "Completed"
-        print(
-            f"{action} validation {position}/{len(jobs)}: unit {selection['unit_id']}",
-            flush=True,
-        )
-    if failures:
-        raise RuntimeError(
-            f"Validation incomplete: {failures}/{len(jobs)} units failed. "
-            "Per-unit results already written are safe to reuse; rerun the same command."
-        )
+    selections = collect_records(
+        "model selection", _selection_task, jobs, windows, design, workers
+    )
 
     mean_validation_deviance = {
         str(count): float(
@@ -1274,7 +1240,7 @@ def fit_models(
         },
     }
 
-    _write_json_atomic(output_dir / "validation_summary.json", summary, overwrite=True)
+    _write_json_atomic(output_dir / "validation_summary.json", summary)
     print(json.dumps(summary, indent=2))
 
 
@@ -1358,25 +1324,9 @@ def refit_final(
         f"{components} motion-energy PCs.",
         flush=True,
     )
-    failures = 0
-    for position, (record, reused) in enumerate(
-        run_over_units(_final_task, final_jobs, windows, design, workers, "final"),
-        start=1,
-    ):
-        if record is None:
-            failures += 1
-            continue
-        action = "Reused" if reused else "Completed"
-        print(
-            f"{action} final fit {position}/{len(final_jobs)}: "
-            f"unit {record['unit_id']}",
-            flush=True,
-        )
-    if failures:
-        raise RuntimeError(
-            f"Final refit incomplete: {failures}/{len(final_jobs)} units failed. "
-            "Per-unit results already written are safe to reuse; rerun the same command."
-        )
+    collect_records(
+        "final full-data fit", _final_task, final_jobs, windows, design, workers
+    )
 
 
 @contextmanager
@@ -1466,16 +1416,7 @@ class PoissonGLM:
     subject: str = "GRB006"
     session: str = "20240821_121447"
     root: Path = Path("figures/glm/GRB006_20240821_121447")
-
-    @property
-    def frame_times(self) -> Path:
-        return self._frame_times or self.root / "frame_times.npy"
-
-    @frame_times.setter
-    def frame_times(self, value: Path) -> None:
-        self._frame_times = value
-
-    _frame_times: Path | None = None
+    frame_times: Path | None = None
 
     @property
     def windows(self) -> Path:
@@ -1500,7 +1441,10 @@ class PoissonGLM:
             print(f"Reused prepared windows: {self.windows}", flush=True)
         else:
             write_stimulus_windows(
-                self.subject, self.session, self.windows, self.frame_times
+                self.subject,
+                self.session,
+                self.windows,
+                self.frame_times or self.root / "frame_times.npy",
             )
             print(f"Completed prepared windows: {self.windows}", flush=True)
         if self.video.exists():

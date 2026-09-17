@@ -21,18 +21,17 @@ from thesis.ephys.analyses.glm import (
     _SHARED,
     EXCLUDED_UNIT_IDS,
     HISTORY_COLUMNS,
-    _cached,
     _design_with_history,
     _load_windows,
-    _write_json_atomic,
     analysis_unit_indices,
     build_unit_counts,
     build_unit_history,
+    collect_records,
     fit_poisson_at_alpha,
     poisson_metrics,
-    run_over_units,
     training_zscore,
 )
+from thesis.ephys.analyses.glm_figures import _save_figure
 from thesis.ephys.units import fetch_unit_table
 
 SHUFFLE_SEED = 20260910
@@ -72,6 +71,7 @@ FIGURE_STYLE = {
     "pdf.fonttype": 42,
     "ps.fonttype": 42,
 }
+GROUP_ORDER = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
 
 def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
@@ -238,17 +238,10 @@ def plot_deviance_explained(records: list[dict], output: Path) -> Path:
         figure.subplots_adjust(
             bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
         )
-        output.parent.mkdir(parents=True, exist_ok=True)
-        svg = output.with_suffix(".svg")
-        figure.savefig(svg, bbox_inches="tight")
-        for stale in (".pdf", ".png"):
-            output.with_suffix(stale).unlink(missing_ok=True)
-        plt.close(figure)
-    return svg
+        return _save_figure(figure, output)[0]
 
 
 def _write_summary(records: list[dict], output_dir: Path) -> dict:
-    group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
     summary = {
         "units": len(records),
         "shuffle_seed": SHUFFLE_SEED,
@@ -256,7 +249,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
         "groups": {},
     }
     rows = []
-    for group in group_order:
+    for group in GROUP_ORDER:
         values = np.asarray(
             [
                 record["groups"][group]["unique_test_deviance_explained"]
@@ -309,12 +302,6 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
 
 def _block_task(job: dict) -> dict:
     """Score every block's unique and maximal deviance for one unit."""
-    output = Path(job["output"])
-    cached = _cached(output)
-    if cached is not None:
-        if cached["shuffle_seed"] != SHUFFLE_SEED:
-            raise ValueError(f"Shuffle seed differs in {output}.")
-        return cached
     prepared = _SHARED["prepared"]
     common = _SHARED["common"]
     spikes = np.asarray(job["spike_times"], dtype=float)
@@ -415,7 +402,6 @@ def _block_task(job: dict) -> dict:
         "complete_test_deviance_explained": float(np.mean(complete_folds)),
         "groups": group_results,
     }
-    _write_json_atomic(output, record, overwrite=True)
     return record
 
 
@@ -439,7 +425,6 @@ def run_unique(
     video_components = selected_components.pop()
     common_columns = int(metadata["base_columns"]) + video_components
     groups = block_slices(metadata, video_components)
-    group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
     with np.load(windows, allow_pickle=False) as saved:
         trial_split = saved["trial_split"].copy()
@@ -472,7 +457,7 @@ def run_unique(
             "video_components": video_components,
             "common_columns": common_columns,
             "groups": groups,
-            "group_order": group_order,
+            "group_order": GROUP_ORDER,
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(
                 checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"
@@ -491,44 +476,20 @@ def run_unique(
         "full and shuffled comparator fits within each cross-validation fold.",
         flush=True,
     )
-    records = []
-    failures = 0
-    for position, (record, reused) in enumerate(
-        run_over_units(
-            _block_task,
-            jobs,
-            windows,
-            design_path,
-            workers,
-            "unique",
-            SHUFFLE_SEED,
-        ),
-        start=1,
-    ):
-        if record is None:
-            failures += 1
-            continue
-        records.append(record)
-        action = "Reused" if reused else "Completed"
-        print(
-            f"{action} unique analysis {position}/{len(jobs)}: "
-            f"unit {record['unit_id']}",
-            flush=True,
-        )
-    if failures:
-        raise RuntimeError(
-            f"Unique analysis incomplete: {failures}/{len(jobs)} units failed. "
-            "No summary or figure was written. Per-unit results are safe to reuse; "
-            "rerun the same command."
-        )
+    records = collect_records(
+        "unique-deviance analysis",
+        _block_task,
+        jobs,
+        windows,
+        design_path,
+        workers,
+        shuffle_seed=SHUFFLE_SEED,
+    )
 
     summary = _write_summary(records, output_dir)
     figure_path = plot_deviance_explained(
         records, fit_dir.parent / "deviance_explained"
     )
-    for stem in ("conditional_deviance", "deviance_explained"):
-        for suffix in (".pdf", ".png", ".svg"):
-            (output_dir / stem).with_suffix(suffix).unlink(missing_ok=True)
     print(
         json.dumps(
             {
