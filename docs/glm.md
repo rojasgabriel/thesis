@@ -159,6 +159,21 @@ uv run glm unique --units all
 The same command writes `deviance_explained.svg` in the selected fit directory
 (`all_fit_me/` or `sample_fit_me/`), alongside its other figures.
 
+## Synthetic check
+
+Run this after you change the design, fit, or unique-deviance code:
+
+```bash
+uv run python -m thesis.ephys.analyses.glm.synthetic_check
+```
+
+It needs no database. It plants known flash, state, adaptation, withdrawal,
+motion-energy, and history effects in 80 simulated trials. Then it runs
+`prepare`, `fit`, and `unique` on them and checks that the effects come back. It
+compares 2 and 5 motion-energy PCs instead of 10–200 and takes about 1 minute.
+It raises `AssertionError` with the failed checks. Pass `--out DIR` (a new
+directory) to keep the artifacts and look at the figures.
+
 ## Related methods
 
 Same family as [Truccolo et al. 2005](https://pubmed.ncbi.nlm.nih.gov/15356183/)
