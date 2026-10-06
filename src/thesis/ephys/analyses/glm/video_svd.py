@@ -1,6 +1,6 @@
 """Fit motion-energy SVD on training trials and project all trial frames.
 
-Uses the trial selection and split saved by design.write_stimulus_windows. Each retained frame
+Uses the trial selection and split saved by dmat.write_stimulus_windows. Each retained frame
 is the absolute pixel difference from the previous decoded frame when the two
 indices are adjacent; the first frame of a gap is left at zero. PCA fits 200
 training-frame axes at 80 by 64. Scores are z-scored with training frames only.
