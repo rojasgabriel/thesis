@@ -1,6 +1,6 @@
 """Supplementary figure: every V1 GLM regressor and how it is constructed.
 
-Draws each regressor from the real basis definitions in glm.py (no fit needed):
+Draws each regressor from the real basis definitions in glm/dmat.py (no fit needed):
 event regressors are raised-cosine bases placed at their event, video PCs enter
 contemporaneously with no basis, and spike history uses log-spaced causal bases.
 
@@ -16,7 +16,7 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import spike_history_basis, task_temporal_bases
+from thesis.ephys.analyses.glm.dmat import spike_history_basis, task_temporal_bases
 
 FIGURE_STYLE = {
     "axes.spines.top": False,
@@ -54,10 +54,10 @@ def main() -> Path:
             "aligned to each flash",
         ),
         (
-            "flash_first_later",
-            "Flash: first/later",
+            "flash_adaptation",
+            "Flash: adaptation",
             "sensory",
-            "same bases, weight +0.5 first / -0.5 later",
+            "same bases, centered synaptic resource at each flash",
             "aligned to each flash",
         ),
         (

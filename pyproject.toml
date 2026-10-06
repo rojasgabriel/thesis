@@ -12,8 +12,6 @@ dependencies = [
     "damn",
     "datajoint>=0.14.8,<0.15",
     "diptest>=0.11.0",
-    "fit-psychometric",
-    "h5py",
     "ipykernel>=7.3.0",
     "ipympl>=0.10.0",
     "ipywidgets>=8.1.9",
@@ -25,8 +23,6 @@ dependencies = [
     "scikit-learn>=1.7.0",
     "spks",
     "statsmodels>=0.14.6",
-    "torch",
-    "torchaudio",
     "pyqtgraph>=0.14,<0.15",
     "pyside6-essentials>=6.8,<7",
     "scienceplots>=2.2.2",
@@ -35,11 +31,13 @@ dependencies = [
 ]
 
 [project.scripts]
-glm = "thesis.ephys.analyses.glm:main"
+glm = "thesis.ephys.analyses.glm.cli:main"
 submit-glm = "thesis.ephys.tools.submit_glm:main"
 insert_audio_events = "thesis.ephys.preprocessing.insert_audio_events:main"
 insert-stream-sync = "thesis.ephys.preprocessing.insert_streamsync:main"
 populate-unit-counts = "thesis.ephys.preprocessing.populate_unit_counts:main"
+populate-session = "thesis.ephys.preprocessing.populate_session:main"
+double-peak-candidates = "thesis.ephys.analyses.double_peak_candidates:main"
 psth = "thesis.ephys.tools.psth_app:main"
 stimulus-response = "thesis.ephys.tools.stimulus_response_app:main"
 survey-map = "thesis.ephys.tools.survey_map_app:main"
@@ -61,7 +59,6 @@ constraint-dependencies = [
 
 [tool.uv.sources]
 damn = { git = "https://github.com/mdmelin/damn", rev = "9140eb18a21d74196c16d2b19b6034d3b9ba4449" }
-fit-psychometric = { git = "https://github.com/rojasgabriel/fit_psychometric", rev = "fa39c44fef00510cb7e9b8383ad492a56642f14c" }
 spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
 dpca = { git = "https://github.com/machenslab/dPCA", subdirectory = "python", rev = "1def5b15854638811a25257dc0b68074ab5a1be0" }
 matlab-dpca = { git = "https://github.com/rojasgabriel/matlab_dpca_in_python", rev = "8055ce10ff8d185bd7beb1d4563a4e2ecd3e92a8" }

@@ -11,8 +11,9 @@ Before writing any code:
 - Keep domain code under `src/thesis/<domain>/`; do not keep empty domain
   folders.
 - Keep complete ephys workflows under `src/thesis/ephys/analyses/` and
-  interactive entry points under `src/thesis/ephys/tools/`. Run them as
-  modules with `uv python -m`.
+  interactive entry points under `src/thesis/ephys/tools/`. Run them with
+  `uv run <script>` when `pyproject.toml` defines a script, otherwise with
+  `uv run python -m <module>`.
 - Keep notebooks exploratory.
 - Do not add machine-local paths or sibling-checkout dependencies.
 

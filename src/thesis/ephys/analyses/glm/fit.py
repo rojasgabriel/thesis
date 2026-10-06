@@ -17,50 +17,54 @@ once. A 20-unit random sample is available for quick runs.
 
 from __future__ import annotations
 
-import argparse
 import concurrent.futures as futures
 import copy
-import fcntl
 import json
 import os
 import warnings
-from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from damn.alignment import compute_spike_count, construct_timebins
-from damn.objects.basis_function_objects import RaisedCosineBasis
-from damn.objects.design_matrix_objects import DesignMatrix
-from damn.objects.regressor_objects import EventRegressor
+from damn.alignment import compute_spike_count
 from scipy.special import xlogy
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import PoissonRegressor
 
-from thesis.ephys.preprocessing.prepare_glm import (
+from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
     POST_S,
     PRE_S,
+    VIDEO_COMPONENT_COUNTS,
+    _design_with_history,
+    _load_windows,
+    _split_masks,
+    _valid_bin_mask,
+    build_unit_history,
     training_zscore,
 )
-from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
-VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
 EXCLUDED_UNIT_IDS = {212: "unstable out-of-fold spike-history extrapolation"}
+
+
+def load_unit_records(directory: Path, pattern: str) -> list[dict]:
+    """Read per-unit JSON records, skipping units excluded from the analysis."""
+    records = []
+    for path in sorted(directory.glob(pattern)):
+        with path.open() as handle:
+            record = json.load(handle)
+        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+            records.append(record)
+    return records
+
+
 # The optimum for this design sits near 3e-4, so a fixed 1e-6..1e4 grid brackets
 # it with a decade of margin on each side. Penalties that fail to converge (weak
 # ones hit the iteration limit, strong ones collapse to zero) are dropped per
 # unit; widen the grid if a unit's best penalty lands on an endpoint.
 ALPHAS = tuple(np.logspace(-6, 4, 11))
-HISTORY_COLUMNS = 10
 SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
-# Short-term synaptic-depression parameters for the flash-adaptation covariate:
-# each flash spends fraction ADAPT_U of the available resource, which recovers
-# toward full with time constant ADAPT_TAU_RECOVER_S between flashes.
-ADAPT_U = 0.5
-ADAPT_TAU_RECOVER_S = 0.2
 # Per-worker state, filled by _init_worker.
 _SHARED: dict = {}
 
@@ -84,291 +88,12 @@ CV_INNER_FRACTION = 0.25
 MAX_ITER = 500
 
 
-def _flatten_events(values) -> np.ndarray:
-    arrays = [np.asarray(value, dtype=float) for value in values if len(value)]
-    return np.concatenate(arrays) if arrays else np.empty(0)
-
-
-def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
-    """Return the temporal basis used for each sensory or task regressor."""
-    # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
-    # short response window instead of spending log-spaced bases below 10 ms.
-    flash = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
-    # Poke leads the first flash by 54 ms median, 113 ms at most, and the kernel
-    # is truncated there, so bases past 90 ms would be empty on every trial.
-    poke = RaisedCosineBasis(4, 0, 0.091, BINWIDTH_S)
-    peri_exit = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
-    pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
-    return {
-        "visual_flash": flash,
-        "flash_pre_post_withdrawal": flash,
-        "flash_adaptation": flash,
-        "initiation": poke,
-        "withdrawal": peri_exit,
-        "response_entry": pre_response,
-    }
-
-
-def flash_resource(modeled: np.ndarray, u: float, tau_recover_s: float) -> np.ndarray:
-    """Available synaptic resource at each flash, from short-term depression.
-
-    A resource pool starts full (R = 1). Each flash spends fraction `u` of what
-    is available, then the pool recovers toward 1 with time constant
-    `tau_recover_s` before the next flash. Returns R just before each flash: the
-    first flash sees a full pool (R = 1, the strongest response) and later
-    flashes in a dense train see a depleted pool (graded adaptation).
-
-    This is the Tsodyks-Markram depression model (Tsodyks & Markram, 1997, PNAS),
-    driven by stimulus flashes.
-    """
-    resource = np.ones(len(modeled))
-    available = 1.0
-    for position in range(len(modeled)):
-        resource[position] = available
-        available *= 1 - u
-        if position + 1 < len(modeled):
-            gap = modeled[position + 1] - modeled[position]
-            available = 1 - (1 - available) * np.exp(-gap / tau_recover_s)
-    return resource
-
-
-def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return modeled flashes, the pre/post state contrast, and the raw resource.
-
-    The resource is the available-pool trace from `flash_resource` (R = 1 at the
-    first flash, lower for adapted later flashes). `build_task_design` centers it.
-    """
-    times, state_values, resource_values = [], [], []
-    for flashes, center_entry, center_exit, response_entry in zip(
-        trials["stim_pulse_times_s"],
-        trials["center_entry_s"],
-        trials["center_exit_s"],
-        trials["response_port_entry_s"],
-        strict=True,
-    ):
-        flashes = np.asarray(flashes, dtype=float)
-        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
-        if not len(modeled):
-            raise ValueError("Every modeled trial must contain at least one flash.")
-        times.append(modeled)
-        state_values.append(np.where(modeled < center_exit, -0.5, 0.5))
-        resource_values.append(flash_resource(modeled, ADAPT_U, ADAPT_TAU_RECOVER_S))
-    return (
-        _flatten_events(times),
-        _flatten_events(state_values),
-        _flatten_events(resource_values),
-    )
-
-
-def build_task_design(
-    alignments: np.ndarray, trials
-) -> tuple[DesignMatrix, list[dict]]:
-    """Build sensory and task regressors with the accepted DAMN interface."""
-    bases = task_temporal_bases()
-    flashes, state_values, resource_raw = flash_events(trials)
-    # Center the resource so the common flash kernel stays the average response.
-    # A first flash sees a full pool (R = 1); adapted later flashes see less.
-    # Store two representative centered levels for the kernel figure.
-    adapt_center = float(resource_raw.mean()) if len(resource_raw) else 0.0
-    adapt_values = resource_raw - adapt_center
-    later = resource_raw[resource_raw < 1.0]
-    adapt_levels = {
-        "first": 1.0 - adapt_center,
-        "late": (float(later.mean()) - adapt_center)
-        if len(later)
-        else 1.0 - adapt_center,
-    }
-    specifications = [
-        (
-            "visual_flash",
-            flashes,
-            None,
-            bases["visual_flash"],
-            "sensory",
-            "each measured flash from initiation through response entry",
-        ),
-        (
-            "flash_pre_post_withdrawal",
-            flashes,
-            state_values,
-            bases["flash_pre_post_withdrawal"],
-            "sensory",
-            "pre-withdrawal=-0.5, post-withdrawal=+0.5",
-        ),
-        (
-            "flash_adaptation",
-            flashes,
-            adapt_values,
-            bases["flash_adaptation"],
-            "sensory",
-            f"centered depression resource, u={ADAPT_U}, "
-            f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
-        ),
-        (
-            "initiation",
-            trials["center_entry_s"].to_numpy(dtype=float),
-            None,
-            bases["initiation"],
-            "task",
-            "initiation truncated at the first flash",
-        ),
-        (
-            "withdrawal",
-            trials["center_exit_s"].to_numpy(dtype=float),
-            None,
-            bases["withdrawal"],
-            "task",
-            "one withdrawal per completed trial",
-        ),
-        (
-            "response_entry",
-            trials["response_port_entry_s"].to_numpy(dtype=float),
-            None,
-            bases["response_entry"],
-            "task",
-            "every response; the side-independent part",
-        ),
-    ]
-    design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
-    manifest = []
-    for name, times, values, basis, group, coding in specifications:
-        design.add_regressor(
-            EventRegressor(
-                name,
-                times,
-                BINWIDTH_S,
-                event_values=values,
-                basis_objects=[basis],
-                tags=group.split(),
-            )
-        )
-        manifest.append(
-            {
-                "name": name,
-                "group": group,
-                "events": len(times),
-                "columns": basis.basis.shape[1],
-                "kernel_range_s": [
-                    float(basis.basis_time[0]),
-                    float(basis.basis_time[-1]),
-                ],
-                "coding": coding,
-            }
-        )
-    design.build_matrix()
-    initiation = design.regressors["initiation"]
-    rows_per_trial = initiation.X.shape[0] // len(alignments)
-    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
-    truncated = np.asarray(initiation.X).reshape(len(alignments), rows_per_trial, -1)
-    truncated[:, np.asarray(centers) >= 0] = 0
-    initiation._X = truncated.reshape(-1, initiation.X.shape[1])
-    values = np.asarray(design.X)
-    start = 0
-    widths = [regressor.X.shape[1] for regressor in design.regressors.values()]
-    for item, columns in zip(manifest, widths, strict=True):
-        stop = start + columns
-        item["trials_with_nonzero_values"] = int(
-            np.any(
-                values[:, start:stop].reshape(len(alignments), rows_per_trial, -1),
-                axis=(1, 2),
-            ).sum()
-        )
-        start = stop
-    for item in manifest:
-        if item["name"] == "flash_adaptation":
-            item["adapt_u"] = ADAPT_U
-            item["adapt_tau_recover_s"] = ADAPT_TAU_RECOVER_S
-            item["adapt_levels_centered"] = adapt_levels
-    return design, manifest
-
-
-def task_column_names(manifest: list[dict]) -> list[str]:
-    """Return stable names for the task-basis columns."""
-    return [
-        f"{item['name']}_basis_{index + 1:02d}"
-        for item in manifest
-        for index in range(item["columns"])
-    ]
-
-
 def build_unit_counts(alignments: np.ndarray, spike_times: np.ndarray) -> np.ndarray:
     """Return raw 1 ms spike counts on the GLM grid."""
     counts, _, _ = compute_spike_count(
         alignments, spike_times, PRE_S, POST_S, BINWIDTH_S
     )
     return counts.ravel()
-
-
-def spike_history_basis() -> RaisedCosineBasis:
-    """Return 10 log-spaced functions at strictly past lags 1 through 100 ms."""
-    return RaisedCosineBasis(HISTORY_COLUMNS, 0, 0.1, BINWIDTH_S, log_scale=True)
-
-
-def build_unit_history(alignments: np.ndarray, spike_times: np.ndarray) -> np.ndarray:
-    """Return one unit's 10 strictly past self-history columns.
-
-    Shifting the spike times by one bin keeps the filter causal, so the count in
-    a bin is never a predictor of itself.
-    """
-    design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
-    design.add_regressor(
-        EventRegressor(
-            "self_history",
-            np.asarray(spike_times, dtype=float) + BINWIDTH_S,
-            BINWIDTH_S,
-            basis_objects=[spike_history_basis()],
-            tags="history",
-        )
-    )
-    design.build_matrix()
-    history = np.asarray(design.X)
-    if history.shape[1] != HISTORY_COLUMNS:
-        raise ValueError("Expected 10 strictly past self-history columns.")
-    return history
-
-
-def _design_with_history(
-    common: np.ndarray,
-    history: np.ndarray,
-    common_columns: int,
-    rows: np.ndarray | None = None,
-) -> np.ndarray:
-    """Append a unit's standardized history block to the shared design.
-
-    Pass `rows` to build only the rows a fit needs. Materializing all 775,866
-    and then slicing costs the full array plus every slice; roughly half those
-    rows are masked out after response entry and never scored.
-    """
-    index = slice(None) if rows is None else rows
-    height = common.shape[0] if rows is None else int(np.count_nonzero(rows))
-    design = np.empty((height, common_columns + history.shape[1]), dtype=np.float32)
-    design[:, :common_columns] = common[index, :common_columns]
-    design[:, common_columns:] = history[index]
-    return design
-
-
-def build_video_component_design(
-    alignments: np.ndarray,
-    frame_times: np.ndarray,
-    score: np.ndarray,
-) -> np.ndarray:
-    """Interpolate one contemporaneous motion-energy PC onto the DAMN grid."""
-    frame_times = np.asarray(frame_times, dtype=float)
-    score = np.asarray(score, dtype=float)
-    if frame_times.ndim != 1 or score.ndim != 1 or len(frame_times) != len(score):
-        raise ValueError("Video times and one component must be matching vectors.")
-    if (
-        not np.isfinite(frame_times).all()
-        or not np.isfinite(score).all()
-        or np.any(np.diff(frame_times) <= 0)
-    ):
-        raise ValueError("Video times and scores must be finite and time ordered.")
-    alignments = np.asarray(alignments, dtype=float)
-    if alignments.ndim != 1 or not np.isfinite(alignments).all():
-        raise ValueError("Trial alignments must be a finite vector.")
-    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
-    prediction_times = (alignments[:, None] + centers).ravel()
-    return np.interp(prediction_times, frame_times, score, left=0, right=0)[:, None]
 
 
 def sample_unit_indices(n_units: int) -> np.ndarray:
@@ -518,49 +243,6 @@ def fit_poisson_alpha_path(
     return models[best], path
 
 
-def _load_windows(path: Path) -> dict:
-    with np.load(path, allow_pickle=False) as windows:
-        selected_rows = windows["selected_trial_rows"]
-        eligible = windows["eligible_trials"]
-        return {
-            "metadata": json.loads(str(windows["metadata_json"])),
-            "selected_rows": selected_rows.copy(),
-            "selected_trial_numbers": windows["trial_num"][selected_rows].copy(),
-            "alignments": windows["first_stim_s"][eligible].copy(),
-            "split": windows["bin_split"].copy(),
-            "bin_times": windows["bin_center_s"].copy(),
-            "relative_centers": windows["relative_bin_centers_s"].copy(),
-            "response_times": windows["response_entry_s"][eligible].copy(),
-        }
-
-
-def _load_selected_trials(prepared: dict):
-    metadata = prepared["metadata"]
-    trials = build_trial_table(
-        metadata["subject_name"], metadata["session_name"], include_frames=False
-    )
-    trials = trials.iloc[prepared["selected_rows"]].reset_index(drop=True)
-    if not np.array_equal(trials["trial_num"], prepared["selected_trial_numbers"]):
-        raise ValueError("Prepared and live trial selections differ.")
-    return trials
-
-
-def _valid_bin_mask(prepared: dict) -> np.ndarray:
-    """Keep bins at or before that trial's response entry."""
-    limits = prepared["response_times"] - prepared["alignments"]
-    return (prepared["relative_centers"][None, :] <= limits[:, None]).ravel()
-
-
-def _split_masks(
-    split: np.ndarray, valid: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Train / validation / test rows after the response-entry mask."""
-    split = np.asarray(split)
-    if not np.array_equal(np.unique(split), [0, 1, 2]):
-        raise ValueError("Rows must contain train, validation, and test labels.")
-    return tuple((split == value) & valid for value in (0, 1, 2))
-
-
 def _write_json_atomic(path: Path, value: dict) -> None:
     """Write JSON through a partial file so a kill cannot leave a half record.
 
@@ -572,120 +254,6 @@ def _write_json_atomic(path: Path, value: dict) -> None:
     with partial.open("x") as handle:
         json.dump(value, handle, indent=2)
     partial.replace(path)
-
-
-def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
-    """Build and save the shared task and motion-energy design columns."""
-    prepared = _load_windows(windows)
-    trials = _load_selected_trials(prepared)
-    with np.load(video, allow_pickle=False) as data:
-        frame_times = data["frame_times_s"].copy()
-        scores = data["scores"].copy()
-    if scores.ndim != 2 or scores.shape[1] != max(VIDEO_COMPONENT_COUNTS):
-        raise ValueError("Expected exactly 200 video-component score columns.")
-    if len(frame_times) != len(scores):
-        raise ValueError("Video times and score rows must match.")
-
-    task, task_manifest = build_task_design(prepared["alignments"], trials)
-    task_values = task.X
-    task_columns = task_values.shape[1]
-    valid = _valid_bin_mask(prepared)
-    train_rows, _, _ = _split_masks(prepared["split"], valid)
-    scaled_base, base_mean, base_scale = training_zscore(task_values, train_rows)
-    base_names = task_column_names(task_manifest)
-    base_columns = len(base_names)
-    total_columns = base_columns + scores.shape[1]
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    matrix_partial = output.with_name(f"{output.name}.partial")
-    metadata_path = output.with_suffix(".json")
-    metadata_partial = metadata_path.with_name(f"{metadata_path.name}.partial")
-    for path in (matrix_partial, metadata_partial):
-        if path.exists():
-            raise FileExistsError(path)
-    matrix = np.lib.format.open_memmap(
-        matrix_partial,
-        mode="w+",
-        dtype=np.float32,
-        shape=(len(prepared["split"]), total_columns),
-    )
-    matrix[:, :base_columns] = scaled_base.astype(np.float32)
-    del scaled_base, task_values
-
-    video_mean = []
-    video_scale = []
-    video_names = []
-    for component in range(scores.shape[1]):
-        block = build_video_component_design(
-            prepared["alignments"],
-            frame_times,
-            scores[:, component],
-        )
-        scaled, mean, scale = training_zscore(block, train_rows)
-        start = base_columns + component
-        matrix[:, start] = scaled[:, 0].astype(np.float32)
-        video_mean.extend(mean.tolist())
-        video_scale.extend(scale.tolist())
-        video_names.append(f"video_pc_{component + 1:03d}")
-        if (component + 1) % 10 == 0:
-            matrix.flush()
-            print(
-                f"Built {component + 1} of {scores.shape[1]} video components.",
-                flush=True,
-            )
-
-    metadata = {
-        "rows": matrix.shape[0],
-        "columns": matrix.shape[1],
-        "dtype": str(matrix.dtype),
-        "task_columns": task_columns,
-        "drift_columns": 0,
-        "base_columns": base_columns,
-        "video_components": scores.shape[1],
-        "video_columns_per_component": 1,
-        "video_component_candidates": list(VIDEO_COMPONENT_COUNTS),
-        "column_names": base_names + video_names,
-        "task_manifest": task_manifest,
-        "training_mean": base_mean.tolist() + video_mean,
-        "training_scale": base_scale.tolist() + video_scale,
-        "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
-        "adapt_u": ADAPT_U,
-        "adapt_tau_recover_s": ADAPT_TAU_RECOVER_S,
-    }
-    matrix.flush()
-    del matrix
-    with metadata_partial.open("x") as handle:
-        json.dump(metadata, handle, indent=2)
-    matrix_partial.replace(output)
-    metadata_partial.replace(metadata_path)
-    omitted = {"column_names", "task_manifest", "training_mean", "training_scale"}
-    print(
-        json.dumps(
-            {key: metadata[key] for key in metadata if key not in omitted}, indent=2
-        )
-    )
-
-
-def _common_design_is_current(output: Path) -> bool:
-    """Return whether a saved design has the current task and video columns."""
-    metadata_path = output.with_suffix(".json")
-    if not output.exists() or not metadata_path.exists():
-        return False
-    try:
-        with metadata_path.open() as handle:
-            metadata = json.load(handle)
-    except (OSError, ValueError):
-        return False
-    bases = task_temporal_bases()
-    manifest = metadata.get("task_manifest", [])
-    return (
-        metadata.get("video_columns_per_component") == 1
-        and [item.get("name") for item in manifest] == list(bases)
-        and [item.get("columns") for item in manifest]
-        == [basis.basis.shape[1] for basis in bases.values()]
-        and metadata.get("adapt_u") == ADAPT_U
-        and metadata.get("adapt_tau_recover_s") == ADAPT_TAU_RECOVER_S
-    )
 
 
 def _selection_for_unit(
@@ -806,7 +374,7 @@ def _init_worker(
         partitions=partitions,
     )
     if shuffle_seed is not None:
-        from thesis.ephys.analyses.glm_unique import shuffle_permutations
+        from thesis.ephys.analyses.glm.unique_dev import shuffle_permutations
 
         _SHARED["within_trial"] = shuffle_permutations(
             len(trial_split), bins_per_trial, shuffle_seed, valid=valid
@@ -1244,19 +812,6 @@ def fit_models(
     print(json.dumps(summary, indent=2))
 
 
-PIPELINE = """\
-pipeline
-  uv run glm prepare                 trial windows, motion-energy PCs, design
-  uv run glm fit --units all         penalty, cross-validation, final refit
-  uv run glm unique --units all      unique and maximal deviance per block
-  uv run glm figures --units all     kernels and held-out predictions
-
-Artifacts go to figures/glm/<subject>_<session>/. Restart checkpoints stay in
-the fit directory's checkpoints/ folder. Use --units sample for a 20-unit
-smoke run on any command.
-"""
-
-
 def refit_final(
     windows: Path,
     design: Path,
@@ -1327,166 +882,6 @@ def refit_final(
     collect_records(
         "final full-data fit", _final_task, final_jobs, windows, design, workers
     )
+    from thesis.ephys.analyses.glm.figures import plot_fit
 
-
-@contextmanager
-def _artifact_lock(root: Path):
-    """Prevent two GLM commands from writing to one session at the same time."""
-    root.mkdir(parents=True, exist_ok=True)
-    with (root / ".glm.lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError(
-                f"Another GLM command is already running for {root}."
-            ) from None
-        yield
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="glm",
-        description=(
-            "Poisson GLM for V1 spiking from flashes, task events, movement, "
-            "and each unit's own spike history."
-        ),
-        epilog=PIPELINE,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True, metavar="command")
-    for name, help_text in (
-        ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
-        ("fit", "Compare PC counts, cross-validate 10 PCs, then refit"),
-        ("unique", "Unique and maximal explained deviance per block"),
-        ("figures", "Kernels and held-out predictions"),
-    ):
-        command = subparsers.add_parser(
-            name, help=help_text, description=help_text + "."
-        )
-        command.add_argument("--subject", default="GRB006", help="Subject name.")
-        command.add_argument(
-            "--session", default="20240821_121447", help="Session name."
-        )
-        command.add_argument(
-            "--root",
-            type=Path,
-            help="Artifact directory. Defaults to figures/glm/<subject>_<session>.",
-        )
-        if name == "prepare":
-            command.add_argument(
-                "--frame-times",
-                type=Path,
-                help="Camera frame times. Defaults to frame_times.npy under the root.",
-            )
-            continue
-        command.add_argument(
-            "--units",
-            choices=("sample", "all"),
-            default="sample",
-            help="Fit 20 sampled units or every eligible one.",
-        )
-        if name in {"fit", "unique"}:
-            command.add_argument(
-                "--workers",
-                type=int,
-                help="Units to fit at once. Defaults to one less than the core count.",
-            )
-    args = parser.parse_args()
-    model = PoissonGLM(
-        subject=args.subject,
-        session=args.session,
-        root=args.root or Path("figures/glm") / f"{args.subject}_{args.session}",
-    )
-    with _artifact_lock(model.root):
-        if args.command == "prepare":
-            if args.frame_times is not None:
-                model.frame_times = args.frame_times
-            model.prepare()
-            return
-        if args.command == "figures":
-            model.figures(args.units)
-            return
-        getattr(model, args.command)(args.units, args.workers)
-
-
-@dataclass
-class PoissonGLM:
-    """Default artifact layout and the commands that produce a fitted GLM."""
-
-    subject: str = "GRB006"
-    session: str = "20240821_121447"
-    root: Path = Path("figures/glm/GRB006_20240821_121447")
-    frame_times: Path | None = None
-
-    @property
-    def windows(self) -> Path:
-        return self.root / "stimulus_windows_me.npz"
-
-    @property
-    def video(self) -> Path:
-        return self.root / "video_me_features.npz"
-
-    @property
-    def design(self) -> Path:
-        return self.root / "common_design_me.npy"
-
-    def fit_dir(self, units: str) -> Path:
-        return self.root / f"{units}_fit_me"
-
-    def prepare(self) -> None:
-        from thesis.ephys.preprocessing.prepare_glm import write_stimulus_windows
-        from thesis.ephys.preprocessing.video_svd import write_motion_energy_features
-
-        if self.windows.exists():
-            print(f"Reused prepared windows: {self.windows}", flush=True)
-        else:
-            write_stimulus_windows(
-                self.subject,
-                self.session,
-                self.windows,
-                self.frame_times or self.root / "frame_times.npy",
-            )
-            print(f"Completed prepared windows: {self.windows}", flush=True)
-        if self.video.exists():
-            print(f"Reused motion-energy features: {self.video}", flush=True)
-        else:
-            write_motion_energy_features(self.windows, self.video)
-            print(f"Completed motion-energy features: {self.video}", flush=True)
-        if _common_design_is_current(self.design):
-            print(f"Reused common design: {self.design}", flush=True)
-        else:
-            prepare_common_design(self.windows, self.video, self.design)
-            print(f"Completed common design: {self.design}", flush=True)
-
-    def fit(self, units: str = "sample", workers: int | None = None) -> None:
-        """Compare PC counts, cross-validate 10 PCs, then refit on every trial.
-
-        One command keeps the coefficients and comparisons in the same run.
-        """
-        directory = self.fit_dir(units)
-        fit_models(self.windows, self.design, units, directory, workers)
-        with (directory / "validation_summary.json").open() as handle:
-            components = int(json.load(handle)["selected_video_components"])
-        crossvalidate(self.windows, self.design, units, directory, components, workers)
-        refit_final(self.windows, self.design, units, directory, components, workers)
-
-    def unique(self, units: str = "sample", workers: int | None = None) -> None:
-        from thesis.ephys.analyses.glm_unique import run_unique
-
-        run_unique(self.windows, self.design, self.fit_dir(units), units, workers)
-
-    def figures(
-        self,
-        units: str = "all",
-    ) -> None:
-        from thesis.ephys.analyses.glm_figures import make_figures
-
-        make_figures(
-            self.windows,
-            self.design,
-            self.fit_dir(units),
-        )
-
-
-if __name__ == "__main__":
-    main()
+    plot_fit(windows, design, output_dir)

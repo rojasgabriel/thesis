@@ -18,8 +18,7 @@ PIPELINE = (
     "cd {repo} && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && "
     "uv run glm prepare && "
     "uv run glm fit    --units {units} --workers $LABDATA_N_JOBS && "
-    "uv run glm unique --units {units} --workers $LABDATA_N_JOBS && "
-    "uv run glm figures --units {units}"
+    "uv run glm unique --units {units} --workers $LABDATA_N_JOBS"
 )
 
 
