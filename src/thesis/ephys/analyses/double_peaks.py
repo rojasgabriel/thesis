@@ -2,7 +2,9 @@
 
 This supplemental figure shows discovery examples, the predicted change in peak
 latency for 15 versus 30 ms pulses, and whether double-peak units cluster by
-waveform duration or recording depth. Pulse-duration comparisons exclude trials
+waveform duration or recording depth. Discovery alignment uses only first-in-train
+pulses with a confirmed 15 ms width; first pulses of unknown width are excluded
+and counted per session. Pulse-duration comparisons exclude trials
 with another pulse inside the peak-search window. All spike times are
 synchronized to the behavioral-event clock before alignment.
 """
@@ -173,7 +175,7 @@ def _plot_mean_sem_trace(ax, bin_centers, peth_trials, color) -> None:
     ax.fill_between(bin_centers, mean - sem, mean + sem, alpha=0.25, color=color)
 
 
-def _collect_session(subject: str, session: str) -> dict:
+def _collect_session(subject: str, session: str, *, controls: bool = True) -> dict:
     from labdata_plugin.schema import StimulusResponse
 
     units = fetch_unit_table(
@@ -197,6 +199,9 @@ def _collect_session(subject: str, session: str) -> dict:
     ].to_numpy(dtype=float)
     if not first_15ms.size:
         raise ValueError(f"No first 15 ms pulses for {subject} {session}")
+    unknown = int(first_pulses["width_ms"].isna().sum())
+    if unknown:
+        print(f"{subject} {session}: excluded {unknown} first pulses of unknown width")
 
     unit_ids = units["unit_id"].astype(int).tolist()
     spike_times = units["spike_times_s"].tolist()
@@ -224,7 +229,7 @@ def _collect_session(subject: str, session: str) -> dict:
             "n_15ms": len(first_15ms),
         }
 
-    if mixed_widths and double_peak_unit_ids:
+    if controls and mixed_widths and double_peak_unit_ids:
         isolated = first_pulses[
             first_pulses["next_pulse_delay_s"].isna()
             | first_pulses["next_pulse_delay_s"].gt(PEAK_SEARCH_WINDOW[1])

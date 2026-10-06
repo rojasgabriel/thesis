@@ -99,7 +99,9 @@ def main() -> None:
     output = args.output or (
         Path("figures/double_peak") / f"{args.subject.lower()}_candidates.svg"
     )
-    plot_candidates(_collect_session(args.subject, args.session), output)
+    plot_candidates(
+        _collect_session(args.subject, args.session, controls=False), output
+    )
 
 
 if __name__ == "__main__":
