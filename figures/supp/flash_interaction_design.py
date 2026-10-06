@@ -86,6 +86,15 @@ def main() -> Path:
         events.set_xlim(0, 1)
         events.axis("off")
         events.set_title("events", fontsize=9)
+        events.text(
+            0.0,
+            1.02,
+            "a",
+            transform=events.transAxes,
+            fontsize=10,
+            fontweight="bold",
+            va="bottom",
+        )
 
         matrix = fig.add_subplot(grid[1])
         image = matrix.imshow(
@@ -111,16 +120,21 @@ def main() -> Path:
         matrix.set_yticks([])
         matrix.set_xlabel("18 design columns  =  3 blocks x 6 basis functions")
         matrix.set_title("design matrix for this trial (rows = 1 ms bins)", fontsize=9)
+        matrix.text(
+            -0.02,
+            1.02,
+            "b",
+            transform=matrix.transAxes,
+            fontsize=10,
+            fontweight="bold",
+            va="bottom",
+            ha="right",
+        )
         bar = fig.colorbar(image, ax=matrix, fraction=0.03, pad=0.02)
         bar.set_label("design value", fontsize=8)
 
-        fig.suptitle(
-            "Same flash bumps, scaled by state and adaptation",
-            y=0.98,
-            fontsize=11,
-        )
         fig.subplots_adjust(left=0.02, right=0.92, top=0.9, bottom=0.1)
-        output = Path(__file__).resolve().parent / "flash_interaction_design.pdf"
+        output = Path(__file__).resolve().parent / "flash_interaction_design.svg"
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
     return output

@@ -43,12 +43,11 @@ def main() -> Path:
         )
         colors = plt.cm.viridis(np.linspace(0, 0.9, basis.shape[1]))
         for index in range(basis.shape[1]):
-            curves.plot(
-                basis[:, index],
-                times_ms,
-                color=colors[index],
-                linewidth=1.6,
-                label=f"basis {index + 1}",
+            curves.plot(basis[:, index], times_ms, color=colors[index], linewidth=1.6)
+            # Keep edge labels off the axes.
+            peak = np.clip(times_ms[np.argmax(basis[:, index])], 4, 146)
+            curves.text(
+                1.03, peak, str(index + 1), color=colors[index], fontsize=8, va="center"
             )
         curves.set_ylim(150, 0)
         curves.set_xlabel("design value (basis height)")
@@ -56,7 +55,7 @@ def main() -> Path:
         curves.set_title(
             "the 6 basis functions\n(each peaks at a different lag)", fontsize=9
         )
-        curves.legend(fontsize=7, loc="lower right", frameon=False)
+        curves.set_xlim(0, 1.12)
 
         image = block.imshow(
             basis,
@@ -71,16 +70,20 @@ def main() -> Path:
         block.set_xlabel("column (basis index)")
         block.set_title("the same thing as a\n6-column design block", fontsize=9)
         bar = fig.colorbar(image, ax=block, fraction=0.06, pad=0.04)
-        bar.set_label("design value", fontsize=8)
+        bar.set_label("design value (an input, not a fitted weight)", fontsize=8)
+        for ax, letter in ((curves, "a"), (block, "b")):
+            ax.text(
+                -0.12,
+                1.1,
+                letter,
+                transform=ax.transAxes,
+                fontsize=10,
+                fontweight="bold",
+                va="bottom",
+            )
 
-        fig.suptitle(
-            "One flash = 6 columns. The 'gradient' is the basis tiling time, "
-            "not model weight.",
-            y=0.99,
-            fontsize=10,
-        )
-        fig.tight_layout(rect=(0, 0, 1, 0.95))
-        output = Path(__file__).resolve().parent / "flash_basis_columns.pdf"
+        fig.tight_layout()
+        output = Path(__file__).resolve().parent / "flash_basis_columns.svg"
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
     return output

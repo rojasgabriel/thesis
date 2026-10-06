@@ -2,7 +2,7 @@
 
 Explainer figures for the design of the V1 spike-prediction GLM. Each script is
 self-contained, builds its figure from the real basis definitions in
-`src/thesis/ephys/analyses/glm/dmat.py` (no fit needed), and writes its PDF next to
+`src/thesis/ephys/analyses/glm/dmat.py` (no fit needed), and writes its SVG next to
 itself. Run any of them from the repo root:
 
 ```bash

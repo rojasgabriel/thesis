@@ -9,6 +9,7 @@ Run from the repo root:
 """
 
 from pathlib import Path
+from string import ascii_lowercase
 
 import matplotlib
 import numpy as np
@@ -28,8 +29,8 @@ FIGURE_STYLE = {
 GROUP_COLORS = {"sensory": "C0", "task": "C1", "video": "C2", "history": "C3"}
 
 
-def draw_bases(ax, basis, color):
-    times_ms = basis.basis_time * 1000
+def draw_bases(ax, basis, color, offset_ms=0.0):
+    times_ms = basis.basis_time * 1000 + offset_ms
     for index in range(basis.basis.shape[1]):
         ax.plot(times_ms, basis.basis[:, index], color=color, linewidth=1.0, alpha=0.9)
     ax.set_xlim(times_ms[0], times_ms[-1])
@@ -44,63 +45,65 @@ def main() -> Path:
             "Visual flash",
             "sensory",
             "6 raised-cosine bases, weight +1 at every flash",
-            "aligned to each flash",
+            "time from flash (ms)",
         ),
         (
             "flash_pre_post_withdrawal",
             "Flash: pre/post withdrawal",
             "sensory",
             "same bases, weight -0.5 pre / +0.5 post withdrawal",
-            "aligned to each flash",
+            "time from flash (ms)",
         ),
         (
             "flash_adaptation",
             "Flash: adaptation",
             "sensory",
             "same bases, centered synaptic resource at each flash",
-            "aligned to each flash",
+            "time from flash (ms)",
         ),
         (
             "initiation",
             "Initiation (center poke)",
             "task",
             "4 bases, 0-90 ms, truncated at that trial's first flash",
-            "aligned to center poke",
+            "time from center poke (ms)",
         ),
         (
             "withdrawal",
             "Withdrawal (center exit)",
             "task",
             "9 bases spanning +/-300 ms (peri-event)",
-            "aligned to center exit",
+            "time from center exit (ms)",
         ),
         (
             "response_entry",
             "Response entry",
             "task",
             "6 bases before the event, -300 to -1 ms",
-            "aligned to response port entry",
+            "time from response port entry (ms)",
         ),
         (
             "video",
             "Motion-energy PC",
             "video",
             "1 column per PC, contemporaneous, no temporal basis",
-            "current bin, 0 lag",
+            "time from current bin (ms)",
         ),
         (
             "history",
             "Spike history",
             "history",
             "10 log-spaced causal bases, 1-100 ms strictly past",
-            "aligned to each spike",
+            "time since spike (ms)",
         ),
     ]
 
     with plt.rc_context(FIGURE_STYLE):
         fig, axes = plt.subplots(4, 2, figsize=(9.0, 9.6))
         axes = axes.ravel()
-        for ax, (key, title, group, coding, note) in zip(axes, panels, strict=True):
+        for index, (ax, (key, title, group, coding, xlabel)) in enumerate(
+            zip(axes, panels, strict=True)
+        ):
             color = GROUP_COLORS[group]
             if key == "video":
                 times_ms = np.linspace(-300, 300, 601)
@@ -110,7 +113,8 @@ def main() -> Path:
                 ax.set_xlim(-300, 300)
                 ax.set_ylabel("example PC score")
             elif key == "history":
-                draw_bases(ax, hist, color)
+                # History columns use spike times shifted by one bin: lags 1-100 ms.
+                draw_bases(ax, hist, color, offset_ms=1000 * hist.binwidth_s)
                 ax.set_ylabel("basis weight")
             else:
                 draw_bases(ax, bases[key], color)
@@ -130,23 +134,18 @@ def main() -> Path:
                 color="0.35",
             )
             ax.text(
-                0.98,
-                0.94,
-                note,
+                -0.14,
+                1.12,
+                ascii_lowercase[index],
                 transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color="0.5",
-                style="italic",
+                fontsize=10,
+                fontweight="bold",
+                va="bottom",
             )
-            ax.set_xlabel("time from event (ms)")
+            ax.set_xlabel(xlabel)
 
-        fig.suptitle(
-            "V1 GLM regressors and how each is constructed", fontsize=11, y=0.995
-        )
-        fig.tight_layout(rect=(0, 0, 1, 0.985), h_pad=2.4, w_pad=2.0)
-        output = Path(__file__).resolve().parent / "regressor_overview.pdf"
+        fig.tight_layout(h_pad=2.4, w_pad=2.0)
+        output = Path(__file__).resolve().parent / "regressor_overview.svg"
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
     return output
