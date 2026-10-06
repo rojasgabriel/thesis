@@ -1,7 +1,32 @@
-"""Run and inspect the locomotion peak analysis.
+"""Compare V1 flash responses before and after the mouse leaves the center port.
 
-This script computes peak responses, writes the canonical PDF, and can
-optionally leave an interactive matplotlib window open for inspection.
+Comparison: in each trial, the script compares two 15 ms flashes. The first is
+the last flash between the matched center entry and center exit (stationary).
+The second is the first flash from center exit to response-port entry
+(movement). "Movement" is a task epoch. The script does not measure locomotion.
+The two flashes come from the same trial, and each unit gives one peak for each
+condition. Sessions: GRB006 20240821_121447, GRB058 20260224_152424, and GRB064
+20260916_132939 (one session for each subject). Unit selection: units pass
+quality criterion 1 and stability parameter 0. They also have the stored
+"excited" classification in StimulusResponse (stimulus-response parameter 0).
+Event alignment: spikes align to flash onset on the visual-stimulus TTL
+channel. The PETH uses 10 ms bins from -90 to 140 ms. Baseline: the stationary
+trial-mean rate from -40 to 0 ms. The script subtracts this one baseline from
+both conditions. Peak: the maximum baseline-corrected trial-mean rate from 30
+to 120 ms. The script finds the peak separately for each condition. Exclusions:
+the script removes trials with no matched center entry, center exit, and
+response-port entry sequence. It also removes trials that do not have one
+stationary flash and one movement flash. It uses only 15 ms flashes, so it
+ignores 30 ms flashes and flashes of unknown width. It does not remove other
+flashes inside the PETH window. Sampling unit: the unit. Panel a shows each
+unit and the subject mean ± SEM across units on both axes. Panel b shows
+movement minus stationary peak for each unit and the subject mean ± SEM.
+Display limit: panel a stops at 60 sp/s. Units above this limit stay in the
+means, and the script prints their count.
+
+The script writes locomotion/locomotion_peaks.pdf under THESIS_FIGURE_ROOT. The
+default root is "figures". Use --show to keep an interactive window open. Use
+--no-save to skip the PDF.
 """
 
 from __future__ import annotations

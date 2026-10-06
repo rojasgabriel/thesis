@@ -2,17 +2,39 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, predict V1 spikes from a common flash
-kernel, a pre/post-withdrawal contrast, a synaptic-resource flash-adaptation
-term, an initiation kernel truncated at the first flash, peri-withdrawal
-movement, response entry,
-validation-selected additive video motion-energy PCs, and each unit's own
-strictly past spike history. Bins after response entry are excluded. Whole
-trials are split randomly 60/20/20. No response-side, coupling, session-drift,
-go-cue, outcome, or punishment terms. Unit 212 is excluded because its fitted
-spike-history term extrapolates unstably across held-out folds. Held-out
-performance is the ten-fold cross-validated deviance, so every trial is scored
-once. A 20-unit random sample is available for quick runs.
+For GRB006 session 20240821_121447, predict V1 spikes from these terms: a
+common flash kernel, a pre/post-withdrawal contrast, a synaptic-resource
+flash-adaptation term, an initiation kernel truncated at the first flash,
+peri-withdrawal movement, response entry, validation-selected additive video
+motion-energy PCs, and the strictly past spike history of each unit. The model
+has no response-side, coupling, session-drift, go-cue, outcome, or punishment
+terms.
+
+Units: each unit must pass quality criterion set 1 (`unit_criteria_id=1`) and
+stability set 0 (`stability_param_id=0`). No sensory-response filter is
+applied. Unit 212 is excluded because its fitted spike-history term
+extrapolates unstably across held-out folds. `--units sample` uses a fixed
+random sample (seed 20260914) of 20 of the remaining units.
+
+Trials and alignment: use completed left or right trials without early
+withdrawal. Each trial must have a measured first flash and finite
+center-entry, center-exit, and response-entry times. Each window is aligned to
+the first measured flash. It covers -99.5 ms to +2539.5 ms in 1-ms bins. Bins
+after response entry are excluded.
+
+Baseline: the null model is a constant rate. This rate is the mean count in the
+fit rows. In model selection, the fit rows are the training rows. In a
+cross-validation fold, the fit rows are all valid rows outside the held-out
+fold. D² and bits/spike compare the model with this null.
+
+Split and sampling unit: whole trials are split randomly 60/20/20. The
+motion-energy PC count with the highest mean validation D² over units is
+selected. That count stays fixed in all folds. Held-out performance is the mean
+D² over ten whole-trial cross-validation folds. In each fold, the L2 penalty is
+chosen on a random 25% of the remaining trials. A fold with no test spikes for
+a unit is skipped. A unit with fewer than two scored folds stops the run. The
+sampling unit is the unit. Population results are the median and IQR over units
+of each unit's fold mean.
 """
 
 from __future__ import annotations
@@ -310,9 +332,10 @@ def _selection_for_unit(
 def _final_task(job: dict) -> dict:
     """Refit one unit on every valid trial; return the canonical model record.
 
-    This is the model the figures and the block analysis read. It is not
-    scored here: its held-out performance is the cross-validated deviance,
-    carried over from the fold records.
+    The kernel and model-design figures use the coefficients of this model.
+    The unique-deviance analysis does not use it; it refits each fold at the
+    penalty that fold chose. This model is not scored here. Its held-out
+    scores are the cross-validated values from the fold records.
     """
     prepared = _SHARED["prepared"]
     rows = _SHARED["all_valid"]
@@ -734,7 +757,15 @@ def fit_models(
     output_dir: Path,
     workers: int | None = None,
 ) -> None:
-    """Run validation selection; score held-out trials only for the all-unit run."""
+    """Select the motion-energy PC count on the validation trials.
+
+    For each unit, fit the baseline model and the model for each motion-energy
+    PC count on the training trials. Select each penalty on the validation
+    trials. Then select the PC count with the highest mean validation D² across
+    units. Write the result to validation_summary.json. This step does not
+    score the test trials. Cross-validation (`crossvalidate`) gives the
+    held-out scores.
+    """
     prepared = _load_windows(windows)
     common = np.load(design, mmap_mode="r", allow_pickle=False)
     with design.with_suffix(".json").open() as handle:
@@ -822,9 +853,9 @@ def refit_final(
 ) -> None:
     """Refit every unit on all valid trials, after cross-validation has run.
 
-    This is the canonical model the figures and the block analysis read. Its
-    penalty is the median of the penalties the folds chose, so it depends on
-    cross-validation having finished.
+    The kernel and model-design figures use this model. The unique-deviance
+    analysis does not use it. Its penalty is the median of the penalties the
+    folds chose, so cross-validation must finish first.
     """
     prepared = _load_windows(windows)
     with design.with_suffix(".json").open() as handle:
@@ -845,9 +876,9 @@ def refit_final(
         }
         for row in unit_rows
     ]
-    # Refit each unit on every valid trial, which is the model the figures and
-    # the block analysis use. Its held-out score comes from cross-validation
-    # rather than from a second, weaker split.
+    # Refit each unit on every valid trial. The kernel and model-design figures
+    # use this model. Its held-out score comes from cross-validation, not from
+    # a second, weaker split.
     checkpoints = output_dir / "checkpoints"
     fold_records = {
         int(json.loads(path.read_text())["unit_id"]): json.loads(path.read_text())

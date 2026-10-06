@@ -1,8 +1,14 @@
 """Show candidate double-peak responses for one ephys session.
 
-The comparison is the trial-mean response to confirmed 15 ms first flashes.
-Units pass quality criterion 1, stability parameter 0, and the stored excited
-stimulus-response classification. Pulses with unknown width are excluded.
+The comparison is the trial-mean response to 15 ms first flashes. Units pass
+quality criterion 1, stability parameter 0, and the stored excited
+stimulus-response classification. A unit is a candidate only if its trial-mean
+response has exactly two peaks from 0 to 120 ms after flash onset. The peaks
+are at least 20 ms apart. Each peak has a prominence of at least 1 sp/s and at
+least 25% of the maximum baseline-subtracted response in that window. Each peak
+is at least 5 sp/s above baseline. Pulses with unknown width are excluded. Some
+sessions store only pulse onsets (GRB006). These sessions have no measured
+width, so the code sets every pulse to 15 ms.
 Spikes align to measured flash onset; the dotted line is the -40 to 0 ms
 baseline. The sampling unit for the SEM band is the first flash trial.
 This screen does not test whether pulse offset causes the second peak.

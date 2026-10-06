@@ -1,4 +1,10 @@
-"""Standalone browser for stored stimulus-response classifications."""
+"""Browse stimulus-response classifications for one session.
+
+Before the window opens, the app runs StimulusResponse.populate for the
+selected session, unit criteria, and stimulus-response parameter set. If rows
+are missing, the app computes them and inserts them into the database. Thus the
+app can write to the database.
+"""
 
 import argparse
 import warnings

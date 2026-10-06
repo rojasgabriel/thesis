@@ -1,12 +1,47 @@
-"""Test whether double-peaked stimulus responses reflect pulse onset and offset.
+"""Test whether double-peaked visual-pulse responses reflect pulse onset and offset.
 
-This supplemental figure shows discovery examples, the predicted change in peak
-latency for 15 versus 30 ms pulses, and whether double-peak units cluster by
-waveform duration or recording depth. Discovery alignment uses only first-in-train
-pulses with a confirmed 15 ms width; first pulses of unknown width are excluded
-and counted per session. Pulse-duration comparisons exclude trials
-with another pulse inside the peak-search window. All spike times are
-synchronized to the behavioral-event clock before alignment.
+This supplemental figure shows discovery examples (a), spike duration (b) and
+depth (c) of double-peak units against other excited units, 15 and 30 ms pulse
+responses (d), and the second-peak latency error for 30 ms pulses (e).
+
+Sessions: discovery uses GRB006 20240821_121447 and GRB058 20260224_152424. The
+pulse-width control uses GRB058 20260312_134952. The double-peak test runs
+separately in each session.
+
+Unit selection: units pass quality criterion 1, stability parameter 0, and the
+stored excited classification (stimulus-response parameter 0). A double-peak
+unit has exactly two trial-mean peaks from 0 to 120 ms. The peaks are at least
+20 ms apart. Each peak has a prominence of at least 25% of the maximum
+baseline-subtracted response, and at least 1 sp/s. Each peak is also at least 5
+sp/s above baseline.
+
+Baseline: the trial-mean rate from -40 to 0 ms.
+
+Event alignment: spikes align to the onsets of first-in-train pulses. A
+first-in-train pulse is the first pulse after a gap of more than 1 s. The PETH
+uses 10 ms bins from -100 to 150 ms. Pulse widths are 15 or 30 ms within ±2 ms.
+Other widths are unknown. The double-peak test uses only first pulses with a 15
+ms width. If every stored pulse has zero duration (onset-only events, as in
+repaired GRB006 data), the code sets all widths to 15 ms. In that case, the
+width is not measured. labdata maps spike times to the event clock through
+StreamSync. If no StreamSync row exists, labdata uses the sampling rate and
+gives a warning.
+
+Pulse-width control: the code uses first-in-train 15 and 30 ms pulses with no
+other pulse in the next 120 ms. Each control peak is the trial-mean maximum
+within 15 ms of the unit's double-peak-test peak time in the same session. For
+30 ms pulses, the second-peak window moves 15 ms later. This is the
+onset-offset prediction. Panel e shows the 30 ms second-peak latency minus the
+predicted latency (the 15 ms second-peak latency plus 15 ms).
+
+Exclusions: first pulses of unknown width (counted and printed per session).
+The double-peak test also excludes 30 ms first pulses. The control excludes
+pulses with another pulse in the next 120 ms.
+
+Sampling unit: the trial for the mean ± SEM traces in a and d. Panels a and d
+show the first two double-peak units per session, ranked by the smaller peak
+height above baseline. The unit for b, c, and e. Panels b and c pool the two
+discovery sessions.
 """
 
 import os

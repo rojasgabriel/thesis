@@ -1,4 +1,9 @@
-"""Standalone browser for stored unit-stability selections."""
+"""Browse unit-stability selections for one session.
+
+The app first runs UnitStability populate for the session, the unit criteria
+ID, and the stability parameter ID. This computes missing rows and writes them
+to the database. Then the app shows the stored rows.
+"""
 
 import argparse
 import warnings
@@ -189,7 +194,10 @@ class UnitStabilityApp(QtWidgets.QMainWindow):
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Browse stored unit stability metrics",
+        description=(
+            "Browse unit stability metrics. "
+            "The app first computes and stores missing rows."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         add_help=False,
     )

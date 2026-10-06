@@ -7,9 +7,14 @@ movement, response entry, and additive camera motion-energy PCs. Each unit
 also has a strictly past self-history filter.
 Coefficients are conditional associations, not causal effects.
 
-`prepare` reuses saved windows and video features by file presence. It checks
-the saved design metadata against the current task bases and adaptation
-parameters. Only one `glm` command can use a subject/session output directory
+`prepare` reuses saved windows and video features by file presence. It reuses
+the saved design when the metadata has the current task regressor names, the
+current column count for each regressor, and the current adaptation parameters.
+It does not compare basis time ranges or spacing, and it does not check whether
+the windows or video files changed. If you change a basis and keep its column
+count, or if you rebuild the windows or video features, delete
+`common_design_me.npy` and `common_design_me.json` before you run `prepare`.
+Only one `glm` command can use a subject/session output directory
 at a time.
 
 ## Data
@@ -18,24 +23,31 @@ at a time.
   because of unstable out-of-fold spike-history extrapolation. Draw a fixed
   random sample of 20 from the remaining units for `--units sample`
   (`SAMPLE_SEED = 20260914`).
-- Trials: completed left/right. Require ordered initiation, first measured
-  flash, withdrawal, and response entry.
+- Trials: completed left/right trials without early withdrawal. Drop a trial
+  that has no initiation, first measured flash, withdrawal, or response-entry
+  time. The remaining trials must have these events in that order. If a trial
+  does not, `prepare` stops with an error that lists its trial number; it does
+  not drop the trial.
 - Align to the first measured flash, not the Bpod stimulus command.
 - Grid: DAMN 1 ms, pre=100 ms, post=2.54 s (2,639 centers). Keep the full
   window. Fitting **masks bins after that trial’s response entry**; it does not
   shorten the grid. Only flashes from initiation through response entry enter
   the design.
-- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Train fits and
-  validation chooses the motion-energy PC count and each unit's penalty. The
-  third block is not scored on its own; held-out performance comes from
+- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Models fit on the
+  training block. The validation block chooses the motion-energy PC count. To
+  score each PC count, validation also picks a penalty for each unit and model,
+  but no later step uses these penalties: each cross-validation fold picks its
+  own. The third block is not scored on its own; held-out performance comes from
   cross-validation over whole trials.
 - `fit` then cross-validates at that PC count: 10 folds over whole trials
   (`CV_SEED = 20260913`). Each trial belongs to one test fold. A fold with no
   test spikes for a unit is skipped; at least two scored folds are required.
   Reports per-unit mean and SEM across the scored folds. It finally refits each
-  unit on every valid trial at the median fold penalty, writing `unit_*_final.json`:
-  that model carries the coefficients the example figures read. Its score
-  comes from the fold records. `unique` refits within those folds using their
+  unit on every valid trial at the median fold penalty and writes
+  `unit_*_final.json`. The kernel and model-design figures read that model. The
+  prediction figure reads the saved fold models instead, so no plotted trial
+  was in the training data of its model. The final model's score comes from the
+  fold records. `unique` refits within those folds using their
   selected penalties.
 
 The PC count is selected once before cross-validation. PCA and common-design
@@ -58,7 +70,7 @@ drift, go cue, outcome, or punishment kernel.
 | Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
 | Initiation | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
 | Withdrawal | 9 raised cosines, −300–+300 ms | 9 |
-| Response entry | 6 bases, −300–0 ms | 6 |
+| Response entry | 6 bases before the event, −300 to −1 ms; the entry bin gets no value | 6 |
 | Motion energy | One contemporaneous value per selected PC; no temporal basis | 1 / PC |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
@@ -79,7 +91,11 @@ frames. Validation prefixes: 10, 25, 50, 100, 200.
 
 `count_t ~ Poisson(exp(intercept + X_t β))` at 1 ms on unmasked bins.
 
-DAMN supplies the grid, convolution, resampling, and trial-edge truncation.
+DAMN supplies the 1 ms grid, the spike counts, and the event convolution, and it
+clips each kernel at the trial-window edges. NumPy `np.interp` puts the
+motion-energy scores on the grid; bins outside the camera frame times get zero.
+The code, not DAMN, sets the initiation kernel to zero at and after the first
+flash.
 Fits use sklearn `PoissonRegressor` (log link, unpenalized intercept, L2,
 LBFGS). Each unit's design appends its standardized self-history block.
 
@@ -90,8 +106,10 @@ penalty. The grid does not expand automatically. Choose the motion-energy PC
 count by mean per-unit validation D². Each cross-validation fold selects its
 penalty using an inner validation split. The null is a constant rate from the
 training rows for selection, or all non-test rows for a cross-validation fold.
-Report D² and bits/spike as median (IQR) over units. One session: no population
-p-value.
+`cross_validation_summary.json` gives the median and IQR over units of the
+cross-validated D² (each unit's mean over its test folds). No output gives an
+IQR for bits/spike; the summary figure shows histograms of D² and bits/spike
+over units, each with its median. One session: no population p-value.
 
 ```bash
 uv run glm prepare
@@ -100,7 +118,12 @@ uv run glm fit --units all
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
 `common_design_me.npy` under `figures/glm/<subject>_<session>/`. Pass
-`--subject`, `--session`, or `--root` to work on another dataset. `fit` writes
+`--subject`, `--session`, or `--root` to work on another dataset. These flags
+change only the data source and the output directory. The unit-212 exclusion
+(`EXCLUDED_UNIT_IDS` in `fit.py`) and the unit-197 example (`EXAMPLE_UNIT_ID`
+in `results.py`) apply only to GRB006 `20240821_121447`; change them before
+you fit another session. `prepare` also needs exactly one local cam0 back-view
+(`BackStereoView`) video. `fit` writes
 named summaries under `all_fit_me/`. Restartable per-unit records stay under
 `all_fit_me/checkpoints/`. The same command writes the population summary,
 bits-versus-deviance scatter, and, when unit 197 was fit, the kernel,
@@ -126,7 +149,8 @@ entry are shaded within the displayed interval.
 
 The model-design figure uses one real test trial from unit 197. The trial is
 nearest the unit's median pre-response spike count. Panel a shows every
-measured flash, the other task
+modeled flash (the measured flashes from initiation through response entry),
+the other task
 events and their filter support, the first three continuous motion-energy PC
 scores, and strictly past history support. Panel b
 shows the exact fitted terms `X_g β_g` for visual, other task, all selected

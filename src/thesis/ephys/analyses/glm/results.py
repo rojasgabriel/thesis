@@ -35,12 +35,12 @@ from thesis.ephys.units import fetch_unit_table
 
 EXAMPLE_UNIT_ID = 197
 # The design codes flashes as a common kernel plus a state contrast (pre-withdrawal
-# -0.5, post-withdrawal +0.5) and a graded adaptation index. These are the three
-# flash conditions that actually occur, each as a (state value, adaptation-level
-# key). The level key selects a representative centered adaptation value from the
-# design metadata: "first" (raw index 0) or "late" (a typical adapted flash). The
-# first flash is always pre-withdrawal, so first-and-post never occurs and is
-# omitted.
+# -0.5, post-withdrawal +0.5) and a centered synaptic-resource term. These are the
+# three flash conditions that occur, each as a (state value, resource-level key).
+# The level key selects a centered resource value from the design metadata:
+# "first" (raw resource 1, a full pool) or "late" (the mean raw resource of
+# adapted flashes, R < 1; equal to "first" if no flash is adapted). The first
+# flash is always pre-withdrawal, so first-and-post never occurs and is omitted.
 FLASH_COMMON = "visual_flash"
 FLASH_STATE = "flash_pre_post_withdrawal"
 FLASH_ADAPT = "flash_adaptation"

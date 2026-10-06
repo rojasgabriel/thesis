@@ -78,7 +78,7 @@ def main() -> Path:
             "response_entry",
             "Response entry",
             "task",
-            "6 causal bases, -300 to 0 ms (pre-only)",
+            "6 bases before the event, -300 to -1 ms",
             "aligned to response port entry",
         ),
         (

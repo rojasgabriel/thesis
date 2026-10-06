@@ -1,8 +1,23 @@
-"""Measure each block's unique explained deviance in the fitted V1 GLM.
+"""Measure the unique and maximal explained deviance of each regressor block in the V1 GLM.
 
-Shuffle one regressor block, refit, and take complete minus shuffled test D².
-All bases of a block move together, within trial. One shuffle is shared across
-units. Motion-energy PCs stay one block.
+Use the ten whole-trial cross-validation folds and the per-fold penalties from
+`fit`. In each fold, refit on the fit trials at that fold's penalty and score
+test D² on the held-out trials. Do not select the penalty again. Skip a fold if
+the unit has no test spikes in it.
+
+- Unique ΔD² = complete-model D² minus D² with that block shuffled.
+- Maximal ΔD² = D² with only that block unshuffled minus D² with all blocks
+  shuffled.
+
+A shuffle permutes design rows among the valid bins of each trial. All columns
+of a block move together. One permutation (`SHUFFLE_SEED`) is shared by all
+units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
+three broad groups (task, video, history) and the eight groups in
+`DETAILED_GROUPS`.
+
+Units, event alignment, excluded bins and units, and the D² null (a constant
+rate equal to the fit-trial mean) are the same as in `fit.py`. The sampling
+unit is the unit. Each unit reports the mean and SEM over its scored folds.
 """
 
 from __future__ import annotations
