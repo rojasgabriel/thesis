@@ -16,6 +16,37 @@ cd thesis
 uv sync
 ```
 
+## Prepare a new ephys session
+
+After LabData ingestion and spike sorting, check the session, then populate its
+clock mappings, unit metrics, quality counts, stability results, and stimulus
+responses:
+
+```bash
+uv run populate-session GRB064 20260916_132939
+uv run populate-session GRB064 20260916_132939 --apply
+```
+
+The first command is a dry run. The second inserts missing results for project
+quality criteria 0-2 and parameter set 0, then checks their unit counts.
+Rerunning it keeps existing results. Use
+`uv run insert_audio_events` separately when measured OneBox audio must be
+recovered from raw files.
+
+## Ephys analysis figures
+
+```bash
+uv run python -m thesis.ephys.analyses.stim_responses_by_locomotion
+uv run double-peak-candidates GRB064 20260916_132939
+uv run python -m thesis.ephys.analyses.double_peaks
+```
+
+The first command compares stationary and movement flashes across its listed
+sessions and writes `figures/locomotion/locomotion_peaks.pdf`. The second shows
+confirmed 15 ms double-peak candidates for one session and writes
+`figures/double_peak/grb064_candidates.svg`. The last command makes the
+separate cross-session double-peak supplement, including its 30 ms control.
+
 ## Tested on
 
 - MacBook Pro M2

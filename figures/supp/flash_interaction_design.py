@@ -1,9 +1,9 @@
 """Supplementary figure: the flash interaction design blocks for one trial.
 
 Shows that the three flash regressors are the SAME 6-column raised-cosine basis
-placed at the SAME flash times, each block scaled per flash by its contrast code
-(pre/post withdrawal, first/later). Rows are 1 ms bins; 18 columns = 3 blocks x
-6 basis functions. Red is positive, blue is negative.
+placed at the SAME flash times, each block scaled per flash by its state contrast
+(pre/post withdrawal) or centered adaptation resource. Rows are 1 ms bins;
+18 columns = 3 blocks x 6 basis functions. Red is positive, blue is negative.
 
 Run from the repo root:
     uv run python figures/supp/flash_interaction_design.py
@@ -18,8 +18,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from damn.design_matrix import generate_aligned_bases
 
-from thesis.ephys.analyses.glm import task_temporal_bases
-from thesis.ephys.preprocessing.prepare_glm import BINWIDTH_S
+from thesis.ephys.analyses.glm.dmat import (
+    ADAPT_TAU_RECOVER_S,
+    ADAPT_U,
+    BINWIDTH_S,
+    flash_resource,
+    task_temporal_bases,
+)
 
 FIGURE_STYLE = {"font.size": 8, "pdf.fonttype": 42, "ps.fonttype": 42}
 
@@ -33,8 +38,10 @@ def main() -> Path:
     flashes = np.array([0.30, 0.34, 0.38, 0.44])
     center_exit = 0.40  # withdrawal time
     state = np.where(flashes < center_exit, -0.5, 0.5)  # pre -0.5 / post +0.5
-    serial = np.full(len(flashes), -0.5)
-    serial[0] = 0.5  # first +0.5 / later -0.5
+    resource = flash_resource(flashes, ADAPT_U, ADAPT_TAU_RECOVER_S)
+    # This one-trial illustration uses its own flash mean; real fits center
+    # over all modeled flashes in the session.
+    adaptation = resource - resource.mean()
 
     kw = dict(
         master_alignment_times=align,
@@ -49,8 +56,8 @@ def main() -> Path:
         basis_scaling_vals=np.ones(len(flashes)), **kw
     )
     state_block, _, _ = generate_aligned_bases(basis_scaling_vals=state, **kw)
-    serial_block, _, _ = generate_aligned_bases(basis_scaling_vals=serial, **kw)
-    design = np.hstack([common, state_block, serial_block])
+    adaptation_block, _, _ = generate_aligned_bases(basis_scaling_vals=adaptation, **kw)
+    design = np.hstack([common, state_block, adaptation_block])
     nbin = design.shape[0]
 
     with plt.rc_context(FIGURE_STYLE):
@@ -61,7 +68,7 @@ def main() -> Path:
         for index, flash_time in enumerate(flashes):
             row = (flash_time - align[0] + pre) / BINWIDTH_S
             events.axhline(row, color="0.3", linewidth=1.1)
-            tag = ("first, " if serial[index] > 0 else "") + (
+            tag = ("first, " if index == 0 else "") + (
                 "pre" if state[index] < 0 else "post"
             )
             events.text(
@@ -97,7 +104,7 @@ def main() -> Path:
             [
                 "visual_flash\n(common, x1)",
                 "flash_pre_post\n(x -0.5 / +0.5)",
-                "flash_first_later\n(x +0.5 / -0.5)",
+                "flash_adaptation\n(x centered resource)",
             ],
             fontsize=8,
         )
@@ -108,7 +115,7 @@ def main() -> Path:
         bar.set_label("design value", fontsize=8)
 
         fig.suptitle(
-            "Same flash bumps, scaled per flash by its contrast code",
+            "Same flash bumps, scaled by state and adaptation",
             y=0.98,
             fontsize=11,
         )

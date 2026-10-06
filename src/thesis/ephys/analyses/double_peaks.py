@@ -20,7 +20,6 @@ from spks.event_aligned import population_peth
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from labdata_plugin.schema import StimulusResponse
 from thesis.ephys.events import fetch_session_events
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import separate_axes
@@ -73,6 +72,8 @@ def classify_double_peak_units(
     unit_ids: list[int],
     excited_unit_ids: Collection[int],
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
+    from labdata_plugin.schema import StimulusResponse
+
     peth, bin_edges, _ = population_peth(
         all_spike_times=spike_times,
         alignment_times=alignment_times,
@@ -173,6 +174,8 @@ def _plot_mean_sem_trace(ax, bin_centers, peth_trials, color) -> None:
 
 
 def _collect_session(subject: str, session: str) -> dict:
+    from labdata_plugin.schema import StimulusResponse
+
     units = fetch_unit_table(
         subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
     ).reset_index(drop=True)
@@ -189,10 +192,11 @@ def _collect_session(subject: str, session: str) -> dict:
     pulses["next_pulse_delay_s"] = pulses["timestamp"].shift(-1) - pulses["timestamp"]
     first_pulses = pulses[pulses["first_in_train"]]
     mixed_widths = pulses["width_ms"].dropna().nunique() > 1
-    alignment_pulses = first_pulses
-    if mixed_widths:
-        alignment_pulses = first_pulses[first_pulses["width_ms"].eq(15)]
-    first_15ms = alignment_pulses["timestamp"].to_numpy(dtype=float)
+    first_15ms = first_pulses.loc[
+        first_pulses["width_ms"].eq(15), "timestamp"
+    ].to_numpy(dtype=float)
+    if not first_15ms.size:
+        raise ValueError(f"No first 15 ms pulses for {subject} {session}")
 
     unit_ids = units["unit_id"].astype(int).tolist()
     spike_times = units["spike_times_s"].tolist()

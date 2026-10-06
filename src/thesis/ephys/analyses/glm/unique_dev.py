@@ -11,27 +11,24 @@ import csv
 import json
 from pathlib import Path
 
-import matplotlib
 import numpy as np
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-from thesis.ephys.analyses.glm import (
-    _SHARED,
-    EXCLUDED_UNIT_IDS,
+from thesis.ephys.analyses.glm.dmat import (
     HISTORY_COLUMNS,
     _design_with_history,
     _load_windows,
-    analysis_unit_indices,
-    build_unit_counts,
     build_unit_history,
-    collect_records,
-    fit_poisson_at_alpha,
-    poisson_metrics,
     training_zscore,
 )
-from thesis.ephys.analyses.glm_figures import _save_figure
+from thesis.ephys.analyses.glm.fit import (
+    _SHARED,
+    analysis_unit_indices,
+    build_unit_counts,
+    collect_records,
+    fit_poisson_at_alpha,
+    load_unit_records,
+    poisson_metrics,
+)
 from thesis.ephys.units import fetch_unit_table
 
 SHUFFLE_SEED = 20260910
@@ -46,31 +43,6 @@ DETAILED_GROUPS = (
     "video",
     "history",
 )
-DISPLAY_LABELS = {
-    "full_model": "Full model",
-    "task": "Task",
-    "video": "Motion energy",
-    "history": "Spike history",
-    "visual_flash": "Visual flash",
-    "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
-    "flash_adaptation": "Flash: adaptation",
-    "initiation": "Initiation",
-    "withdrawal": "Withdrawal",
-    "response_entry": "Response entry",
-}
-GROUP_COLORS = {
-    "full_model": "black",
-    "task": "C0",
-    "video": "C1",
-    "history": "C2",
-}
-FIGURE_STYLE = {
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "font.size": 8,
-    "pdf.fonttype": 42,
-    "ps.fonttype": 42,
-}
 GROUP_ORDER = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 
 
@@ -123,19 +95,6 @@ def shuffle_permutations(
     return within_trial.ravel()
 
 
-def _load_fold_records(fit_dir: Path) -> list[dict]:
-    """Read the per-fold penalties that `fit` selected for every unit."""
-    records = []
-    for path in sorted(fit_dir.glob("unit_*_folds.json")):
-        with path.open() as handle:
-            record = json.load(handle)
-        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
-            records.append(record)
-    if not records:
-        raise ValueError(f"No cross-validated fits in {fit_dir}; run `fit` first.")
-    return records
-
-
 def _shuffled_deviance(
     fit_design: np.ndarray,
     fit_counts: np.ndarray,
@@ -165,80 +124,6 @@ def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
             f"{len(folds)} folds contained spikes but {len(alphas)} alphas were saved."
         )
     return list(zip(folds, alphas, strict=True))
-
-
-def _plot_groups(
-    axis,
-    records: list[dict],
-    groups: tuple[str, ...],
-    metric: str,
-) -> None:
-    """Draw one population box plot for the requested deviance measure."""
-    values = [
-        np.asarray(
-            [
-                record[metric]
-                if group == "full_model"
-                else record["groups"][group][metric]
-                for record in records
-            ]
-        )
-        for group in groups
-    ]
-    positions = np.arange(len(groups))
-    boxes = axis.boxplot(
-        values,
-        positions=positions,
-        widths=0.58,
-        patch_artist=True,
-        showfliers=False,
-        medianprops={"color": "black", "linewidth": 0.8},
-        whiskerprops={"color": "0.3", "linewidth": 0.7},
-        capprops={"color": "0.3", "linewidth": 0.7},
-    )
-    for group, patch in zip(groups, boxes["boxes"], strict=True):
-        color = GROUP_COLORS.get(group, GROUP_COLORS["task"])
-        patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
-    axis.axhline(0, color="0.35", linestyle="--", linewidth=0.7, zorder=0)
-    axis.set_xticks(positions, [DISPLAY_LABELS[group] for group in groups])
-    axis.tick_params(axis="x", labelrotation=48)
-    for label, group in zip(axis.get_xticklabels(), groups, strict=True):
-        label.set_ha("right")
-        label.set_color(GROUP_COLORS.get(group, GROUP_COLORS["task"]))
-    axis.margins(x=0.04)
-
-
-def plot_deviance_explained(records: list[dict], output: Path) -> Path:
-    """Plot maximal and unique deviance for each model regressor."""
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(1, 3, figsize=(10.5, 3.5))
-        _plot_groups(
-            axes[0], records, ("full_model",), "complete_test_deviance_explained"
-        )
-        _plot_groups(
-            axes[1], records, DETAILED_GROUPS, "maximal_test_deviance_explained"
-        )
-        _plot_groups(
-            axes[2], records, DETAILED_GROUPS, "unique_test_deviance_explained"
-        )
-        axes[0].set_ylabel(r"Full-model test deviance explained ($D^2$)")
-        axes[1].set_ylabel(r"Maximal deviance explained ($\Delta D^2$)")
-        axes[2].set_ylabel(r"Unique deviance explained ($\Delta D^2$)")
-        for letter, axis in zip("abc", axes, strict=True):
-            axis.text(
-                -0.12,
-                1.04,
-                letter,
-                transform=axis.transAxes,
-                ha="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=10,
-            )
-        figure.subplots_adjust(
-            bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
-        )
-        return _save_figure(figure, output)[0]
 
 
 def _write_summary(records: list[dict], output_dir: Path) -> dict:
@@ -418,7 +303,9 @@ def run_unique(
     with design_path.with_suffix(".json").open() as handle:
         metadata = json.load(handle)
     checkpoints = fit_dir / "checkpoints"
-    fold_records = _load_fold_records(checkpoints)
+    fold_records = load_unit_records(checkpoints, "unit_*_folds.json")
+    if not fold_records:
+        raise ValueError(f"No cross-validated fits in {checkpoints}; run `fit` first.")
     selected_components = {int(item["components"]) for item in fold_records}
     if len(selected_components) != 1:
         raise ValueError("All cross-validated fits must use one video-PC count.")
@@ -487,9 +374,9 @@ def run_unique(
     )
 
     summary = _write_summary(records, output_dir)
-    figure_path = plot_deviance_explained(
-        records, fit_dir.parent / "deviance_explained"
-    )
+    from thesis.ephys.analyses.glm.figures import plot_deviance_explained
+
+    figure_path = plot_deviance_explained(records, fit_dir / "deviance_explained")
     print(
         json.dumps(
             {

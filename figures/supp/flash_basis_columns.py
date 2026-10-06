@@ -17,7 +17,7 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import task_temporal_bases
+from thesis.ephys.analyses.glm.dmat import task_temporal_bases
 
 FIGURE_STYLE = {
     "axes.spines.top": False,

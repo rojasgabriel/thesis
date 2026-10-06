@@ -26,6 +26,7 @@ FIGURE_DIR = FIGURE_ROOT / "locomotion"
 SUBJECT_SESSIONS = [
     ("GRB006", "20240821_121447"),
     ("GRB058", "20260224_152424"),
+    ("GRB064", "20260916_132939"),
 ]
 
 UNIT_CRITERIA_ID = 1
@@ -34,7 +35,7 @@ STIM_RESPONSE_PARAM_ID = 0
 PETH_BINWIDTH_MS = 10
 SCATTER_MAX_RATE = 60.0
 BACKGROUND_DOT_ALPHA = 0.2
-SUBJECT_COLORS = ("#E41A1C", "#377EB8")
+SUBJECT_COLORS = ("#E41A1C", "#377EB8", "#4DAF4A")
 
 
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
@@ -252,6 +253,14 @@ def main() -> None:
         color = SUBJECT_COLORS[subject_index]
         stat_peak = peak_table["stat_peak"].to_numpy(dtype=float)
         move_peak = peak_table["move_peak"].to_numpy(dtype=float)
+        outside_view = np.count_nonzero(
+            (stat_peak > SCATTER_MAX_RATE) | (move_peak > SCATTER_MAX_RATE)
+        )
+        if outside_view:
+            print(
+                f"  {subject}: {outside_view} units exceed the {SCATTER_MAX_RATE:g} "
+                "sp/s scatter limit; retained in summaries"
+            )
         ax.scatter(
             stat_peak,
             move_peak,

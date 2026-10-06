@@ -2,7 +2,7 @@
 
 Explainer figures for the design of the V1 spike-prediction GLM. Each script is
 self-contained, builds its figure from the real basis definitions in
-`src/thesis/ephys/analyses/glm.py` (no fit needed), and writes its PDF next to
+`src/thesis/ephys/analyses/glm/dmat.py` (no fit needed), and writes its PDF next to
 itself. Run any of them from the repo root:
 
 ```bash
@@ -15,7 +15,9 @@ uv run python figures/supp/flash_basis_columns.py
   PC, spike history) with its temporal basis, window, coding, and alignment.
 - `flash_interaction_design` — the three flash regressors for one example trial,
   showing they are the same 6-column basis placed at the same flash times, each
-  block scaled per flash by its contrast code (pre/post withdrawal, first/later).
+  block scaled by its pre/post-withdrawal contrast or centered adaptation resource.
+  The one-trial example centers the resource over its own flashes; the fitted
+  model centers over all modeled flashes in the session.
 - `flash_basis_columns` — one flash expands into 6 basis columns; the diagonal
   "gradient" is the basis tiling time, not model weight.
 
