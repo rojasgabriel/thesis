@@ -7,9 +7,6 @@ import warnings
 import numpy as np
 import pandas as pd
 
-# Silence the setuptools pkg_resources deprecation notice
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
-
 REQUIRED_EV_ROLES = (
     "visual_stim",
     "trial_start",

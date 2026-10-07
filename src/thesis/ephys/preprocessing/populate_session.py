@@ -6,12 +6,9 @@ kept. Audio recovery from raw OneBox files is a separate optional workflow.
 """
 
 import argparse
-import warnings
 
 from thesis.ephys.preprocessing.insert_streamsync import insert_streamsync
 from thesis.ephys.preprocessing.populate_unit_counts import CRITERIA
-
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 
 def populate_session(subject: str, session: str, apply: bool = False) -> None:

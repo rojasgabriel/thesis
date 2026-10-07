@@ -16,17 +16,6 @@ from pathlib import Path
 import numpy as np
 
 
-def select_falling_edges(
-    falling: np.ndarray, rising: np.ndarray, n_frames: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Remove sub-percent-width pulses only when the frame count then matches."""
-    widths = rising - falling
-    retained = widths >= np.median(widths) / 100
-    if int(retained.sum()) != n_frames:
-        raise ValueError("Retained falling-edge count does not match video frames.")
-    return falling[retained], retained
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -52,9 +41,11 @@ def main() -> None:
     falling, rising = times[values == 0], times[values == 1]
     widths = rising - falling
     video = (DatasetVideo & key & {"video_name": "cam0"}).fetch1()
-    frame_times, retained = select_falling_edges(
-        falling, rising, int(video["n_frames"])
-    )
+    # Drop sub-percent-width pulses only when the frame count then matches.
+    retained = widths >= np.median(widths) / 100
+    if int(retained.sum()) != int(video["n_frames"]):
+        raise ValueError("Retained falling-edge count does not match video frames.")
+    frame_times = falling[retained]
     removed = np.flatnonzero(~retained)
     sync = (
         StreamSync()

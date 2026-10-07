@@ -6,12 +6,8 @@ Bpod mappings allow the expected extra final hardware trial-start pulse.
 """
 
 import argparse
-import warnings
 
 import numpy as np
-
-# Silence the setuptools pkg_resources deprecation notice
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 CLOCK_EVENTS = {
     "nidq": {"probe": "0", "bpod": "2"},

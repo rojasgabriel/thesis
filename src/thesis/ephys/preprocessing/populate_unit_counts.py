@@ -1,10 +1,6 @@
 """Insert unit-quality criteria and populate unit counts."""
 
 import argparse
-import warnings
-
-# Silence the setuptools pkg_resources deprecation notice
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 CRITERIA = [
     {

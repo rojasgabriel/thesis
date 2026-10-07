@@ -33,8 +33,8 @@ def recover_audio_epochs(
     data: np.ndarray,
     sample_rate_hz: float,
     threshold: float = DEFAULT_THRESHOLD,
-) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
-    """Return audio epochs, threshold, and binned peak-to-peak amplitudes."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return audio epochs and binned peak-to-peak amplitudes."""
     samples_per_bin = sample_rate_hz * BIN_MS / 1000.0
     n_bins = int(data.shape[0] // samples_per_bin)
     if not n_bins:
@@ -58,7 +58,7 @@ def recover_audio_epochs(
     onsets = np.flatnonzero(active & np.r_[True, ~active[:-1]])
     offsets = np.flatnonzero(active & np.r_[~active[1:], True])
     if not onsets.size:
-        return np.array([]), np.array([]), threshold, amplitudes
+        return np.array([]), np.array([]), amplitudes
 
     split = (
         edges[onsets[1:]] - edges[offsets[:-1] + 1]
@@ -67,7 +67,7 @@ def recover_audio_epochs(
     onsets = edges[onsets[np.r_[True, split]]] / sample_rate_hz
     offsets = edges[offsets[np.r_[split, True]] + 1] / sample_rate_hz
     keep = offsets - onsets >= MIN_DURATION_MS / 1000.0
-    return onsets[keep], offsets[keep], threshold, amplitudes
+    return onsets[keep], offsets[keep], amplitudes
 
 
 def _self_check() -> None:
@@ -77,7 +77,7 @@ def _self_check() -> None:
     for bin_index in (20, 21, 22, 27, 28, 29, 50, 51):
         data[bin_index * 10, AUDIO_CHANNEL] = -150
         data[(bin_index + 1) * 10 - 1, AUDIO_CHANNEL] = 150
-    onsets, offsets, _, _ = recover_audio_epochs(data, 1000.0)
+    onsets, offsets, _ = recover_audio_epochs(data, 1000.0)
     np.testing.assert_allclose(onsets, [0.2, 0.5])
     np.testing.assert_allclose(offsets, [0.30, 0.52])
 
@@ -131,7 +131,7 @@ def insert_audio_events(
         )
 
     data, metadata = load_spikeglx_binary(obx_bin)
-    onsets, offsets, threshold, amplitudes = recover_audio_epochs(
+    onsets, offsets, amplitudes = recover_audio_epochs(
         data, float(metadata["sRateHz"]), threshold
     )
     classified = classify_audio_events(onsets, offsets)

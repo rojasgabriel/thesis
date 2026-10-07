@@ -7,10 +7,6 @@ import warnings
 import numpy as np
 import pandas as pd
 
-# Silence the setuptools pkg_resources deprecation notice
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
-
-
 ALIGNMENT_EV_COLUMNS = (
     "first_stim_times_s",
     "stim_pulse_times_s",
@@ -72,7 +68,7 @@ def _select_task_ev_sequence(
                 )
             )
 
-    selected_task_ev = None
+    selected_task_ev = (np.nan, np.nan, np.nan)
     if len(task_ev_candidates) == 1:
         selected_task_ev = task_ev_candidates[0]
     elif len(task_ev_candidates) > 1 and np.isfinite(predicted_react_s):
@@ -82,11 +78,9 @@ def _select_task_ev_sequence(
         )
 
     return {
-        "center_entry_s": (np.nan if selected_task_ev is None else selected_task_ev[0]),
-        "center_exit_s": np.nan if selected_task_ev is None else selected_task_ev[1],
-        "response_port_entry_s": (
-            np.nan if selected_task_ev is None else selected_task_ev[2]
-        ),
+        "center_entry_s": selected_task_ev[0],
+        "center_exit_s": selected_task_ev[1],
+        "response_port_entry_s": selected_task_ev[2],
         "n_task_ev_candidates": len(task_ev_candidates),
     }
 

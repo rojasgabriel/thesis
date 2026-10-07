@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import warnings
-
 import pandas as pd
-
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 
 def fetch_unit_table(
