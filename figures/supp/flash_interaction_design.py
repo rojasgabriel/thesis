@@ -26,7 +26,7 @@ from thesis.ephys.analyses.glm.dmat import (
     task_temporal_bases,
 )
 
-FIGURE_STYLE = {"font.size": 8, "pdf.fonttype": 42, "ps.fonttype": 42}
+FIGURE_STYLE = {"font.size": 8}
 
 
 def main() -> Path:

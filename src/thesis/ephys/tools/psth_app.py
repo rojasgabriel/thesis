@@ -1,5 +1,5 @@
 import argparse
-from typing import Literal, cast
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -121,13 +121,12 @@ class PSTHApp(QtWidgets.QMainWindow):
         pre_seconds: float = 0.1,
         post_seconds: float = 0.15,
         binwidth_ms: int = 10,
-        plot_type: Literal["heatmap", "raster", "psth"] = "heatmap",
     ) -> None:
         super().__init__()
         self.pre_seconds = pre_seconds
         self.post_seconds = post_seconds
-        self.binwidth_ms = binwidth_ms
         binwidth_s = binwidth_ms / 1000
+        self.binwidth_s = binwidth_s
         self.bin_edges = np.append(
             -np.arange(0, pre_seconds, binwidth_s)[1:][::-1],
             np.arange(0, post_seconds, binwidth_s),
@@ -160,10 +159,10 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         self.setWindowTitle(f"PSTH viewer — {subject} {session}")
         self.resize(1280, 760)
-        self._build_ui(plot_type)
+        self._build_ui()
         self._draw()
 
-    def _build_ui(self, plot_type: str) -> None:
+    def _build_ui(self) -> None:
         pg.setConfigOption("background", "white")
         pg.setConfigOption("foreground", "#222222")
         pg.setConfigOption("imageAxisOrder", "row-major")
@@ -196,7 +195,6 @@ class PSTHApp(QtWidgets.QMainWindow):
 
         self.plot_combo = QtWidgets.QComboBox()
         self.plot_combo.addItems(("heatmap", "raster", "psth"))
-        self.plot_combo.setCurrentText(plot_type)
         form.addRow("Plot", self.plot_combo)
 
         self.split_combo = QtWidgets.QComboBox()
@@ -271,12 +269,8 @@ class PSTHApp(QtWidgets.QMainWindow):
             ("S", lambda: self._step_combo(self.split_combo, 1)),
             ("Esc", self.close),
         )
-        self.shortcuts = []
         for key, action in shortcut_actions:
-            shortcut = QtGui.QShortcut(QtGui.QKeySequence(key), self)
-            shortcut.setContext(QtCore.Qt.ShortcutContext.WindowShortcut)
-            shortcut.activated.connect(action)
-            self.shortcuts.append(shortcut)
+            QtGui.QShortcut(QtGui.QKeySequence(key), self).activated.connect(action)
 
     def _step_unit(self, step: int) -> None:
         self.unit_slider.setValue(self.unit_slider.value() + step)
@@ -385,7 +379,10 @@ class PSTHApp(QtWidgets.QMainWindow):
                     axis=0,
                     weights=[len(event_times) for _, event_times in groups],
                 )
-                sort_order = self._peak_latency_order(pooled_rates)
+                sort_order = np.argsort(
+                    np.argmax(pooled_rates[:, self.bin_centers >= 0], axis=1),
+                    kind="stable",
+                )
 
         n_cols = min(3, len(groups))
         first_plot = None
@@ -422,53 +419,29 @@ class PSTHApp(QtWidgets.QMainWindow):
             )
 
     def _peth(
-        self,
-        spike_times: list[np.ndarray],
-        event_times: np.ndarray,
-        kernel: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        bin_edges = self.bin_edges
-        pre_seconds = self.pre_seconds
-        post_seconds = self.post_seconds
-        display_slice = slice(None)
-        if kernel is not None:
-            binwidth_s = self.binwidth_ms / 1000
-            center = len(kernel) // 2
-            left_bins = center
-            right_bins = len(kernel) - center - 1
-            bin_edges = np.r_[
-                self.bin_edges[0] - binwidth_s * np.arange(left_bins, 0, -1),
-                self.bin_edges,
-                self.bin_edges[-1] + binwidth_s * np.arange(1, right_bins + 1),
-            ]
-            pre_seconds = -bin_edges[0]
-            post_seconds = bin_edges[-1]
-            display_slice = slice(left_bins, left_bins + len(self.bin_centers))
-
-        peth = np.stack(
-            [
-                np.vstack(
-                    [
-                        np.histogram(raster, bin_edges)[0]
-                        for raster in _align_spikes(
-                            event_times,
-                            unit_spikes,
-                            pre_seconds,
-                            post_seconds,
-                        )
-                    ]
-                )
-                for unit_spikes in spike_times
-            ]
+        self, spike_times: np.ndarray, event_times: np.ndarray, smooth: bool
+    ) -> np.ndarray:
+        """Return event-by-bin rates for one unit; smoothing pads the window."""
+        pad = len(self.psth_kernel) // 2 if smooth else 0
+        step = self.binwidth_s * np.arange(1, pad + 1)
+        edges = np.r_[
+            self.bin_edges[0] - step[::-1], self.bin_edges, self.bin_edges[-1] + step
+        ]
+        extra = pad * self.binwidth_s
+        rasters = _align_spikes(
+            event_times,
+            spike_times,
+            self.pre_seconds + extra,
+            self.post_seconds + extra,
         )
-        if kernel is not None:
-            peth = np.stack([_centered_smooth(counts, kernel) for counts in peth])
-            peth = peth[:, :, display_slice]
-        return peth / (self.binwidth_ms / 1000), self.bin_centers
+        counts = np.vstack([np.histogram(raster, edges)[0] for raster in rasters])
+        if pad:
+            counts = _centered_smooth(counts, self.psth_kernel)
+            counts = counts[:, pad : pad + len(self.bin_centers)]
+        return counts / self.binwidth_s
 
     def _mean_event_rates(self, event_times: np.ndarray) -> np.ndarray:
         """Return mean rates without retaining one matrix per event."""
-        binwidth_s = self.binwidth_ms / 1000
         return np.asarray(
             [
                 np.histogram(
@@ -483,14 +456,9 @@ class PSTHApp(QtWidgets.QMainWindow):
                     self.bin_edges,
                 )[0]
                 / len(event_times)
-                / binwidth_s
+                / self.binwidth_s
                 for spike_times in self.units.values()
             ]
-        )
-
-    def _peak_latency_order(self, rates: np.ndarray) -> np.ndarray:
-        return np.argsort(
-            np.argmax(rates[:, self.bin_centers >= 0], axis=1), kind="stable"
         )
 
     def _prepare_plot(self, plot: pg.PlotItem, ylabel: str) -> None:
@@ -559,40 +527,28 @@ class PSTHApp(QtWidgets.QMainWindow):
                 rasters[index] for index in np.argsort(first_spikes, kind="stable")
             ]
 
-        n_spikes = sum(len(raster) for raster in rasters)
-        x = np.full(n_spikes * 3, np.nan)
-        y = np.full(n_spikes * 3, np.nan)
-        offset = 0
-        for trial, raster in enumerate(rasters):
-            stop = offset + len(raster) * 3
-            x[offset:stop:3] = raster
-            x[offset + 1 : stop : 3] = raster
-            y[offset:stop:3] = trial - 0.4
-            y[offset + 1 : stop : 3] = trial + 0.4
-            offset = stop
-        plot.plot(x, y, pen=pg.mkPen("#222222", width=1), connect="finite")
+        trial = np.repeat(np.arange(len(rasters)), [len(r) for r in rasters])
+        x = np.repeat(np.concatenate(rasters), 2)
+        y = np.column_stack([trial - 0.4, trial + 0.4]).ravel()
+        plot.plot(x, y, pen=pg.mkPen("#222222", width=1), connect="pairs")
         plot.getViewBox().setYRange(-0.5, max(0.5, len(rasters) - 0.5), padding=0)
         self._prepare_plot(plot, "event")
 
     def _draw_psth(
         self, plot: pg.PlotItem, spike_times: np.ndarray, event_times: np.ndarray
     ) -> None:
-        peth, bin_centers = self._peth(
-            [spike_times],
-            event_times,
-            kernel=self.psth_kernel if self.smoothing_checkbox.isChecked() else None,
-        )
-        mean_rate = np.mean(peth[0], axis=0)
+        peth = self._peth(spike_times, event_times, self.smoothing_checkbox.isChecked())
+        mean_rate = np.mean(peth, axis=0)
         sem_rate = (
-            np.std(peth[0], axis=0, ddof=1) / np.sqrt(len(peth[0]))
-            if len(peth[0]) > 1
+            np.std(peth, axis=0, ddof=1) / np.sqrt(len(peth))
+            if len(peth) > 1
             else np.full_like(mean_rate, np.nan)
         )
         band_pen = pg.mkPen(0, 0, 0, 64, width=1)
-        upper = plot.plot(bin_centers, mean_rate + sem_rate, pen=band_pen)
-        lower = plot.plot(bin_centers, mean_rate - sem_rate, pen=band_pen)
+        upper = plot.plot(self.bin_centers, mean_rate + sem_rate, pen=band_pen)
+        lower = plot.plot(self.bin_centers, mean_rate - sem_rate, pen=band_pen)
         plot.addItem(pg.FillBetweenItem(upper, lower, brush=(0, 0, 0, 51)))
-        plot.plot(bin_centers, mean_rate, pen=pg.mkPen("#000000", width=2.5))
+        plot.plot(self.bin_centers, mean_rate, pen=pg.mkPen("#000000", width=2.5))
         self._prepare_plot(plot, "sp/s")
 
 
@@ -600,57 +556,39 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Browse event-aligned neural activity",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False,
     )
-    required = parser.add_argument_group("required arguments")
-    required.add_argument(
+    parser.add_argument(
         "-a", "--subject", required=True, default=argparse.SUPPRESS, help="Subject name"
     )
-    required.add_argument(
+    parser.add_argument(
         "-s", "--session", required=True, default=argparse.SUPPRESS, help="Session name"
     )
-    optional = parser.add_argument_group("optional arguments")
-    optional.add_argument("-h", "--help", action="help", help="Show this help message")
-    optional.add_argument(
+    parser.add_argument(
         "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
     )
-    optional.add_argument(
+    parser.add_argument(
         "--stability-param-id",
         type=int,
         default=None,
         help="Also require units to pass this stability parameter set",
     )
-    optional.add_argument(
+    parser.add_argument(
         "--pre-seconds", type=float, default=0.1, help="Time shown before the event"
     )
-    optional.add_argument(
+    parser.add_argument(
         "--post-seconds", type=float, default=0.15, help="Time shown after the event"
     )
-    optional.add_argument(
+    parser.add_argument(
         "--binwidth-ms", type=int, default=10, help="PSTH bin width in milliseconds"
-    )
-    optional.add_argument(
-        "--plot-type",
-        choices=("heatmap", "raster", "psth"),
-        default="heatmap",
-        help="Initial plot type",
     )
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
+    _self_check()
     app = pg.mkQApp("PSTH viewer")
-    viewer = PSTHApp(
-        subject=args.subject,
-        session=args.session,
-        unit_criteria_id=args.unit_criteria_id,
-        stability_param_id=args.stability_param_id,
-        pre_seconds=args.pre_seconds,
-        post_seconds=args.post_seconds,
-        binwidth_ms=args.binwidth_ms,
-        plot_type=cast(Literal["heatmap", "raster", "psth"], args.plot_type),
-    )
+    viewer = PSTHApp(**vars(args))
     viewer.show()
     raise SystemExit(app.exec())
 

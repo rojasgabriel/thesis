@@ -28,9 +28,9 @@ StreamSync. If no StreamSync row exists, labdata uses the sampling rate and
 gives a warning.
 
 Pulse-width control: the code uses first-in-train 15 and 30 ms pulses with no
-other pulse in the next 120 ms. Each control peak is the trial-mean maximum
-within 15 ms of the unit's double-peak-test peak time in the same session. For
-30 ms pulses, the second-peak window moves 15 ms later. This is the
+other pulse in the next 120 ms. The control second peak is the trial-mean
+maximum within 15 ms of the unit's double-peak-test second-peak time in the same
+session. For 30 ms pulses, the window moves 15 ms later. This is the
 onset-offset prediction. Panel e shows the 30 ms second-peak latency minus the
 predicted latency (the 15 ms second-peak latency plus 15 ms).
 
@@ -93,14 +93,11 @@ FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "double_peak_supplement.pdf"
 
 
-def _window_maximum(
-    peth: np.ndarray, bin_centers: np.ndarray, center: float
-) -> tuple[float, float]:
-    """Return the trial-mean maximum within 15 ms of an expected peak."""
+def _window_maximum(peth: np.ndarray, bin_centers: np.ndarray, center: float) -> float:
+    """Return the time of the trial-mean maximum within 15 ms of an expected peak."""
     mean_peth = peth.mean(axis=0)
     mask = np.abs(bin_centers - center) <= 0.015
-    index = np.flatnonzero(mask)[np.argmax(mean_peth[mask])]
-    return float(bin_centers[index]), float(mean_peth[index])
+    return float(bin_centers[np.flatnonzero(mask)[np.argmax(mean_peth[mask])]])
 
 
 def classify_double_peak_units(
@@ -141,7 +138,6 @@ def classify_double_peak_units(
                     "peak_heights": [],
                     "baseline": [],
                     "min_peak_height_above_baseline": [],
-                    "max_peak_height_above_baseline": [],
                 }
             ),
             peth,
@@ -185,20 +181,13 @@ def classify_double_peak_units(
         double_peak_row["min_peak_height_above_baseline"] = min(
             peak_heights_above_baseline
         )
-        double_peak_row["max_peak_height_above_baseline"] = max(
-            peak_heights_above_baseline
-        )
         double_peak_rows.append(double_peak_row)
 
     double_peak_rows = pd.DataFrame(double_peak_rows)
     if double_peak_rows.empty:
         double_peak_rows = peak_rows.iloc[0:0].reindex(
             columns=list(peak_rows.columns)
-            + [
-                "baseline",
-                "min_peak_height_above_baseline",
-                "max_peak_height_above_baseline",
-            ]
+            + ["baseline", "min_peak_height_above_baseline"]
         )
     return double_peak_rows, peth, bin_centers, excited_unit_ids
 
@@ -250,8 +239,6 @@ def _collect_session(subject: str, session: str, *, controls: bool = True) -> di
 
     excited_units = units[units["unit_id"].isin(excited_ids)].copy()
     excited_units["is_double"] = excited_units["unit_id"].isin(double_peak_unit_ids)
-    excited_units["subject"] = subject
-    excited_units["session"] = session
 
     unit_responses: dict[int, dict] = {}
     for unit_id in double_peak_unit_ids:
@@ -289,22 +276,14 @@ def _collect_session(subject: str, session: str, *, controls: bool = True) -> di
             )
             peth = peth / (PETH_BINWIDTH_MS / 1000)
             for index, unit_id in enumerate(double_peak_unit_ids):
-                discovery_peaks = unit_responses[unit_id]["peak_row_15"]["peak_times"]
-                expected = [
-                    discovery_peaks[0],
-                    discovery_peaks[1] + (0.015 if width_ms == 30 else 0.0),
-                ]
-                maxima = [
-                    _window_maximum(peth[index], bin_centers, center)
-                    for center in expected
-                ]
+                second_peak = unit_responses[unit_id]["peak_row_15"]["peak_times"][1]
+                second_peak += 0.015 if width_ms == 30 else 0.0
                 unit_responses[unit_id].update(
                     {
                         f"peth_control_{width_ms}": peth[index],
-                        f"peak_row_control_{width_ms}": {
-                            "peak_times": [value[0] for value in maxima],
-                            "peak_heights": [value[1] for value in maxima],
-                        },
+                        f"second_peak_control_{width_ms}": _window_maximum(
+                            peth[index], bin_centers, second_peak
+                        ),
                         f"n_control_{width_ms}": len(alignment_times),
                     }
                 )
@@ -312,7 +291,6 @@ def _collect_session(subject: str, session: str, *, controls: bool = True) -> di
     return {
         "subject": subject,
         "session": session,
-        "n_stable": len(units),
         "units": excited_units,
         "unit_responses": unit_responses,
     }
@@ -366,8 +344,8 @@ def _plot_second_peak_prediction_error(ax, unit_responses: list[dict]) -> None:
     """Plot observed minus onset-offset-predicted second-peak latency."""
     prediction_errors = []
     for unit_response in unit_responses:
-        latency_15 = 1000 * unit_response["peak_row_control_15"]["peak_times"][1]
-        latency_30 = 1000 * unit_response["peak_row_control_30"]["peak_times"][1]
+        latency_15 = 1000 * unit_response["second_peak_control_15"]
+        latency_30 = 1000 * unit_response["second_peak_control_30"]
         prediction_errors.append(latency_30 - (latency_15 + 15))
     x = np.linspace(-0.06, 0.06, len(prediction_errors))
     ax.scatter(x, prediction_errors, color="0.2", s=16, alpha=0.8, zorder=3)

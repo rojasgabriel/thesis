@@ -109,22 +109,10 @@ class SurveyMapApp(QtWidgets.QMainWindow):
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Browse a survey map",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False,
+    parser = argparse.ArgumentParser(description="Browse a survey map")
+    parser.add_argument(
+        "-f", "--file", type=Path, required=True, help="Survey map .txt or .csv file"
     )
-    required = parser.add_argument_group("required arguments")
-    required.add_argument(
-        "-f",
-        "--file",
-        type=Path,
-        required=True,
-        default=argparse.SUPPRESS,
-        help="Survey map .txt or .csv file",
-    )
-    optional = parser.add_argument_group("optional arguments")
-    optional.add_argument("-h", "--help", action="help", help="Show this help message")
     return parser.parse_args()
 
 

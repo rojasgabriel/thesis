@@ -97,14 +97,11 @@ def main() -> None:
     )
     parser.add_argument("subject")
     parser.add_argument("session")
-    parser.add_argument("--output", type=Path, help="Output SVG path")
     args = parser.parse_args()
 
     from thesis.ephys.analyses.double_peaks import _collect_session
 
-    output = args.output or (
-        Path("figures/double_peak") / f"{args.subject.lower()}_candidates.svg"
-    )
+    output = Path("figures/double_peak") / f"{args.subject.lower()}_candidates.svg"
     plot_candidates(
         _collect_session(args.subject, args.session, controls=False), output
     )

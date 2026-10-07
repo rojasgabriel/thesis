@@ -7,15 +7,12 @@ app can write to the database.
 """
 
 import argparse
-import warnings
 
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 from spks.event_aligned import population_peth
-
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 
 def _load_data(
@@ -243,27 +240,23 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Browse stimulus-responsive units",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False,
     )
-    required = parser.add_argument_group("required arguments")
-    required.add_argument(
+    parser.add_argument(
         "-a", "--subject", required=True, default=argparse.SUPPRESS, help="Subject name"
     )
-    required.add_argument(
+    parser.add_argument(
         "-s", "--session", required=True, default=argparse.SUPPRESS, help="Session name"
     )
-    optional = parser.add_argument_group("optional arguments")
-    optional.add_argument("-h", "--help", action="help", help="Show this help message")
-    optional.add_argument(
+    parser.add_argument(
         "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
     )
-    optional.add_argument(
+    parser.add_argument(
         "--stim-response-param-id",
         type=int,
         default=0,
         help="Stimulus response parameters",
     )
-    optional.add_argument(
+    parser.add_argument(
         "--stability-param-id",
         type=int,
         default=None,
@@ -274,13 +267,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    rows, peth, bins, params = _load_data(
-        args.subject,
-        args.session,
-        args.unit_criteria_id,
-        args.stim_response_param_id,
-        args.stability_param_id,
-    )
+    rows, peth, bins, params = _load_data(**vars(args))
     app = pg.mkQApp("Stimulus response browser")
     browser = StimulusResponseApp(rows, peth, bins, params)
     browser.show()

@@ -25,13 +25,11 @@ Display limit: panel a stops at 60 sp/s. Units above this limit stay in the
 means, and the script prints their count.
 
 The script writes locomotion/locomotion_peaks.pdf under THESIS_FIGURE_ROOT. The
-default root is "figures". Use --show to keep an interactive window open. Use
---no-save to skip the PDF.
+default root is "figures".
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 from pathlib import Path
 
@@ -64,16 +62,9 @@ SUBJECT_COLORS = ("#E41A1C", "#377EB8", "#4DAF4A")
 
 
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
-    """Load the conditioned-stim classification for one session."""
-    return _build_trial_stim_classification(
-        build_trial_table(subject, session)
-    ).reset_index(drop=True)
-
-
-def _build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
     """Classify 15 ms pulses as stationary or movement for each trial."""
     classification_records = []
-    for trial_index, trial in trial_df.iterrows():
+    for _, trial in build_trial_table(subject, session).iterrows():
         cp_entry = trial["center_entry_s"]
         cp_exit = trial["center_exit_s"]
         rp_entry = trial["response_port_entry_s"]
@@ -99,18 +90,7 @@ def _build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
         ].tolist()
         if stationary_stims and movement_stims:
             classification_records.append(
-                {
-                    "trial_idx": trial_index,
-                    "cp_entry": cp_entry,
-                    "cp_exit": cp_exit,
-                    "rp_entry": rp_entry,
-                    "stationary_stims": stationary_stims,
-                    "movement_stims": movement_stims,
-                    "n_cp_entries": sum(
-                        timestamp < cp_exit
-                        for timestamp in trial["center_port_entry_times_s"]
-                    ),
-                }
+                {"stationary_stims": stationary_stims, "movement_stims": movement_stims}
             )
 
     return pd.DataFrame(classification_records)
@@ -120,27 +100,12 @@ def extract_paired_stim_anchors(
     trial_classification: pd.DataFrame,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return last-stationary and first-movement stimulus times."""
-    paired_trials = trial_classification[
-        trial_classification["stationary_stims"].str.len().gt(0)
-        & trial_classification["movement_stims"].str.len().gt(0)
-    ]
-    return (
-        np.asarray(
-            [stims[-1] for stims in paired_trials["stationary_stims"]], dtype=float
-        ),
-        np.asarray(
-            [stims[0] for stims in paired_trials["movement_stims"]], dtype=float
-        ),
-    )
+    stationary = [stims[-1] for stims in trial_classification["stationary_stims"]]
+    movement = [stims[0] for stims in trial_classification["movement_stims"]]
+    return np.asarray(stationary, dtype=float), np.asarray(movement, dtype=float)
 
 
-def compute_locomotion_peaks(
-    subject: str,
-    session: str,
-    unit_criteria_id: int = 1,
-    stability_param_id: int | None = 0,
-    stim_response_param_id: int = 0,
-) -> pd.DataFrame:
+def compute_locomotion_peaks(subject: str, session: str) -> pd.DataFrame:
     """Return stationary and movement peaks for stable stimulus-excited units."""
     stationary_events, movement_events = extract_paired_stim_anchors(
         load_trial_classification(subject, session)
@@ -148,12 +113,12 @@ def compute_locomotion_peaks(
     if stationary_events.size == 0 or movement_events.size == 0:
         raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
 
-    units = fetch_unit_table(subject, session, unit_criteria_id, stability_param_id)
+    units = fetch_unit_table(subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID)
     response_query = {
         "subject_name": subject,
         "session_name": session,
-        "unit_criteria_id": unit_criteria_id,
-        "stim_response_param_id": stim_response_param_id,
+        "unit_criteria_id": UNIT_CRITERIA_ID,
+        "stim_response_param_id": STIM_RESPONSE_PARAM_ID,
         "response_type": "excited",
     }
     excited_unit_ids = set((StimulusResponse.Unit & response_query).fetch("unit_id"))
@@ -208,38 +173,15 @@ def compute_locomotion_peaks(
     )
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--show",
-        action="store_true",
-        help="Open an interactive matplotlib window after saving the figure.",
-    )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Build the figure without writing the PDF. Usually paired with --show.",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = _parse_args()
-    if not args.show:
-        matplotlib.use("Agg")
+    matplotlib.use("Agg")
     from matplotlib import pyplot as plt
 
     peak_results: list[tuple[str, pd.DataFrame]] = []
 
     for subject, session in SUBJECT_SESSIONS:
         print(f"\nComputing locomotion peaks: {subject} {session}")
-        peak_table = compute_locomotion_peaks(
-            subject,
-            session,
-            unit_criteria_id=UNIT_CRITERIA_ID,
-            stability_param_id=STABILITY_PARAM_ID,
-            stim_response_param_id=STIM_RESPONSE_PARAM_ID,
-        )
+        peak_table = compute_locomotion_peaks(subject, session)
         for column in ["stat_peak", "move_peak", "stat_latency", "move_latency"]:
             values = peak_table[column].to_numpy(dtype=float)
             if not np.all(np.isfinite(values)):
@@ -386,16 +328,11 @@ def main() -> None:
             va="bottom",
         )
 
-    if not args.no_save:
-        FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-        save_path = FIGURE_DIR / "locomotion_peaks.pdf"
-        fig.savefig(save_path, bbox_inches="tight", dpi=300)
-        print(f"\nSaved -> {save_path}")
-
-    if args.show:
-        plt.show()
-    else:
-        plt.close(fig)
+    FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+    save_path = FIGURE_DIR / "locomotion_peaks.pdf"
+    fig.savefig(save_path, bbox_inches="tight", dpi=300)
+    print(f"\nSaved -> {save_path}")
+    plt.close(fig)
 
 
 if __name__ == "__main__":

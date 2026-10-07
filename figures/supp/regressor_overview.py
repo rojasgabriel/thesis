@@ -23,8 +23,6 @@ FIGURE_STYLE = {
     "axes.spines.top": False,
     "axes.spines.right": False,
     "font.size": 8,
-    "pdf.fonttype": 42,
-    "ps.fonttype": 42,
 }
 GROUP_COLORS = {"sensory": "C0", "task": "C1", "video": "C2", "history": "C3"}
 
