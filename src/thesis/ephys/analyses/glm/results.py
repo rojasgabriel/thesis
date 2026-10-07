@@ -27,6 +27,7 @@ from thesis.ephys.analyses.glm.dmat import (
     training_zscore,
 )
 from thesis.ephys.analyses.glm.fit import (
+    _write_json_atomic,
     build_unit_counts,
     cross_validation_partitions,
     load_unit_records,
@@ -53,7 +54,7 @@ FLASH_CONDITIONS = {
 
 def fitted_trial_contributions(
     design: np.ndarray, result: dict, design_metadata: dict
-) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, float]:
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
     """Decompose one fitted trial into exact groupwise log-rate terms."""
     design = np.asarray(design, dtype=float)
     components = int(result["components"])
@@ -83,21 +84,15 @@ def fitted_trial_contributions(
         "video": design[:, cursor:common_columns] @ coefficients[cursor:common_columns],
         "history": design[:, common_columns:] @ coefficients[common_columns:],
     }
-    linear_predictor = float(result["intercept"]) + (
-        contributions["visual"]
-        + contributions["task"]
-        + contributions["video"]
-        + contributions["history"]
-    )
+    linear_predictor = float(result["intercept"]) + sum(contributions.values())
     direct = float(result["intercept"]) + design @ coefficients
-    error = float(np.max(np.abs(linear_predictor - direct), initial=0.0))
     if not np.allclose(linear_predictor, direct, rtol=1e-11, atol=1e-12):
         raise ValueError("Group contributions do not reproduce the fitted predictor.")
     with np.errstate(over="ignore"):
         expected_count = np.exp(linear_predictor)
     if not np.isfinite(expected_count).all() or np.any(expected_count <= 0):
         raise ValueError("Fitted trial counts must be finite and positive.")
-    return contributions, linear_predictor, expected_count, error
+    return contributions, linear_predictor, expected_count
 
 
 def fitted_kernels(
@@ -146,40 +141,29 @@ def fitted_kernels(
     return kernels
 
 
-def combined_flash_kernels(
+def flash_condition_display(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    task_names: list[str],
     adapt_levels: dict[str, float],
-) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Combine the common flash kernel, the state contrast, and adaptation.
+) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
+    """Replace the raw flash regressors with one kernel per flash condition.
 
     A flash's log-rate contribution is the common kernel plus the state contrast
     scaled by its pre/post value plus the adaptation kernel scaled by its centered
     adaptation index. Evaluating that at representative levels gives one
     interpretable kernel per occurring condition.
     """
-    times, common = kernels[FLASH_COMMON]
-    _, state = kernels[FLASH_STATE]
-    _, adapt = kernels[FLASH_ADAPT]
-    combined = {
-        name: (times, common + state_value * state + adapt_levels[level_key] * adapt)
-        for name, (state_value, level_key) in FLASH_CONDITIONS.items()
-    }
-    if not all(np.isfinite(values).all() for _, values in combined.values()):
-        raise ValueError("Combined flash kernels must be finite.")
-    return combined
-
-
-def flash_condition_display(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    task_names: list[str],
-    adapt_levels: dict[str, float],
-) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
-    """Replace the raw flash regressors with the three combined conditions."""
     flash_blocks = (FLASH_COMMON, FLASH_STATE, FLASH_ADAPT)
     display = {
         name: values for name, values in kernels.items() if name not in flash_blocks
     }
-    display.update(combined_flash_kernels(kernels, adapt_levels))
+    times, common = kernels[FLASH_COMMON]
+    state, adapt = kernels[FLASH_STATE][1], kernels[FLASH_ADAPT][1]
+    for name, (state_value, level_key) in FLASH_CONDITIONS.items():
+        values = common + state_value * state + adapt_levels[level_key] * adapt
+        if not np.isfinite(values).all():
+            raise ValueError("Combined flash kernels must be finite.")
+        display[name] = (times, values)
     remaining = [name for name in task_names if name not in flash_blocks]
     return display, [*FLASH_CONDITIONS, *remaining]
 
@@ -189,10 +173,7 @@ def _select_count_typical_trial(observed: np.ndarray) -> int:
     if observed.ndim != 2 or len(observed) == 0:
         raise ValueError("Observed spikes must be a nonempty trial-by-bin matrix.")
     totals = observed.sum(axis=1)
-    median = float(np.median(totals))
-    return min(
-        range(len(totals)), key=lambda index: (abs(totals[index] - median), index)
-    )
+    return int(np.argmin(np.abs(totals - np.median(totals))))
 
 
 def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
@@ -251,16 +232,13 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
     }:
         raise ValueError("Final and fold results must contain the same unique units.")
 
-    def unit_spike_times(selected_unit: int) -> np.ndarray:
-        matching_units = units.loc[units["unit_id"] == selected_unit]
-        if len(matching_units) != 1:
-            raise ValueError(f"Expected one eligible row for unit {selected_unit}.")
-        return np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
-
-    example_spikes = unit_spike_times(EXAMPLE_UNIT_ID)
-    _, _, kernel_history_scale = training_zscore(
-        build_unit_history(prepared["alignments"], example_spikes),
-        valid,
+    matching_units = units.loc[units["unit_id"] == EXAMPLE_UNIT_ID]
+    if len(matching_units) != 1:
+        raise ValueError(f"Expected one eligible row for unit {EXAMPLE_UNIT_ID}.")
+    example_spikes = np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
+    example_history_raw = build_unit_history(prepared["alignments"], example_spikes)
+    example_history, _, kernel_history_scale = training_zscore(
+        example_history_raw, valid
     )
     kernels = fitted_kernels(example_result, design_metadata, kernel_history_scale)
     adapt_levels = next(
@@ -272,7 +250,6 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
         kernels, task_names, adapt_levels
     )
     example_counts = build_unit_counts(prepared["alignments"], example_spikes)
-    example_history_raw = build_unit_history(prepared["alignments"], example_spikes)
     count_grid = example_counts.reshape(len(trial_split), bin_count)
     history_grid = example_history_raw.reshape(
         len(trial_split), bin_count, HISTORY_COLUMNS
@@ -284,45 +261,36 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
         count_grid[:, :-1][adjacent_valid],
     ):
         raise ValueError("Spike history is not one bin behind spikes on valid rows.")
-    example_history, _, _ = training_zscore(example_history_raw, valid)
     observed = example_counts[test_rows].reshape(trial_count, bin_count)
 
-    def prediction_data() -> tuple[np.ndarray, np.ndarray]:
-        conditional = np.full(len(common), np.nan)
-        saved_folds = iter(fold_by_id[EXAMPLE_UNIT_ID]["folds"])
-        for partition in partitions:
-            if example_counts[partition["test"]].sum() <= 0:
-                continue
-            fold = next(saved_folds, None)
-            if fold is None:
-                raise ValueError("Saved fold count does not match fitted partitions.")
-            coefficients = np.asarray(fold["coefficients"], dtype=float)
-            if len(coefficients) != common_columns + HISTORY_COLUMNS:
-                raise ValueError(
-                    "Saved coefficient count does not match the selected design."
-                )
-            history, _, _ = training_zscore(example_history_raw, partition["fit"])
-            plotted_rows = partition["test"][test_rows]
-            linear_predictor = (
-                float(fold["intercept"])
-                + np.asarray(common[plotted_rows, :common_columns])
-                @ coefficients[:common_columns]
-                + history[test_rows][plotted_rows] @ coefficients[common_columns:]
+    conditional = np.full(len(common), np.nan)
+    saved_folds = iter(fold_by_id[EXAMPLE_UNIT_ID]["folds"])
+    for partition in partitions:
+        if example_counts[partition["test"]].sum() <= 0:
+            continue
+        fold = next(saved_folds, None)
+        if fold is None:
+            raise ValueError("Saved fold count does not match fitted partitions.")
+        coefficients = np.asarray(fold["coefficients"], dtype=float)
+        if len(coefficients) != common_columns + HISTORY_COLUMNS:
+            raise ValueError(
+                "Saved coefficient count does not match the selected design."
             )
-            conditional[plotted_rows] = np.exp(linear_predictor)
-        if next(saved_folds, None) is not None:
-            raise ValueError("Saved fold count does not match the fitted partitions.")
-        plotted = test_valid.ravel()
-        if not np.isfinite(conditional[plotted]).all() or np.any(
-            conditional[plotted] <= 0
-        ):
-            raise ValueError("Conditional predictions must be finite and positive.")
-        return (
-            example_counts[test_rows].reshape(trial_count, bin_count),
-            conditional.reshape(trial_count, bin_count),
+        history, _, _ = training_zscore(example_history_raw, partition["fit"])
+        plotted_rows = partition["test"][test_rows]
+        linear_predictor = (
+            float(fold["intercept"])
+            + np.asarray(common[plotted_rows, :common_columns])
+            @ coefficients[:common_columns]
+            + history[test_rows][plotted_rows] @ coefficients[common_columns:]
         )
-
-    prediction_observed, conditional = prediction_data()
+        conditional[plotted_rows] = np.exp(linear_predictor)
+    if next(saved_folds, None) is not None:
+        raise ValueError("Saved fold count does not match the fitted partitions.")
+    plotted = test_valid.ravel()
+    if not np.isfinite(conditional[plotted]).all() or np.any(conditional[plotted] <= 0):
+        raise ValueError("Conditional predictions must be finite and positive.")
+    conditional = conditional.reshape(trial_count, bin_count)
     typical_trial = _select_count_typical_trial(np.where(test_valid, observed, 0))
     displayed_design = np.column_stack(
         (
@@ -342,7 +310,7 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
     model_times = relative_times[displayed_rows]
     model_counts = observed[typical_trial, displayed_rows]
     model_design = displayed_design[displayed_rows]
-    contributions, linear_predictor, fitted_count, _ = fitted_trial_contributions(
+    contributions, linear_predictor, fitted_count = fitted_trial_contributions(
         model_design, example_result, design_metadata
     )
 
@@ -385,7 +353,7 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
 
     arrays = {
         "relative_times": relative_times,
-        "prediction_observed": prediction_observed,
+        "prediction_observed": observed,
         "conditional": conditional,
         "test_valid": test_valid,
         "model_times": model_times,
@@ -423,17 +391,12 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
     }
 
     output = fit_dir / "figure_data.npz"
-    metadata_path = fit_dir / "figure_data.json"
     fit_dir.mkdir(parents=True, exist_ok=True)
     matrix_partial = output.with_name(f"{output.name}.partial")
-    metadata_partial = metadata_path.with_name(f"{metadata_path.name}.partial")
     # The CLI holds the session lock; discard unfinished writes before retrying.
     matrix_partial.unlink(missing_ok=True)
-    metadata_partial.unlink(missing_ok=True)
     with matrix_partial.open("xb") as handle:
         np.savez_compressed(handle, allow_pickle=False, **arrays)
-    with metadata_partial.open("x") as handle:
-        json.dump(scalars, handle, indent=2)
     matrix_partial.replace(output)
-    metadata_partial.replace(metadata_path)
+    _write_json_atomic(fit_dir / "figure_data.json", scalars)
     print(f"Completed figure data: {output}", flush=True)

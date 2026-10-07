@@ -319,18 +319,15 @@ def main() -> None:
             (checkpoints / "unique" / f"unit_{unit_id}.json").read_text()
         )
         spikes = units.loc[units["unit_id"] == unit_id, "spike_times_s"].iloc[0]
-        _, _, history_scale = dmat.training_zscore(
-            dmat.build_unit_history(alignments, spikes), valid
-        )
+        raw_history = dmat.build_unit_history(alignments, spikes)
+        _, _, history_scale = dmat.training_zscore(raw_history, valid)
         kernels = results.fitted_kernels(final, metadata, history_scale)
         # Replay the first scored fold with history scaled on its fit rows only.
         folds = json.loads((checkpoints / f"unit_{unit_id}_folds.json").read_text())
         counts = fit.build_unit_counts(alignments, spikes)
         part = next(p for p in partitions if counts[p["test"]].sum() > 0)
         first = folds["folds"][0]
-        history, _, _ = dmat.training_zscore(
-            dmat.build_unit_history(alignments, spikes), part["fit"]
-        )
+        history, _, _ = dmat.training_zscore(raw_history, part["fit"])
         design = dmat._design_with_history(
             common,
             history,

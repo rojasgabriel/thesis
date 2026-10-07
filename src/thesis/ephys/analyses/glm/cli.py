@@ -55,7 +55,6 @@ class PoissonGLM:
     subject: str = "GRB006"
     session: str = "20240821_121447"
     root: Path = Path("figures/glm/GRB006_20240821_121447")
-    frame_times: Path | None = None
 
     @property
     def windows(self) -> Path:
@@ -79,10 +78,7 @@ class PoissonGLM:
             print(f"Reused prepared windows: {self.windows}", flush=True)
         else:
             write_stimulus_windows(
-                self.subject,
-                self.session,
-                self.windows,
-                self.frame_times or self.root / "frame_times.npy",
+                self.subject, self.session, self.windows, self.root / "frame_times.npy"
             )
             print(f"Completed prepared windows: {self.windows}", flush=True)
         if self.video.exists():
@@ -143,11 +139,6 @@ def main() -> None:
             help="Artifact directory. Defaults to figures/glm/<subject>_<session>.",
         )
         if name == "prepare":
-            command.add_argument(
-                "--frame-times",
-                type=Path,
-                help="Camera frame times. Defaults to frame_times.npy under the root.",
-            )
             continue
         command.add_argument(
             "--units",
@@ -168,8 +159,6 @@ def main() -> None:
     )
     with _artifact_lock(model.root):
         if args.command == "prepare":
-            if args.frame_times is not None:
-                model.frame_times = args.frame_times
             model.prepare()
             return
         getattr(model, args.command)(args.units, args.workers)

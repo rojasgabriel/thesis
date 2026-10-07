@@ -85,15 +85,12 @@ def write_motion_energy_features(alignment: Path, output: Path) -> None:
     model = PCA(n_components=COMPONENTS, svd_solver="randomized", random_state=0)
     model.fit(motion[train])
     scores, score_mean, score_scale = training_zscore(model.transform(motion), train)
-    if not np.isfinite(scores).all():
-        raise ValueError("Non-finite video scores.")
     summary = {
         "alignment_path": str(alignment.resolve()),
         "source": metadata,
         "width": WIDTH,
         "height": height,
         "components": COMPONENTS,
-        "component_candidates": [10, 25, 50, 100, 200],
         "feature": "absolute frame-to-frame motion energy",
         "training_frames": int(train.sum()),
         "trial_frames": len(indices),

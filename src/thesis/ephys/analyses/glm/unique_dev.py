@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
     HISTORY_COLUMNS,
@@ -37,6 +38,7 @@ from thesis.ephys.analyses.glm.dmat import (
 )
 from thesis.ephys.analyses.glm.fit import (
     _SHARED,
+    _write_json_atomic,
     analysis_unit_indices,
     build_unit_counts,
     collect_records,
@@ -82,12 +84,9 @@ def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
 
 
 def shuffle_permutations(
-    n_trials: int,
-    bins_per_trial: int,
-    seed: int,
-    valid: np.ndarray | None = None,
+    n_trials: int, bins_per_trial: int, seed: int, valid: np.ndarray
 ) -> np.ndarray:
-    """Return within-trial permutations, only among valid bins when given."""
+    """Return within-trial permutations among each trial's valid bins."""
     if n_trials <= 0 or bins_per_trial <= 1:
         raise ValueError(
             "Trials and bins per trial must define a two-dimensional grid."
@@ -95,40 +94,11 @@ def shuffle_permutations(
     rows = np.arange(n_trials * bins_per_trial, dtype=np.int64).reshape(
         n_trials, bins_per_trial
     )
-    if valid is None:
-        valid_trials = np.ones(rows.shape, dtype=bool)
-    else:
-        valid_trials = np.asarray(valid, dtype=bool).reshape(rows.shape)
+    valid = np.asarray(valid, dtype=bool).reshape(rows.shape)
     rng = np.random.default_rng(seed)
-    within_trial = np.empty_like(rows)
-    for trial, trial_rows in enumerate(rows):
-        keep = np.flatnonzero(valid_trials[trial])
-        permuted = trial_rows.copy()
-        if keep.size:
-            permuted[keep] = trial_rows[keep][rng.permutation(keep.size)]
-        within_trial[trial] = permuted
-    return within_trial.ravel()
-
-
-def _shuffled_deviance(
-    fit_design: np.ndarray,
-    fit_counts: np.ndarray,
-    test_design: np.ndarray,
-    test_counts: np.ndarray,
-    alpha: float,
-) -> float:
-    """Refit one shuffled design at a fixed penalty and score the held-out fold.
-
-    The penalty comes from the full model rather than being reselected. The
-    shuffled design has the same width, so the optimum barely moves, and holding
-    it fixed keeps the difference in deviance attributable to the shuffle rather
-    than to two models landing on different penalties.
-    """
-    fit_mean = float(fit_counts.mean())
-    model = fit_poisson_at_alpha(fit_design, fit_counts, alpha)
-    return poisson_metrics(test_counts, model.predict(test_design), fit_mean)[
-        "deviance_explained"
-    ]
+    for trial_rows, keep in zip(rows, valid, strict=True):
+        trial_rows[keep] = rng.permutation(trial_rows[keep])
+    return rows.ravel()
 
 
 def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
@@ -148,6 +118,12 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
         "shuffle_repetitions": 1,
         "groups": {},
     }
+    group_keys = (
+        "unique_test_deviance_explained",
+        "unique_test_deviance_explained_sem",
+        "maximal_test_deviance_explained",
+        "maximal_test_deviance_explained_sem",
+    )
     rows = []
     for group in GROUP_ORDER:
         values = np.asarray(
@@ -170,28 +146,13 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
                 "complete_test_deviance_explained": record[
                     "complete_test_deviance_explained"
                 ],
-                "unique_test_deviance_explained": record["groups"][group][
-                    "unique_test_deviance_explained"
-                ],
-                "unique_test_deviance_explained_sem": record["groups"][group][
-                    "unique_test_deviance_explained_sem"
-                ],
-                "maximal_test_deviance_explained": record["groups"][group][
-                    "maximal_test_deviance_explained"
-                ],
-                "maximal_test_deviance_explained_sem": record["groups"][group][
-                    "maximal_test_deviance_explained_sem"
-                ],
+                **{key: record["groups"][group][key] for key in group_keys},
             }
             for record in records
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = output_dir / "summary.json"
-    partial = summary_path.with_suffix(".json.partial")
-    with partial.open("w") as handle:
-        json.dump(summary, handle, indent=2)
-    partial.replace(summary_path)
+    _write_json_atomic(output_dir / "summary.json", summary)
     csv_path = output_dir / "unit_results.csv"
     with csv_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -223,12 +184,16 @@ def _block_task(job: dict) -> dict:
         test_design = _design_with_history(common, history, job["common_columns"], test)
         fit_counts = counts[fit]
         test_counts = counts[test]
+        fit_mean = float(fit_counts.mean())
 
         def score(comparison: str) -> float:
+            # Refit at this fold's full-model penalty, not a reselected one, so a
+            # change in D² comes from the shuffle and not from a new penalty.
             try:
-                return _shuffled_deviance(
-                    fit_design, fit_counts, test_design, test_counts, alpha
-                )
+                model = fit_poisson_at_alpha(fit_design, fit_counts, alpha)
+                return poisson_metrics(
+                    test_counts, model.predict(test_design), fit_mean
+                )["deviance_explained"]
             except Exception as error:
                 raise RuntimeError(
                     f"fold {fold_index}, {comparison}: {error}"
@@ -284,13 +249,9 @@ def _block_task(job: dict) -> dict:
             "columns": groups[group].stop - groups[group].start,
             "shuffle": "rows jointly within trial",
             "unique_test_deviance_explained": float(unique.mean()),
-            "unique_test_deviance_explained_sem": float(
-                unique.std(ddof=1) / np.sqrt(len(unique))
-            ),
+            "unique_test_deviance_explained_sem": float(sem(unique)),
             "maximal_test_deviance_explained": float(maximal.mean()),
-            "maximal_test_deviance_explained_sem": float(
-                maximal.std(ddof=1) / np.sqrt(len(maximal))
-            ),
+            "maximal_test_deviance_explained_sem": float(sem(maximal)),
             "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
         }
     record = {
@@ -392,12 +353,4 @@ def run_unique(
     from thesis.ephys.analyses.glm.figures import plot_deviance_explained
 
     figure_path = plot_deviance_explained(records, fit_dir / "deviance_explained")
-    print(
-        json.dumps(
-            {
-                **summary,
-                "figure": str(figure_path),
-            },
-            indent=2,
-        )
-    )
+    print(json.dumps({**summary, "figure": str(figure_path)}, indent=2))

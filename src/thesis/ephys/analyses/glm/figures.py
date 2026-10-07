@@ -8,6 +8,7 @@ which was fit on every valid bin. All rates condition on observed spike history.
 from __future__ import annotations
 
 import json
+import string
 from pathlib import Path
 
 import matplotlib
@@ -50,19 +51,14 @@ FIGURE_STYLE = {
     "pdf.fonttype": 42,
     "ps.fonttype": 42,
 }
-# Unique-deviance box plot: its own label and color maps (distinct from the
-# groupwise contribution colors above).
+# Unique-deviance box plot: task blocks reuse the kernel labels; its color map
+# is distinct from the groupwise contribution colors above.
 DEVIANCE_LABELS = {
     "full_model": "Full model",
     "task": "Task",
     "video": "Motion energy",
     "history": "Spike history",
-    "visual_flash": "Visual flash",
-    "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
-    "flash_adaptation": "Flash: adaptation",
-    "initiation": "Initiation",
-    "withdrawal": "Withdrawal",
-    "response_entry": "Response entry",
+    **TASK_LABELS,
 }
 DEVIANCE_COLORS = {
     "full_model": "black",
@@ -108,6 +104,21 @@ def _raster_events(
         np.repeat(times[keep], row[keep].astype(int, copy=False))
         for row, keep in zip(np.asarray(counts), np.asarray(valid), strict=True)
     ]
+
+
+def _label_panels(axes, x: float, y: float = 1.05) -> None:
+    """Put bold lowercase panel letters above and left of each axis."""
+    for letter, axis in zip(string.ascii_lowercase, axes, strict=False):
+        axis.text(
+            x,
+            y,
+            letter,
+            transform=axis.transAxes,
+            ha="left",
+            va="bottom",
+            fontweight="bold",
+            fontsize=10,
+        )
 
 
 def _save_figure(figure, output: Path) -> Path:
@@ -355,18 +366,7 @@ def plot_model_design(
             axis.set_xlim(left_ms, right_ms)
         for axis in all_axes[:-1]:
             axis.tick_params(axis="x", labelbottom=False)
-        for letter, axis in zip(
-            "abc", (event_axis, contribution_axes[0], count_axis), strict=True
-        ):
-            axis.text(
-                -0.15,
-                1.08,
-                letter,
-                transform=axis.transAxes,
-                fontweight="bold",
-                fontsize=10,
-                va="bottom",
-            )
+        _label_panels((event_axis, contribution_axes[0], count_axis), -0.15, 1.08)
         figure.subplots_adjust(left=0.23, right=0.98, bottom=0.07, top=0.97)
         return _save_figure(figure, output)
 
@@ -463,17 +463,7 @@ def plot_population_summary(
             va="bottom",
         )
 
-        for letter, axis in zip("abcd", axes, strict=True):
-            axis.text(
-                -0.14,
-                1.05,
-                letter,
-                transform=axis.transAxes,
-                ha="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=10,
-            )
+        _label_panels(axes, -0.14)
         figure.tight_layout(h_pad=2.0, w_pad=2.0)
         return _save_figure(figure, output), rate_deviance_rho
 
@@ -526,9 +516,7 @@ def plot_kernel_figure(
                 else grid[index // 2, index % 2]
             )
             axes.append(figure.add_subplot(location))
-        for letter, axis, name in zip(
-            "abcdefghijklmnopqrstuvwxyz", axes, names, strict=False
-        ):
+        for axis, name in zip(axes, names, strict=True):
             times_ms, values = kernels[name]
             axis.plot(times_ms, values, color="black", linewidth=1.1)
             axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
@@ -547,16 +535,7 @@ def plot_kernel_figure(
                 else r"$\Delta$ log rate",
                 fontsize=7,
             )
-            axis.text(
-                -0.16,
-                1.05,
-                letter,
-                transform=axis.transAxes,
-                ha="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=10,
-            )
+        _label_panels(axes, -0.16)
         task_limit = 1.05 * max(
             np.max(np.abs(kernels[name][1]), initial=0.0) for name in task_names
         )
@@ -655,17 +634,7 @@ def plot_prediction_figure(
         axes[2].legend(frameon=False)
         axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
 
-        for letter, axis in zip("abc", axes, strict=True):
-            axis.text(
-                -0.13,
-                1.05,
-                letter,
-                transform=axis.transAxes,
-                ha="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=10,
-            )
+        _label_panels(axes, -0.13)
         axes[0].set_ylabel("Observed\nheld-out trials")
         axes[1].set_ylabel("Predicted\nheld-out trials")
         axes[2].set_ylabel(f"Firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
@@ -733,17 +702,7 @@ def plot_deviance_explained(records: list[dict], output: Path) -> Path:
         axes[0].set_ylabel(r"Full-model test deviance explained ($D^2$)")
         axes[1].set_ylabel(r"Maximal deviance explained ($\Delta D^2$)")
         axes[2].set_ylabel(r"Unique deviance explained ($\Delta D^2$)")
-        for letter, axis in zip("abc", axes, strict=True):
-            axis.text(
-                -0.12,
-                1.04,
-                letter,
-                transform=axis.transAxes,
-                ha="left",
-                va="bottom",
-                fontweight="bold",
-                fontsize=10,
-            )
+        _label_panels(axes, -0.12, 1.04)
         figure.subplots_adjust(
             bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
         )
@@ -842,26 +801,12 @@ def plot_fit(windows: Path, design: Path, fit_dir: Path) -> None:
         json.dumps(
             {
                 **payload,
-                "example_unit_id": int(meta["example_unit_id"]),
-                "example_unit_training_rate_spikes_s": meta[
-                    "example_unit_training_rate_spikes_s"
-                ],
-                "example_unit_cross_validated_deviance_explained": meta[
-                    "example_unit_cross_validated_deviance_explained"
-                ],
-                "test_trials": int(meta["test_trials"]),
+                **{k: v for k, v in meta.items() if not isinstance(v, list)},
                 "prediction_observed_spikes": int(
                     prediction_observed[test_valid].sum()
                 ),
                 "prediction_sampled_spikes": int(predicted[test_valid].sum()),
                 "prediction_seed": seed,
-                "model_design_trial": int(meta["model_design_trial"]),
-                "model_design_flashes": int(meta["model_design_flashes"]),
-                "model_design_pre_withdrawal_flashes": int(
-                    meta["model_design_pre_withdrawal_flashes"]
-                ),
-                "model_design_first_flashes": int(meta["model_design_first_flashes"]),
-                "model_design_valid_bins": int(meta["model_design_valid_bins"]),
             },
             indent=2,
         )

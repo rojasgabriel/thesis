@@ -89,21 +89,6 @@ SAMPLE_UNITS = 20
 SAMPLE_SEED = 20260914
 # Per-worker state, filled by _init_worker.
 _SHARED: dict = {}
-
-
-def _cached(output: Path) -> dict | None:
-    """Return a saved per-unit record if one exists, so a killed run resumes.
-
-    Reuse is purely by presence: a record is trusted whenever its file exists.
-    Change an input (the design, tau, the fit logic) and the old records are no
-    longer valid, so delete the fit directory's checkpoints before rerunning.
-    """
-    if not output.exists():
-        return None
-    with output.open() as handle:
-        return json.load(handle)
-
-
 CV_FOLDS = 10
 CV_SEED = 20260913
 CV_INNER_FRACTION = 0.25
@@ -118,25 +103,37 @@ def build_unit_counts(alignments: np.ndarray, spike_times: np.ndarray) -> np.nda
     return counts.ravel()
 
 
-def sample_unit_indices(n_units: int) -> np.ndarray:
-    """Draw a fixed random sample of units for quick runs, sorted by depth."""
-    if n_units < SAMPLE_UNITS:
+def analysis_unit_indices(units, unit_set: str) -> np.ndarray:
+    """Return eligible rows after exclusions; `sample` keeps 20 fixed, by depth."""
+    unit_ids = units["unit_id"].to_numpy(dtype=int)
+    for unit_id in sorted(set(unit_ids) & set(EXCLUDED_UNIT_IDS)):
+        print(f"Excluded unit {unit_id}: {EXCLUDED_UNIT_IDS[unit_id]}.", flush=True)
+    keep = np.flatnonzero(~np.isin(unit_ids, list(EXCLUDED_UNIT_IDS)))
+    if unit_set != "sample":
+        return keep
+    if len(keep) < SAMPLE_UNITS:
         raise ValueError("Not enough eligible units for the requested sample.")
     rng = np.random.default_rng(SAMPLE_SEED)
-    return np.sort(rng.choice(n_units, size=SAMPLE_UNITS, replace=False))
+    return keep[np.sort(rng.choice(len(keep), size=SAMPLE_UNITS, replace=False))]
 
 
-def analysis_unit_indices(units, unit_set: str) -> np.ndarray:
-    """Return requested eligible rows after explicit technical exclusions."""
-    unit_ids = units["unit_id"].to_numpy(dtype=int)
-    keep = np.flatnonzero(~np.isin(unit_ids, list(EXCLUDED_UNIT_IDS)))
-    excluded = sorted(set(unit_ids) & set(EXCLUDED_UNIT_IDS))
-    for unit_id in excluded:
-        print(
-            f"Excluded unit {unit_id}: {EXCLUDED_UNIT_IDS[unit_id]}.",
-            flush=True,
-        )
-    return keep[sample_unit_indices(len(keep))] if unit_set == "sample" else keep
+def analysis_units(prepared: dict, unit_set: str) -> list[dict]:
+    """Return id, depth, and spike times of each requested eligible unit."""
+    units = fetch_unit_table(
+        prepared["metadata"]["subject_name"],
+        prepared["metadata"]["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
+    return [
+        {
+            "unit_id": int(units.iloc[row]["unit_id"]),
+            "depth": float(units.iloc[row]["depth"]),
+            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
+        }
+        for row in analysis_unit_indices(units, unit_set)
+    ]
 
 
 def poisson_nll(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -213,8 +210,6 @@ def fit_poisson_alpha_path(
     y_train: np.ndarray,
     X_validation: np.ndarray,
     y_validation: np.ndarray,
-    *,
-    alphas: tuple[float, ...] = ALPHAS,
 ) -> tuple[PoissonRegressor, dict]:
     """Select the L2 penalty with the lowest validation loss on a fixed grid.
 
@@ -224,12 +219,9 @@ def fit_poisson_alpha_path(
     strong ones collapse to zero coefficients); only a unit with no converged
     penalty raises. Validation-loss ties break toward the stronger penalty.
     """
-    candidates = sorted({float(alpha) for alpha in alphas}, reverse=True)
-    if not candidates or candidates[-1] <= 0:
-        raise ValueError("Alpha candidates must be positive.")
     models: dict[float, PoissonRegressor] = {}
     losses: dict[float, float] = {}
-    for alpha in candidates:
+    for alpha in sorted(map(float, ALPHAS), reverse=True):
         warm_model = None
         if models:
             nearest = min(models, key=lambda value: abs(np.log(value / alpha)))
@@ -268,7 +260,7 @@ def fit_poisson_alpha_path(
 def _write_json_atomic(path: Path, value: dict) -> None:
     """Write JSON through a partial file so a kill cannot leave a half record.
 
-    Resumability comes from `_cached` skipping units whose record already
+    Resumability comes from `_run_one` skipping units whose record already
     exists, so this always replaces the target rather than guarding against it.
     """
     partial = path.with_name(f"{path.name}.partial")
@@ -290,43 +282,22 @@ def _selection_for_unit(
     if fit_mean <= 0:
         raise ValueError("Each unit must have at least one training spike.")
     history, _, _ = training_zscore(history, train)
-
-    baseline = _design_with_history(common, history, base_columns)
-    model, path = fit_poisson_alpha_path(
-        baseline[train],
-        counts[train],
-        baseline[validation],
-        counts[validation],
-    )
-    result = {
-        "training_mean_count": fit_mean,
-        "baseline": {
-            "alpha_path": path,
-            "validation": poisson_metrics(
-                counts[validation], model.predict(baseline[validation]), fit_mean
-            ),
-        },
-        "plus_video": {},
-    }
-    del model
-
-    for component_count in VIDEO_COMPONENT_COUNTS:
-        common_columns = base_columns + component_count
-        design = _design_with_history(common, history, common_columns)
+    # Zero video PCs is the baseline model.
+    fits = {}
+    for count in (0, *VIDEO_COMPONENT_COUNTS):
+        design = _design_with_history(common, history, base_columns + count)
         model, path = fit_poisson_alpha_path(
-            design[train],
-            counts[train],
-            design[validation],
-            counts[validation],
+            design[train], counts[train], design[validation], counts[validation]
         )
-        result["plus_video"][str(component_count)] = {
-            "alpha_path": path,
-            "validation": poisson_metrics(
-                counts[validation], model.predict(design[validation]), fit_mean
-            ),
-        }
-        del model
-    return result
+        validation_metrics = poisson_metrics(
+            counts[validation], model.predict(design[validation]), fit_mean
+        )
+        fits[count] = {"alpha_path": path, "validation": validation_metrics}
+    return {
+        "training_mean_count": fit_mean,
+        "baseline": fits.pop(0),
+        "plus_video": {str(count): fit for count, fit in fits.items()},
+    }
 
 
 def _final_task(job: dict) -> dict:
@@ -381,10 +352,9 @@ def _init_worker(
     prepared = _load_windows(windows)
     valid = _valid_bin_mask(prepared)
     train, validation, test = _split_masks(prepared["split"], valid)
-    with np.load(windows, allow_pickle=False) as saved:
-        trial_split = saved["trial_split"].copy()
-    bins_per_trial = len(prepared["split"]) // len(trial_split)
-    partitions = cross_validation_partitions(len(trial_split), bins_per_trial, valid)
+    n_trials = len(prepared["alignments"])
+    bins_per_trial = len(prepared["relative_centers"])
+    partitions = cross_validation_partitions(n_trials, bins_per_trial, valid)
     common = np.load(design, mmap_mode="r", allow_pickle=False)
     if common_columns is not None:
         common = np.ascontiguousarray(common[:, :common_columns])
@@ -400,20 +370,20 @@ def _init_worker(
         from thesis.ephys.analyses.glm.unique_dev import shuffle_permutations
 
         _SHARED["within_trial"] = shuffle_permutations(
-            len(trial_split), bins_per_trial, shuffle_seed, valid=valid
+            n_trials, bins_per_trial, shuffle_seed, valid=valid
         )
 
 
 def _run_one(task, job) -> tuple[dict, bool]:
     """Reuse a saved per-unit record, or compute one, persist it, and return it.
 
-    Returns (record, reused). Reuse is by file presence (`_cached`), so a rerun
-    skips finished units, while a failed unit writes nothing and is retried.
+    Returns (record, reused). Reuse is purely by file presence, so a rerun skips
+    finished units and a failed unit writes nothing and is retried. Change an
+    input (design, tau, fit logic) and delete the checkpoints before rerunning.
     """
     output = Path(job["output"])
-    cached = _cached(output)
-    if cached is not None:
-        return cached, True
+    if output.exists():
+        return json.loads(output.read_text()), True
     record = task(job)
     _write_json_atomic(output, record)
     return record, False
@@ -663,38 +633,23 @@ def crossvalidate(
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
     common_columns = int(design_metadata["base_columns"]) + components
-    with np.load(windows, allow_pickle=False) as saved:
-        trial_split = saved["trial_split"].copy()
-
-    units = fetch_unit_table(
-        prepared["metadata"]["subject_name"],
-        prepared["metadata"]["session_name"],
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    unit_rows = analysis_unit_indices(units, unit_set)
+    n_trials = len(prepared["alignments"])
     checkpoints = output_dir / "checkpoints"
-    checkpoints.mkdir(parents=True, exist_ok=True)
-    print(
-        f"Starting {CV_FOLDS}-fold cross-validation over {len(trial_split)} trials, "
-        f"{len(unit_rows)} units, {components} motion-energy PCs.",
-        flush=True,
-    )
-
     jobs = [
         {
-            "unit_id": int(units.iloc[row]["unit_id"]),
-            "depth": float(units.iloc[row]["depth"]),
-            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
+            **unit,
             "components": components,
             "common_columns": common_columns,
-            "output": str(
-                checkpoints / f"unit_{int(units.iloc[row]['unit_id'])}_folds.json"
-            ),
+            "output": str(checkpoints / f"unit_{unit['unit_id']}_folds.json"),
         }
-        for row in unit_rows
+        for unit in analysis_units(prepared, unit_set)
     ]
+    checkpoints.mkdir(parents=True, exist_ok=True)
+    print(
+        f"Starting {CV_FOLDS}-fold cross-validation over {n_trials} trials, "
+        f"{len(jobs)} units, {components} motion-energy PCs.",
+        flush=True,
+    )
     records = collect_records(
         "cross-validation",
         _fold_task,
@@ -716,7 +671,7 @@ def crossvalidate(
         "unit_set": unit_set,
         "units": len(records),
         "components": components,
-        "trials": int(len(trial_split)),
+        "trials": n_trials,
         "cross_validated_deviance_explained": {
             "median": float(np.median(means)),
             "q25": float(np.quantile(means, 0.25)),
@@ -776,34 +731,21 @@ def fit_models(
         raise ValueError("Common design and prepared response rows differ.")
     valid = _valid_bin_mask(prepared)
     train, validation, test = _split_masks(prepared["split"], valid)
-    units = fetch_unit_table(
-        prepared["metadata"]["subject_name"],
-        prepared["metadata"]["session_name"],
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    unit_rows = analysis_unit_indices(units, unit_set)
     checkpoints = output_dir / "checkpoints"
+    jobs = [
+        {
+            **unit,
+            "base_columns": design_metadata["base_columns"],
+            "output": str(checkpoints / f"unit_{unit['unit_id']}_validation.json"),
+        }
+        for unit in analysis_units(prepared, unit_set)
+    ]
     checkpoints.mkdir(parents=True, exist_ok=True)
     print(
         "Starting model-selection fits: training/validation split, "
         "alpha selection, and motion-energy PC comparison.",
         flush=True,
     )
-
-    jobs = [
-        {
-            "unit_id": int(units.iloc[row]["unit_id"]),
-            "depth": float(units.iloc[row]["depth"]),
-            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
-            "base_columns": design_metadata["base_columns"],
-            "output": str(
-                checkpoints / f"unit_{int(units.iloc[row]['unit_id'])}_validation.json"
-            ),
-        }
-        for row in unit_rows
-    ]
     selections = collect_records(
         "model selection", _selection_task, jobs, windows, design, workers
     )
@@ -827,7 +769,7 @@ def fit_models(
     )
     summary = {
         "unit_set": unit_set,
-        "units": len(unit_rows),
+        "units": len(jobs),
         "excluded_unit_ids": sorted(EXCLUDED_UNIT_IDS),
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_video_components,
@@ -855,56 +797,36 @@ def refit_final(
 
     The kernel and model-design figures use this model. The unique-deviance
     analysis does not use it. Its penalty is the median of the penalties the
-    folds chose, so cross-validation must finish first.
+    folds chose, so cross-validation must finish first. Its held-out score
+    comes from cross-validation, not from a second, weaker split.
     """
     prepared = _load_windows(windows)
     with design.with_suffix(".json").open() as handle:
         design_metadata = json.load(handle)
-    units = fetch_unit_table(
-        prepared["metadata"]["subject_name"],
-        prepared["metadata"]["session_name"],
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    unit_rows = analysis_unit_indices(units, unit_set)
-    jobs: list[dict] = [
-        {
-            "unit_id": int(units.iloc[row]["unit_id"]),
-            "depth": float(units.iloc[row]["depth"]),
-            "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),
-        }
-        for row in unit_rows
-    ]
-    # Refit each unit on every valid trial. The kernel and model-design figures
-    # use this model. Its held-out score comes from cross-validation, not from
-    # a second, weaker split.
+    units = analysis_units(prepared, unit_set)
     checkpoints = output_dir / "checkpoints"
     fold_records = {
-        int(json.loads(path.read_text())["unit_id"]): json.loads(path.read_text())
-        for path in checkpoints.glob("unit_*_folds.json")
+        int(record["unit_id"]): record
+        for record in load_unit_records(checkpoints, "unit_*_folds.json")
     }
-    final_jobs = [
-        {
-            "unit_id": job["unit_id"],
-            "depth": job["depth"],
-            "spike_times": job["spike_times"],
-            "components": components,
-            "common_columns": int(design_metadata["base_columns"]) + components,
-            "alpha": float(
-                np.median([f["alpha"] for f in fold_records[job["unit_id"]]["folds"]])
-            ),
-            "cross_validated": fold_records[job["unit_id"]],
-            "output": str(checkpoints / f"unit_{job['unit_id']}_final.json"),
-        }
-        for job in jobs
-        if job["unit_id"] in fold_records
-    ]
-    missing = len(jobs) - len(final_jobs)
+    missing = sum(unit["unit_id"] not in fold_records for unit in units)
     if missing:
         raise ValueError(
             f"{missing} units have no cross-validated record; run fit again."
         )
+    final_jobs = [
+        {
+            **unit,
+            "components": components,
+            "common_columns": int(design_metadata["base_columns"]) + components,
+            "alpha": float(
+                np.median([f["alpha"] for f in fold_records[unit["unit_id"]]["folds"]])
+            ),
+            "cross_validated": fold_records[unit["unit_id"]],
+            "output": str(checkpoints / f"unit_{unit['unit_id']}_final.json"),
+        }
+        for unit in units
+    ]
     print(
         f"Starting final full-data fits: {len(final_jobs)} units, "
         f"{components} motion-energy PCs.",

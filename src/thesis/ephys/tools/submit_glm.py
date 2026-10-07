@@ -15,7 +15,7 @@ import argparse
 from labdata.compute.schedulers import slurm_submit
 
 PIPELINE = (
-    "cd {repo} && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && "
+    "cd ~/lib/thesis && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && "
     "uv run glm prepare && "
     "uv run glm fit    --units {units} --workers $LABDATA_N_JOBS && "
     "uv run glm unique --units {units} --workers $LABDATA_N_JOBS"
@@ -25,25 +25,19 @@ PIPELINE = (
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--units", choices=("sample", "all"), default="sample")
-    parser.add_argument("--repo", default="~/lib/thesis")
     parser.add_argument("--cpus", type=int, default=24)
     parser.add_argument("--mem", default="64G")
     parser.add_argument("--walltime", default="12:00:00")
-    parser.add_argument("--partition", default=None)
-    parser.add_argument("--conda-environment", default=None)
-    parser.add_argument("--nice", type=int, default=100, help="Queue-yield priority.")
     args = parser.parse_args()
 
-    command = PIPELINE.format(repo=args.repo, units=args.units)
+    command = PIPELINE.format(units=args.units)
     job_id = slurm_submit(
         f"v1_glm_{args.units}",
         command,
         ncpuspertask=args.cpus,
         memory=args.mem,
         walltime=args.walltime,
-        partition=args.partition,
-        conda_environment=args.conda_environment,
-        sbatch_append=f"--nice={args.nice}",
+        sbatch_append="--nice=100",
     )
     print(f"submitted job {job_id}")
 

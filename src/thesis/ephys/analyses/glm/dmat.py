@@ -69,39 +69,30 @@ def validate_frame_times(times: np.ndarray, n_frames: int) -> np.ndarray:
     return times
 
 
-def trial_bins(alignments: np.ndarray, binwidth: float = BINWIDTH_S) -> dict:
+def trial_bins(alignments: np.ndarray) -> dict:
     """Use DAMN's native equal grid and a random whole-trial 60/20/20 split."""
     alignments = np.asarray(alignments, dtype=float)
     if alignments.ndim != 1 or len(alignments) < 5:
         raise ValueError("At least five trial alignment times are required.")
     if not np.isfinite(alignments).all():
         raise ValueError("Trial alignment times must be finite.")
-    if not np.isfinite(binwidth) or binwidth <= 0:
-        raise ValueError("Bin width must be finite and positive.")
-    centers, edges, _ = construct_timebins(PRE_S, POST_S, binwidth)
+    centers, edges, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
     starts, stops = alignments + edges[0], alignments + edges[-1]
     if np.any(starts[1:] < stops[:-1]):
         raise ValueError("Windows must be ordered and non-overlapping.")
     n_bins = len(centers)
     n_trials = len(starts)
     order = np.random.default_rng(SPLIT_SEED).permutation(n_trials)
-    split = np.empty(n_trials, dtype=np.int8)
-    n_train = int(0.6 * n_trials)
-    n_validation = int(0.8 * n_trials) - n_train
-    split[order[:n_train]] = 0
-    split[order[n_train : n_train + n_validation]] = 1
-    split[order[n_train + n_validation :]] = 2
-    absolute_edges = alignments[:, None] + edges
+    split = np.full(n_trials, 2, dtype=np.int8)
+    split[order[: int(0.8 * n_trials)]] = 1
+    split[order[: int(0.6 * n_trials)]] = 0
     rows = np.repeat(np.arange(len(starts)), n_bins)
     return dict(
-        bin_left_s=absolute_edges[:, :-1].ravel(),
-        bin_right_s=absolute_edges[:, 1:].ravel(),
         bin_center_s=(alignments[:, None] + centers).ravel(),
         relative_bin_centers_s=centers,
         relative_bin_edges_s=edges,
         window_start_s=starts,
         window_stop_s=stops,
-        bin_trial_row=rows,
         bin_split=split[rows],
         trial_split=split,
     )
@@ -153,8 +144,6 @@ def write_stimulus_windows(
         eligible_trials=eligible,
         selected_trial_rows=np.flatnonzero(eligible),
         first_stim_s=first,
-        center_entry_s=t[:, 0],
-        center_exit_s=t[:, 1],
         response_entry_s=t[:, 2],
         **bins,
     )
@@ -218,11 +207,6 @@ def write_stimulus_windows(
     print(json.dumps(summary, indent=2))
 
 
-def _flatten_events(values) -> np.ndarray:
-    arrays = [np.asarray(value, dtype=float) for value in values if len(value)]
-    return np.concatenate(arrays) if arrays else np.empty(0)
-
-
 def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     """Return the temporal basis used for each sensory or task regressor."""
     # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
@@ -256,13 +240,9 @@ def flash_resource(modeled: np.ndarray, u: float, tau_recover_s: float) -> np.nd
     driven by stimulus flashes.
     """
     resource = np.ones(len(modeled))
-    available = 1.0
-    for position in range(len(modeled)):
-        resource[position] = available
-        available *= 1 - u
-        if position + 1 < len(modeled):
-            gap = modeled[position + 1] - modeled[position]
-            available = 1 - (1 - available) * np.exp(-gap / tau_recover_s)
+    for position in range(1, len(modeled)):
+        recovery = np.exp(-(modeled[position] - modeled[position - 1]) / tau_recover_s)
+        resource[position] = 1 - (1 - resource[position - 1] * (1 - u)) * recovery
     return resource
 
 
@@ -287,11 +267,7 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         times.append(modeled)
         state_values.append(np.where(modeled < center_exit, -0.5, 0.5))
         resource_values.append(flash_resource(modeled, ADAPT_U, ADAPT_TAU_RECOVER_S))
-    return (
-        _flatten_events(times),
-        _flatten_events(state_values),
-        _flatten_events(resource_values),
-    )
+    return tuple(np.concatenate(v) for v in (times, state_values, resource_values))
 
 
 def build_task_design(
@@ -303,7 +279,7 @@ def build_task_design(
     # Center the resource so the common flash kernel stays the average response.
     # A first flash sees a full pool (R = 1); adapted later flashes see less.
     # Store two representative centered levels for the kernel figure.
-    adapt_center = float(resource_raw.mean()) if len(resource_raw) else 0.0
+    adapt_center = float(resource_raw.mean())
     adapt_values = resource_raw - adapt_center
     later = resource_raw[resource_raw < 1.0]
     adapt_levels = {
@@ -317,7 +293,6 @@ def build_task_design(
             "visual_flash",
             flashes,
             None,
-            bases["visual_flash"],
             "sensory",
             "each measured flash from initiation through response entry",
         ),
@@ -325,7 +300,6 @@ def build_task_design(
             "flash_pre_post_withdrawal",
             flashes,
             state_values,
-            bases["flash_pre_post_withdrawal"],
             "sensory",
             "pre-withdrawal=-0.5, post-withdrawal=+0.5",
         ),
@@ -333,7 +307,6 @@ def build_task_design(
             "flash_adaptation",
             flashes,
             adapt_values,
-            bases["flash_adaptation"],
             "sensory",
             f"centered depression resource, u={ADAPT_U}, "
             f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
@@ -342,7 +315,6 @@ def build_task_design(
             "initiation",
             trials["center_entry_s"].to_numpy(dtype=float),
             None,
-            bases["initiation"],
             "task",
             "initiation truncated at the first flash",
         ),
@@ -350,7 +322,6 @@ def build_task_design(
             "withdrawal",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
-            bases["withdrawal"],
             "task",
             "one withdrawal per completed trial",
         ),
@@ -358,14 +329,14 @@ def build_task_design(
             "response_entry",
             trials["response_port_entry_s"].to_numpy(dtype=float),
             None,
-            bases["response_entry"],
             "task",
             "every response; the side-independent part",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
     manifest = []
-    for name, times, values, basis, group, coding in specifications:
+    for name, times, values, group, coding in specifications:
+        basis = bases[name]
         design.add_regressor(
             EventRegressor(
                 name,
@@ -389,6 +360,8 @@ def build_task_design(
                 "coding": coding,
             }
         )
+        if name == "flash_adaptation":
+            manifest[-1]["adapt_levels_centered"] = adapt_levels
     design.build_matrix()
     initiation = design.regressors["initiation"]
     rows_per_trial = initiation.X.shape[0] // len(alignments)
@@ -396,33 +369,7 @@ def build_task_design(
     truncated = np.asarray(initiation.X).reshape(len(alignments), rows_per_trial, -1)
     truncated[:, np.asarray(centers) >= 0] = 0
     initiation._X = truncated.reshape(-1, initiation.X.shape[1])
-    values = np.asarray(design.X)
-    start = 0
-    widths = [regressor.X.shape[1] for regressor in design.regressors.values()]
-    for item, columns in zip(manifest, widths, strict=True):
-        stop = start + columns
-        item["trials_with_nonzero_values"] = int(
-            np.any(
-                values[:, start:stop].reshape(len(alignments), rows_per_trial, -1),
-                axis=(1, 2),
-            ).sum()
-        )
-        start = stop
-    for item in manifest:
-        if item["name"] == "flash_adaptation":
-            item["adapt_u"] = ADAPT_U
-            item["adapt_tau_recover_s"] = ADAPT_TAU_RECOVER_S
-            item["adapt_levels_centered"] = adapt_levels
     return design, manifest
-
-
-def task_column_names(manifest: list[dict]) -> list[str]:
-    """Return stable names for the task-basis columns."""
-    return [
-        f"{item['name']}_basis_{index + 1:02d}"
-        for item in manifest
-        for index in range(item["columns"])
-    ]
 
 
 def spike_history_basis() -> RaisedCosineBasis:
@@ -471,30 +418,6 @@ def _design_with_history(
     design[:, :common_columns] = common[index, :common_columns]
     design[:, common_columns:] = history[index]
     return design
-
-
-def build_video_component_design(
-    alignments: np.ndarray,
-    frame_times: np.ndarray,
-    score: np.ndarray,
-) -> np.ndarray:
-    """Interpolate one contemporaneous motion-energy PC onto the DAMN grid."""
-    frame_times = np.asarray(frame_times, dtype=float)
-    score = np.asarray(score, dtype=float)
-    if frame_times.ndim != 1 or score.ndim != 1 or len(frame_times) != len(score):
-        raise ValueError("Video times and one component must be matching vectors.")
-    if (
-        not np.isfinite(frame_times).all()
-        or not np.isfinite(score).all()
-        or np.any(np.diff(frame_times) <= 0)
-    ):
-        raise ValueError("Video times and scores must be finite and time ordered.")
-    alignments = np.asarray(alignments, dtype=float)
-    if alignments.ndim != 1 or not np.isfinite(alignments).all():
-        raise ValueError("Trial alignments must be a finite vector.")
-    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
-    prediction_times = (alignments[:, None] + centers).ravel()
-    return np.interp(prediction_times, frame_times, score, left=0, right=0)[:, None]
 
 
 def _load_windows(path: Path) -> dict:
@@ -551,6 +474,12 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         raise ValueError("Expected exactly 200 video-component score columns.")
     if len(frame_times) != len(scores):
         raise ValueError("Video times and score rows must match.")
+    if (
+        not np.isfinite(frame_times).all()
+        or not np.isfinite(scores).all()
+        or np.any(np.diff(frame_times) <= 0)
+    ):
+        raise ValueError("Video times and scores must be finite and time ordered.")
 
     task, task_manifest = build_task_design(prepared["alignments"], trials)
     task_values = task.X
@@ -558,7 +487,11 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     valid = _valid_bin_mask(prepared)
     train_rows, _, _ = _split_masks(prepared["split"], valid)
     scaled_base, base_mean, base_scale = training_zscore(task_values, train_rows)
-    base_names = task_column_names(task_manifest)
+    base_names = [
+        f"{item['name']}_basis_{index + 1:02d}"
+        for item in task_manifest
+        for index in range(item["columns"])
+    ]
     base_columns = len(base_names)
     total_columns = base_columns + scores.shape[1]
 
@@ -578,18 +511,19 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     matrix[:, :base_columns] = scaled_base.astype(np.float32)
     del scaled_base, task_values
 
+    # Sample each PC at the bin centers, on the grid rebuilt from the constants
+    # like the spike counts and task design, not the reusable windows file.
+    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
+    sample_times = (prepared["alignments"][:, None] + centers).ravel()
     video_mean = []
     video_scale = []
     video_names = []
     for component in range(scores.shape[1]):
-        block = build_video_component_design(
-            prepared["alignments"],
-            frame_times,
-            scores[:, component],
+        block = np.interp(
+            sample_times, frame_times, scores[:, component], left=0, right=0
         )
-        scaled, mean, scale = training_zscore(block, train_rows)
-        start = base_columns + component
-        matrix[:, start] = scaled[:, 0].astype(np.float32)
+        scaled, mean, scale = training_zscore(block[:, None], train_rows)
+        matrix[:, base_columns + component] = scaled[:, 0].astype(np.float32)
         video_mean.extend(mean.tolist())
         video_scale.extend(scale.tolist())
         video_names.append(f"video_pc_{component + 1:03d}")
@@ -605,7 +539,6 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "columns": matrix.shape[1],
         "dtype": str(matrix.dtype),
         "task_columns": task_columns,
-        "drift_columns": 0,
         "base_columns": base_columns,
         "video_components": scores.shape[1],
         "video_columns_per_component": 1,
