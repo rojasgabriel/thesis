@@ -105,7 +105,7 @@ def classify_double_peak_units(
     alignment_times: np.ndarray,
     unit_ids: list[int],
     excited_unit_ids: Collection[int],
-) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     from labdata_plugin.schema import StimulusResponse
 
     peth, bin_edges, _ = population_peth(
@@ -117,37 +117,12 @@ def classify_double_peak_units(
     )
     peth = peth / (PETH_BINWIDTH_MS / 1000)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    excited_unit_set = set(excited_unit_ids)
-    excited_indices = np.array(
-        [
-            index
-            for index, unit_id in enumerate(unit_ids)
-            if unit_id in excited_unit_set
-        ],
-        dtype=int,
-    )
-    excited_unit_ids = [unit_ids[index] for index in excited_indices]
-    excited_peth = peth[excited_indices]
-    if not excited_unit_ids:
-        return (
-            pd.DataFrame(
-                {
-                    "unit": [],
-                    "n_peaks": [],
-                    "peak_times": [],
-                    "peak_heights": [],
-                    "baseline": [],
-                    "min_peak_height_above_baseline": [],
-                }
-            ),
-            peth,
-            bin_centers,
-            [],
-        )
+    # classify_components works per unit, so classifying every unit and keeping
+    # the excited ones gives the same rows as classifying excited units only.
     peak_rows = StimulusResponse.classify_components(
-        excited_peth,
+        peth,
         bin_centers,
-        excited_unit_ids,
+        unit_ids,
         search_window=PEAK_SEARCH_WINDOW,
         baseline_window=BASELINE_WINDOW,
         min_prominence_fraction=MIN_PROMINENCE_FRACTION,
@@ -163,14 +138,14 @@ def classify_double_peak_units(
         }
     )
 
+    baseline_bins = (bin_centers >= BASELINE_WINDOW[0]) & (
+        bin_centers < BASELINE_WINDOW[1]
+    )
+    candidates = peak_rows["n_peaks"].eq(2) & peak_rows["unit"].isin(excited_unit_ids)
     double_peak_rows = []
-    for _, peak_row in peak_rows.loc[peak_rows["n_peaks"] == 2].iterrows():
-        unit_id = int(peak_row["unit"])
-        excited_index = excited_unit_ids.index(unit_id)
-        baseline_bins = (bin_centers >= BASELINE_WINDOW[0]) & (
-            bin_centers < BASELINE_WINDOW[1]
-        )
-        baseline = float(excited_peth[excited_index].mean(axis=0)[baseline_bins].mean())
+    for _, peak_row in peak_rows.loc[candidates].iterrows():
+        unit_index = unit_ids.index(int(peak_row["unit"]))
+        baseline = float(peth[unit_index].mean(axis=0)[baseline_bins].mean())
         peak_heights_above_baseline = [
             float(height - baseline) for height in peak_row["peak_heights"]
         ]
@@ -189,7 +164,7 @@ def classify_double_peak_units(
             columns=list(peak_rows.columns)
             + ["baseline", "min_peak_height_above_baseline"]
         )
-    return double_peak_rows, peth, bin_centers, excited_unit_ids
+    return double_peak_rows, peth, bin_centers
 
 
 def _plot_mean_sem_trace(ax, bin_centers, peth_trials, color) -> None:
@@ -229,7 +204,7 @@ def _collect_session(subject: str, session: str, *, controls: bool = True) -> di
 
     unit_ids = units["unit_id"].astype(int).tolist()
     spike_times = units["spike_times_s"].tolist()
-    double_peak_table, peth_15, bin_centers, _ = classify_double_peak_units(
+    double_peak_table, peth_15, bin_centers = classify_double_peak_units(
         spike_times, first_15ms, unit_ids, excited_ids
     )
     double_peak_table = double_peak_table.sort_values(
@@ -300,40 +275,25 @@ def _plot_response(
     ax, unit_response: dict, show_control: bool = False, show_legend: bool = False
 ) -> None:
     bins = unit_response["bin_centers"]
-    peth_15 = (
-        unit_response["peth_control_15"] if show_control else unit_response["peth_15"]
-    )
-    n_15ms = unit_response["n_control_15"] if show_control else unit_response["n_15ms"]
-    color_15 = PULSE_COLORS[15] if show_control else DISCOVERY_COLOR
-    _plot_mean_sem_trace(ax, bins, peth_15, color_15)
-    if show_control:
-        _plot_mean_sem_trace(
-            ax,
-            bins,
-            unit_response["peth_control_30"],
-            PULSE_COLORS[30],
-        )
-        if show_legend:
-            ax.text(
-                0.98,
-                0.96,
-                f"15 ms (n={n_15ms})",
-                color=PULSE_COLORS[15],
-                ha="right",
-                va="top",
-                transform=ax.transAxes,
-                fontsize=6,
+    if not show_control:
+        _plot_mean_sem_trace(ax, bins, unit_response["peth_15"], DISCOVERY_COLOR)
+    else:
+        for width_ms, label_y in ((15, 0.96), (30, 0.84)):
+            color = PULSE_COLORS[width_ms]
+            _plot_mean_sem_trace(
+                ax, bins, unit_response[f"peth_control_{width_ms}"], color
             )
-            ax.text(
-                0.98,
-                0.84,
-                f"30 ms (n={unit_response['n_control_30']})",
-                color=PULSE_COLORS[30],
-                ha="right",
-                va="top",
-                transform=ax.transAxes,
-                fontsize=6,
-            )
+            if show_legend:
+                ax.text(
+                    0.98,
+                    label_y,
+                    f"{width_ms} ms (n={unit_response[f'n_control_{width_ms}']})",
+                    color=color,
+                    ha="right",
+                    va="top",
+                    transform=ax.transAxes,
+                    fontsize=6,
+                )
     ax.axvline(0, color="0.4", linestyle="--", linewidth=0.6)
     ax.set_xlabel("Time from onset (s)")
     ax.set_ylabel("Spikes s$^{-1}$")

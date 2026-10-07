@@ -130,26 +130,18 @@ def compute_locomotion_peaks(subject: str, session: str) -> pd.DataFrame:
     unit_ids = units["unit_id"].astype(int).tolist()
     spike_times = units["spike_times_s"].tolist()
 
-    stationary_peth, bin_edges, _ = population_peth(
-        all_spike_times=spike_times,
-        alignment_times=stationary_events,
-        pre_seconds=0.1,
-        post_seconds=0.15,
-        binwidth_ms=PETH_BINWIDTH_MS,
-    )
-    stationary_peth = stationary_peth / (PETH_BINWIDTH_MS / 1000)
-    movement_peth, _, _ = population_peth(
-        all_spike_times=spike_times,
-        alignment_times=movement_events,
-        pre_seconds=0.1,
-        post_seconds=0.15,
-        binwidth_ms=PETH_BINWIDTH_MS,
-    )
-    movement_peth = movement_peth / (PETH_BINWIDTH_MS / 1000)
-
+    trial_means = []
+    for events in (stationary_events, movement_events):
+        peth, bin_edges, _ = population_peth(
+            all_spike_times=spike_times,
+            alignment_times=events,
+            pre_seconds=0.1,
+            post_seconds=0.15,
+            binwidth_ms=PETH_BINWIDTH_MS,
+        )
+        trial_means.append((peth / (PETH_BINWIDTH_MS / 1000)).mean(axis=1))
+    stationary_mean, movement_mean = trial_means
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    stationary_mean = stationary_peth.mean(axis=1)
-    movement_mean = movement_peth.mean(axis=1)
     baseline_mask = (bin_centers >= -0.04) & (bin_centers < 0.0)
     response_mask = (bin_centers >= 0.03) & (bin_centers < 0.12)
     # Hold the baseline fixed so both conditions are measured from the
@@ -201,17 +193,8 @@ def main() -> None:
         1, 2, figsize=(7.2, 3.3), gridspec_kw={"width_ratios": [1, 0.65]}
     )
 
-    all_peak_values = np.concatenate(
-        [
-            values
-            for _, peak_table in peak_results
-            for values in (
-                peak_table["stat_peak"].to_numpy(dtype=float),
-                peak_table["move_peak"].to_numpy(dtype=float),
-            )
-        ]
-    )
-    lower_limit = min(0.0, float(all_peak_values.min()))
+    peaks = pd.concat([table[["stat_peak", "move_peak"]] for _, table in peak_results])
+    lower_limit = min(0.0, float(peaks.to_numpy(dtype=float).min()))
     padding = 0.05 * (SCATTER_MAX_RATE - lower_limit)
     lower_limit -= padding
 
@@ -237,11 +220,8 @@ def main() -> None:
             linewidths=0,
             zorder=2,
         )
-        summaries = []
-        for values in (stat_peak, move_peak):
-            mean = float(values.mean())
-            summaries.append((mean, float(stats.sem(values))))
-        (mean_x, sem_x), (mean_y, sem_y) = summaries
+        mean_x, sem_x = stat_peak.mean(), stats.sem(stat_peak)
+        mean_y, sem_y = move_peak.mean(), stats.sem(move_peak)
         ax.errorbar(
             mean_x,
             mean_y,
@@ -278,10 +258,9 @@ def main() -> None:
             color=color,
             linewidths=0,
         )
-        delta_mean = float(delta.mean())
         delta_ax.errorbar(
             subject_index,
-            delta_mean,
+            delta.mean(),
             yerr=stats.sem(delta),
             fmt="o",
             ms=9,

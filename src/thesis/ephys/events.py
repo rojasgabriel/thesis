@@ -17,7 +17,6 @@ REQUIRED_EV_ROLES = (
 )
 CORE_EV_ROLES = ("visual_stim", "trial_start")
 EV_STREAM_PRIORITY = ("obx", "nidq")
-AUDIO_EVENT_ROLES = ("audio_stim", "go_cue", "punish_wrong", "punish_early")
 
 
 def classify_audio_events(
@@ -122,14 +121,11 @@ def _fetch_audio_events(
         if not len(onsets):
             raise ValueError(f"Measured audio stream is empty for {restriction}")
         classified = classify_audio_events(onsets, offsets)
-        if len(classified["unknown"]) / len(onsets) > 0.05:
+        if len(classified.pop("unknown")) / len(onsets) > 0.05:
             raise ValueError(
                 f"Measured audio events failed validation for {restriction}"
             )
-        return {
-            role: np.asarray(classified[role], dtype=float)
-            for role in AUDIO_EVENT_ROLES
-        }
+        return classified
 
     bpod_sync = StreamSync() & {
         **restriction,
@@ -326,74 +322,36 @@ def fetch_session_events(
     )
     if not include_frames:
         ev_sources.pop("frames", None)
-    stim_source = ev_sources["visual_stim"]
-    digital_ev_records = [
-        {
-            **stim_source,
-            "event_timestamps": (DatasetEvents.Digital() & stim_source).fetch1(
+    sess_ev: dict[str, np.ndarray] = {
+        "stim": np.asarray(
+            (DatasetEvents.Digital() & ev_sources["visual_stim"]).fetch1(
                 "event_timestamps"
             ),
-        }
-    ]
-    other_sources = [
-        source for role, source in ev_sources.items() if role != "visual_stim"
-    ]
-    if other_sources:
-        digital_ev_records.extend(
-            (DatasetEvents.Digital() & other_sources).fetch(as_dict=True)
+            dtype=float,
         )
-    digital_ev_by_source = {
-        (
-            digital_ev["dataset_name"],
-            digital_ev["stream_name"],
-            digital_ev["event_name"],
-        ): digital_ev
-        for digital_ev in digital_ev_records
     }
-    ev_data_by_role = {}
-    for ev_role, ev_source in ev_sources.items():
-        digital_ev = digital_ev_by_source[
-            (
-                ev_source["dataset_name"],
-                ev_source["stream_name"],
-                ev_source["event_name"],
-            )
-        ]
-        ev_timestamps = np.asarray(digital_ev["event_timestamps"], dtype=float)
-        ev_values = digital_ev.get("event_values")
+    for ev_role in ("trial_start", "frames", "left_port", "center_port", "right_port"):
+        if ev_role not in ev_sources:
+            continue
+        ev_timestamps, ev_values = (
+            DatasetEvents.Digital() & ev_sources[ev_role]
+        ).fetch1("event_timestamps", "event_values")
+        ev_timestamps = np.asarray(ev_timestamps, dtype=float)
         ev_values = None if ev_values is None else np.asarray(ev_values)
         if ev_values is not None and ev_values.shape != ev_timestamps.shape:
             raise ValueError(f"Event values do not match timestamps for {ev_role}")
-        ev_data_by_role[ev_role] = {
-            "timestamps": ev_timestamps,
-            "values": ev_values,
-        }
-
-    sess_ev: dict[str, np.ndarray] = {
-        "stim": np.asarray(ev_data_by_role["visual_stim"]["timestamps"], dtype=float),
-    }
-    for ev_role in ("trial_start", "frames"):
-        if ev_role not in ev_data_by_role:
-            continue
-        ev_timestamps = np.asarray(ev_data_by_role[ev_role]["timestamps"], dtype=float)
-        ev_values = ev_data_by_role[ev_role]["values"]
-        sess_ev[ev_role] = (
-            ev_timestamps[::2] if ev_values is None else ev_timestamps[ev_values == 1]
-        )
-
-    for port_role in ("left_port", "center_port", "right_port"):
-        if port_role not in ev_data_by_role:
-            continue
-        ev_timestamps = np.asarray(
-            ev_data_by_role[port_role]["timestamps"], dtype=float
-        )
-        ev_values = ev_data_by_role[port_role]["values"]
-        if ev_values is None:
-            sess_ev[port_role] = ev_timestamps
-            sess_ev[f"{port_role}_exit"] = np.array([])
+        if ev_role in ("trial_start", "frames"):
+            sess_ev[ev_role] = (
+                ev_timestamps[::2]
+                if ev_values is None
+                else ev_timestamps[ev_values == 1]
+            )
+        elif ev_values is None:
+            sess_ev[ev_role] = ev_timestamps
+            sess_ev[f"{ev_role}_exit"] = np.array([])
         else:
-            sess_ev[port_role] = ev_timestamps[ev_values == 1]
-            sess_ev[f"{port_role}_exit"] = ev_timestamps[ev_values == 0]
+            sess_ev[ev_role] = ev_timestamps[ev_values == 1]
+            sess_ev[f"{ev_role}_exit"] = ev_timestamps[ev_values == 0]
 
     sess_ev.update(_fetch_audio_events(subject, session))
     return sess_ev, _build_stimulus_pulses(sess_ev["stim"])

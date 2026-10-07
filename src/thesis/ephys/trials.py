@@ -170,6 +170,17 @@ def build_trial_table(
     )
 
     trial_ends_s = np.r_[trial_starts_s[1:n_trials], np.inf]
+    trial_windows = list(zip(trial_starts_s[:n_trials], trial_ends_s, strict=True))
+
+    def split_by_trial(times_s, values=None) -> list[list[float]]:
+        """Return values (default: the times) inside each trial's window."""
+        times_s = np.asarray(times_s, dtype=float)
+        values = times_s if values is None else np.asarray(values, dtype=float)
+        return [
+            values[(times_s >= start_s) & (times_s < end_s)].tolist()
+            for start_s, end_s in trial_windows
+        ]
+
     ev_column_by_role = {
         "frames": "frame_times_s",
         "left_port": "left_port_entry_times_s",
@@ -184,52 +195,20 @@ def build_trial_table(
         "punish_early": "punish_early_times_s",
     }
     for ev_name, ev_timestamps in sess_ev.items():
-        if ev_name in ("trial_start", "stim"):
-            continue
-        ev_timestamps = np.asarray(ev_timestamps, dtype=float)
-        trial_table[ev_column_by_role[ev_name]] = [
-            ev_timestamps[
-                (ev_timestamps >= trial_start_s) & (ev_timestamps < trial_end_s)
-            ].tolist()
-            for trial_start_s, trial_end_s in zip(
-                trial_starts_s[:n_trials], trial_ends_s, strict=True
-            )
-        ]
+        if ev_name not in ("trial_start", "stim"):
+            trial_table[ev_column_by_role[ev_name]] = split_by_trial(ev_timestamps)
+    for ev_column in ev_column_by_role.values():
+        if ev_column not in trial_table:
+            trial_table[ev_column] = [[] for _ in range(n_trials)]
 
-    for audio_column in (
-        "audio_stim_times_s",
-        "go_cue_times_s",
-        "punish_wrong_times_s",
-        "punish_early_times_s",
-    ):
-        if audio_column not in trial_table:
-            trial_table[audio_column] = [[] for _ in range(n_trials)]
-
-    pulse_times_s = stim_pulses["timestamp"].to_numpy(dtype=float)
-    pulse_widths_ms = stim_pulses["width_ms"].to_numpy(dtype=float)
-    first_pulse_times_s = stim_pulses.loc[
-        stim_pulses["first_in_train"], "timestamp"
-    ].to_numpy(dtype=float)
-    pulse_masks = [
-        (pulse_times_s >= trial_start_s) & (pulse_times_s < trial_end_s)
-        for trial_start_s, trial_end_s in zip(
-            trial_starts_s[:n_trials], trial_ends_s, strict=True
-        )
-    ]
-    trial_table["stim_pulse_times_s"] = [
-        pulse_times_s[pulse_mask].tolist() for pulse_mask in pulse_masks
-    ]
-    trial_table["stim_pulse_widths_ms"] = [
-        pulse_widths_ms[pulse_mask].tolist() for pulse_mask in pulse_masks
-    ]
-    trial_table["first_stim_times_s"] = [
-        first_pulse_times_s[
-            (first_pulse_times_s >= trial_start_s) & (first_pulse_times_s < trial_end_s)
-        ].tolist()
-        for trial_start_s, trial_end_s in zip(
-            trial_starts_s[:n_trials], trial_ends_s, strict=True
-        )
-    ]
+    pulse_times_s = stim_pulses["timestamp"]
+    trial_table["stim_pulse_times_s"] = split_by_trial(pulse_times_s)
+    trial_table["stim_pulse_widths_ms"] = split_by_trial(
+        pulse_times_s, stim_pulses["width_ms"]
+    )
+    trial_table["first_stim_times_s"] = split_by_trial(
+        stim_pulses.loc[stim_pulses["first_in_train"], "timestamp"]
+    )
 
     missing_port_roles = [
         port_role
@@ -290,8 +269,6 @@ def build_trial_table(
             bpod_entry_s[valid_bpod_entry], force=True, warn=False
         )
 
-    if "frames" not in sess_ev:
-        trial_table["frame_times_s"] = [[] for _ in range(n_trials)]
     if missing_port_roles or missing_frames:
         fallback_notes = []
         if missing_port_roles:
