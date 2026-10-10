@@ -21,7 +21,13 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S, VIDEO_COMPONENT_COUNTS
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.results import write_figure_data
-from thesis.ephys.analyses.glm.unique_dev import DETAILED_GROUPS
+from thesis.ephys.analyses.glm.unique_dev import (
+    DETAILED_GROUPS,
+    MAXIMAL,
+    RELIABLE_ALPHA,
+    UNIQUE,
+    block_table,
+)
 
 OBSERVED_COLOR = "black"
 MODEL_COLOR = "C0"
@@ -35,6 +41,7 @@ TASK_LABELS = {
     "visual_flash": "visual flash",
     "flash_pre_post_withdrawal": "flash: post - pre withdrawal",
     "flash_adaptation": "flash: adaptation",
+    "flash_motion_energy": "flash × motion energy",
     "flash_first": "first flash",
     "flash_later_pre": "later flash, pre-withdrawal",
     "flash_later_post": "later flash, post-withdrawal",
@@ -663,7 +670,7 @@ def _plot_groups(
     groups: tuple[str, ...],
     metric: str,
 ) -> None:
-    """Draw one population box plot, with one point per unit, for a deviance measure."""
+    """Draw one population box plot per block, without unit points."""
     values = [
         np.asarray(
             [
@@ -689,17 +696,6 @@ def _plot_groups(
     for group, patch in zip(groups, boxes["boxes"], strict=True):
         color = DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"])
         patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
-    rng = np.random.default_rng(0)
-    for position, group, unit_values in zip(positions, groups, values, strict=True):
-        axis.scatter(
-            position + rng.uniform(-0.16, 0.16, len(unit_values)),
-            unit_values,
-            s=7,
-            alpha=0.8,
-            linewidths=0,
-            color=DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"]),
-            zorder=3,
-        )
     axis.axhline(0, color="0.35", linestyle="--", linewidth=0.7, zorder=0)
     axis.set_xticks(positions, [DEVIANCE_LABELS[group] for group in groups])
     axis.tick_params(axis="x", labelrotation=48)
@@ -709,26 +705,115 @@ def _plot_groups(
     axis.margins(x=0.04)
 
 
-def plot_deviance_explained(records: list[dict], output: Path) -> Path:
-    """Plot maximal and unique deviance for each model regressor."""
+def _block_color(group: str) -> str:
+    return DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"])
+
+
+def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Path:
+    """Plot the deviance each regressor block explains, and how consistently.
+
+    `samples` maps a fit-set name to its unique-deviance unit records. Panels a
+    to c pool the units of all sets: (a) full-model D², (b) maximal and (c)
+    unique ΔD² per block, as boxes without unit points or outlier markers. (d)
+    Pooled median unique ΔD² against the column count of the block, on
+    logarithmic axes; the lines are the range over the sets, and a median at or
+    below zero cannot be drawn. (e) Fraction of units with unique ΔD² > 0
+    (one-sided t-test over folds), one point per set with the mean; the dotted
+    line is the chance level.
+    """
+    records = [record for sample in samples.values() for record in sample]
+    table = block_table(samples)
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(1, 3, figsize=(10.5, 3.5))
+        figure = plt.figure(figsize=(10.5, 7.2))
+        grid = figure.add_gridspec(2, 6)
+        axes = [
+            figure.add_subplot(grid[0, 0:2]),
+            figure.add_subplot(grid[0, 2:4]),
+            figure.add_subplot(grid[0, 4:6]),
+            figure.add_subplot(grid[1, 1:3]),
+            figure.add_subplot(grid[1, 3:5]),
+        ]
         _plot_groups(
             axes[0], records, ("full_model",), "complete_test_deviance_explained"
         )
-        _plot_groups(
-            axes[1], records, DETAILED_GROUPS, "maximal_test_deviance_explained"
-        )
-        _plot_groups(
-            axes[2], records, DETAILED_GROUPS, "unique_test_deviance_explained"
-        )
+        _plot_groups(axes[1], records, DETAILED_GROUPS, MAXIMAL)
+        _plot_groups(axes[2], records, DETAILED_GROUPS, UNIQUE)
         axes[0].set_ylabel(r"full-model test deviance explained ($D^2$)")
         axes[1].set_ylabel(r"maximal deviance explained ($\Delta D^2$)")
         axes[2].set_ylabel(r"unique deviance explained ($\Delta D^2$)")
-        _label_panels(axes, -0.12, 1.04)
-        figure.subplots_adjust(
-            bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
+
+        for group in DETAILED_GROUPS:
+            block = table["blocks"][group]
+            medians = block["unique_median_by_sample"]
+            columns = float(np.mean(block["columns"]))
+            color = _block_color(group)
+            axes[3].vlines(
+                columns, min(medians), max(medians), color=color, linewidth=1
+            )
+            axes[3].hlines(
+                block["unique_median"],
+                min(block["columns"]),
+                max(block["columns"]),
+                color=color,
+                linewidth=1,
+            )
+            axes[3].scatter(
+                columns, block["unique_median"], s=22, color=color, zorder=3
+            )
+            left = columns <= 6
+            axes[3].annotate(
+                DEVIANCE_LABELS[group],
+                (columns if left else max(block["columns"]), block["unique_median"]),
+                xytext=(-5 if left else 5, 0),
+                textcoords="offset points",
+                ha="right" if left else "left",
+                va="center",
+                fontsize=6,
+                color=color,
+            )
+        axes[3].set_xscale("log")
+        axes[3].set_yscale("log")
+        # Room on the left for the labels of the six-column blocks.
+        axes[3].set_xlim(0.1, 200)
+        axes[3].set_xticks([1, 10, 100])
+        axes[3].set_xlabel("design columns in the block")
+        axes[3].set_ylabel("median unique deviance\n" r"explained ($\Delta D^2$)")
+
+        positions = np.arange(len(DETAILED_GROUPS))
+        offsets = np.linspace(-0.32, 0.32, len(samples)) if len(samples) > 1 else [0]
+        for position, group in zip(positions, DETAILED_GROUPS, strict=True):
+            fractions = table["blocks"][group]["reliable_fraction_by_sample"]
+            axes[4].scatter(
+                position + np.asarray(offsets),
+                fractions,
+                s=14,
+                color=_block_color(group),
+                zorder=3,
+            )
+            axes[4].hlines(
+                np.mean(fractions),
+                position - 0.4,
+                position + 0.4,
+                color="black",
+                linewidth=1.1,
+            )
+        # Dotted line: the fraction expected by chance for a block with no effect.
+        axes[4].axhline(RELIABLE_ALPHA, color="0.35", linestyle=":", linewidth=0.8)
+        axes[4].set_ylim(-0.03, 1.03)
+        axes[4].set_ylabel(
+            "fraction of units with unique\n"
+            f"$\\Delta D^2$ > 0 (t-test, p < {RELIABLE_ALPHA:g})"
         )
+        axes[4].set_xticks(positions, [DEVIANCE_LABELS[g] for g in DETAILED_GROUPS])
+        axes[4].tick_params(axis="x", labelrotation=48)
+        for label, group in zip(
+            axes[4].get_xticklabels(), DETAILED_GROUPS, strict=True
+        ):
+            label.set_ha("right")
+            label.set_color(_block_color(group))
+
+        _label_panels(axes, -0.16, 1.04)
+        figure.tight_layout(h_pad=1.5, w_pad=1.5)
         return _save_figure(figure, output)
 
 

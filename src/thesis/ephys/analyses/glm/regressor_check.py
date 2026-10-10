@@ -1,8 +1,9 @@
 """Find regressor blocks that add columns to the V1 GLM but no held-out deviance.
 
-Question: which regressor blocks can be removed from the model? A removal
-candidate adds design columns and does not improve cross-validated deviance,
-and this must hold in repeated draws of units, not in one draw only.
+Question: which regressor blocks do not explain neural activity? Such a block
+adds design columns and does not improve cross-validated deviance, and this
+must hold in repeated draws of units, not in one draw only. The script
+identifies these blocks; it does not remove them.
 
 Comparison: this script makes no new fits. It reads the per-unit records that
 `glm unique` wrote. For each block and unit these give the unique ΔD² (the
@@ -24,23 +25,25 @@ excluded, D² against a constant-rate null, ten whole-trial folds.
 Sampling unit: the unit (its mean over scored folds). Each sample is one
 replicate of the unit draw. Per sample and block the script reports the median
 over units, a one-sided Wilcoxon signed-rank test of unique ΔD² > 0, and the
-fraction of units with a reliable gain (unique ΔD² > 2 fold SEM).
+fraction of units with a reliable gain. A unit has a reliable gain when a
+one-sided one-sample t-test of its fold values of unique ΔD² against zero gives
+p < 0.05. Zero is the value when the shuffled block predicts as well as the real
+block. With ten folds this is mean > 1.83 fold SEM. The folds share training
+trials, so the test is somewhat too easy to pass; a block with no effect gives
+about 5% of units.
 
-Removal guide: a block is flagged when its pooled median unique ΔD² is below
-1% of the pooled median complete-model D² and, in every sample, fewer than half
-of the units have a reliable gain. The flag is a guide for the researcher, not
-a decision.
-
-Panels: (a) unique and (b) maximal ΔD² of every unit, one column of points per
-sample within each block, with each sample's median. (c) Pooled median unique
-ΔD² against the column count of the block; the vertical line is the range of
-the sample medians, and the horizontal line is the range of the column count
-(only motion energy varies, because each sample selects its PC count). (d)
-Fraction of units with a reliable gain, one point per sample, with the mean.
-
-Display: the ΔD² axes are symmetric-log (linear below 1e-3) because spike
-history is about 100 times larger than the smallest blocks. Every unit is
-plotted; no value is clipped.
+Figure: the same five panels that `glm unique` draws for one fit
+(`plot_deviance_explained`), here for the units of all samples. (a) Full-model
+D², (b) maximal and (c) unique ΔD² of all units, one box per block, without
+unit points or outlier markers. (d) Pooled median unique ΔD² against the column
+count of the block, on logarithmic axes; the vertical line is the range of the
+sample medians, and the horizontal line is the range of the column count (only
+motion energy varies, because each sample selects its PC count). A sample
+median at or below zero cannot be drawn, so its range line stops at the bottom
+of the axis. (e) Fraction of units with a reliable gain, one point per sample,
+with the mean. The dotted line is the chance level, 0.05: the fraction of units
+that pass the test when the block has no effect. The medians and tests in
+`regressor_check.json` use every unit.
 
     uv run python -m thesis.ephys.analyses.glm.regressor_check
 """
@@ -51,25 +54,9 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.stats import wilcoxon
-
-from thesis.ephys.analyses.glm.figures import (
-    DEVIANCE_COLORS,
-    DEVIANCE_LABELS,
-    FIGURE_STYLE,
-    _label_panels,
-    _save_figure,
-)
+from thesis.ephys.analyses.glm.figures import plot_deviance_explained
 from thesis.ephys.analyses.glm.fit import _write_json_atomic, load_unit_records
-from thesis.ephys.analyses.glm.unique_dev import DETAILED_GROUPS
-
-SHARE_THRESHOLD = 0.01
-RELIABLE_SEM = 2.0
-LINEAR_THRESHOLD = 1e-3
-UNIQUE = "unique_test_deviance_explained"
-MAXIMAL = "maximal_test_deviance_explained"
+from thesis.ephys.analyses.glm.unique_dev import block_table
 
 
 def load_samples(root: Path) -> dict[str, list[dict]]:
@@ -89,195 +76,6 @@ def load_samples(root: Path) -> dict[str, list[dict]]:
     return samples
 
 
-def block_table(samples: dict[str, list[dict]]) -> dict:
-    """Summarize each block within each sample and over all units."""
-    complete = np.concatenate(
-        [
-            [record["complete_test_deviance_explained"] for record in records]
-            for records in samples.values()
-        ]
-    )
-    table = {
-        "samples": list(samples),
-        "units": int(len(complete)),
-        "complete_d2_median": float(np.median(complete)),
-        "share_threshold": SHARE_THRESHOLD,
-        "reliable_sem": RELIABLE_SEM,
-        "blocks": {},
-    }
-    for group in DETAILED_GROUPS:
-        per_sample = []
-        for records in samples.values():
-            entries = [record["groups"][group] for record in records]
-            unique = np.asarray([entry[UNIQUE] for entry in entries])
-            sem = np.asarray([entry[f"{UNIQUE}_sem"] for entry in entries])
-            per_sample.append(
-                {
-                    "columns": int(entries[0]["columns"]),
-                    "unique": unique,
-                    "maximal": np.asarray([entry[MAXIMAL] for entry in entries]),
-                    "reliable_fraction": float(np.mean(unique > RELIABLE_SEM * sem)),
-                    "wilcoxon_p": float(wilcoxon(unique, alternative="greater").pvalue),
-                }
-            )
-        pooled_unique = np.concatenate([item["unique"] for item in per_sample])
-        share = float(np.median(pooled_unique)) / table["complete_d2_median"]
-        reliable = [item["reliable_fraction"] for item in per_sample]
-        table["blocks"][group] = {
-            "columns": [item["columns"] for item in per_sample],
-            "unique_median_by_sample": [
-                float(np.median(item["unique"])) for item in per_sample
-            ],
-            "maximal_median_by_sample": [
-                float(np.median(item["maximal"])) for item in per_sample
-            ],
-            "reliable_fraction_by_sample": reliable,
-            "wilcoxon_p_by_sample": [item["wilcoxon_p"] for item in per_sample],
-            "unique_median": float(np.median(pooled_unique)),
-            "unique_q25_q75": np.quantile(pooled_unique, [0.25, 0.75]).tolist(),
-            "maximal_median": float(
-                np.median(np.concatenate([item["maximal"] for item in per_sample]))
-            ),
-            "share_of_complete_d2": share,
-            "removal_candidate": bool(share < SHARE_THRESHOLD and max(reliable) < 0.5),
-            "_unique": [item["unique"] for item in per_sample],
-            "_maximal": [item["maximal"] for item in per_sample],
-        }
-    return table
-
-
-def _block_ticks(axis) -> None:
-    axis.set_xticks(
-        np.arange(len(DETAILED_GROUPS)),
-        [DEVIANCE_LABELS[group] for group in DETAILED_GROUPS],
-    )
-    axis.tick_params(axis="x", labelrotation=48)
-    for label, group in zip(axis.get_xticklabels(), DETAILED_GROUPS, strict=True):
-        label.set_ha("right")
-        label.set_color(_color(group))
-
-
-def _color(group: str) -> str:
-    return DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"])
-
-
-def _plot_units(axis, table: dict, key: str) -> None:
-    """Plot every unit, one column per sample, with each sample's median."""
-    offsets = np.linspace(-0.32, 0.32, len(table["samples"]))
-    rng = np.random.default_rng(0)
-    for position, group in enumerate(DETAILED_GROUPS):
-        for offset, values in zip(offsets, table["blocks"][group][key], strict=True):
-            x = position + offset
-            axis.scatter(
-                x + rng.uniform(-0.04, 0.04, len(values)),
-                values,
-                s=5,
-                alpha=0.55,
-                linewidths=0,
-                color=_color(group),
-            )
-            axis.hlines(
-                np.median(values), x - 0.07, x + 0.07, color="black", linewidth=1.1
-            )
-    axis.axhline(0, color="0.35", linestyle="--", linewidth=0.7, zorder=0)
-    axis.set_yscale("symlog", linthresh=LINEAR_THRESHOLD)
-    _block_ticks(axis)
-
-
-def plot_regressor_check(table: dict, output: Path) -> Path:
-    """Draw the per-unit ΔD², the cost against the gain, and the consistency."""
-    threshold = SHARE_THRESHOLD * table["complete_d2_median"]
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(2, 2, figsize=(10.5, 7.6))
-        axes = axes.ravel()
-
-        _plot_units(axes[0], table, "_unique")
-        axes[0].axhline(threshold, color="0.35", linestyle=":", linewidth=0.8)
-        axes[0].text(
-            1.01,
-            threshold,
-            f"{SHARE_THRESHOLD:.0%} of full-\nmodel $D^2$",
-            transform=axes[0].get_yaxis_transform(),
-            ha="left",
-            va="center",
-            fontsize=6,
-            color="0.35",
-        )
-        axes[0].set_ylabel(r"unique deviance explained ($\Delta D^2$)")
-        _plot_units(axes[1], table, "_maximal")
-        axes[1].set_ylabel(r"maximal deviance explained ($\Delta D^2$)")
-
-        for group in DETAILED_GROUPS:
-            block = table["blocks"][group]
-            medians = block["unique_median_by_sample"]
-            columns = float(np.mean(block["columns"]))
-            axes[2].vlines(
-                columns, min(medians), max(medians), color=_color(group), linewidth=1
-            )
-            axes[2].hlines(
-                block["unique_median"],
-                min(block["columns"]),
-                max(block["columns"]),
-                color=_color(group),
-                linewidth=1,
-            )
-            left = columns <= 6
-            axes[2].scatter(
-                columns, block["unique_median"], s=22, color=_color(group), zorder=3
-            )
-            axes[2].annotate(
-                DEVIANCE_LABELS[group],
-                (columns if left else max(block["columns"]), block["unique_median"]),
-                xytext=(-5 if left else 5, 0),
-                textcoords="offset points",
-                ha="right" if left else "left",
-                va="center",
-                fontsize=6.5,
-                color=_color(group),
-            )
-        axes[2].axhline(threshold, color="0.35", linestyle=":", linewidth=0.8)
-        axes[2].text(
-            0.99,
-            threshold,
-            f"{SHARE_THRESHOLD:.0%} of full-model $D^2$",
-            transform=axes[2].get_yaxis_transform(),
-            ha="right",
-            va="bottom",
-            fontsize=6,
-            color="0.35",
-        )
-        axes[2].set_xscale("log")
-        axes[2].set_yscale("symlog", linthresh=1e-4)
-        axes[2].set_xlim(1, 120)
-        axes[2].set_ylim(0, 0.06)
-        axes[2].set_xlabel("design columns in the block")
-        axes[2].set_ylabel("median unique deviance\n" r"explained ($\Delta D^2$)")
-
-        offsets = np.linspace(-0.32, 0.32, len(table["samples"]))
-        for position, group in enumerate(DETAILED_GROUPS):
-            fractions = table["blocks"][group]["reliable_fraction_by_sample"]
-            axes[3].scatter(
-                position + offsets, fractions, s=14, color=_color(group), zorder=3
-            )
-            axes[3].hlines(
-                np.mean(fractions),
-                position - 0.4,
-                position + 0.4,
-                color="black",
-                linewidth=1.1,
-            )
-        axes[3].axhline(0.5, color="0.35", linestyle=":", linewidth=0.8)
-        axes[3].set_ylim(-0.03, 1.03)
-        axes[3].set_ylabel(
-            f"fraction of units with unique\n$\\Delta D^2$ > {RELIABLE_SEM:g} fold SEM"
-        )
-        _block_ticks(axes[3])
-
-        _label_panels(axes, -0.13, 1.04)
-        figure.tight_layout(h_pad=1.5, w_pad=2.0)
-        return _save_figure(figure, output)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -291,9 +89,7 @@ def main() -> None:
     if len(samples) < 2:
         raise ValueError("Run `glm fit` and `glm unique` on at least two samples.")
     table = block_table(samples)
-    figure = plot_regressor_check(table, args.root / "regressor_check")
-    for block in table["blocks"].values():
-        del block["_unique"], block["_maximal"]
+    figure = plot_deviance_explained(samples, args.root / "regressor_check")
     _write_json_atomic(args.root / "regressor_check.json", table)
     print(json.dumps({**table, "figure": str(figure)}, indent=2))
 

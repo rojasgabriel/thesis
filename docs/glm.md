@@ -2,7 +2,8 @@
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
 from a common flash kernel, a pre/post-withdrawal contrast, a flash-adaptation
-term, an initiation kernel truncated at the first flash, peri-withdrawal
+term, a flash × motion-energy interaction, an initiation kernel truncated at
+the first flash, peri-withdrawal
 movement, response entry, and additive camera motion-energy PCs. Each unit
 also has a strictly past self-history filter.
 Coefficients are conditional associations, not causal effects.
@@ -69,6 +70,7 @@ drift, go cue, outcome, or punishment kernel.
 | Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
 | Flash state contrast | Same flash bases, scaled −0.5 before withdrawal and +0.5 at or after withdrawal | 6 |
 | Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
+| Flash × motion energy | Same flash bases, scaled by the total motion energy of the video frame at the flash (mean over pixels), centered and in SD over all modeled flashes | 6 |
 | Initiation | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
 | Withdrawal | 9 raised cosines, −300–+300 ms | 9 |
 | Response entry | 6 bases before the event, −300 to −1 ms; the entry bin gets no value | 6 |
@@ -189,7 +191,16 @@ PCs stay one block.
 `unique ΔD² = complete D² − one-removed D²`
 `maximal ΔD² = block-alone D² − all-shuffled D²`
 
-Both run inside the same 10 folds as `fit`, at the penalty that fold selected,
+`trial-specific ΔD² (motion energy) = complete D² − D² with motion energy from another trial`
+
+The third value is a control for motion energy only. It replaces the block with
+the motion energy of another trial at the same time in the trial. This keeps the
+average time course of motion energy in a trial. If the trial-specific ΔD² is
+near zero and the unique ΔD² is not, the block predicts spikes through the time
+in the trial and not through the movement of that trial. `summary.json` gives it
+as `video_trial_specific`.
+
+All run inside the same 10 folds as `fit`, at the penalty that fold selected,
 so they are comparable with the cross-validated deviance. Reported as the mean
 across folds with its SEM. Following
 [Oesch et al. 2026](https://doi.org/10.1038/s41467-026-70639-1) and
@@ -201,10 +212,17 @@ uv run glm unique --units all
 
 The same command writes `deviance_explained.svg` and the three example-unit
 figures in the selected fit directory (`all_fit_me/` or `sample_fit_me/`).
+`deviance_explained.svg` has five panels: (a) full-model D², (b) maximal and
+(c) unique ΔD² for each block, as box plots without unit points or outlier
+markers; (d) the median unique ΔD² of each block against its column count, on
+logarithmic axes; (e) the fraction of units for which the block gives unique
+ΔD² > 0 (one-sided t-test of the fold values against zero, p < 0.05), with a
+dotted line at the chance level of 0.05.
 
 ## Regressor check
 
-Use this to find blocks that add design columns but no held-out deviance. Fit
+Use this to find blocks that add design columns but no held-out deviance. It
+identifies these blocks; it does not remove them. Fit
 and score some samples that share no unit, then compare them:
 
 ```bash
@@ -214,12 +232,26 @@ uv run python -m thesis.ephys.analyses.glm.regressor_check
 
 The script makes no new fits. It reads the `unique` records of each completed
 `sample*_fit_me/` directory and writes `regressor_check.svg` and
-`regressor_check.json` in the session output directory. A block is flagged as a
-removal candidate when its pooled median unique ΔD² is below 1% of the pooled
-median complete-model D² and, in every sample, fewer than half of the units gain
-more than 2 fold SEM. The flag is a guide, not a decision. Each sample selects
-its own motion-energy PC count, so the motion-energy block can have a different
-column count in each sample.
+`regressor_check.json` in the session output directory. The figure has the same
+five panels as `deviance_explained.svg`, for the units of all samples. Panels d
+and e also show the spread over the samples. Each sample selects its own
+motion-energy PC count, so the motion-energy block can have a different column
+count in each sample.
+
+## Kernel comparison
+
+```bash
+uv run python -m thesis.ephys.analyses.glm.kernel_comparison
+```
+
+This script also makes no new fits and reads all completed sample fits. It
+writes `kernel_comparison.svg` and `kernel_comparison.json`. Panel a compares
+the size of the visual flash weights and of the motion-energy weights (the norm
+of the block's coefficients) for every unit. Panels b and c show the common
+visual flash kernel and the motion-energy weight map of three example units: one
+that the flash predicts, one that motion energy predicts, and one that both
+predict. Motion energy has no temporal kernel, so its panel is a map over the
+video frame. The module docstring gives the selection rule.
 
 ## Synthetic check
 
@@ -229,8 +261,9 @@ Run this after you change the design, fit, or unique-deviance code:
 uv run python -m thesis.ephys.analyses.glm.synthetic_check
 ```
 
-It needs no database. It plants known flash, state, adaptation, withdrawal,
-motion-energy, and history effects in 80 simulated trials. Then it runs
+It needs no database. It plants known flash, state, adaptation, flash ×
+motion-energy, withdrawal, motion-energy, and history effects in 80 simulated
+trials. Then it runs
 `prepare`, `fit`, and `unique` on them and checks that the effects come back. It
 compares 2 and 5 motion-energy PCs instead of 10–200 and takes about 1 minute.
 It raises `AssertionError` with the failed checks. Pass `--out DIR` (a new

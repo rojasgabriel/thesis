@@ -221,6 +221,7 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
         "visual_flash": flash,
         "flash_pre_post_withdrawal": flash,
         "flash_adaptation": flash,
+        "flash_motion_energy": flash,
         "initiation": poke,
         "withdrawal": peri_exit,
         "response_entry": pre_response,
@@ -271,11 +272,22 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 
 def build_task_design(
-    alignments: np.ndarray, trials
+    alignments: np.ndarray,
+    trials,
+    frame_times: np.ndarray,
+    motion_energy: np.ndarray,
 ) -> tuple[DesignMatrix, list[dict]]:
-    """Build sensory and task regressors with the accepted DAMN interface."""
+    """Build sensory and task regressors with the accepted DAMN interface.
+
+    `motion_energy` is the total motion energy of the video frame at each of
+    `frame_times`. Its value at a flash scales the flash x motion-energy block.
+    """
     bases = task_temporal_bases()
     flashes, state_values, resource_raw = flash_events(trials)
+    # Center and scale over the modeled flashes: the common flash kernel stays
+    # the average response, and this kernel is the change per SD of movement.
+    motion_raw = np.interp(flashes, frame_times, motion_energy)
+    motion_values = (motion_raw - motion_raw.mean()) / motion_raw.std()
     # Center the resource so the common flash kernel stays the average response.
     # A first flash sees a full pool (R = 1); adapted later flashes see less.
     # Store two representative centered levels for the kernel figure.
@@ -310,6 +322,13 @@ def build_task_design(
             "sensory",
             f"centered depression resource, u={ADAPT_U}, "
             f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
+        ),
+        (
+            "flash_motion_energy",
+            flashes,
+            motion_values,
+            "sensory",
+            "total motion energy at the flash, centered, in SD over modeled flashes",
         ),
         (
             "initiation",
@@ -470,6 +489,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     with np.load(video, allow_pickle=False) as data:
         frame_times = data["frame_times_s"].copy()
         scores = data["scores"].copy()
+        motion_energy = data["total"].copy()
     if scores.ndim != 2 or scores.shape[1] != max(VIDEO_COMPONENT_COUNTS):
         raise ValueError("Expected exactly 200 video-component score columns.")
     if len(frame_times) != len(scores):
@@ -481,7 +501,9 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     ):
         raise ValueError("Video times and scores must be finite and time ordered.")
 
-    task, task_manifest = build_task_design(prepared["alignments"], trials)
+    task, task_manifest = build_task_design(
+        prepared["alignments"], trials, frame_times, motion_energy
+    )
     task_values = task.X
     task_columns = task_values.shape[1]
     valid = _valid_bin_mask(prepared)

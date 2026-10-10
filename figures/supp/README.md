@@ -13,7 +13,8 @@ uv run python figures/supp/flash_basis_columns.py
 
 - `regressor_overview` — every regressor group (flash, task events, motion-energy
   PC, spike history) with its temporal basis, window, coding, and alignment.
-- `flash_interaction_design` — the three flash regressors for one example trial,
+- `flash_interaction_design` — three of the four flash regressors for one example
+  trial (it does not show the flash × motion-energy block),
   showing they are the same 6-column basis placed at the same flash times, each
   block scaled by its pre/post-withdrawal contrast or centered adaptation resource.
   The one-trial example centers the resource over its own flashes; the fitted

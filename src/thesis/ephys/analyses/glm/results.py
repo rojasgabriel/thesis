@@ -176,28 +176,34 @@ def _select_count_typical_trial(observed: np.ndarray) -> int:
     return int(np.argmin(np.abs(totals - np.median(totals))))
 
 
-def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
-    """Return the unit whose visual flash block explains the most deviance per second.
+def block_deviance_rate(record: dict, fit: dict, group: str) -> float:
+    """Return the deviance per second that one block explains uniquely for a unit.
 
-    Unique flash ΔD² is a fraction of the null deviance of the unit, so its
-    maximum selects a unit with few spikes and rasters too sparse to compare.
-    Null deviance per spike is proportional to bits/spike ÷ D², and the rate
-    converts it to deviance per second.
+    Unique ΔD² is a fraction of the null deviance of the unit, so its maximum
+    selects a unit with few spikes. Null deviance per spike is proportional to
+    bits/spike ÷ D², and the rate converts it to deviance per second (in bits).
     """
+    if fit["cross_validated_deviance_explained"] <= 0:
+        return -np.inf
+    return (
+        record["groups"][group]["unique_test_deviance_explained"]
+        * fit["cross_validated_bits_per_spike"]
+        / fit["cross_validated_deviance_explained"]
+        * fit["fit_mean_count"]
+        / BINWIDTH_S
+    )
+
+
+def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
+    """Return the unit whose visual flash block explains the most deviance per second."""
     final = {int(item["unit_id"]): item for item in results}
-
-    def flash_deviance_rate(record: dict) -> float:
-        fit = final[int(record["unit_id"])]
-        if fit["cross_validated_deviance_explained"] <= 0:
-            return -np.inf
-        return (
-            record["groups"]["visual_flash"]["unique_test_deviance_explained"]
-            * fit["cross_validated_bits_per_spike"]
-            / fit["cross_validated_deviance_explained"]
-            * fit["fit_mean_count"]
-        )
-
-    return int(max(unique_records, key=flash_deviance_rate)["unit_id"])
+    best = max(
+        unique_records,
+        key=lambda record: block_deviance_rate(
+            record, final[int(record["unit_id"])], FLASH_COMMON
+        ),
+    )
+    return int(best["unit_id"])
 
 
 def write_figure_data(

@@ -4,7 +4,9 @@ Scientific comparison
 ---------------------
 For GRB006 session 20240821_121447, predict V1 spikes from these terms: a
 common flash kernel, a pre/post-withdrawal contrast, a synaptic-resource
-flash-adaptation term, an initiation kernel truncated at the first flash,
+flash-adaptation term, a flash × motion-energy interaction (the flash kernel
+scaled by the total motion energy at the flash), an initiation kernel truncated
+at the first flash,
 peri-withdrawal movement, response entry, validation-selected additive video
 motion-energy PCs, and the strictly past spike history of each unit. The model
 has no response-side, coupling, session-drift, go-cue, outcome, or punishment
@@ -376,10 +378,16 @@ def _init_worker(
         partitions=partitions,
     )
     if shuffle_seed is not None:
-        from thesis.ephys.analyses.glm.unique_dev import shuffle_permutations
+        from thesis.ephys.analyses.glm.unique_dev import (
+            shuffle_permutations,
+            trial_swap_permutation,
+        )
 
         _SHARED["within_trial"] = shuffle_permutations(
             n_trials, bins_per_trial, shuffle_seed, valid=valid
+        )
+        _SHARED["between_trials"] = trial_swap_permutation(
+            n_trials, bins_per_trial, shuffle_seed
         )
 
 

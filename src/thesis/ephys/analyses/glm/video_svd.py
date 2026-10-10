@@ -4,6 +4,7 @@ Uses the trial selection and split saved by dmat.write_stimulus_windows. Each re
 is the absolute pixel difference from the previous decoded frame when the two
 indices are adjacent; the first frame of a gap is left at zero. PCA fits 200
 training-frame axes at 80 by 64. Scores are z-scored with training frames only.
+`total` is the mean motion energy over the pixels of each frame.
 """
 
 from __future__ import annotations
@@ -106,6 +107,7 @@ def write_motion_energy_features(alignment: Path, output: Path) -> None:
             frame_trial_row=trial_rows,
             frame_split=split,
             scores=scores,
+            total=motion.mean(axis=1),
             score_mean=score_mean,
             score_scale=score_scale,
             components=model.components_,

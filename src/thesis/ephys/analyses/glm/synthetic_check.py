@@ -18,6 +18,7 @@ check. Units (all 20 spikes/s baseline, 1 ms bins):
 - 102: motion-energy PC 1 only.
 - 103: withdrawal only.
 - 104: constant rate, no history (null unit).
+- 105: flash, with a response that grows with the motion energy at the flash.
 - 197: every effect. Its figures are drawn if it is selected as the example unit.
 
 Bins after response entry have 3x the rate. The pipeline masks them, so they
@@ -60,6 +61,8 @@ FLASH_PEAK_S = 0.04
 FLASH_GAIN = 1.5
 STATE_GAIN = 0.6  # flash kernel scale per unit of the -0.5/+0.5 state code
 ADAPT_GAIN = 1.0  # flash kernel scale per unit of centered resource
+# Small, because the kernels of flashes 30-80 ms apart add up in the log rate.
+MOTION_GAIN = 0.25  # flash kernel scale per SD of motion energy at the flash
 WITHDRAWAL_PEAK_S = 0.05
 WITHDRAWAL_GAIN = 0.8
 VIDEO_GAIN = 0.4
@@ -69,6 +72,7 @@ UNITS = {
     102: {"video"},
     103: {"withdrawal"},
     104: set(),
+    105: {"flash", "motion"},
     197: {"flash", "state", "adapt", "withdrawal", "video", "history"},
 }
 
@@ -152,7 +156,10 @@ def write_windows(trials: pd.DataFrame, frames: np.ndarray, output: Path) -> Non
 
 
 def write_video(windows: Path, output: Path, rng: np.random.Generator) -> np.ndarray:
-    """Write 5 z-scored motion PCs for trial frames; return the PC 1 trace."""
+    """Write 5 z-scored motion PCs for trial frames; return the PC 1 trace.
+
+    PC 1 is also saved as the total motion energy of each frame.
+    """
     with np.load(windows) as data:
         keep = np.flatnonzero(data["frame_split"] >= 0)
         times = data["frame_times_s"][keep]
@@ -170,6 +177,7 @@ def write_video(windows: Path, output: Path, rng: np.random.Generator) -> np.nda
         frame_trial_row=trial_rows,
         frame_split=split,
         scores=scores,
+        total=scores[:, 0],
     )
     return np.column_stack((times, scores[:, 0]))
 
@@ -196,6 +204,9 @@ def simulate_unit(
         for times in modeled
     ]
     center = np.concatenate(resources).mean()
+    motion = [np.interp(times, video[:, 0], video[:, 1]) for times in modeled]
+    motion_mean = np.concatenate(motion).mean()
+    motion_sd = np.concatenate(motion).std()
     history = history_kernel(np.arange(1, 101))
     spikes = []
     for index, row in enumerate(trials.itertuples()):
@@ -203,13 +214,18 @@ def simulate_unit(
         times = alignment + centers
         drive = np.full(len(centers), np.log(BASE_RATE_HZ * dmat.BINWIDTH_S))
         state = np.where(modeled[index] < row.center_exit_s, -0.5, 0.5)
-        for flash, s, r in zip(
-            modeled[index], state, resources[index] - center, strict=True
+        for flash, s, r, m in zip(
+            modeled[index],
+            state,
+            resources[index] - center,
+            (motion[index] - motion_mean) / motion_sd,
+            strict=True,
         ):
             scale = (
                 ("flash" in effects)
                 + STATE_GAIN * s * ("state" in effects)
                 + ADAPT_GAIN * r * ("adapt" in effects)
+                + MOTION_GAIN * m * ("motion" in effects)
             )
             drive += scale * flash_kernel(times - flash)
         if "withdrawal" in effects:
@@ -311,6 +327,13 @@ def main() -> None:
         np.array_equal(within // len(centers), rows // len(centers)),
     )
     check("shuffle moves valid bins", np.mean(within[valid] != rows[valid]) > 0.9)
+    between = fit._SHARED["between_trials"]
+    check(
+        "trial swap keeps the bin and changes the trial",
+        np.array_equal(between % len(centers), rows % len(centers))
+        and np.all(between // len(centers) != rows // len(centers))
+        and np.array_equal(np.sort(between), rows),
+    )
     partitions = fit.cross_validation_partitions(TRIALS, len(centers), valid)
 
     for unit_id, effects in UNITS.items():
@@ -348,6 +371,16 @@ def main() -> None:
             for name in unique_dev.DETAILED_GROUPS
         }
         d2 = final["cross_validated_deviance_explained"]
+        swapped = block["groups"]["video"]["trial_specific_test_deviance_explained"]
+        if effects == {"video"}:
+            # PC 1 is independent noise in each trial, so all of its effect is
+            # trial-specific.
+            check(
+                f"{unit_id} video effect is trial-specific",
+                swapped > 0.7 * unique["video"],
+            )
+        elif "video" not in effects:
+            check(f"{unit_id} trial-specific video near 0", abs(swapped) < 0.005)
         report[unit_id] = {
             "cv_d2": round(d2, 4),
             "unique": {name: round(value, 4) for name, value in unique.items()},
@@ -371,6 +404,22 @@ def main() -> None:
             truth = ADAPT_GAIN * flash_kernel(flash_t / 1000)
             check(
                 f"{unit_id} adaptation kernel r>0.7", _correlation(adapt_v, truth) > 0.7
+            )
+        if "motion" in effects:
+            _, motion_v = kernels["flash_motion_energy"]
+            truth = MOTION_GAIN * flash_kernel(flash_t / 1000)
+            check(
+                f"{unit_id} flash x motion kernel r>0.7",
+                _correlation(motion_v, truth) > 0.7,
+            )
+            check(
+                f"{unit_id} flash x motion unique > 0.001",
+                unique["flash_motion_energy"] > 0.001,
+            )
+        else:
+            check(
+                f"{unit_id} flash x motion unique near 0",
+                abs(unique["flash_motion_energy"]) < 0.005,
             )
         if "withdrawal" in effects:
             exit_t, exit_v = kernels["withdrawal"]

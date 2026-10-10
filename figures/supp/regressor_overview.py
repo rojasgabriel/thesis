@@ -60,6 +60,13 @@ def main() -> Path:
             "time from flash (ms)",
         ),
         (
+            "flash_motion_energy",
+            "flash × motion energy",
+            "sensory",
+            "same bases, centered motion energy (SD) at each flash",
+            "time from flash (ms)",
+        ),
+        (
             "initiation",
             "initiation (center poke)",
             "task",
@@ -97,7 +104,7 @@ def main() -> Path:
     ]
 
     with plt.rc_context(FIGURE_STYLE):
-        fig, axes = plt.subplots(4, 2, figsize=(9.0, 9.6))
+        fig, axes = plt.subplots(3, 3, figsize=(12.6, 7.6))
         axes = axes.ravel()
         for index, (ax, (key, title, group, coding, xlabel)) in enumerate(
             zip(axes, panels, strict=True)
