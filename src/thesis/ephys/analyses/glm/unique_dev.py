@@ -61,7 +61,6 @@ DETAILED_GROUPS = (
     "flash_adaptation",
     "stimulus_onset",
     "withdrawal",
-    "withdrawal_side",
     "video",
     "history",
 )

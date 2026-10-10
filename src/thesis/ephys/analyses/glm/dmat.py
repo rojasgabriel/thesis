@@ -231,7 +231,6 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
         "flash_adaptation": flash,
         "stimulus_onset": onset,
         "withdrawal": withdrawal,
-        "withdrawal_side": withdrawal,
     }
 
 
@@ -323,13 +322,6 @@ def build_task_design(
             None,
             "task",
             "one withdrawal per completed trial",
-        ),
-        (
-            "withdrawal_side",
-            trials["center_exit_s"].to_numpy(dtype=float),
-            0.5 * trials["response"].to_numpy(dtype=float),
-            "task",
-            "same withdrawals, scaled -0.5 for response -1 and +0.5 for response 1",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
