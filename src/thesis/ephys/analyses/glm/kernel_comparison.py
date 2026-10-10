@@ -52,15 +52,19 @@ from matplotlib.patheffects import withStroke
 from scipy.stats import rankdata
 
 from thesis.ephys.analyses.glm.dmat import HISTORY_COLUMNS
-from thesis.ephys.analyses.glm.figures import FIGURE_STYLE, _save_figure
 from thesis.ephys.analyses.glm.fit import _write_json_atomic, load_unit_records
 from thesis.ephys.analyses.glm.results import (
     FLASH_COMMON,
     block_deviance_rate,
     fitted_kernels,
 )
+from thesis.plotting import CONCEPT_COLORS, FIGURE_STYLE, save_figure
 
-EXAMPLE_COLORS = {"flash": "C0", "motion energy": "C1", "both": "C4"}
+EXAMPLE_COLORS = {
+    "flash": CONCEPT_COLORS["visual"],
+    "motion energy": CONCEPT_COLORS["motion energy"],
+    "both": "C4",
+}
 # A "both" unit has flash and motion-energy weight norms within this factor.
 UNITY_FACTOR = 1.2
 
@@ -239,7 +243,7 @@ def plot_kernel_comparison(
                 fontweight="bold",
                 fontsize=10,
             )
-        return _save_figure(figure, output)
+        return save_figure(figure, output)
 
 
 def main() -> None:

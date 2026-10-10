@@ -8,15 +8,15 @@ which was fit on every valid bin. All rates condition on observed spike history.
 from __future__ import annotations
 
 import json
-import string
 from pathlib import Path
 
 import matplotlib
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import sem, spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patheffects import withStroke
 
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S, VIDEO_COMPONENT_COUNTS
 from thesis.ephys.analyses.glm.fit import load_unit_records
@@ -28,14 +28,20 @@ from thesis.ephys.analyses.glm.unique_dev import (
     UNIQUE,
     block_table,
 )
+from thesis.plotting import (
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    MODEL_COLOR,
+    OBSERVED_COLOR,
+    label_panels,
+    save_figure,
+)
 
-OBSERVED_COLOR = "black"
-MODEL_COLOR = "C0"
 GROUP_COLORS = {
-    "visual": "C0",
-    "task": "C1",
-    "video": "C2",
-    "history": "C3",
+    "visual": CONCEPT_COLORS["visual"],
+    "task": CONCEPT_COLORS["task"],
+    "video": CONCEPT_COLORS["motion energy"],
+    "history": CONCEPT_COLORS["history"],
 }
 TASK_LABELS = {
     "visual_flash": "visual flash",
@@ -51,16 +57,12 @@ TASK_LABELS = {
 }
 COUNT_BIN_MS = 10
 MIN_RATE_TRIAL_FRACTION = 0.5
+# Firing-rate groups of summary panel d, from the lowest rate to the highest.
+RATE_GROUP_COLORS = {"low": "#a50026", "medium": "#d9a400", "high": "#313695"}
+RATE_GROUP_BINS = 4
 PREDICTION_SEED = 2008
-FIGURE_STYLE = {
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "font.size": 8,
-    "pdf.fonttype": 42,
-    "ps.fonttype": 42,
-}
-# Unique-deviance box plot: task blocks reuse the kernel labels; its color map
-# is distinct from the groupwise contribution colors above.
+# Deviance figure: task blocks reuse the kernel labels. Each block takes the
+# color of its concept: flash blocks visual, the other event blocks task.
 DEVIANCE_LABELS = {
     "full_model": "full model",
     "task": "task",
@@ -70,9 +72,13 @@ DEVIANCE_LABELS = {
 }
 DEVIANCE_COLORS = {
     "full_model": "black",
-    "task": "C0",
-    "video": "C1",
-    "history": "C2",
+    "task": GROUP_COLORS["task"],
+    "video": GROUP_COLORS["video"],
+    "history": GROUP_COLORS["history"],
+    "visual_flash": GROUP_COLORS["visual"],
+    "flash_pre_post_withdrawal": GROUP_COLORS["visual"],
+    "flash_adaptation": GROUP_COLORS["visual"],
+    "flash_motion_energy": GROUP_COLORS["visual"],
 }
 
 
@@ -112,31 +118,6 @@ def _raster_events(
         np.repeat(times[keep], row[keep].astype(int, copy=False))
         for row, keep in zip(np.asarray(counts), np.asarray(valid), strict=True)
     ]
-
-
-def _label_panels(axes, x: float, y: float = 1.05) -> None:
-    """Put bold lowercase panel letters above and left of each axis."""
-    for letter, axis in zip(string.ascii_lowercase, axes, strict=False):
-        axis.text(
-            x,
-            y,
-            letter,
-            transform=axis.transAxes,
-            ha="left",
-            va="bottom",
-            fontweight="bold",
-            fontsize=10,
-        )
-
-
-def _save_figure(figure, output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    svg = output.with_suffix(".svg")
-    figure.savefig(svg, bbox_inches="tight")
-    for stale in (".pdf", ".png"):
-        output.with_suffix(stale).unlink(missing_ok=True)
-    plt.close(figure)
-    return svg
 
 
 def binned_rates(
@@ -385,9 +366,9 @@ def plot_model_design(
             axis.set_xlim(left_ms, right_ms)
         for axis in all_axes[:-1]:
             axis.tick_params(axis="x", labelbottom=False)
-        _label_panels((event_axis, contribution_axes[0], count_axis), -0.15, 1.08)
+        label_panels((event_axis, contribution_axes[0], count_axis), -0.15, 1.08)
         figure.subplots_adjust(left=0.23, right=0.98, bottom=0.07, top=0.97)
-        return _save_figure(figure, output)
+        return save_figure(figure, output)
 
 
 def plot_population_summary(
@@ -466,54 +447,76 @@ def plot_population_summary(
             axis.set_xlabel(xlabel)
             axis.set_ylabel("units")
 
-        axes[3].scatter(training_rate, deviance, color="black", alpha=0.65, s=16)
-        axes[3].axhline(0, color="0.65", linestyle="--", linewidth=0.8)
-        if np.all(training_rate > 0):
-            axes[3].set_xscale("log")
-        axes[3].set_xlabel("mean firing rate (spikes/s)")
-        axes[3].set_ylabel(r"test deviance explained ($D^2$)")
-        # Above the axes: inside, the label covers units at any corner.
-        axes[3].text(
-            0.98,
-            1.01,
-            f"Spearman ρ = {rate_deviance_rho:.2f}, n = {len(results)} units",
-            color="black",
-            transform=axes[3].transAxes,
-            ha="right",
-            va="bottom",
-        )
+        _plot_bits_deviance_by_rate(axes[3], bits, deviance, training_rate)
 
-        _label_panels(axes, -0.14)
+        label_panels(axes, -0.14)
         figure.tight_layout(h_pad=2.0, w_pad=2.0)
-        return _save_figure(figure, output), rate_deviance_rho
+        return save_figure(figure, output), rate_deviance_rho
 
 
-def plot_bits_vs_deviance(results: list[dict], output: Path) -> Path:
-    """Scatter each unit's absolute prediction against its explained fraction."""
-    bits = np.asarray([item["cross_validated_bits_per_spike"] for item in results])
-    deviance = np.asarray(
-        [item["cross_validated_deviance_explained"] for item in results]
-    )
-    rho = float(spearmanr(bits, deviance).statistic)
+def _plot_bits_deviance_by_rate(
+    axis, bits: np.ndarray, deviance: np.ndarray, rate: np.ndarray
+) -> None:
+    """Plot D² against bits/spike, with the units grouped by firing rate.
 
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axis = plt.subplots(figsize=(3.7, 3.5))
-        axis.scatter(bits, deviance, color="black", alpha=0.65, s=16)
-        axis.axhline(0, color="0.65", linestyle="--", linewidth=0.8)
-        axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
-        axis.set_xlabel("test prediction (bits/spike)")
-        axis.set_ylabel(r"test deviance explained ($D^2$)")
-        axis.text(
-            0.98,
-            0.04,
-            f"Spearman ρ = {rho:.2f}\nn = {len(results)} units",
-            color="black",
-            transform=axis.transAxes,
-            ha="right",
-            va="bottom",
-        )
-        figure.tight_layout()
-        return _save_figure(figure, output)
+    Both measures have the same numerator, the log-likelihood gain over the
+    constant-rate null. Bits/spike divides it by the spike count and D² by the
+    null deviance, so for the same bits/spike a unit with a higher rate has a
+    higher D². Units are cut into three groups of equal size by rate (low,
+    medium, high).
+    In each group the units are cut into `RATE_GROUP_BINS` bins of equal size by
+    bits/spike; a marker is the mean of a bin and the band is ±1 SEM of D². The
+    small points are the units.
+    """
+    if len(rate) < 2 * RATE_GROUP_BINS * len(RATE_GROUP_COLORS):
+        axis.scatter(bits, deviance, color="black", s=10, linewidths=0)
+    else:
+        lines = []
+        for members in np.array_split(np.argsort(rate), len(RATE_GROUP_COLORS)):
+            bins = np.array_split(members[np.argsort(bits[members])], RATE_GROUP_BINS)
+            lines.append(
+                (
+                    members,
+                    np.asarray([bits[b].mean() for b in bins]),
+                    np.asarray([deviance[b].mean() for b in bins]),
+                    np.asarray([sem(deviance[b]) for b in bins]),
+                )
+            )
+        longest = max(x[-1] for _, x, _, _ in lines)
+        for (members, x, y, error), (name, color) in zip(
+            lines, RATE_GROUP_COLORS.items(), strict=True
+        ):
+            axis.scatter(
+                bits[members],
+                deviance[members],
+                color=color,
+                s=5,
+                alpha=0.5,
+                linewidths=0,
+            )
+            axis.fill_between(
+                x, y - error, y + error, color=color, alpha=0.3, linewidth=0
+            )
+            axis.plot(x, y, color=color, marker="o", ms=3, linewidth=1.2)
+            # A line that ends left of the others has them on its right, so its
+            # label goes above its end.
+            right = x[-1] > 0.8 * longest
+            axis.annotate(
+                f"{name}\nfiring rate",
+                (x[-1], y[-1]),
+                xytext=(6, 0) if right else (-2, 6),
+                textcoords="offset points",
+                color=color,
+                ha="left" if right else "right",
+                va="center" if right else "bottom",
+                fontsize=7,
+                # A white outline keeps the label legible over single units.
+                path_effects=[withStroke(linewidth=2, foreground="white")],
+            )
+    axis.set_xlim(left=0)
+    axis.set_ylim(bottom=0)
+    axis.set_xlabel("test prediction (bits/spike)")
+    axis.set_ylabel(r"test deviance explained ($D^2$)")
 
 
 def plot_kernel_figure(
@@ -555,7 +558,7 @@ def plot_kernel_figure(
                 else r"$\Delta$ log rate",
                 fontsize=7,
             )
-        _label_panels(axes, -0.16)
+        label_panels(axes, -0.16)
         task_limit = 1.05 * max(
             np.max(np.abs(kernels[name][1]), initial=0.0) for name in task_names
         )
@@ -563,7 +566,7 @@ def plot_kernel_figure(
             for axis in axes[: len(task_names)]:
                 axis.set_ylim(-task_limit, task_limit)
         figure.tight_layout(h_pad=1.8, w_pad=1.8)
-        return _save_figure(figure, output)
+        return save_figure(figure, output)
 
 
 def plot_prediction_figure(
@@ -651,10 +654,21 @@ def plot_prediction_figure(
                 label=label,
                 drawstyle="steps-mid",
             )
-        axes[2].legend(frameon=False)
+        for row, (label, color) in enumerate(
+            (("observed", OBSERVED_COLOR), ("predicted", MODEL_COLOR))
+        ):
+            axes[2].text(
+                0.98,
+                0.97 - 0.09 * row,
+                label,
+                color=color,
+                transform=axes[2].transAxes,
+                ha="right",
+                va="top",
+            )
         axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
 
-        _label_panels(axes, -0.13)
+        label_panels(axes, -0.13)
         axes[0].set_ylabel("observed\nheld-out trials")
         axes[1].set_ylabel("predicted\nheld-out trials")
         axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
@@ -662,7 +676,7 @@ def plot_prediction_figure(
         axes[-1].set_xlabel("time from first measured flash (s)")
         figure.align_ylabels(axes)
         figure.tight_layout(h_pad=0.8)
-        return _save_figure(figure, output)
+        return save_figure(figure, output)
 
 
 def _plot_groups(
@@ -718,21 +732,44 @@ def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Pat
     unique ΔD² per block, as boxes without unit points or outlier markers. (d)
     Pooled median unique ΔD² against the column count of the block, on
     logarithmic axes; the lines are the range over the sets, and a median at or
-    below zero cannot be drawn. (e) Fraction of units with unique ΔD² > 0
-    (one-sided t-test over folds), one point per set, and a black line at the mean when there
-    is more than one set; the dotted line is the chance level.
+    below zero cannot be drawn. (e) For each block, the fraction of units that
+    gain from it (one-sided t-test of the fold values of unique ΔD² against zero,
+    p < 0.05), that lose, and that have no reliable change; the dotted line is the
+    gain fraction expected by chance.
     """
     records = [record for sample in samples.values() for record in sample]
     table = block_table(samples)
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(10.5, 7.2))
-        grid = figure.add_gridspec(2, 6)
+        # Fixed positions: the rotated block labels of the top row and the long
+        # block labels of panel e are too large for an automatic layout. Panel a
+        # has one box, so it is narrow.
+        top = figure.add_gridspec(
+            1,
+            3,
+            width_ratios=(0.55, 3, 3),
+            left=0.07,
+            right=0.99,
+            top=0.95,
+            bottom=0.60,
+            wspace=0.42,
+        )
+        bottom = figure.add_gridspec(
+            1,
+            2,
+            width_ratios=(1, 1.15),
+            left=0.09,
+            right=0.98,
+            top=0.37,
+            bottom=0.07,
+            wspace=0.62,
+        )
         axes = [
-            figure.add_subplot(grid[0, 0:2]),
-            figure.add_subplot(grid[0, 2:4]),
-            figure.add_subplot(grid[0, 4:6]),
-            figure.add_subplot(grid[1, 1:3]),
-            figure.add_subplot(grid[1, 3:5]),
+            figure.add_subplot(top[0]),
+            figure.add_subplot(top[1]),
+            figure.add_subplot(top[2]),
+            figure.add_subplot(bottom[0]),
+            figure.add_subplot(bottom[1]),
         ]
         _plot_groups(
             axes[0], records, ("full_model",), "complete_test_deviance_explained"
@@ -777,47 +814,46 @@ def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Pat
         # Room on the left for the labels of the six-column blocks.
         axes[3].set_xlim(0.1, 200)
         axes[3].set_xticks([1, 10, 100])
-        axes[3].set_xlabel("design columns in the block")
+        axes[3].set_xlabel("design columns of the regressor")
         axes[3].set_ylabel("median unique deviance\n" r"explained ($\Delta D^2$)")
 
-        positions = np.arange(len(DETAILED_GROUPS))
-        offsets = np.linspace(-0.32, 0.32, len(samples)) if len(samples) > 1 else [0]
+        # One stacked bar per block: units that gain, units with no reliable
+        # change, and units that lose.
+        positions = np.arange(len(DETAILED_GROUPS))[::-1]
         for position, group in zip(positions, DETAILED_GROUPS, strict=True):
-            fractions = table["blocks"][group]["reliable_fraction_by_sample"]
-            axes[4].scatter(
-                position + np.asarray(offsets),
-                fractions,
-                s=14,
-                color=_block_color(group),
-                zorder=3,
+            block = table["blocks"][group]
+            gain, loss = block["gain_fraction"], block["loss_fraction"]
+            axes[4].barh(position, gain, color=_block_color(group), height=0.7)
+            axes[4].barh(position, 1 - gain - loss, left=gain, color="0.88", height=0.7)
+            axes[4].barh(position, loss, left=1 - loss, color="0.35", height=0.7)
+            axes[4].text(
+                gain + 0.015, position, f"{gain:.0%}", va="center", fontsize=6.5
             )
-            # The mean over fit sets; one set has only its point.
-            if len(samples) > 1:
-                axes[4].hlines(
-                    np.mean(fractions),
-                    position - 0.4,
-                    position + 0.4,
-                    color="black",
-                    linewidth=1.1,
-                )
-        # Dotted line: the fraction expected by chance for a block with no effect.
-        axes[4].axhline(RELIABLE_ALPHA, color="0.35", linestyle=":", linewidth=0.8)
-        axes[4].set_ylim(-0.03, 1.03)
-        axes[4].set_ylabel(
-            "fraction of units with unique\n"
-            f"$\\Delta D^2$ > 0 (t-test, p < {RELIABLE_ALPHA:g})"
-        )
-        axes[4].set_xticks(positions, [DEVIANCE_LABELS[g] for g in DETAILED_GROUPS])
-        axes[4].tick_params(axis="x", labelrotation=48)
-        for label, group in zip(
-            axes[4].get_xticklabels(), DETAILED_GROUPS, strict=True
+        top = len(DETAILED_GROUPS) - 0.45
+        for x, label, color, align in (
+            (0, "predicted better\nwith the regressor", "black", "left"),
+            (0.5, "no reliable\nchange", "0.5", "center"),
+            (1, "predicted worse\nwith the regressor", "0.35", "right"),
         ):
-            label.set_ha("right")
+            axes[4].text(x, top, label, color=color, ha=align, va="bottom", fontsize=7)
+        # Dotted line: the gain fraction expected by chance for a block with no effect.
+        axes[4].axvline(RELIABLE_ALPHA, color="black", linestyle=":", linewidth=0.8)
+        axes[4].set_xlim(0, 1)
+        axes[4].set_ylim(-0.6, len(DETAILED_GROUPS) - 0.1)
+        axes[4].set_xlabel(
+            "fraction of units (t-test of unique "
+            f"$\\Delta D^2$ against 0, p < {RELIABLE_ALPHA:g})"
+        )
+        axes[4].set_yticks(positions, [DEVIANCE_LABELS[g] for g in DETAILED_GROUPS])
+        for label, group in zip(
+            axes[4].get_yticklabels(), DETAILED_GROUPS, strict=True
+        ):
             label.set_color(_block_color(group))
 
-        _label_panels(axes, -0.16, 1.04)
-        figure.tight_layout(h_pad=1.5, w_pad=1.5)
-        return _save_figure(figure, output)
+        label_panels((axes[0],), -0.9, 1.04)
+        label_panels((None, *axes[1:4]), -0.16, 1.04)
+        label_panels((None, None, None, None, axes[4]), -0.45, 1.04)
+        return save_figure(figure, output)
 
 
 def plot_fit(fit_dir: Path) -> None:
@@ -835,8 +871,7 @@ def plot_fit(fit_dir: Path) -> None:
     summary, rate_deviance_rho = plot_population_summary(
         results, selections, figure_dir / "summary"
     )
-    bits = plot_bits_vs_deviance(results, figure_dir / "bits_vs_deviance")
-    written = {"summary": str(summary), "bits_vs_deviance": str(bits)}
+    written = {"summary": str(summary)}
     payload = {
         "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
         "figure_dir": str(figure_dir),

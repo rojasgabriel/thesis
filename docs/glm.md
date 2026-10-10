@@ -100,7 +100,7 @@ motion-energy scores on the grid; bins outside the camera frame times get zero.
 The code, not DAMN, sets the initiation kernel to zero at and after the first
 flash.
 Fits use sklearn `PoissonRegressor` (log link, unpenalized intercept, L2,
-LBFGS). Each unit's design appends its standardized self-history block.
+LBFGS). Each unit's design appends its standardized self-history regressor.
 
 Per unit and model: fixed L2 grid from 1e−6 to 1e4 in powers of ten. Fit from
 strong to weak penalties, with a cold retry after a failed warm start. Drop
@@ -138,13 +138,14 @@ change it before you fit another session. `prepare` also needs exactly one local
 (`BackStereoView`) video. `fit` writes
 named summaries under `all_fit_me/`. Restartable per-unit records stay under
 `all_fit_me/checkpoints/`. The same command writes the population summary
-and the bits-versus-deviance scatter in `all_fit_me/`. `unique` writes the
+(`summary.svg`) in `all_fit_me/`. Its panel d plots D² against bits/spike with
+the units grouped by firing rate. `unique` writes the
 kernel, model-design, and held-out prediction SVGs there, because these three
 figures show the example unit and its selection needs the `unique` results.
 The example unit is unit 197 when it was fit (`EXAMPLE_UNIT_ID` in
 `results.py`; 55 spikes/s and a clear flash response in GRB006
 `20240821_121447`). For a fit without it, the example is the unit whose visual
-flash block explains the most deviance per second (`example_unit_id`): unique
+flash regressor explains the most deviance per second (`example_unit_id`): unique
 flash ΔD² × bits/spike ÷ D² × firing rate. Unique flash ΔD² alone is not used.
 It is a fraction of the null deviance of the unit, so its maximum selects a unit
 with few spikes, and the rasters of that unit are too sparse to compare.
@@ -186,19 +187,19 @@ for the example unit.
 
 ## Unique explained deviance
 
-Within each cross-validation fold, shuffle one block and refit at that fold's
+Within each cross-validation fold, shuffle one regressor and refit at that fold's
 full-model alpha. Shuffle only among valid bins, within trial. Motion-energy
-PCs stay one block.
+PCs stay one regressor.
 
 `unique ΔD² = complete D² − one-removed D²`
-`maximal ΔD² = block-alone D² − all-shuffled D²`
+`maximal ΔD² = regressor-alone D² − all-shuffled D²`
 
 `trial-specific ΔD² (motion energy) = complete D² − D² with motion energy from another trial`
 
-The third value is a control for motion energy only. It replaces the block with
+The third value is a control for motion energy only. It replaces the regressor with
 the motion energy of another trial at the same time in the trial. This keeps the
 average time course of motion energy in a trial. If the trial-specific ΔD² is
-near zero and the unique ΔD² is not, the block predicts spikes through the time
+near zero and the unique ΔD² is not, the regressor predicts spikes through the time
 in the trial and not through the movement of that trial. `summary.json` gives it
 as `video_trial_specific`.
 
@@ -215,35 +216,42 @@ uv run glm unique --units all
 The same command writes `deviance_explained.svg` and the three example-unit
 figures in the selected fit directory (`all_fit_me/` or `sample_fit_me/`).
 `deviance_explained.svg` has five panels: (a) full-model D², (b) maximal and
-(c) unique ΔD² for each block, as box plots without unit points or outlier
-markers; (d) the median unique ΔD² of each block against its column count, on
-logarithmic axes; (e) the fraction of units for which the block gives unique
+(c) unique ΔD² for each regressor, as box plots without unit points or outlier
+markers; (d) the median unique ΔD² of each regressor against its column count, on
+logarithmic axes; (e) the fraction of units for which the regressor gives unique
 ΔD² > 0 (one-sided t-test of the fold values against zero, p < 0.05), with a
-dotted line at the chance level of 0.05.
+dotted line at the chance level of 0.05. Panel e shows, for each regressor, the
+fraction of units that gain, that lose, and that have no reliable change.
 
-## Kernel comparison and lag check
+## Joint shuffle
+
+```bash
+uv run glm joint --units all
+```
+
+`joint` shuffles flash post − pre withdrawal and flash × motion energy together
+and writes `unique_deviance/joint_summary.json`. If two regressors replace each
+other, the drop in D² when both are shuffled is much larger than the sum of the
+two single drops. Result of 2026-10-10 (167 units): the joint drop has a median
+of 0.0014 and the sum of the single drops 0.0015, so the two regressors do not
+replace each other. Their joint maximal ΔD² is 0.0094, so the other regressors
+carry about 86% of what the two can explain.
+
+## Kernel comparison
 
 ```bash
 uv run python -m thesis.ephys.analyses.glm.kernel_comparison
-uv run python -m thesis.ephys.analyses.glm.motion_lag_check
 ```
 
-These scripts make no new fits. Each reads one fit set (`--units`, `all` by
-default) in the session output directory.
-
-`kernel_comparison` writes `kernel_comparison.svg` and `kernel_comparison.json`.
-Panel a compares the size of the visual flash weights and of the motion-energy
-weights (the norm of the block's coefficients) for every unit. Panels b and c
-show the common visual flash kernel and the motion-energy weight map of three
-example units: one that the flash predicts, one that motion energy predicts, and
-one that both predict. Motion energy has no temporal kernel, so its panel is a
-map over the video frame. The module docstring gives the selection rule.
-
-`motion_lag_check` writes `motion_lag_check.svg` and `motion_lag_check.json`. It
-correlates motion-energy PCs at lags from −200 to +200 ms with the spike count
-and with the residual of the final refit. It tests whether lagged motion energy
-predicts spikes that the same-bin weights miss. It needs the database for the
-spike times.
+This script makes no new fits. It reads one fit set (`--units`, `all` by
+default) in the session output directory and writes `kernel_comparison.svg` and
+`kernel_comparison.json`. Panel a compares the size of the visual flash weights
+and of the motion-energy weights (the norm of the regressor's coefficients) for
+every unit. Panels b and c show the common visual flash kernel and the
+motion-energy weight map of three example units: one that the flash predicts,
+one that motion energy predicts, and one that both predict. Motion energy has no
+temporal kernel, so its panel is a map over the video frame. The module
+docstring gives the selection rule.
 
 ## Synthetic check
 
@@ -265,7 +273,7 @@ directory) to keep the artifacts and look at the figures.
 
 Same family as [Truccolo et al. 2005](https://pubmed.ncbi.nlm.nih.gov/15356183/)
 and [Pillow et al. 2008](https://sites.stat.columbia.edu/liam/research/pubs/pillow-nature-08.pdf),
-with a self-history block but no coupling between units.
+with a self-history regressor but no coupling between units.
 [Talluri et al. 2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC10620084/)
 (video SVD, ridge, trial CV),
 [Stringer et al. 2019](https://pmc.ncbi.nlm.nih.gov/articles/PMC6525101/)
@@ -295,18 +303,19 @@ in `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
 | Initiation | 4 | 0.0001 | 0.1% | 18% |
 
 The last column is the fraction of units with a one-sided t-test of the fold
-values against zero at p < 0.05; a block with no effect gives about 5%. The
+values against zero at p < 0.05; a regressor with no effect gives about 5%. The
 folds share training trials, so this test is somewhat too easy to pass.
 
-- Initiation and response entry explain almost nothing. No block was removed.
+- Initiation and response entry explain almost nothing. No regressor was removed.
 - Flash × motion energy is weak. Its maximal ΔD² (0.0024) is about 5 times its
-  unique ΔD², so other blocks carry most of what it explains.
-- Motion energy is trial-specific. With the block taken from another trial, the
+  unique ΔD², so other regressors carry most of what it explains.
+- Motion energy is trial-specific. With the regressor taken from another trial, the
   median loss is 0.0023 (IQR 0.0009 to 0.0046), and 89% of the units lose
   deviance. This is not smaller than the unique ΔD² from the shuffle within a
   trial.
-- Lags are not necessary for motion energy. The correlation of the spike count
-  with PC 1 is about 0.011 within ±100 ms. For the residual of the final refit
-  it is at most 0.0013 for each of PCs 1 to 10.
+- Lags were not added for motion energy. A check on this fit (removed from the
+  code on 2026-10-10) found a correlation of about 0.011 between the spike count
+  and PC 1 within ±100 ms, and at most 0.0013 for the residual of the final
+  refit with each of PCs 1 to 10.
 - An earlier fit of 100 units in 5 samples, without the flash × motion-energy
-  block, gave the same order of blocks and similar values.
+  regressor, gave the same order of regressors and similar values.
