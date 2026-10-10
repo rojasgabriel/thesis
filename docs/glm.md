@@ -340,6 +340,15 @@ the residual tests are in-sample):
 - Adaptation parameters: a grid of `ADAPT_U` (0.25, 0.5, 0.75) and
   `ADAPT_TAU_RECOVER_S` (0.1 to 0.8 s) changes the mean validation D² by 3% at
   most (0.0756 to 0.0779). The values stay at 0.5 and 0.2 s.
+  `uv run python -m thesis.ephys.analyses.glm.adaptation_grid` runs the grid on
+  the 20-unit sample and writes `adaptation_grid/adaptation_grid.svg`.
+- The suppression follows the time in the port, not the clock (raw rates, all
+  units). In the 40 completed trials with a withdrawal 150 ms or more after the
+  go cue, the rate from 50 to 150 ms after the cue is the hold rate (median
+  ratio 1.00), and 0.55 of the rate of the 103 fast trials in the same window.
+  In the 9 early-withdrawal trials with a hold of 150 to 280 ms, the rate after
+  the exit is 1.87 times the rate of completed trials at the same time from
+  onset. So the go cue does not end the suppression; the exit does.
 
 ## Results
 
