@@ -199,6 +199,8 @@ def main() -> None:
     axes[2].set_xlabel("decoded rate (Hz)")
     axes[2].set_ylabel("stimulus rate (Hz)")
     fig.colorbar(image, ax=axes[2], label="fraction")
+    for ax in axes[:2]:
+        ax.spines[["top", "right"]].set_visible(False)
     for letter, ax in zip("abc", axes, strict=True):
         ax.text(
             -0.18,
@@ -211,7 +213,7 @@ def main() -> None:
     output_dir = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "rate_decoding"
     if not args.no_save:
         output_dir.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_dir / "rate_decoding.pdf", bbox_inches="tight")
+        fig.savefig(output_dir / "rate_decoding.svg", bbox_inches="tight")
         (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     if args.show:
         plt.show()

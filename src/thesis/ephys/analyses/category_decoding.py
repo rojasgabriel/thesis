@@ -204,7 +204,8 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(3.4, 3.2))
     values = [real_random, null_random, real_blocked, null_blocked]
-    colors = ["#377EB8", "0.75", "#E41A1C", "0.75"]
+    # One comparison: decoder against shuffle. The fold type is on the axis.
+    colors = ["black", "0.75", "black", "0.75"]
     positions = np.arange(4)
     for position, scores, color in zip(positions, values, colors, strict=True):
         ax.scatter(
@@ -212,7 +213,14 @@ def main() -> None:
         )
         ax.plot(position, np.mean(scores), "o", color=color, ms=7)
     ax.axhline(0.5, color="0.5", linestyle="--", linewidth=1)
-    ax.set_xticks(positions, ["random", "shuffle", "blocked", "shuffle"], rotation=30)
+    ax.set_xticks(
+        positions,
+        ["random folds", "shuffle", "blocked folds", "shuffle"],
+        rotation=30,
+        ha="right",
+    )
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.text(-0.3, 1.04, "a", fontweight="bold", transform=ax.transAxes)
     ax.set_ylabel("balanced category accuracy")
     fig.tight_layout()
 
@@ -221,7 +229,7 @@ def main() -> None:
     )
     if not args.no_save:
         output_dir.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_dir / "category_decoding.pdf", bbox_inches="tight")
+        fig.savefig(output_dir / "category_decoding.svg", bbox_inches="tight")
         (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     if args.show:
         plt.show()
