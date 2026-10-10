@@ -31,6 +31,13 @@ Removal guide: a block is flagged when its pooled median unique ΔD² is below
 of the units have a reliable gain. The flag is a guide for the researcher, not
 a decision.
 
+Panels: (a) unique and (b) maximal ΔD² of every unit, one column of points per
+sample within each block, with each sample's median. (c) Pooled median unique
+ΔD² against the column count of the block; the vertical line is the range of
+the sample medians, and the horizontal line is the range of the column count
+(only motion energy varies, because each sample selects its PC count). (d)
+Fraction of units with a reliable gain, one point per sample, with the mean.
+
 Display: the ΔD² axes are symmetric-log (linear below 1e-3) because spike
 history is about 100 times larger than the smallest blocks. Every unit is
 plotted; no value is clipped.
@@ -207,14 +214,23 @@ def plot_regressor_check(table: dict, output: Path) -> Path:
             axes[2].vlines(
                 columns, min(medians), max(medians), color=_color(group), linewidth=1
             )
+            axes[2].hlines(
+                block["unique_median"],
+                min(block["columns"]),
+                max(block["columns"]),
+                color=_color(group),
+                linewidth=1,
+            )
+            left = columns <= 6
             axes[2].scatter(
                 columns, block["unique_median"], s=22, color=_color(group), zorder=3
             )
             axes[2].annotate(
                 DEVIANCE_LABELS[group],
-                (columns, block["unique_median"]),
-                xytext=(5, 0),
+                (columns if left else max(block["columns"]), block["unique_median"]),
+                xytext=(-5 if left else 5, 0),
                 textcoords="offset points",
+                ha="right" if left else "left",
                 va="center",
                 fontsize=6.5,
                 color=_color(group),
@@ -232,7 +248,8 @@ def plot_regressor_check(table: dict, output: Path) -> Path:
         )
         axes[2].set_xscale("log")
         axes[2].set_yscale("symlog", linthresh=1e-4)
-        axes[2].set_xlim(3, 120)
+        axes[2].set_xlim(1, 120)
+        axes[2].set_ylim(0, 0.06)
         axes[2].set_xlabel("design columns in the block")
         axes[2].set_ylabel("median unique deviance\n" r"explained ($\Delta D^2$)")
 

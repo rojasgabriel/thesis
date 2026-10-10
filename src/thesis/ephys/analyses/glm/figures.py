@@ -732,7 +732,7 @@ def plot_deviance_explained(records: list[dict], output: Path) -> Path:
         return _save_figure(figure, output)
 
 
-def plot_fit(windows: Path, design: Path, fit_dir: Path) -> None:
+def plot_fit(fit_dir: Path) -> None:
     """Write this fit's figures inside its own artifact directory.
 
     These population panels use the saved per-unit records.

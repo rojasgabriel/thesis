@@ -846,4 +846,4 @@ def refit_final(
     )
     from thesis.ephys.analyses.glm.figures import plot_fit
 
-    plot_fit(windows, design, output_dir)
+    plot_fit(output_dir)
