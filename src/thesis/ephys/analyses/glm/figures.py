@@ -472,10 +472,11 @@ def plot_population_summary(
             axes[3].set_xscale("log")
         axes[3].set_xlabel("mean firing rate (spikes/s)")
         axes[3].set_ylabel(r"test deviance explained ($D^2$)")
+        # Above the axes: inside, the label covers units at any corner.
         axes[3].text(
             0.98,
-            0.04,
-            f"Spearman ρ = {rate_deviance_rho:.2f}\nn = {len(results)} units",
+            1.01,
+            f"Spearman ρ = {rate_deviance_rho:.2f}, n = {len(results)} units",
             color="black",
             transform=axes[3].transAxes,
             ha="right",
