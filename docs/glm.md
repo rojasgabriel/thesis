@@ -22,7 +22,8 @@ at a time.
 - Units: quality 1, stability 0. No sensory-response filter. Exclude unit 212
   because of unstable out-of-fold spike-history extrapolation. Draw a fixed
   random sample of 20 from the remaining units for `--units sample`
-  (`SAMPLE_SEED = 20260914`).
+  (`SAMPLE_SEED = 20260914`). `--units sample1`, `sample2`, ... each draw 20
+  other units; no unit is in two samples.
 - Trials: completed left/right trials without early withdrawal. Drop a trial
   that has no initiation, first measured flash, withdrawal, or response-entry
   time. The remaining trials must have these events in that order. If a trial
@@ -130,17 +131,23 @@ existing output files.
 `common_design_me.npy` under `figures/glm/<subject>_<session>/`. Pass
 `--subject`, `--session`, or `--root` to work on another dataset. These flags
 change only the data source and the output directory. The unit-212 exclusion
-(`EXCLUDED_UNIT_IDS` in `fit.py`) and the unit-197 example (`EXAMPLE_UNIT_ID`
-in `results.py`) apply only to GRB006 `20240821_121447`; change them before
-you fit another session. `prepare` also needs exactly one local cam0 back-view
+(`EXCLUDED_UNIT_IDS` in `fit.py`) applies only to GRB006 `20240821_121447`;
+change it before you fit another session. `prepare` also needs exactly one local cam0 back-view
 (`BackStereoView`) video. `fit` writes
 named summaries under `all_fit_me/`. Restartable per-unit records stay under
-`all_fit_me/checkpoints/`. The same command writes the population summary,
-bits-versus-deviance scatter, and, when unit 197 was fit, the kernel,
-model-design, and held-out prediction SVGs in `all_fit_me/`.
+`all_fit_me/checkpoints/`. The same command writes the population summary
+and the bits-versus-deviance scatter in `all_fit_me/`. `unique` writes the
+kernel, model-design, and held-out prediction SVGs there, because these three
+figures show the example unit and its selection needs the `unique` results.
+The example unit is the unit whose visual flash block explains the most
+deviance per second (`example_unit_id` in `results.py`): unique flash ΔD² ×
+bits/spike ÷ D² × firing rate. Unique flash ΔD² alone is not used. It is a
+fraction of the null deviance of the unit, so its maximum selects a unit with
+few spikes, and the rasters of that unit are too sparse to compare.
+`figure_data.json` records the id.
 Use `--units sample` for a 20-unit smoke run; its checkpoints, summaries, and
-figures stay separately in `sample_fit_me/`. A sample that omits unit 197 skips
-those three example panels. Derived example arrays are saved as
+figures stay separately in `sample_fit_me/`, and its example unit is the best
+of those 20 units. Derived example arrays are saved as
 `figure_data.npz` and `figure_data.json` in the fit directory. Interrupted
 figure-data writes are replaced on retry under the session lock. Existing
 figures at the session root are older exports and are not updated by these
@@ -149,15 +156,17 @@ commands.
 Fit checkpoints are reused by file presence. If inputs or model settings
 change, clear the affected checkpoints before rerunning.
 
-The prediction figure shows unit 197. Each plotted trial uses its saved
+The prediction figure shows the example unit. Each plotted trial uses its saved
 out-of-fold model, so that model did not train on the trial. Predicted rasters
 are Poisson draws from one-step-ahead expected counts conditioned on observed
 spike history, not free-running simulations. The trace compares observed and
-predicted firing rates in complete 10-ms bins without smoothing. Post-response
+predicted firing rates in complete 10-ms bins without smoothing. It shows only
+the bins where at least half of the plotted trials are still valid; the rasters
+show every valid bin. Post-response
 bins are excluded from rates, likelihood, and scores. Raster gaps after response
 entry are shaded within the displayed interval.
 
-The model-design figure uses one real test trial from unit 197. The trial is
+The model-design figure uses one real test trial from the example unit. The trial is
 nearest the unit's median pre-response spike count. Panel a shows every
 modeled flash (the measured flashes from initiation through response entry),
 the other task
@@ -169,7 +178,7 @@ against the full linear predictor. Panel c compares the observed spike raster
 with Poisson draws from the fitted conditional counts. This explanatory panel
 uses the final model fit on all valid bins; held-out predictions stay in the
 separate prediction figure. Post-response bins are not shown. The single kernel figure shows task and self-history traces
-for unit 197.
+for the example unit.
 
 ## Unique explained deviance
 
@@ -190,8 +199,27 @@ across folds with its SEM. Following
 uv run glm unique --units all
 ```
 
-The same command writes `deviance_explained.svg` in the selected fit directory
-(`all_fit_me/` or `sample_fit_me/`), alongside its other figures.
+The same command writes `deviance_explained.svg` and the three example-unit
+figures in the selected fit directory (`all_fit_me/` or `sample_fit_me/`).
+
+## Regressor check
+
+Use this to find blocks that add design columns but no held-out deviance. Fit
+and score some samples that share no unit, then compare them:
+
+```bash
+uv run glm fit --units sample1 && uv run glm unique --units sample1
+uv run python -m thesis.ephys.analyses.glm.regressor_check
+```
+
+The script makes no new fits. It reads the `unique` records of each completed
+`sample*_fit_me/` directory and writes `regressor_check.svg` and
+`regressor_check.json` in the session output directory. A block is flagged as a
+removal candidate when its pooled median unique ΔD² is below 1% of the pooled
+median complete-model D² and, in every sample, fewer than half of the units gain
+more than 2 fold SEM. The flag is a guide, not a decision. Each sample selects
+its own motion-energy PC count, so the motion-energy block can have a different
+column count in each sample.
 
 ## Synthetic check
 

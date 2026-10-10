@@ -18,7 +18,7 @@ check. Units (all 20 spikes/s baseline, 1 ms bins):
 - 102: motion-energy PC 1 only.
 - 103: withdrawal only.
 - 104: constant rate, no history (null unit).
-- 197: every effect. This is the example unit, so its figures are drawn.
+- 197: every effect. Its figures are drawn if it is selected as the example unit.
 
 Bins after response entry have 3x the rate. The pipeline masks them, so they
 must not change the fitted kernels. Sampling unit is the unit. Each unit is

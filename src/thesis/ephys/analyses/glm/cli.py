@@ -2,8 +2,8 @@
 
 `PoissonGLM` fixes the artifact layout for one session and drives the pipeline
 stages in order: prepare (windows, motion-energy PCs, shared design), fit
-(selection, cross-validation, refit, and that fit's figures), and unique
-(per-block deviance and its figure). `main` is the `glm` console command.
+(selection, cross-validation, refit, and the population figures), and unique
+(per-block deviance, its figure, and the example-unit figures). `main` is the `glm` console command.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,12 +26,12 @@ from thesis.ephys.analyses.glm.fit import crossvalidate, fit_models, refit_final
 PIPELINE = """\
 pipeline
   uv run glm prepare                 trial windows, motion-energy PCs, design
-  uv run glm fit --units all         penalty, cross-validation, refit, figures
-  uv run glm unique --units all      unique and maximal deviance per block
+  uv run glm fit --units all         penalty, cross-validation, refit, summary
+  uv run glm unique --units all      deviance per block, example-unit figures
 
 Artifacts go to figures/glm/<subject>_<session>/. Restart checkpoints stay in
 the fit directory's checkpoints/ folder; figures stay in that fit directory.
-Use --units sample for a 20-unit smoke run. A sample that omits unit 197 skips that unit's example panels.
+Use --units sample for a 20-unit smoke run. The example unit is the one whose flash block explains the most deviance per second.
 """
 
 
@@ -110,6 +111,12 @@ class PoissonGLM:
         run_unique(self.windows, self.design, self.fit_dir(units), units, workers)
 
 
+def _unit_set(value: str) -> str:
+    if not re.fullmatch(r"all|sample[1-9]?", value):
+        raise argparse.ArgumentTypeError("use all, sample, or sample1 to sample9")
+    return value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="glm",
@@ -142,9 +149,12 @@ def main() -> None:
             continue
         command.add_argument(
             "--units",
-            choices=("sample", "all"),
+            type=_unit_set,
             default="sample",
-            help="Fit 20 sampled units or every eligible one.",
+            help=(
+                "`sample` fits 20 sampled units and `all` fits every eligible "
+                "one. `sample1`, `sample2`, ... fit 20 other units each."
+            ),
         )
         command.add_argument(
             "--workers",

@@ -1,6 +1,7 @@
 """Compute the derived figure data for the fitted V1 GLM and persist it.
 
-`fit` calls `write_figure_data` when it plots unit 197. This module reads the
+`unique` calls `write_figure_data` to plot the example unit, which is the unit
+whose visual flash block explains the most deviance per second. This module reads the
 saved per-unit fits, rebuilds that unit's design, reconstructs the
 cross-validated predictions from the saved fold coefficients, decomposes the
 final refit into groupwise log-rate terms, and reconstructs the kernels.
@@ -34,7 +35,6 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-EXAMPLE_UNIT_ID = 197
 # The design codes flashes as a common kernel plus a state contrast (pre-withdrawal
 # -0.5, post-withdrawal +0.5) and a centered synaptic-resource term. These are the
 # three flash conditions that occur, each as a (state value, resource-level key).
@@ -176,7 +176,33 @@ def _select_count_typical_trial(observed: np.ndarray) -> int:
     return int(np.argmin(np.abs(totals - np.median(totals))))
 
 
-def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
+def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
+    """Return the unit whose visual flash block explains the most deviance per second.
+
+    Unique flash ΔD² is a fraction of the null deviance of the unit, so its
+    maximum selects a unit with few spikes and rasters too sparse to compare.
+    Null deviance per spike is proportional to bits/spike ÷ D², and the rate
+    converts it to deviance per second.
+    """
+    final = {int(item["unit_id"]): item for item in results}
+
+    def flash_deviance_rate(record: dict) -> float:
+        fit = final[int(record["unit_id"])]
+        if fit["cross_validated_deviance_explained"] <= 0:
+            return -np.inf
+        return (
+            record["groups"]["visual_flash"]["unique_test_deviance_explained"]
+            * fit["cross_validated_bits_per_spike"]
+            / fit["cross_validated_deviance_explained"]
+            * fit["fit_mean_count"]
+        )
+
+    return int(max(unique_records, key=flash_deviance_rate)["unit_id"])
+
+
+def write_figure_data(
+    windows: Path, design: Path, fit_dir: Path, example_id: int
+) -> None:
     """Compute and persist the example-unit figure data for a completed fit."""
     checkpoints = fit_dir / "checkpoints"
     results = load_unit_records(checkpoints, "unit_*_final.json")
@@ -197,11 +223,9 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
     selection_by_id = {int(item["unit_id"]): item for item in selections}
     if len(result_by_id) != len(results) or len(selection_by_id) != len(selections):
         raise ValueError("Fit results must contain unique unit IDs.")
-    if EXAMPLE_UNIT_ID not in result_by_id or EXAMPLE_UNIT_ID not in selection_by_id:
-        raise ValueError(f"Example unit {EXAMPLE_UNIT_ID} is not in the fitted units.")
-    example_result = result_by_id[EXAMPLE_UNIT_ID]
+    example_result = result_by_id[example_id]
     example_training_rate = (
-        float(selection_by_id[EXAMPLE_UNIT_ID]["training_mean_count"]) / BINWIDTH_S
+        float(selection_by_id[example_id]["training_mean_count"]) / BINWIDTH_S
     )
     task_names = [item["name"] for item in design_metadata["task_manifest"]]
 
@@ -232,9 +256,9 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
     }:
         raise ValueError("Final and fold results must contain the same unique units.")
 
-    matching_units = units.loc[units["unit_id"] == EXAMPLE_UNIT_ID]
+    matching_units = units.loc[units["unit_id"] == example_id]
     if len(matching_units) != 1:
-        raise ValueError(f"Expected one eligible row for unit {EXAMPLE_UNIT_ID}.")
+        raise ValueError(f"Expected one eligible row for unit {example_id}.")
     example_spikes = np.asarray(matching_units.iloc[0]["spike_times_s"], dtype=float)
     example_history_raw = build_unit_history(prepared["alignments"], example_spikes)
     example_history, _, kernel_history_scale = training_zscore(
@@ -264,7 +288,7 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
     observed = example_counts[test_rows].reshape(trial_count, bin_count)
 
     conditional = np.full(len(common), np.nan)
-    saved_folds = iter(fold_by_id[EXAMPLE_UNIT_ID]["folds"])
+    saved_folds = iter(fold_by_id[example_id]["folds"])
     for partition in partitions:
         if example_counts[partition["test"]].sum() <= 0:
             continue
@@ -373,7 +397,7 @@ def write_figure_data(windows: Path, design: Path, fit_dir: Path) -> None:
         arrays[f"kern_v__{name}"] = kernel_values
 
     scalars = {
-        "example_unit_id": EXAMPLE_UNIT_ID,
+        "example_unit_id": example_id,
         "example_unit_training_rate_spikes_s": example_training_rate,
         "example_unit_cross_validated_deviance_explained": example_result[
             "cross_validated_deviance_explained"

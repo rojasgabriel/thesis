@@ -273,7 +273,7 @@ def run_unique(
     unit_set: str,
     workers: int | None = None,
 ) -> None:
-    """Fit same-width shuffled comparators and write the summary figure."""
+    """Fit same-width shuffled comparators; plot the summary and the example unit."""
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
     with design_path.with_suffix(".json").open() as handle:
@@ -350,7 +350,15 @@ def run_unique(
     )
 
     summary = _write_summary(records, output_dir)
-    from thesis.ephys.analyses.glm.figures import plot_deviance_explained
+    from thesis.ephys.analyses.glm.figures import (
+        plot_deviance_explained,
+        plot_example_unit,
+    )
+    from thesis.ephys.analyses.glm.results import example_unit_id
 
     figure_path = plot_deviance_explained(records, fit_dir / "deviance_explained")
     print(json.dumps({**summary, "figure": str(figure_path)}, indent=2))
+    final_records = load_unit_records(checkpoints, "unit_*_final.json")
+    plot_example_unit(
+        windows, design_path, fit_dir, example_unit_id(records, final_records)
+    )

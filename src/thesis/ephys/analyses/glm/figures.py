@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S, VIDEO_COMPONENT_COUNTS
 from thesis.ephys.analyses.glm.fit import load_unit_records
-from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID, write_figure_data
+from thesis.ephys.analyses.glm.results import write_figure_data
 from thesis.ephys.analyses.glm.unique_dev import DETAILED_GROUPS
 
 OBSERVED_COLOR = "black"
@@ -32,17 +32,18 @@ GROUP_COLORS = {
     "history": "C3",
 }
 TASK_LABELS = {
-    "visual_flash": "Visual flash",
-    "flash_pre_post_withdrawal": "Flash: post - pre withdrawal",
-    "flash_adaptation": "Flash: adaptation",
-    "flash_first": "First flash",
-    "flash_later_pre": "Later flash, pre-withdrawal",
-    "flash_later_post": "Later flash, post-withdrawal",
-    "initiation": "Initiation",
-    "withdrawal": "Withdrawal",
-    "response_entry": "Response entry",
+    "visual_flash": "visual flash",
+    "flash_pre_post_withdrawal": "flash: post - pre withdrawal",
+    "flash_adaptation": "flash: adaptation",
+    "flash_first": "first flash",
+    "flash_later_pre": "later flash, pre-withdrawal",
+    "flash_later_post": "later flash, post-withdrawal",
+    "initiation": "initiation",
+    "withdrawal": "withdrawal",
+    "response_entry": "response entry",
 }
 COUNT_BIN_MS = 10
+MIN_RATE_TRIAL_FRACTION = 0.5
 PREDICTION_SEED = 2008
 FIGURE_STYLE = {
     "axes.spines.top": False,
@@ -54,10 +55,10 @@ FIGURE_STYLE = {
 # Unique-deviance box plot: task blocks reuse the kernel labels; its color map
 # is distinct from the groupwise contribution colors above.
 DEVIANCE_LABELS = {
-    "full_model": "Full model",
-    "task": "Task",
-    "video": "Motion energy",
-    "history": "Spike history",
+    "full_model": "full model",
+    "task": "task",
+    "video": "motion energy",
+    "history": "spike history",
     **TASK_LABELS,
 }
 DEVIANCE_COLORS = {
@@ -134,7 +135,12 @@ def _save_figure(figure, output: Path) -> Path:
 def binned_rates(
     values: np.ndarray, valid: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return the unsmoothed mean firing rate in complete 10-ms bins."""
+    """Return the unsmoothed mean firing rate in complete 10-ms bins.
+
+    The second value marks the bins to plot: those where at least
+    `MIN_RATE_TRIAL_FRACTION` of the trials are valid. Late bins come from the
+    few trials with a late response entry, so their rate is not reliable.
+    """
     values = np.atleast_2d(np.asarray(values, dtype=float))
     valid = np.atleast_2d(np.asarray(valid, dtype=bool))
     if values.shape != valid.shape or values.shape[1] < COUNT_BIN_MS:
@@ -152,7 +158,8 @@ def binned_rates(
         out=np.full(bins, np.nan),
         where=denominator > 0,
     )
-    return mean / (samples * BINWIDTH_S), complete.any(axis=0)
+    enough = denominator >= MIN_RATE_TRIAL_FRACTION * len(values)
+    return mean / (samples * BINWIDTH_S), enough
 
 
 def plot_model_design(
@@ -226,10 +233,10 @@ def plot_model_design(
         "response_entry",
     )
     event_labels = {
-        "initiation": "Initiation",
-        "visual_flash": "Visual flashes",
-        "withdrawal": "Withdrawal",
-        "response_entry": "Response entry",
+        "initiation": "initiation",
+        "visual_flash": "visual flashes",
+        "withdrawal": "withdrawal",
+        "response_entry": "response entry",
     }
     event_colors = {
         "visual_flash": GROUP_COLORS["visual"],
@@ -291,8 +298,13 @@ def plot_model_design(
                 label=f"PC {index + 1}",
             )
         motion_axis.axhline(0, color="black", linewidth=0.45)
-        motion_axis.legend(loc="upper left", frameon=False, fontsize=7)
-        motion_axis.set_ylabel("Motion-energy\nPC score")
+        # Headroom above the traces keeps the legend clear of them.
+        low, high = float(motion_scores.min()), float(motion_scores.max())
+        motion_axis.set_ylim(low - 0.05 * (high - low), high + 0.45 * (high - low))
+        motion_axis.legend(
+            loc="upper left", ncols=3, frameon=False, fontsize=7, borderaxespad=0
+        )
+        motion_axis.set_ylabel("motion-energy\nPC score")
 
         for spike_time in spike_times_ms:
             start = spike_time + 1000 * BINWIDTH_S
@@ -313,14 +325,14 @@ def plot_model_design(
                     color=GROUP_COLORS["history"],
                     linewidth=0.6,
                 )
-        history_axis.set_yticks((1,), ("Spike history",))
+        history_axis.set_yticks((1,), ("spike history",))
         history_axis.set_ylim(0.45, 1.55)
 
         trace_specs = (
-            ("visual", "Visual flashes", GROUP_COLORS["visual"]),
-            ("task", "Other task events", GROUP_COLORS["task"]),
-            ("video", "Motion-energy PCs", GROUP_COLORS["video"]),
-            ("history", "Spike history", GROUP_COLORS["history"]),
+            ("visual", "visual flashes", GROUP_COLORS["visual"]),
+            ("task", "other task events", GROUP_COLORS["task"]),
+            ("video", "motion-energy PCs", GROUP_COLORS["video"]),
+            ("history", "spike history", GROUP_COLORS["history"]),
         )
         for axis, (name, label, color) in zip(
             contribution_axes[:4], trace_specs, strict=True
@@ -332,14 +344,14 @@ def plot_model_design(
             times_ms, linear_predictor, color="black", linewidth=1.0
         )
         contribution_axes[-1].set_ylabel(
-            r"Total log count, $\eta(t)$", rotation=0, ha="right", va="center"
+            r"total log count, $\eta(t)$", rotation=0, ha="right", va="center"
         )
         for axis in contribution_axes:
             axis.tick_params(axis="y", labelsize=6)
 
-        predicted_counts = np.random.default_rng(
-            PREDICTION_SEED + EXAMPLE_UNIT_ID
-        ).poisson(expected_count)
+        predicted_counts = np.random.default_rng(PREDICTION_SEED).poisson(
+            expected_count
+        )
         predicted_spike_times_ms = np.repeat(
             times_ms, predicted_counts.astype(int, copy=False)
         )
@@ -350,9 +362,9 @@ def plot_model_design(
             linelengths=0.8,
             linewidths=0.5,
         )
-        count_axis.set_yticks([1, 0], ["Observed", "Predicted"])
+        count_axis.set_yticks([1, 0], ["observed", "predicted"])
         count_axis.set_ylim(-0.6, 1.6)
-        count_axis.set_xlabel("Time from first measured flash (ms)")
+        count_axis.set_xlabel("time from first measured flash (ms)")
 
         all_axes = [
             event_axis,
@@ -424,28 +436,28 @@ def plot_population_summary(
             zorder=3,
         )
         axes[0].set_xticks(positions, component_counts)
-        axes[0].set_xlabel("Candidate motion-energy PCs")
-        axes[0].set_ylabel(r"Mean validation deviance explained ($D^2$)")
+        axes[0].set_xlabel("candidate motion-energy PCs")
+        axes[0].set_ylabel(r"mean validation deviance explained ($D^2$)")
 
         for axis, values, xlabel, digits in (
-            (axes[1], deviance, r"Test deviance explained ($D^2$)", 3),
-            (axes[2], bits, "Test prediction (bits/spike)", 3),
+            (axes[1], deviance, r"test deviance explained ($D^2$)", 3),
+            (axes[2], bits, "test prediction (bits/spike)", 3),
         ):
             median = float(np.median(values))
             axis.hist(values, bins=24, color="black", alpha=0.75)
             axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
             axis.axvline(median, color="black", linewidth=1.5)
             axis.text(
-                0.98,
-                0.93,
+                median,
+                1.01,
                 f"median = {median:.{digits}f}",
                 color="black",
-                transform=axis.transAxes,
-                ha="right",
-                va="top",
+                transform=axis.get_xaxis_transform(),
+                ha="center",
+                va="bottom",
             )
             axis.set_xlabel(xlabel)
-            axis.set_ylabel("Units")
+            axis.set_ylabel("units")
 
         axes[3].scatter(training_rate, deviance, color="black", alpha=0.65, s=16)
         axes[3].axhline(0, color="0.65", linestyle="--", linewidth=0.8)
@@ -481,8 +493,8 @@ def plot_bits_vs_deviance(results: list[dict], output: Path) -> Path:
         axis.scatter(bits, deviance, color="black", alpha=0.65, s=16)
         axis.axhline(0, color="0.65", linestyle="--", linewidth=0.8)
         axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
-        axis.set_xlabel("Test prediction (bits/spike)")
-        axis.set_ylabel(r"Test deviance explained ($D^2$)")
+        axis.set_xlabel("test prediction (bits/spike)")
+        axis.set_ylabel(r"test deviance explained ($D^2$)")
         axis.text(
             0.98,
             0.04,
@@ -523,11 +535,11 @@ def plot_kernel_figure(
             if times_ms[0] <= 0 <= times_ms[-1]:
                 axis.axvline(0, color="black", linewidth=0.45)
             axis.set_title(
-                "Spike history" if name == "history" else TASK_LABELS[name],
+                "spike history" if name == "history" else TASK_LABELS[name],
                 fontsize=8,
             )
             axis.set_xlabel(
-                "Time since spike (ms)" if name == "history" else "Time from event (ms)"
+                "time since spike (ms)" if name == "history" else "time from event (ms)"
             )
             axis.set_ylabel(
                 r"$\Delta$ log rate / spike"
@@ -554,7 +566,7 @@ def plot_prediction_figure(
     valid: np.ndarray,
     output: Path,
 ) -> Path:
-    """Compare held-out observed and one-step-predicted spikes for unit 197."""
+    """Compare held-out observed and one-step-predicted spikes for the example unit."""
     observed = np.asarray(observed)
     predicted = np.asarray(predicted)
     conditional = np.asarray(conditional)
@@ -618,7 +630,7 @@ def plot_prediction_figure(
         )
         for values, label, color in zip(
             (observed, conditional),
-            ("Observed", "Predicted"),
+            ("observed", "predicted"),
             (OBSERVED_COLOR, MODEL_COLOR),
             strict=True,
         ):
@@ -635,11 +647,11 @@ def plot_prediction_figure(
         axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
 
         _label_panels(axes, -0.13)
-        axes[0].set_ylabel("Observed\nheld-out trials")
-        axes[1].set_ylabel("Predicted\nheld-out trials")
-        axes[2].set_ylabel(f"Firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
+        axes[0].set_ylabel("observed\nheld-out trials")
+        axes[1].set_ylabel("predicted\nheld-out trials")
+        axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
         axes[-1].set_xlim(*edges)
-        axes[-1].set_xlabel("Time from first measured flash (s)")
+        axes[-1].set_xlabel("time from first measured flash (s)")
         figure.align_ylabels(axes)
         figure.tight_layout(h_pad=0.8)
         return _save_figure(figure, output)
@@ -651,7 +663,7 @@ def _plot_groups(
     groups: tuple[str, ...],
     metric: str,
 ) -> None:
-    """Draw one population box plot for the requested deviance measure."""
+    """Draw one population box plot, with one point per unit, for a deviance measure."""
     values = [
         np.asarray(
             [
@@ -677,6 +689,17 @@ def _plot_groups(
     for group, patch in zip(groups, boxes["boxes"], strict=True):
         color = DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"])
         patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
+    rng = np.random.default_rng(0)
+    for position, group, unit_values in zip(positions, groups, values, strict=True):
+        axis.scatter(
+            position + rng.uniform(-0.16, 0.16, len(unit_values)),
+            unit_values,
+            s=7,
+            alpha=0.8,
+            linewidths=0,
+            color=DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"]),
+            zorder=3,
+        )
     axis.axhline(0, color="0.35", linestyle="--", linewidth=0.7, zorder=0)
     axis.set_xticks(positions, [DEVIANCE_LABELS[group] for group in groups])
     axis.tick_params(axis="x", labelrotation=48)
@@ -699,9 +722,9 @@ def plot_deviance_explained(records: list[dict], output: Path) -> Path:
         _plot_groups(
             axes[2], records, DETAILED_GROUPS, "unique_test_deviance_explained"
         )
-        axes[0].set_ylabel(r"Full-model test deviance explained ($D^2$)")
-        axes[1].set_ylabel(r"Maximal deviance explained ($\Delta D^2$)")
-        axes[2].set_ylabel(r"Unique deviance explained ($\Delta D^2$)")
+        axes[0].set_ylabel(r"full-model test deviance explained ($D^2$)")
+        axes[1].set_ylabel(r"maximal deviance explained ($\Delta D^2$)")
+        axes[2].set_ylabel(r"unique deviance explained ($\Delta D^2$)")
         _label_panels(axes, -0.12, 1.04)
         figure.subplots_adjust(
             bottom=0.35, left=0.07, right=0.99, top=0.94, wspace=0.34
@@ -712,8 +735,7 @@ def plot_deviance_explained(records: list[dict], output: Path) -> Path:
 def plot_fit(windows: Path, design: Path, fit_dir: Path) -> None:
     """Write this fit's figures inside its own artifact directory.
 
-    Population panels use the saved per-unit records. The kernel, model-design,
-    and prediction panels are for unit 197, and only when that unit was fit.
+    These population panels use the saved per-unit records.
     """
     figure_dir = fit_dir
     checkpoints = fit_dir / "checkpoints"
@@ -732,16 +754,16 @@ def plot_fit(windows: Path, design: Path, fit_dir: Path) -> None:
         "figure_dir": str(figure_dir),
         "figures": written,
     }
-    if EXAMPLE_UNIT_ID not in {int(item["unit_id"]) for item in results}:
-        print(
-            f"Example unit {EXAMPLE_UNIT_ID} was not fit; "
-            "skipping its kernel, design, and prediction figures.",
-            flush=True,
-        )
-        print(json.dumps(payload, indent=2))
-        return
+    print(json.dumps(payload, indent=2))
 
-    write_figure_data(windows, design, fit_dir)
+
+def plot_example_unit(
+    windows: Path, design: Path, fit_dir: Path, example_id: int
+) -> None:
+    """Write the kernel, model-design, and prediction figures of one unit."""
+    figure_dir = fit_dir
+    written = {}
+    write_figure_data(windows, design, fit_dir, example_id)
     data = np.load(fit_dir / "figure_data.npz", allow_pickle=False)
     with (fit_dir / "figure_data.json").open() as handle:
         meta = json.load(handle)
@@ -800,7 +822,7 @@ def plot_fit(windows: Path, design: Path, fit_dir: Path) -> None:
     print(
         json.dumps(
             {
-                **payload,
+                "figures": written,
                 **{k: v for k, v in meta.items() if not isinstance(v, list)},
                 "prediction_observed_spikes": int(
                     prediction_observed[test_valid].sum()

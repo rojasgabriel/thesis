@@ -295,8 +295,8 @@ def _plot_response(
                     fontsize=6,
                 )
     ax.axvline(0, color="0.4", linestyle="--", linewidth=0.6)
-    ax.set_xlabel("Time from onset (s)")
-    ax.set_ylabel("Spikes s$^{-1}$")
+    ax.set_xlabel("time from onset (s)")
+    ax.set_ylabel("spikes s$^{-1}$")
     ax.set_ylim(bottom=0)
 
 
@@ -312,7 +312,7 @@ def _plot_second_peak_prediction_error(ax, unit_responses: list[dict]) -> None:
     ax.axhline(0, color="0.6", linewidth=0.7)
     ax.set_xlim(-0.35, 0.35)
     ax.set_xticks([0], ["30 ms pulse"])
-    ax.set_ylabel("Δ second-peak latency (ms)")
+    ax.set_ylabel("Δ second-peak\nlatency (ms)")
     ax.margins(y=0.2)
 
 
@@ -337,7 +337,7 @@ def _plot_unit_property(ax, units: pd.DataFrame, column: str, ylabel: str) -> No
     for position, (values, color) in enumerate(zip(groups, GROUP_COLORS)):
         x = position + rng.uniform(-0.12, 0.12, len(values))
         ax.scatter(x, values, s=8, alpha=0.8, color=color, rasterized=True)
-    ax.set_xticks([0, 1], ["Other\nexcited", "Double\npeak"])
+    ax.set_xticks([0, 1], ["other\nexcited", "double\npeak"])
     ax.set_ylabel(ylabel)
 
 
@@ -373,12 +373,12 @@ def _make_figure(discovery_data: list[dict], pulse_width_data: dict):
         properties = grid[1].subgridspec(1, 2, wspace=0.4)
         duration_ax = fig.add_subplot(properties[0, 0])
         _plot_unit_property(
-            duration_ax, all_units, "spike_duration_ms", "Spike duration (ms)"
+            duration_ax, all_units, "spike_duration_ms", "spike duration (ms)"
         )
         duration_ax.axhline(NARROW_BROAD_MS, color="0.4", linestyle="--", linewidth=0.6)
 
         depth_ax = fig.add_subplot(properties[0, 1])
-        _plot_unit_property(depth_ax, all_units, "depth", "Depth from probe tip (µm)")
+        _plot_unit_property(depth_ax, all_units, "depth", "depth from probe tip (µm)")
 
         pulse_grid = grid[2].subgridspec(1, 3, wspace=0.65)
         pulse_axes = [fig.add_subplot(pulse_grid[0, index]) for index in range(2)]

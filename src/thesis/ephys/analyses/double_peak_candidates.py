@@ -75,9 +75,9 @@ def plot_candidates(session_data: dict, output: Path) -> None:
             fontweight="bold",
             fontsize=10,
         )
-        ax.set_xlabel("Time from first flash (ms)")
+        ax.set_xlabel("time from first flash (ms)")
         if index % 3 == 0:
-            ax.set_ylabel("Firing rate (sp/s)")
+            ax.set_ylabel("firing rate (sp/s)")
     for ax in list(axes.flat)[len(responses) :]:
         ax.axis("off")
     fig.tight_layout()

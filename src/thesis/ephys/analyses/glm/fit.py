@@ -104,17 +104,26 @@ def build_unit_counts(alignments: np.ndarray, spike_times: np.ndarray) -> np.nda
 
 
 def analysis_unit_indices(units, unit_set: str) -> np.ndarray:
-    """Return eligible rows after exclusions; `sample` keeps 20 fixed, by depth."""
+    """Return eligible rows after exclusions; `sample` keeps 20 fixed, by depth.
+
+    `sampleN` (N >= 1) is replicate N: 20 other units that are in neither
+    `sample` nor another replicate.
+    """
     unit_ids = units["unit_id"].to_numpy(dtype=int)
     for unit_id in sorted(set(unit_ids) & set(EXCLUDED_UNIT_IDS)):
         print(f"Excluded unit {unit_id}: {EXCLUDED_UNIT_IDS[unit_id]}.", flush=True)
     keep = np.flatnonzero(~np.isin(unit_ids, list(EXCLUDED_UNIT_IDS)))
-    if unit_set != "sample":
+    if unit_set == "all":
         return keep
-    if len(keep) < SAMPLE_UNITS:
-        raise ValueError("Not enough eligible units for the requested sample.")
+    replicate = int(unit_set.removeprefix("sample") or 0)
     rng = np.random.default_rng(SAMPLE_SEED)
-    return keep[np.sort(rng.choice(len(keep), size=SAMPLE_UNITS, replace=False))]
+    sample = rng.choice(len(keep), size=SAMPLE_UNITS, replace=False)
+    if replicate:
+        rest = rng.permutation(np.setdiff1d(np.arange(len(keep)), sample))
+        sample = rest[(replicate - 1) * SAMPLE_UNITS : replicate * SAMPLE_UNITS]
+    if len(sample) < SAMPLE_UNITS:
+        raise ValueError("Not enough eligible units for the requested sample.")
+    return keep[np.sort(sample)]
 
 
 def analysis_units(prepared: dict, unit_set: str) -> list[dict]:

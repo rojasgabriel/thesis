@@ -283,15 +283,15 @@ def main() -> None:
     ax.set_xlim(lower_limit, SCATTER_MAX_RATE)
     ax.set_ylim(lower_limit, SCATTER_MAX_RATE)
     ax.set_aspect("equal")
-    ax.set_xlabel("Stationary peak (baseline-corrected sp/s)")
-    ax.set_ylabel("Movement peak (baseline-corrected sp/s)")
+    ax.set_xlabel("stationary peak (baseline-corrected sp/s)")
+    ax.set_ylabel("movement peak (baseline-corrected sp/s)")
     delta_ax.axhline(0, color="0.6", linewidth=0.7)
     delta_ax.set_xticks(
         range(len(peak_results)), [subject for subject, _ in peak_results]
     )
     for label, color in zip(delta_ax.get_xticklabels(), SUBJECT_COLORS):
         label.set_color(color)
-    delta_ax.set_ylabel("Movement − stationary peak (sp/s)")
+    delta_ax.set_ylabel("movement − stationary peak (sp/s)")
     for axis in (ax, delta_ax):
         axis.spines[["top", "right"]].set_visible(False)
     fig.subplots_adjust(left=0.1, right=0.98, bottom=0.18, top=0.9, wspace=0.45)
