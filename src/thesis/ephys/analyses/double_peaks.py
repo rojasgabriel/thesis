@@ -90,7 +90,7 @@ FIGURE_STYLE = {
 }
 
 FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
-OUT_PATH = FIGURE_ROOT / "double_peak" / "double_peak_supplement.pdf"
+OUT_PATH = FIGURE_ROOT / "double_peak" / "double_peak_supplement.svg"
 
 
 def _window_maximum(peth: np.ndarray, bin_centers: np.ndarray, center: float) -> float:

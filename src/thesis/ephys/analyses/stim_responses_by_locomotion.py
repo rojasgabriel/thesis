@@ -5,7 +5,7 @@ the last flash between the matched center entry and center exit (stationary).
 The second is the first flash from center exit to response-port entry
 (movement). "Movement" is a task epoch. The script does not measure locomotion.
 The two flashes come from the same trial, and each unit gives one peak for each
-condition. Sessions: GRB006 20240821_121447, GRB058 20260224_152424, and GRB064
+condition. Sessions: GRB006 20240821_121447 and GRB064
 20260916_132939 (one session for each subject). Unit selection: units pass
 quality criterion 1 and stability parameter 0. They also have the stored
 "excited" classification in StimulusResponse (stimulus-response parameter 0).
@@ -24,7 +24,7 @@ movement minus stationary peak for each unit and the subject mean ± SEM.
 Display limit: panel a stops at 60 sp/s. Units above this limit stay in the
 means, and the script prints their count.
 
-The script writes locomotion/locomotion_peaks.pdf under THESIS_FIGURE_ROOT. The
+The script writes locomotion/locomotion_peaks.svg under THESIS_FIGURE_ROOT. The
 default root is "figures".
 """
 
@@ -39,6 +39,9 @@ import pandas as pd
 from scipy import stats
 from spks.event_aligned import population_peth
 
+# Keep this import above `labdata_plugin`: after the plugin loads, the name
+# `thesis` points to the plugin, and a first import of `thesis.plotting` fails.
+from thesis.plotting import FIGURE_STYLE, label_panels, save_figure  # isort: skip
 from labdata_plugin.schema import StimulusResponse
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
@@ -48,7 +51,6 @@ FIGURE_DIR = FIGURE_ROOT / "locomotion"
 
 SUBJECT_SESSIONS = [
     ("GRB006", "20240821_121447"),
-    ("GRB058", "20260224_152424"),
     ("GRB064", "20260916_132939"),
 ]
 
@@ -189,6 +191,7 @@ def main() -> None:
         )
         peak_results.append((subject, peak_table))
 
+    plt.rcParams.update(FIGURE_STYLE)
     fig, (ax, delta_ax) = plt.subplots(
         1, 2, figsize=(7.2, 3.3), gridspec_kw={"width_ratios": [1, 0.65]}
     )
@@ -283,35 +286,19 @@ def main() -> None:
     ax.set_xlim(lower_limit, SCATTER_MAX_RATE)
     ax.set_ylim(lower_limit, SCATTER_MAX_RATE)
     ax.set_aspect("equal")
-    ax.set_xlabel("stationary peak (baseline-corrected sp/s)")
-    ax.set_ylabel("movement peak (baseline-corrected sp/s)")
+    ax.set_xlabel("stationary peak (baseline-corrected spikes/s)")
+    ax.set_ylabel("movement peak (baseline-corrected spikes/s)")
     delta_ax.axhline(0, color="0.6", linewidth=0.7)
     delta_ax.set_xticks(
         range(len(peak_results)), [subject for subject, _ in peak_results]
     )
     for label, color in zip(delta_ax.get_xticklabels(), SUBJECT_COLORS):
         label.set_color(color)
-    delta_ax.set_ylabel("movement − stationary peak (sp/s)")
-    for axis in (ax, delta_ax):
-        axis.spines[["top", "right"]].set_visible(False)
+    delta_ax.set_ylabel("movement − stationary peak (spikes/s)")
     fig.subplots_adjust(left=0.1, right=0.98, bottom=0.18, top=0.9, wspace=0.45)
-    for label, axis in zip("ab", (ax, delta_ax)):
-        position = axis.get_position()
-        fig.text(
-            position.x0 - 0.025,
-            position.y1 + 0.025,
-            label,
-            fontweight="bold",
-            fontsize=9,
-            ha="right",
-            va="bottom",
-        )
-
-    FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-    save_path = FIGURE_DIR / "locomotion_peaks.pdf"
-    fig.savefig(save_path, bbox_inches="tight", dpi=300)
+    label_panels((ax, delta_ax), -0.2)
+    save_path = save_figure(fig, FIGURE_DIR / "locomotion_peaks")
     print(f"\nSaved -> {save_path}")
-    plt.close(fig)
 
 
 if __name__ == "__main__":

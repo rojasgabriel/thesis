@@ -3,7 +3,7 @@
 Shows that the three flash regressors are the SAME 6-column raised-cosine basis
 placed at the SAME flash times, each block scaled per flash by its state contrast
 (pre/post withdrawal) or centered adaptation resource. Rows are 1 ms bins;
-18 columns = 3 blocks x 6 basis functions. Red is positive, blue is negative.
+18 columns = 3 regressors x 6 basis functions. Red is positive, blue is negative.
 
 Run from the repo root:
     uv run python figures/supp/flash_interaction_design.py
@@ -25,8 +25,7 @@ from thesis.ephys.analyses.glm.dmat import (
     flash_resource,
     task_temporal_bases,
 )
-
-FIGURE_STYLE = {"font.size": 8}
+from thesis.plotting import FIGURE_STYLE
 
 
 def main() -> Path:
@@ -118,7 +117,7 @@ def main() -> Path:
             fontsize=8,
         )
         matrix.set_yticks([])
-        matrix.set_xlabel("18 design columns  =  3 blocks x 6 basis functions")
+        matrix.set_xlabel("18 design columns  =  3 regressors x 6 basis functions")
         matrix.set_title("design matrix for this trial (rows = 1 ms bins)", fontsize=9)
         matrix.text(
             -0.02,

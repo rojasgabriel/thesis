@@ -1,12 +1,26 @@
-"""Decode low- versus high-rate stimulus category from V1 population activity.
+"""Decode stimulus category and choice from V1 population activity.
 
-The analysis uses non-boundary trials with a left or right response. Neural
-features are each unit's mean firing rate from 0 to 1 s after the first
-stimulus. Each resample contains equal numbers of category x choice trials, so
-category accuracy is not driven by an unequal choice distribution. The
-sampling unit is the trial. Random stratified folds estimate held-out accuracy;
-contiguous folds provide a session-order control. This analysis does not claim
-that all choice or movement effects have been removed.
+Comparison: two decoders on the same trials. Panel a decodes the low- or
+high-rate stimulus category. Panel b decodes the left or right choice. Each is
+compared with a label shuffle.
+
+Trials: non-boundary trials with a left or right response. Each resample has
+equal numbers of trials in the four category x choice groups, so the category
+decoder cannot use choice and the choice decoder cannot use category. The
+shuffle permutes the decoded label inside each level of the other variable.
+
+Features: each unit's mean firing rate from 0 to 1 s after the first measured
+flash. This window includes the time after withdrawal for many trials, so the
+choice decoder can read the turn to the chosen side. Choice and movement are not
+removed from the category decoder.
+
+Folds: "random folds" assign trials to the 10 test folds at random, with both
+labels in each fold. "Blocked folds" cut the session into 10 blocks of
+consecutive trials and test on one block at a time. If the two agree, the
+decoder does not depend on slow changes over the session, such as drift.
+
+Sampling unit: the trial. Each point is the mean held-out balanced accuracy of
+one resample (black) or one shuffle (gray); the large marker is their mean.
 """
 
 from __future__ import annotations
@@ -24,6 +38,13 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from thesis.ephys.analyses._decoding import load_decoding_data
+from thesis.plotting import (
+    FIGURE_STYLE,
+    OBSERVED_COLOR,
+    REFERENCE_COLOR,
+    label_panels,
+    save_figure,
+)
 
 WINDOW_START_S = 0.0
 WINDOW_STOP_S = 1.0
@@ -158,22 +179,13 @@ def main() -> None:
     choice = trials["response"].to_numpy(dtype=int)
     repeats = 3 if args.quick else N_RESAMPLES
     shuffles = 3 if args.quick else N_SHUFFLES
-    real_random, real_blocked, n_balanced = _scores(
-        firing_rates,
-        category,
-        choice,
-        n_resamples=repeats,
-        shuffle=False,
-        rng=np.random.default_rng(RANDOM_SEED),
-    )
-    null_random, null_blocked, _ = _scores(
-        firing_rates,
-        category,
-        choice,
-        n_resamples=shuffles,
-        shuffle=True,
-        rng=np.random.default_rng(RANDOM_SEED + 1),
-    )
+    # Each target is decoded with the other variable balanced, so one decoder
+    # cannot use the other variable. `_scores` wants a 0/1 target and a -1/1
+    # control.
+    targets = {
+        "category": (category, choice),
+        "choice": ((choice == 1).astype(int), np.where(category == 1, 1, -1)),
+    }
     results = {
         "subject": args.subject,
         "session": args.session,
@@ -181,61 +193,82 @@ def main() -> None:
         "stability_param_id": args.stability_param_id,
         "n_units": len(units),
         "n_eligible_trials": len(trials),
-        "n_trials_per_balanced_resample": n_balanced,
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
-        "random_cv": {
-            "accuracy_mean": float(real_random.mean()),
-            "accuracy_sd": float(real_random.std(ddof=1)),
-            "shuffle_mean": float(null_random.mean()),
-            "p_one_sided": float(
-                (np.sum(null_random >= real_random.mean()) + 1) / (len(null_random) + 1)
-            ),
-        },
-        "blocked_cv": {
-            "accuracy_mean": float(real_blocked.mean()),
-            "accuracy_sd": float(real_blocked.std(ddof=1)),
-            "shuffle_mean": float(null_blocked.mean()),
-            "p_one_sided": float(
-                (np.sum(null_blocked >= real_blocked.mean()) + 1)
-                / (len(null_blocked) + 1)
-            ),
-        },
     }
-
-    fig, ax = plt.subplots(figsize=(3.4, 3.2))
-    values = [real_random, null_random, real_blocked, null_blocked]
-    # One comparison: decoder against shuffle. The fold type is on the axis.
-    colors = ["black", "0.75", "black", "0.75"]
-    positions = np.arange(4)
-    for position, scores, color in zip(positions, values, colors, strict=True):
-        ax.scatter(
-            np.full(len(scores), position), scores, color=color, alpha=0.35, s=14
+    scores = {}
+    for name, (target, control) in targets.items():
+        real_random, real_blocked, n_balanced = _scores(
+            firing_rates,
+            target,
+            control,
+            n_resamples=repeats,
+            shuffle=False,
+            rng=np.random.default_rng(RANDOM_SEED),
         )
-        ax.plot(position, np.mean(scores), "o", color=color, ms=7)
-    ax.axhline(0.5, color="0.5", linestyle="--", linewidth=1)
-    ax.set_xticks(
-        positions,
-        ["random folds", "shuffle", "blocked folds", "shuffle"],
-        rotation=30,
-        ha="right",
-    )
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.text(-0.3, 1.04, "a", fontweight="bold", transform=ax.transAxes)
-    ax.set_ylabel("balanced category accuracy")
-    fig.tight_layout()
+        null_random, null_blocked, _ = _scores(
+            firing_rates,
+            target,
+            control,
+            n_resamples=shuffles,
+            shuffle=True,
+            rng=np.random.default_rng(RANDOM_SEED + 1),
+        )
+        scores[name] = [real_random, null_random, real_blocked, null_blocked]
+        results[name] = {"n_trials_per_balanced_resample": n_balanced}
+        for folds, real, null in (
+            ("random_cv", real_random, null_random),
+            ("blocked_cv", real_blocked, null_blocked),
+        ):
+            results[name][folds] = {
+                "accuracy_mean": float(real.mean()),
+                "accuracy_sd": float(real.std(ddof=1)),
+                "shuffle_mean": float(null.mean()),
+                "p_one_sided": float(
+                    (np.sum(null >= real.mean()) + 1) / (len(null) + 1)
+                ),
+            }
 
-    output_dir = (
-        Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "category_decoding"
-    )
-    if not args.no_save:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_dir / "category_decoding.svg", bbox_inches="tight")
-        (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+    with plt.rc_context(FIGURE_STYLE):
+        fig, axes = plt.subplots(1, 2, figsize=(6.4, 3.0), sharey=True)
+        positions = np.arange(4)
+        for ax, (name, values) in zip(axes, scores.items(), strict=True):
+            # One comparison: decoder against shuffle. The fold type is on the axis.
+            for position, accuracy, color in zip(
+                positions, values, (OBSERVED_COLOR, "0.75") * 2, strict=True
+            ):
+                ax.scatter(
+                    np.full(len(accuracy), position),
+                    accuracy,
+                    color=color,
+                    alpha=0.35,
+                    s=10,
+                    linewidths=0,
+                )
+                ax.plot(position, np.mean(accuracy), "o", color=color, ms=6)
+            ax.axhline(0.5, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
+            ax.set_xticks(
+                positions,
+                ["random folds", "shuffle", "blocked folds", "shuffle"],
+                rotation=30,
+                ha="right",
+            )
+            ax.set_ylabel(f"balanced {name} accuracy")
+            ax.tick_params(labelleft=True)
+        label_panels(axes, -0.22)
+        fig.tight_layout(w_pad=2.0)
+
+    print(json.dumps(results, indent=2))
     if args.show:
         plt.show()
+    if not args.no_save:
+        output_dir = (
+            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "category_decoding"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+        save_figure(fig, output_dir / "category_decoding")
     else:
         plt.close(fig)
-    print(json.dumps(results, indent=2))
 
 
 if __name__ == "__main__":

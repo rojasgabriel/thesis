@@ -110,6 +110,13 @@ class PoissonGLM:
 
         run_unique(self.windows, self.design, self.fit_dir(units), units, workers)
 
+    def joint(self, units: str = "sample", workers: int | None = None) -> None:
+        from thesis.ephys.analyses.glm.unique_dev import run_unique
+
+        run_unique(
+            self.windows, self.design, self.fit_dir(units), units, workers, joint=True
+        )
+
 
 def _unit_set(value: str) -> str:
     if not re.fullmatch(r"all|sample[1-9]?", value):
@@ -132,6 +139,7 @@ def main() -> None:
         ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
         ("fit", "Compare PC counts, cross-validate, refit, and plot"),
         ("unique", "Unique and maximal explained deviance per block"),
+        ("joint", "Joint unique deviance of regressors that are shuffled together"),
     ):
         command = subparsers.add_parser(
             name, help=help_text, description=help_text + "."

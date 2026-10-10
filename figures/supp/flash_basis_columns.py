@@ -18,12 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm.dmat import task_temporal_bases
-
-FIGURE_STYLE = {
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "font.size": 8,
-}
+from thesis.plotting import FIGURE_STYLE
 
 
 def main() -> Path:
@@ -66,7 +61,7 @@ def main() -> Path:
         )
         block.set_xticks(range(1, 7))
         block.set_xlabel("column (basis index)")
-        block.set_title("the same thing as a\n6-column design block", fontsize=9)
+        block.set_title("the same thing as a\n6-column regressor", fontsize=9)
         bar = fig.colorbar(image, ax=block, fraction=0.06, pad=0.04)
         bar.set_label("design value (an input, not a fitted weight)", fontsize=8)
         for ax, letter in ((curves, "a"), (block, "b")):

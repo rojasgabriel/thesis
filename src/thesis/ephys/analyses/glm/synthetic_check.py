@@ -456,7 +456,6 @@ def main() -> None:
     figure_dir = model.fit_dir("all")
     for name in (
         "summary",
-        "bits_vs_deviance",
         "fitted_kernels",
         "model_design",
         "predicted_spike_trains",

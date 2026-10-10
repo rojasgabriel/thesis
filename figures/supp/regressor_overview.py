@@ -18,12 +18,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm.dmat import spike_history_basis, task_temporal_bases
+from thesis.plotting import FIGURE_STYLE
 
-FIGURE_STYLE = {
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "font.size": 8,
-}
 GROUP_COLORS = {"sensory": "C0", "task": "C1", "video": "C2", "history": "C3"}
 
 

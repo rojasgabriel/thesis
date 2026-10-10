@@ -44,11 +44,11 @@ uv run python -m thesis.ephys.analyses.rate_decoding -a GRB006 -s 20240821_12144
 ```
 
 The first command compares stationary and movement flashes across its listed
-sessions and writes `figures/locomotion/locomotion_peaks.pdf`. The second shows
+sessions and writes `figures/locomotion/locomotion_peaks.svg`. The second shows
 confirmed 15 ms double-peak candidates for one session and writes
 `figures/double_peak/grb064_candidates.svg`. The last command makes the
 separate cross-session double-peak supplement, including its 30 ms control.
-The decoding commands decode the stimulus category and the stimulus rate from
+The decoding commands decode the stimulus category, the choice, and the stimulus rate from
 the population firing rates of one session, and write
 `figures/category_decoding/category_decoding.svg` and
 `figures/rate_decoding/rate_decoding.svg`.
