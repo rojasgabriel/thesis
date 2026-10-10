@@ -40,6 +40,11 @@ VIDEO_COMPONENT_COUNTS = (10,)
 # It is short so that it holds few flashes, and it has no part before the event.
 WITHDRAWAL_WINDOW_S = 0.1
 WITHDRAWAL_BASES = 4
+# Slow kernel for the time from stimulus onset (the first flash). The residuals
+# of the model without it had a trial-locked time course that did not depend on
+# flash rate or choice; without this kernel, motion energy absorbs part of it.
+ONSET_WINDOW_S = 1.5
+ONSET_BASES = 8
 HISTORY_COLUMNS = 10
 # Short-term synaptic-depression parameters for the flash-adaptation covariate:
 # each flash spends fraction ADAPT_U of the available resource, which recovers
@@ -220,10 +225,13 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     withdrawal = RaisedCosineBasis(
         WITHDRAWAL_BASES, 0, WITHDRAWAL_WINDOW_S + BINWIDTH_S, BINWIDTH_S
     )
+    onset = RaisedCosineBasis(ONSET_BASES, 0, ONSET_WINDOW_S + BINWIDTH_S, BINWIDTH_S)
     return {
         "visual_flash": flash,
         "flash_adaptation": flash,
+        "stimulus_onset": onset,
         "withdrawal": withdrawal,
+        "withdrawal_side": withdrawal,
     }
 
 
@@ -303,11 +311,25 @@ def build_task_design(
             f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
         ),
         (
+            "stimulus_onset",
+            np.asarray(alignments, dtype=float),
+            None,
+            "task",
+            "the first flash of each trial; slow time course, not a cause",
+        ),
+        (
             "withdrawal",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
             "task",
             "one withdrawal per completed trial",
+        ),
+        (
+            "withdrawal_side",
+            trials["center_exit_s"].to_numpy(dtype=float),
+            0.5 * trials["response"].to_numpy(dtype=float),
+            "task",
+            "same withdrawals, scaled -0.5 for response -1 and +0.5 for response 1",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)

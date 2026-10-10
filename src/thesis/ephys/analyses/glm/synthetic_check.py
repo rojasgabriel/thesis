@@ -82,7 +82,7 @@ def flash_kernel(lag: np.ndarray) -> np.ndarray:
 def withdrawal_kernel(lag: np.ndarray) -> np.ndarray:
     """Gaussian log-rate bump after withdrawal, inside the causal support."""
     lag = np.asarray(lag, dtype=float)
-    bump = WITHDRAWAL_GAIN * np.exp(-0.5 * ((lag - WITHDRAWAL_PEAK_S) / 0.02) ** 2)
+    bump = WITHDRAWAL_GAIN * np.exp(-0.5 * ((lag - WITHDRAWAL_PEAK_S) / 0.03) ** 2)
     return np.where((lag >= 0) & (lag <= dmat.WITHDRAWAL_WINDOW_S), bump, 0.0)
 
 
