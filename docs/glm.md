@@ -112,9 +112,19 @@ IQR for bits/spike; the summary figure shows histograms of D² and bits/spike
 over units, each with its median. One session: no population p-value.
 
 ```bash
+uv run python -m thesis.ephys.preprocessing.audit_camera_pulses \
+    --output figures/glm/GRB006_20240821_121447/camera_pulses.json
 uv run glm prepare
 uv run glm fit --units all
 ```
+
+Run the camera pulse audit one time before the first `prepare`. It reads the
+NIDQ ch1 edges from the database, removes a short glitch pulse only when the
+remaining falling-edge count then equals the decoded frame count, and writes
+`frame_times.npy` next to its `--output` file. `prepare` stops with
+`FileNotFoundError` if `frame_times.npy` is not in the session output directory.
+The audit is written for GRB006 `20240821_121447` only, and it does not replace
+existing output files.
 
 `prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
 `common_design_me.npy` under `figures/glm/<subject>_<session>/`. Pass
