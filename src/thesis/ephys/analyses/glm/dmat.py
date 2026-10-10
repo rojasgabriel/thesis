@@ -4,9 +4,9 @@ This module owns the design side of the GLM, from the raw trial table to the
 standardized numeric design. `write_stimulus_windows` selects trials, lays down
 the equal first-flash bin grid, fixes the 60/20/20 whole-trial split, and maps
 camera frames to trial windows. From that window file the rest of the module
-builds every regressor column: the common task and sensory regressors (flash
-kernel, pre/post-withdrawal contrast, flash-adaptation resource, initiation,
-withdrawal, response entry), the contemporaneous motion-energy video PCs, and
+builds every regressor column: the task and sensory regressors (flash kernel,
+flash-adaptation resource, withdrawal), the contemporaneous motion-energy video
+PCs, and
 each unit's own strictly past spike-history block. `prepare_common_design`
 writes the shared task and video columns to a memmapped `.npy`;
 `build_unit_history` and `_design_with_history` add the per-unit history block
@@ -34,7 +34,11 @@ PRE_S = 0.1
 POST_S = 2.54
 BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
-VIDEO_COMPONENT_COUNTS = (10, 25, 50, 100, 200)
+# One count: the validation D² was flat from 10 to 50 PCs in the full-design fit.
+VIDEO_COMPONENT_COUNTS = (10,)
+# Withdrawal kernel: this far before and after center exit, with this many bases.
+WITHDRAWAL_HALF_WINDOW_S = 0.3
+WITHDRAWAL_BASES = 9
 HISTORY_COLUMNS = 10
 # Short-term synaptic-depression parameters for the flash-adaptation covariate:
 # each flash spends fraction ADAPT_U of the available resource, which recovers
@@ -212,19 +216,16 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
     # short response window instead of spending log-spaced bases below 10 ms.
     flash = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
-    # Poke leads the first flash by 54 ms median, 113 ms at most, and the kernel
-    # is truncated there, so bases past 90 ms would be empty on every trial.
-    poke = RaisedCosineBasis(4, 0, 0.091, BINWIDTH_S)
-    peri_exit = RaisedCosineBasis(9, 0.301, 0.301, BINWIDTH_S)
-    pre_response = RaisedCosineBasis(6, 0.301, 0, BINWIDTH_S)
+    peri_exit = RaisedCosineBasis(
+        WITHDRAWAL_BASES,
+        WITHDRAWAL_HALF_WINDOW_S + BINWIDTH_S,
+        WITHDRAWAL_HALF_WINDOW_S + BINWIDTH_S,
+        BINWIDTH_S,
+    )
     return {
         "visual_flash": flash,
-        "flash_pre_post_withdrawal": flash,
         "flash_adaptation": flash,
-        "flash_motion_energy": flash,
-        "initiation": poke,
         "withdrawal": peri_exit,
-        "response_entry": pre_response,
     }
 
 
@@ -247,17 +248,16 @@ def flash_resource(modeled: np.ndarray, u: float, tau_recover_s: float) -> np.nd
     return resource
 
 
-def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return modeled flashes, the pre/post state contrast, and the raw resource.
+def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
+    """Return modeled flashes and the raw resource at each.
 
     The resource is the available-pool trace from `flash_resource` (R = 1 at the
     first flash, lower for adapted later flashes). `build_task_design` centers it.
     """
-    times, state_values, resource_values = [], [], []
-    for flashes, center_entry, center_exit, response_entry in zip(
+    times, resource_values = [], []
+    for flashes, center_entry, response_entry in zip(
         trials["stim_pulse_times_s"],
         trials["center_entry_s"],
-        trials["center_exit_s"],
         trials["response_port_entry_s"],
         strict=True,
     ):
@@ -266,28 +266,16 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if not len(modeled):
             raise ValueError("Every modeled trial must contain at least one flash.")
         times.append(modeled)
-        state_values.append(np.where(modeled < center_exit, -0.5, 0.5))
         resource_values.append(flash_resource(modeled, ADAPT_U, ADAPT_TAU_RECOVER_S))
-    return tuple(np.concatenate(v) for v in (times, state_values, resource_values))
+    return np.concatenate(times), np.concatenate(resource_values)
 
 
 def build_task_design(
-    alignments: np.ndarray,
-    trials,
-    frame_times: np.ndarray,
-    motion_energy: np.ndarray,
+    alignments: np.ndarray, trials
 ) -> tuple[DesignMatrix, list[dict]]:
-    """Build sensory and task regressors with the accepted DAMN interface.
-
-    `motion_energy` is the total motion energy of the video frame at each of
-    `frame_times`. Its value at a flash scales the flash x motion-energy block.
-    """
+    """Build sensory and task regressors with the accepted DAMN interface."""
     bases = task_temporal_bases()
-    flashes, state_values, resource_raw = flash_events(trials)
-    # Center and scale over the modeled flashes: the common flash kernel stays
-    # the average response, and this kernel is the change per SD of movement.
-    motion_raw = np.interp(flashes, frame_times, motion_energy)
-    motion_values = (motion_raw - motion_raw.mean()) / motion_raw.std()
+    flashes, resource_raw = flash_events(trials)
     # Center the resource so the common flash kernel stays the average response.
     # A first flash sees a full pool (R = 1); adapted later flashes see less.
     # Store two representative centered levels for the kernel figure.
@@ -309,13 +297,6 @@ def build_task_design(
             "each measured flash from initiation through response entry",
         ),
         (
-            "flash_pre_post_withdrawal",
-            flashes,
-            state_values,
-            "sensory",
-            "pre-withdrawal=-0.5, post-withdrawal=+0.5",
-        ),
-        (
             "flash_adaptation",
             flashes,
             adapt_values,
@@ -324,32 +305,11 @@ def build_task_design(
             f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
         ),
         (
-            "flash_motion_energy",
-            flashes,
-            motion_values,
-            "sensory",
-            "total motion energy at the flash, centered, in SD over modeled flashes",
-        ),
-        (
-            "initiation",
-            trials["center_entry_s"].to_numpy(dtype=float),
-            None,
-            "task",
-            "initiation truncated at the first flash",
-        ),
-        (
             "withdrawal",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
             "task",
             "one withdrawal per completed trial",
-        ),
-        (
-            "response_entry",
-            trials["response_port_entry_s"].to_numpy(dtype=float),
-            None,
-            "task",
-            "every response; the side-independent part",
         ),
     ]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
@@ -382,12 +342,6 @@ def build_task_design(
         if name == "flash_adaptation":
             manifest[-1]["adapt_levels_centered"] = adapt_levels
     design.build_matrix()
-    initiation = design.regressors["initiation"]
-    rows_per_trial = initiation.X.shape[0] // len(alignments)
-    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
-    truncated = np.asarray(initiation.X).reshape(len(alignments), rows_per_trial, -1)
-    truncated[:, np.asarray(centers) >= 0] = 0
-    initiation._X = truncated.reshape(-1, initiation.X.shape[1])
     return design, manifest
 
 
@@ -488,10 +442,10 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     trials = _load_selected_trials(prepared)
     with np.load(video, allow_pickle=False) as data:
         frame_times = data["frame_times_s"].copy()
-        scores = data["scores"].copy()
-        motion_energy = data["total"].copy()
+        # The video file has more PCs than the model can use; keep the first ones.
+        scores = data["scores"][:, : max(VIDEO_COMPONENT_COUNTS)].copy()
     if scores.ndim != 2 or scores.shape[1] != max(VIDEO_COMPONENT_COUNTS):
-        raise ValueError("Expected exactly 200 video-component score columns.")
+        raise ValueError("The video file has too few motion-energy PCs.")
     if len(frame_times) != len(scores):
         raise ValueError("Video times and score rows must match.")
     if (
@@ -501,9 +455,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     ):
         raise ValueError("Video times and scores must be finite and time ordered.")
 
-    task, task_manifest = build_task_design(
-        prepared["alignments"], trials, frame_times, motion_energy
-    )
+    task, task_manifest = build_task_design(prepared["alignments"], trials)
     task_values = task.X
     task_columns = task_values.shape[1]
     valid = _valid_bin_mask(prepared)

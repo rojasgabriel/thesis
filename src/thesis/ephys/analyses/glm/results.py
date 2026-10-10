@@ -35,22 +35,15 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-# The design codes flashes as a common kernel plus a state contrast (pre-withdrawal
-# -0.5, post-withdrawal +0.5) and a centered synaptic-resource term. These are the
-# three flash conditions that occur, each as a (state value, resource-level key).
-# The level key selects a centered resource value from the design metadata:
-# "first" (raw resource 1, a full pool) or "late" (the mean raw resource of
-# adapted flashes, R < 1; equal to "first" if no flash is adapted). The first
-# flash is always pre-withdrawal, so first-and-post never occurs and is omitted.
+# The design codes flashes as a common kernel plus a centered synaptic-resource
+# term. Each displayed flash condition maps to a resource-level key that selects
+# a centered resource value from the design metadata: "first" (raw resource 1, a
+# full pool) or "late" (the mean raw resource of adapted flashes, R < 1; equal
+# to "first" if no flash is adapted).
 EXAMPLE_UNIT_ID = 197
 FLASH_COMMON = "visual_flash"
-FLASH_STATE = "flash_pre_post_withdrawal"
 FLASH_ADAPT = "flash_adaptation"
-FLASH_CONDITIONS = {
-    "flash_first": (-0.5, "first"),
-    "flash_later_pre": (-0.5, "late"),
-    "flash_later_post": (0.5, "late"),
-}
+FLASH_CONDITIONS = {"flash_first": "first", "flash_later": "late"}
 
 
 def fitted_trial_contributions(
@@ -149,19 +142,18 @@ def flash_condition_display(
 ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
     """Replace the raw flash regressors with one kernel per flash condition.
 
-    A flash's log-rate contribution is the common kernel plus the state contrast
-    scaled by its pre/post value plus the adaptation kernel scaled by its centered
-    adaptation index. Evaluating that at representative levels gives one
-    interpretable kernel per occurring condition.
+    A flash's log-rate contribution is the common kernel plus the adaptation
+    kernel scaled by its centered adaptation index. Evaluating that at
+    representative levels gives one interpretable kernel per condition.
     """
-    flash_blocks = (FLASH_COMMON, FLASH_STATE, FLASH_ADAPT)
+    flash_blocks = (FLASH_COMMON, FLASH_ADAPT)
     display = {
         name: values for name, values in kernels.items() if name not in flash_blocks
     }
     times, common = kernels[FLASH_COMMON]
-    state, adapt = kernels[FLASH_STATE][1], kernels[FLASH_ADAPT][1]
-    for name, (state_value, level_key) in FLASH_CONDITIONS.items():
-        values = common + state_value * state + adapt_levels[level_key] * adapt
+    adapt = kernels[FLASH_ADAPT][1]
+    for name, level_key in FLASH_CONDITIONS.items():
+        values = common + adapt_levels[level_key] * adapt
         if not np.isfinite(values).all():
             raise ValueError("Combined flash kernels must be finite.")
         display[name] = (times, values)
@@ -359,8 +351,7 @@ def write_figure_data(
     center_entry = float(trial["center_entry_s"])
     center_exit = float(trial["center_exit_s"])
     response_entry = float(trial["response_port_entry_s"])
-    response_time = float(trial["response_port_entry_s"]) - alignment
-    modeled_flash_times, state_values, resource_values = flash_events(
+    modeled_flash_times, resource_values = flash_events(
         trials.iloc[[selected_trial_row]]
     )
     modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
@@ -372,9 +363,7 @@ def write_figure_data(
         raise ValueError("Every displayed flash must be represented exactly once.")
     events = {
         "visual_flash": modeled_flash_times - alignment,
-        "initiation": np.asarray([center_entry - alignment]),
         "withdrawal": np.asarray([center_exit - alignment]),
-        "response_entry": np.asarray([response_time]),
     }
     with np.load(
         windows.with_name("video_me_features.npz"), allow_pickle=False
@@ -420,7 +409,6 @@ def write_figure_data(
         "test_trials": trial_count,
         "model_design_trial": int(test_trial_numbers[typical_trial]),
         "model_design_flashes": len(modeled_flash_times),
-        "model_design_pre_withdrawal_flashes": int(np.count_nonzero(state_values < 0)),
         "model_design_first_flashes": int(np.count_nonzero(resource_values == 1.0)),
         "model_design_valid_bins": int(displayed_rows.sum()),
         "display_task_names": list(display_task_names),

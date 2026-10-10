@@ -58,18 +58,12 @@ SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
     "visual_flash",
-    "flash_pre_post_withdrawal",
     "flash_adaptation",
-    "flash_motion_energy",
-    "initiation",
     "withdrawal",
-    "response_entry",
     "video",
     "history",
 )
 GROUP_ORDER = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
-# Regressors that are shuffled together, to test whether they replace each other.
-JOINT_GROUPS = {"flash_movement": ("flash_pre_post_withdrawal", "flash_motion_energy")}
 RELIABLE_ALPHA = 0.05
 UNIQUE = "unique_test_deviance_explained"
 MAXIMAL = "maximal_test_deviance_explained"
@@ -92,8 +86,6 @@ def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
         cursor = stop
     if cursor != task_columns:
         raise ValueError("Task manifest and task-column count differ.")
-    for name, members in JOINT_GROUPS.items():
-        groups[name] = tuple(groups[member] for member in members)
     return groups
 
 
@@ -245,10 +237,6 @@ def _block_task(job: dict) -> dict:
         # Each fold copies its train and test rows only once. `mapping` is a row
         # permutation, or None to restore the real rows.
         def put(columns, mapping):
-            if isinstance(columns, tuple):  # a joint group of several regressors
-                for part in columns:
-                    put(part, mapping)
-                return
             width = job["common_columns"]
             if columns.stop <= width:
                 source = np.asarray(common[:, columns])
@@ -410,15 +398,8 @@ def run_unique(
     fit_dir: Path,
     unit_set: str,
     workers: int | None = None,
-    joint: bool = False,
 ) -> None:
-    """Fit same-width shuffled comparators; plot the summary and the example unit.
-
-    With `joint`, score only the groups in `JOINT_GROUPS` (regressors shuffled
-    together) and write `unique_deviance/joint_summary.json`. If the joint
-    unique ΔD² is much larger than the sum of the single values, the regressors
-    in the group replace each other.
-    """
+    """Fit same-width shuffled comparators; plot the summary and the example unit."""
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
     with design_path.with_suffix(".json").open() as handle:
@@ -454,7 +435,7 @@ def run_unique(
     )
     unit_rows = analysis_unit_indices(units, unit_set)
     output_dir = fit_dir / "unique_deviance"
-    checkpoint_dir = checkpoints / ("unique_joint" if joint else "unique")
+    checkpoint_dir = checkpoints / "unique"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     jobs = [
@@ -465,7 +446,7 @@ def run_unique(
             "video_components": video_components,
             "common_columns": common_columns,
             "groups": groups,
-            "group_order": tuple(JOINT_GROUPS) if joint else GROUP_ORDER,
+            "group_order": GROUP_ORDER,
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(
                 checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"
@@ -493,42 +474,6 @@ def run_unique(
         workers,
         shuffle_seed=SHUFFLE_SEED,
     )
-
-    if joint:
-        single = {
-            int(item["unit_id"]): item
-            for item in load_unit_records(checkpoints / "unique", "unit_*.json")
-        }
-        summary = {"units": len(records)}
-        for name, members in JOINT_GROUPS.items():
-            joint_unique = np.asarray(
-                [record["groups"][name][UNIQUE] for record in records]
-            )
-            single_sum = np.asarray(
-                [
-                    sum(
-                        single[int(record["unit_id"])]["groups"][member][UNIQUE]
-                        for member in members
-                    )
-                    for record in records
-                ]
-            )
-            summary[name] = {
-                "members": list(members),
-                "joint_unique_median": float(np.median(joint_unique)),
-                "sum_of_single_unique_median": float(np.median(single_sum)),
-                "joint_minus_sum_median": float(np.median(joint_unique - single_sum)),
-                "fraction_units_joint_above_sum": float(
-                    np.mean(joint_unique > single_sum)
-                ),
-                "joint_maximal_median": float(
-                    np.median([record["groups"][name][MAXIMAL] for record in records])
-                ),
-            }
-        output_dir.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(output_dir / "joint_summary.json", summary)
-        print(json.dumps(summary, indent=2))
-        return
 
     summary = _write_summary(records, output_dir)
     from thesis.ephys.analyses.glm.figures import (

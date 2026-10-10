@@ -2,15 +2,14 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, predict V1 spikes from these terms: a
-common flash kernel, a pre/post-withdrawal contrast, a synaptic-resource
-flash-adaptation term, a flash × motion-energy interaction (the flash kernel
-scaled by the total motion energy at the flash), an initiation kernel truncated
-at the first flash,
-peri-withdrawal movement, response entry, validation-selected additive video
-motion-energy PCs, and the strictly past spike history of each unit. The model
-has no response-side, coupling, session-drift, go-cue, outcome, or punishment
-terms.
+For GRB006 session 20240821_121447, predict V1 spikes from five regressors: a
+common flash kernel, a synaptic-resource flash-adaptation term, a
+peri-withdrawal kernel, the first 10 additive video motion-energy PCs, and the
+strictly past spike history of each unit. All terms are additive in log rate.
+The model has no flash × movement interaction, initiation, response-entry,
+response-side, coupling, session-drift, go-cue, outcome, or punishment terms.
+The full-design fit that tested and removed four more regressors is in
+`docs/glm.md`.
 
 Units: each unit must pass quality criterion set 1 (`unit_criteria_id=1`) and
 stability set 0 (`stability_param_id=0`). No sensory-response filter is
@@ -30,8 +29,8 @@ cross-validation fold, the fit rows are all valid rows outside the held-out
 fold. D² and bits/spike compare the model with this null.
 
 Split and sampling unit: whole trials are split randomly 60/20/20. The
-motion-energy PC count with the highest mean validation D² over units is
-selected. That count stays fixed in all folds. Held-out performance is the mean
+motion-energy PC count is fixed at 10; the training and validation rows also
+score the model without motion energy. Held-out performance is the mean
 D² over ten whole-trial cross-validation folds. In each fold, the L2 penalty is
 chosen on a random 25% of the remaining trials. A fold with no test spikes for
 a unit is skipped. A unit with fewer than two scored folds stops the run. The

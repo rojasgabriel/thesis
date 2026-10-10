@@ -45,15 +45,10 @@ GROUP_COLORS = {
 }
 TASK_LABELS = {
     "visual_flash": "visual flash",
-    "flash_pre_post_withdrawal": "flash: post - pre withdrawal",
     "flash_adaptation": "flash: adaptation",
-    "flash_motion_energy": "flash × motion energy",
     "flash_first": "first flash",
-    "flash_later_pre": "later flash, pre-withdrawal",
-    "flash_later_post": "later flash, post-withdrawal",
-    "initiation": "initiation",
+    "flash_later": "later flash, adapted",
     "withdrawal": "withdrawal",
-    "response_entry": "response entry",
 }
 COUNT_BIN_MS = 10
 MIN_RATE_TRIAL_FRACTION = 0.5
@@ -76,9 +71,7 @@ DEVIANCE_COLORS = {
     "video": GROUP_COLORS["video"],
     "history": GROUP_COLORS["history"],
     "visual_flash": GROUP_COLORS["visual"],
-    "flash_pre_post_withdrawal": GROUP_COLORS["visual"],
     "flash_adaptation": GROUP_COLORS["visual"],
-    "flash_motion_energy": GROUP_COLORS["visual"],
 }
 
 
@@ -194,7 +187,7 @@ def plot_model_design(
         )
     ):
         raise ValueError("Model-design values must be finite.")
-    expected_events = {"visual_flash", "initiation", "withdrawal", "response_entry"}
+    expected_events = {"visual_flash", "withdrawal"}
     if set(events) != expected_events:
         raise ValueError("Model-design task events are incomplete.")
 
@@ -214,23 +207,11 @@ def plot_model_design(
     right_ms = max(model_right_ms, float(event_values_ms.max()))
     spike_times_ms = np.repeat(times_ms, counts.astype(int, copy=False))
     manifest = {item["name"]: item for item in design_metadata["task_manifest"]}
-    event_order = (
-        "initiation",
-        "visual_flash",
-        "withdrawal",
-        "response_entry",
-    )
-    event_labels = {
-        "initiation": "initiation",
-        "visual_flash": "visual flashes",
-        "withdrawal": "withdrawal",
-        "response_entry": "response entry",
-    }
+    event_order = ("visual_flash", "withdrawal")
+    event_labels = {"visual_flash": "visual flashes", "withdrawal": "withdrawal"}
     event_colors = {
         "visual_flash": GROUP_COLORS["visual"],
-        "initiation": GROUP_COLORS["task"],
         "withdrawal": GROUP_COLORS["task"],
-        "response_entry": GROUP_COLORS["task"],
     }
 
     with plt.rc_context(FIGURE_STYLE):
@@ -256,8 +237,6 @@ def plot_model_design(
             for event_time in event_arrays[name]:
                 support_start = max(left_ms, 1000 * (event_time + kernel_start))
                 support_stop = min(right_ms, 1000 * (event_time + kernel_stop))
-                if name == "initiation":
-                    support_stop = min(support_stop, 0.0)
                 if support_stop > support_start:
                     event_axis.fill_betweenx(
                         (position - 0.28, position + 0.28),
@@ -907,15 +886,7 @@ def plot_example_unit(
             data["model_counts"],
             data["motion_times"],
             data["motion_scores"],
-            {
-                name: data[f"event__{name}"]
-                for name in (
-                    "visual_flash",
-                    "initiation",
-                    "withdrawal",
-                    "response_entry",
-                )
-            },
+            {name: data[f"event__{name}"] for name in ("visual_flash", "withdrawal")},
             {
                 name: data[f"contrib__{name}"]
                 for name in ("visual", "task", "video", "history")

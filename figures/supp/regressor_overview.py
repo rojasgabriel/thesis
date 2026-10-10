@@ -17,7 +17,12 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm.dmat import spike_history_basis, task_temporal_bases
+from thesis.ephys.analyses.glm.dmat import (
+    WITHDRAWAL_BASES,
+    WITHDRAWAL_HALF_WINDOW_S,
+    spike_history_basis,
+    task_temporal_bases,
+)
 from thesis.plotting import FIGURE_STYLE
 
 GROUP_COLORS = {"sensory": "C0", "task": "C1", "video": "C2", "history": "C3"}
@@ -42,13 +47,6 @@ def main() -> Path:
             "time from flash (ms)",
         ),
         (
-            "flash_pre_post_withdrawal",
-            "flash: pre/post withdrawal",
-            "sensory",
-            "same bases, weight -0.5 pre / +0.5 post withdrawal",
-            "time from flash (ms)",
-        ),
-        (
             "flash_adaptation",
             "flash: adaptation",
             "sensory",
@@ -56,32 +54,11 @@ def main() -> Path:
             "time from flash (ms)",
         ),
         (
-            "flash_motion_energy",
-            "flash × motion energy",
-            "sensory",
-            "same bases, centered motion energy (SD) at each flash",
-            "time from flash (ms)",
-        ),
-        (
-            "initiation",
-            "initiation (center poke)",
-            "task",
-            "4 bases, 0-90 ms, truncated at that trial's first flash",
-            "time from center poke (ms)",
-        ),
-        (
             "withdrawal",
             "withdrawal (center exit)",
             "task",
-            "9 bases spanning +/-300 ms (peri-event)",
+            f"{WITHDRAWAL_BASES} bases spanning ±{1000 * WITHDRAWAL_HALF_WINDOW_S:.0f} ms",
             "time from center exit (ms)",
-        ),
-        (
-            "response_entry",
-            "response entry",
-            "task",
-            "6 bases before the event, -300 to -1 ms",
-            "time from response port entry (ms)",
         ),
         (
             "video",
@@ -100,10 +77,11 @@ def main() -> Path:
     ]
 
     with plt.rc_context(FIGURE_STYLE):
-        fig, axes = plt.subplots(3, 3, figsize=(12.6, 7.6))
+        fig, axes = plt.subplots(2, 3, figsize=(12.6, 5.2))
         axes = axes.ravel()
+        axes[-1].set_visible(False)
         for index, (ax, (key, title, group, coding, xlabel)) in enumerate(
-            zip(axes, panels, strict=True)
+            zip(axes, panels, strict=False)
         ):
             color = GROUP_COLORS[group]
             if key == "video":

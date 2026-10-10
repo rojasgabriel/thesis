@@ -1,6 +1,6 @@
 """Check that the V1 GLM pipeline recovers known effects from synthetic spikes.
 
-Question: does `glm prepare`, `fit`, and `unique` recover kernels and block
+Question: does `glm prepare`, `fit`, and `unique` recover kernels and regressor
 contributions that were planted in simulated data? This needs no database. The
 check replaces the trial table and the unit table with a synthetic session,
 then runs the real pipeline code end to end in a temporary directory.
@@ -8,7 +8,7 @@ then runs the real pipeline code end to end in a temporary directory.
 Synthetic session: 80 trials, each aligned to its first flash, with
 initiation, a 30–80 ms flash train, withdrawal, and response entry. Video has
 5 motion-energy PCs; only PC 1 drives spikes. The pipeline compares 2 and 5
-PCs instead of 10–200 so that the check runs in minutes.
+PCs instead of the fixed 10, so the check also covers the PC-count selection.
 
 The ground truth is written in continuous time from the event times, not from
 the design matrix, so a wrong event alignment or a non-causal basis fails the
@@ -18,7 +18,6 @@ check. Units (all 20 spikes/s baseline, 1 ms bins):
 - 102: motion-energy PC 1 only.
 - 103: withdrawal only.
 - 104: constant rate, no history (null unit).
-- 105: flash, with a response that grows with the motion energy at the flash.
 - 197: every effect. Its figures are drawn if it is selected as the example unit.
 
 Bins after response entry have 3x the rate. The pipeline masks them, so they
@@ -59,10 +58,7 @@ BASE_RATE_HZ = 20.0
 PC_COUNTS = (2, 5)
 FLASH_PEAK_S = 0.04
 FLASH_GAIN = 1.5
-STATE_GAIN = 0.6  # flash kernel scale per unit of the -0.5/+0.5 state code
 ADAPT_GAIN = 1.0  # flash kernel scale per unit of centered resource
-# Small, because the kernels of flashes 30-80 ms apart add up in the log rate.
-MOTION_GAIN = 0.25  # flash kernel scale per SD of motion energy at the flash
 WITHDRAWAL_PEAK_S = 0.05
 WITHDRAWAL_GAIN = 0.8
 VIDEO_GAIN = 0.4
@@ -72,8 +68,7 @@ UNITS = {
     102: {"video"},
     103: {"withdrawal"},
     104: set(),
-    105: {"flash", "motion"},
-    197: {"flash", "state", "adapt", "withdrawal", "video", "history"},
+    197: {"flash", "adapt", "withdrawal", "video", "history"},
 }
 
 
@@ -85,10 +80,10 @@ def flash_kernel(lag: np.ndarray) -> np.ndarray:
 
 
 def withdrawal_kernel(lag: np.ndarray) -> np.ndarray:
-    """Gaussian log-rate bump around withdrawal, inside the ±300 ms support."""
+    """Gaussian log-rate bump around withdrawal, inside the kernel support."""
     lag = np.asarray(lag, dtype=float)
     bump = WITHDRAWAL_GAIN * np.exp(-0.5 * ((lag - WITHDRAWAL_PEAK_S) / 0.06) ** 2)
-    return np.where(np.abs(lag) <= 0.3, bump, 0.0)
+    return np.where(np.abs(lag) <= dmat.WITHDRAWAL_HALF_WINDOW_S, bump, 0.0)
 
 
 def history_kernel(lag_bins: np.ndarray) -> np.ndarray:
@@ -204,29 +199,14 @@ def simulate_unit(
         for times in modeled
     ]
     center = np.concatenate(resources).mean()
-    motion = [np.interp(times, video[:, 0], video[:, 1]) for times in modeled]
-    motion_mean = np.concatenate(motion).mean()
-    motion_sd = np.concatenate(motion).std()
     history = history_kernel(np.arange(1, 101))
     spikes = []
     for index, row in enumerate(trials.itertuples()):
         alignment = row.stim_pulse_times_s[0]
         times = alignment + centers
         drive = np.full(len(centers), np.log(BASE_RATE_HZ * dmat.BINWIDTH_S))
-        state = np.where(modeled[index] < row.center_exit_s, -0.5, 0.5)
-        for flash, s, r, m in zip(
-            modeled[index],
-            state,
-            resources[index] - center,
-            (motion[index] - motion_mean) / motion_sd,
-            strict=True,
-        ):
-            scale = (
-                ("flash" in effects)
-                + STATE_GAIN * s * ("state" in effects)
-                + ADAPT_GAIN * r * ("adapt" in effects)
-                + MOTION_GAIN * m * ("motion" in effects)
-            )
+        for flash, r in zip(modeled[index], resources[index] - center, strict=True):
+            scale = ("flash" in effects) + ADAPT_GAIN * r * ("adapt" in effects)
             drive += scale * flash_kernel(times - flash)
         if "withdrawal" in effects:
             drive += withdrawal_kernel(times - row.center_exit_s)
@@ -395,31 +375,11 @@ def main() -> None:
                 f"{unit_id} flash peak within 20%",
                 abs(flash_v.max() / truth.max() - 1) < 0.2,
             )
-        if "state" in effects:
-            _, state_v = kernels["flash_pre_post_withdrawal"]
-            truth = STATE_GAIN * flash_kernel(flash_t / 1000)
-            check(f"{unit_id} state kernel r>0.7", _correlation(state_v, truth) > 0.7)
         if "adapt" in effects:
             _, adapt_v = kernels["flash_adaptation"]
             truth = ADAPT_GAIN * flash_kernel(flash_t / 1000)
             check(
                 f"{unit_id} adaptation kernel r>0.7", _correlation(adapt_v, truth) > 0.7
-            )
-        if "motion" in effects:
-            _, motion_v = kernels["flash_motion_energy"]
-            truth = MOTION_GAIN * flash_kernel(flash_t / 1000)
-            check(
-                f"{unit_id} flash x motion kernel r>0.7",
-                _correlation(motion_v, truth) > 0.7,
-            )
-            check(
-                f"{unit_id} flash x motion unique > 0.001",
-                unique["flash_motion_energy"] > 0.001,
-            )
-        else:
-            check(
-                f"{unit_id} flash x motion unique near 0",
-                abs(unique["flash_motion_energy"]) < 0.005,
             )
         if "withdrawal" in effects:
             exit_t, exit_v = kernels["withdrawal"]
