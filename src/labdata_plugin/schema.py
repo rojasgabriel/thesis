@@ -31,6 +31,7 @@ class EventMapping(dj.Lookup):
         {"stream_name": "nidq", "event_name": "4", "event_role": "center_port"},
         {"stream_name": "nidq", "event_name": "5", "event_role": "right_port"},
         {"stream_name": "obx", "event_name": "io0", "event_role": "visual_stim"},
+        {"stream_name": "obx", "event_name": "io1", "event_role": "audio_stim"},
         {"stream_name": "obx", "event_name": "io2", "event_role": "trial_start"},
         {"stream_name": "obx", "event_name": "io3", "event_role": "frames"},
         {"stream_name": "obx", "event_name": "io4", "event_role": "left_port"},
@@ -102,7 +103,7 @@ class UnitStability(dj.Computed):
         import numpy as np
         import pandas as pd
         from diptest import diptest
-        from statsmodels.stats.multitest import multipletests
+        from scipy.stats import false_discovery_control
 
         if not (len(spike_times) == len(spike_amplitudes) == len(unit_ids)):
             raise ValueError(
@@ -156,8 +157,8 @@ class UnitStability(dj.Computed):
             )
 
         stability_results = pd.DataFrame(stability_rows)
-        _, stability_results["dip_q_value"], _, _ = multipletests(
-            stability_results["dip_p_value"], alpha=dip_alpha, method="fdr_bh"
+        stability_results["dip_q_value"] = false_discovery_control(
+            stability_results["dip_p_value"], method="bh"
         )
         stability_results["amplitude_stable"] = np.isfinite(
             stability_results["amplitude_drift"]
@@ -282,7 +283,6 @@ class StimulusResponse(dj.Computed):
         import numpy as np
         import pandas as pd
         from scipy import stats
-        from statsmodels.stats.multitest import multipletests
 
         n_units = peth.shape[0]
         if len(unit_ids) != n_units:
@@ -317,7 +317,7 @@ class StimulusResponse(dj.Computed):
             except ValueError:
                 pass
 
-        _, q_values, _, _ = multipletests(p_values, alpha=alpha, method="fdr_bh")
+        q_values = stats.false_discovery_control(p_values, method="bh")
         mean_baseline_rates = baseline_rates.mean(axis=1)
         mean_response_rates = response_rates.mean(axis=1)
         mean_response_deltas = response_deltas.mean(axis=1)

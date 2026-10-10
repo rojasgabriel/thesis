@@ -1,12 +1,35 @@
-"""Run and inspect the locomotion peak analysis.
+"""Compare V1 flash responses before and after the mouse leaves the center port.
 
-This script computes peak responses, writes the canonical PDF, and can
-optionally leave an interactive matplotlib window open for inspection.
+Comparison: in each trial, the script compares two 15 ms flashes. The first is
+the last flash between the matched center entry and center exit (stationary).
+The second is the first flash from center exit to response-port entry
+(movement). "Movement" is a task epoch. The script does not measure locomotion.
+The two flashes come from the same trial, and each unit gives one peak for each
+condition. Sessions: GRB006 20240821_121447, GRB058 20260224_152424, and GRB064
+20260916_132939 (one session for each subject). Unit selection: units pass
+quality criterion 1 and stability parameter 0. They also have the stored
+"excited" classification in StimulusResponse (stimulus-response parameter 0).
+Event alignment: spikes align to flash onset on the visual-stimulus TTL
+channel. The PETH uses 10 ms bins from -90 to 140 ms. Baseline: the stationary
+trial-mean rate from -40 to 0 ms. The script subtracts this one baseline from
+both conditions. Peak: the maximum baseline-corrected trial-mean rate from 30
+to 120 ms. The script finds the peak separately for each condition. Exclusions:
+the script removes trials with no matched center entry, center exit, and
+response-port entry sequence. It also removes trials that do not have one
+stationary flash and one movement flash. It uses only 15 ms flashes, so it
+ignores 30 ms flashes and flashes of unknown width. It does not remove other
+flashes inside the PETH window. Sampling unit: the unit. Panel a shows each
+unit and the subject mean ± SEM across units on both axes. Panel b shows
+movement minus stationary peak for each unit and the subject mean ± SEM.
+Display limit: panel a stops at 60 sp/s. Units above this limit stay in the
+means, and the script prints their count.
+
+The script writes locomotion/locomotion_peaks.pdf under THESIS_FIGURE_ROOT. The
+default root is "figures".
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 from pathlib import Path
 
@@ -26,6 +49,7 @@ FIGURE_DIR = FIGURE_ROOT / "locomotion"
 SUBJECT_SESSIONS = [
     ("GRB006", "20240821_121447"),
     ("GRB058", "20260224_152424"),
+    ("GRB064", "20260916_132939"),
 ]
 
 UNIT_CRITERIA_ID = 1
@@ -34,20 +58,13 @@ STIM_RESPONSE_PARAM_ID = 0
 PETH_BINWIDTH_MS = 10
 SCATTER_MAX_RATE = 60.0
 BACKGROUND_DOT_ALPHA = 0.2
-SUBJECT_COLORS = ("#E41A1C", "#377EB8")
+SUBJECT_COLORS = ("#E41A1C", "#377EB8", "#4DAF4A")
 
 
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
-    """Load the conditioned-stim classification for one session."""
-    return _build_trial_stim_classification(
-        build_trial_table(subject, session)
-    ).reset_index(drop=True)
-
-
-def _build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
     """Classify 15 ms pulses as stationary or movement for each trial."""
     classification_records = []
-    for trial_index, trial in trial_df.iterrows():
+    for _, trial in build_trial_table(subject, session).iterrows():
         cp_entry = trial["center_entry_s"]
         cp_exit = trial["center_exit_s"]
         rp_entry = trial["response_port_entry_s"]
@@ -73,18 +90,7 @@ def _build_trial_stim_classification(trial_df: pd.DataFrame) -> pd.DataFrame:
         ].tolist()
         if stationary_stims and movement_stims:
             classification_records.append(
-                {
-                    "trial_idx": trial_index,
-                    "cp_entry": cp_entry,
-                    "cp_exit": cp_exit,
-                    "rp_entry": rp_entry,
-                    "stationary_stims": stationary_stims,
-                    "movement_stims": movement_stims,
-                    "n_cp_entries": sum(
-                        timestamp < cp_exit
-                        for timestamp in trial["center_port_entry_times_s"]
-                    ),
-                }
+                {"stationary_stims": stationary_stims, "movement_stims": movement_stims}
             )
 
     return pd.DataFrame(classification_records)
@@ -94,27 +100,12 @@ def extract_paired_stim_anchors(
     trial_classification: pd.DataFrame,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return last-stationary and first-movement stimulus times."""
-    paired_trials = trial_classification[
-        trial_classification["stationary_stims"].str.len().gt(0)
-        & trial_classification["movement_stims"].str.len().gt(0)
-    ]
-    return (
-        np.asarray(
-            [stims[-1] for stims in paired_trials["stationary_stims"]], dtype=float
-        ),
-        np.asarray(
-            [stims[0] for stims in paired_trials["movement_stims"]], dtype=float
-        ),
-    )
+    stationary = [stims[-1] for stims in trial_classification["stationary_stims"]]
+    movement = [stims[0] for stims in trial_classification["movement_stims"]]
+    return np.asarray(stationary, dtype=float), np.asarray(movement, dtype=float)
 
 
-def compute_locomotion_peaks(
-    subject: str,
-    session: str,
-    unit_criteria_id: int = 1,
-    stability_param_id: int | None = 0,
-    stim_response_param_id: int = 0,
-) -> pd.DataFrame:
+def compute_locomotion_peaks(subject: str, session: str) -> pd.DataFrame:
     """Return stationary and movement peaks for stable stimulus-excited units."""
     stationary_events, movement_events = extract_paired_stim_anchors(
         load_trial_classification(subject, session)
@@ -122,12 +113,12 @@ def compute_locomotion_peaks(
     if stationary_events.size == 0 or movement_events.size == 0:
         raise RuntimeError(f"No paired locomotion trials for {subject} {session}.")
 
-    units = fetch_unit_table(subject, session, unit_criteria_id, stability_param_id)
+    units = fetch_unit_table(subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID)
     response_query = {
         "subject_name": subject,
         "session_name": session,
-        "unit_criteria_id": unit_criteria_id,
-        "stim_response_param_id": stim_response_param_id,
+        "unit_criteria_id": UNIT_CRITERIA_ID,
+        "stim_response_param_id": STIM_RESPONSE_PARAM_ID,
         "response_type": "excited",
     }
     excited_unit_ids = set((StimulusResponse.Unit & response_query).fetch("unit_id"))
@@ -139,26 +130,18 @@ def compute_locomotion_peaks(
     unit_ids = units["unit_id"].astype(int).tolist()
     spike_times = units["spike_times_s"].tolist()
 
-    stationary_peth, bin_edges, _ = population_peth(
-        all_spike_times=spike_times,
-        alignment_times=stationary_events,
-        pre_seconds=0.1,
-        post_seconds=0.15,
-        binwidth_ms=PETH_BINWIDTH_MS,
-    )
-    stationary_peth = stationary_peth / (PETH_BINWIDTH_MS / 1000)
-    movement_peth, _, _ = population_peth(
-        all_spike_times=spike_times,
-        alignment_times=movement_events,
-        pre_seconds=0.1,
-        post_seconds=0.15,
-        binwidth_ms=PETH_BINWIDTH_MS,
-    )
-    movement_peth = movement_peth / (PETH_BINWIDTH_MS / 1000)
-
+    trial_means = []
+    for events in (stationary_events, movement_events):
+        peth, bin_edges, _ = population_peth(
+            all_spike_times=spike_times,
+            alignment_times=events,
+            pre_seconds=0.1,
+            post_seconds=0.15,
+            binwidth_ms=PETH_BINWIDTH_MS,
+        )
+        trial_means.append((peth / (PETH_BINWIDTH_MS / 1000)).mean(axis=1))
+    stationary_mean, movement_mean = trial_means
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    stationary_mean = stationary_peth.mean(axis=1)
-    movement_mean = movement_peth.mean(axis=1)
     baseline_mask = (bin_centers >= -0.04) & (bin_centers < 0.0)
     response_mask = (bin_centers >= 0.03) & (bin_centers < 0.12)
     # Hold the baseline fixed so both conditions are measured from the
@@ -182,38 +165,15 @@ def compute_locomotion_peaks(
     )
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--show",
-        action="store_true",
-        help="Open an interactive matplotlib window after saving the figure.",
-    )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Build the figure without writing the PDF. Usually paired with --show.",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = _parse_args()
-    if not args.show:
-        matplotlib.use("Agg")
+    matplotlib.use("Agg")
     from matplotlib import pyplot as plt
 
     peak_results: list[tuple[str, pd.DataFrame]] = []
 
     for subject, session in SUBJECT_SESSIONS:
         print(f"\nComputing locomotion peaks: {subject} {session}")
-        peak_table = compute_locomotion_peaks(
-            subject,
-            session,
-            unit_criteria_id=UNIT_CRITERIA_ID,
-            stability_param_id=STABILITY_PARAM_ID,
-            stim_response_param_id=STIM_RESPONSE_PARAM_ID,
-        )
+        peak_table = compute_locomotion_peaks(subject, session)
         for column in ["stat_peak", "move_peak", "stat_latency", "move_latency"]:
             values = peak_table[column].to_numpy(dtype=float)
             if not np.all(np.isfinite(values)):
@@ -233,17 +193,8 @@ def main() -> None:
         1, 2, figsize=(7.2, 3.3), gridspec_kw={"width_ratios": [1, 0.65]}
     )
 
-    all_peak_values = np.concatenate(
-        [
-            values
-            for _, peak_table in peak_results
-            for values in (
-                peak_table["stat_peak"].to_numpy(dtype=float),
-                peak_table["move_peak"].to_numpy(dtype=float),
-            )
-        ]
-    )
-    lower_limit = min(0.0, float(all_peak_values.min()))
+    peaks = pd.concat([table[["stat_peak", "move_peak"]] for _, table in peak_results])
+    lower_limit = min(0.0, float(peaks.to_numpy(dtype=float).min()))
     padding = 0.05 * (SCATTER_MAX_RATE - lower_limit)
     lower_limit -= padding
 
@@ -252,6 +203,14 @@ def main() -> None:
         color = SUBJECT_COLORS[subject_index]
         stat_peak = peak_table["stat_peak"].to_numpy(dtype=float)
         move_peak = peak_table["move_peak"].to_numpy(dtype=float)
+        outside_view = np.count_nonzero(
+            (stat_peak > SCATTER_MAX_RATE) | (move_peak > SCATTER_MAX_RATE)
+        )
+        if outside_view:
+            print(
+                f"  {subject}: {outside_view} units exceed the {SCATTER_MAX_RATE:g} "
+                "sp/s scatter limit; retained in summaries"
+            )
         ax.scatter(
             stat_peak,
             move_peak,
@@ -261,11 +220,8 @@ def main() -> None:
             linewidths=0,
             zorder=2,
         )
-        summaries = []
-        for values in (stat_peak, move_peak):
-            mean = float(values.mean())
-            summaries.append((mean, float(stats.sem(values))))
-        (mean_x, sem_x), (mean_y, sem_y) = summaries
+        mean_x, sem_x = stat_peak.mean(), stats.sem(stat_peak)
+        mean_y, sem_y = move_peak.mean(), stats.sem(move_peak)
         ax.errorbar(
             mean_x,
             mean_y,
@@ -302,10 +258,9 @@ def main() -> None:
             color=color,
             linewidths=0,
         )
-        delta_mean = float(delta.mean())
         delta_ax.errorbar(
             subject_index,
-            delta_mean,
+            delta.mean(),
             yerr=stats.sem(delta),
             fmt="o",
             ms=9,
@@ -328,15 +283,15 @@ def main() -> None:
     ax.set_xlim(lower_limit, SCATTER_MAX_RATE)
     ax.set_ylim(lower_limit, SCATTER_MAX_RATE)
     ax.set_aspect("equal")
-    ax.set_xlabel("Stationary peak (baseline-corrected sp/s)")
-    ax.set_ylabel("Movement peak (baseline-corrected sp/s)")
+    ax.set_xlabel("stationary peak (baseline-corrected sp/s)")
+    ax.set_ylabel("movement peak (baseline-corrected sp/s)")
     delta_ax.axhline(0, color="0.6", linewidth=0.7)
     delta_ax.set_xticks(
         range(len(peak_results)), [subject for subject, _ in peak_results]
     )
     for label, color in zip(delta_ax.get_xticklabels(), SUBJECT_COLORS):
         label.set_color(color)
-    delta_ax.set_ylabel("Movement − stationary peak (sp/s)")
+    delta_ax.set_ylabel("movement − stationary peak (sp/s)")
     for axis in (ax, delta_ax):
         axis.spines[["top", "right"]].set_visible(False)
     fig.subplots_adjust(left=0.1, right=0.98, bottom=0.18, top=0.9, wspace=0.45)
@@ -352,16 +307,11 @@ def main() -> None:
             va="bottom",
         )
 
-    if not args.no_save:
-        FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-        save_path = FIGURE_DIR / "locomotion_peaks.pdf"
-        fig.savefig(save_path, bbox_inches="tight", dpi=300)
-        print(f"\nSaved -> {save_path}")
-
-    if args.show:
-        plt.show()
-    else:
-        plt.close(fig)
+    FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+    save_path = FIGURE_DIR / "locomotion_peaks.pdf"
+    fig.savefig(save_path, bbox_inches="tight", dpi=300)
+    print(f"\nSaved -> {save_path}")
+    plt.close(fig)
 
 
 if __name__ == "__main__":

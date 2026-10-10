@@ -1,14 +1,16 @@
-"""Standalone browser for stored unit-stability selections."""
+"""Browse unit-stability selections for one session.
+
+The app first runs UnitStability populate for the session, the unit criteria
+ID, and the stability parameter ID. This computes missing rows and writes them
+to the database. Then the app shows the stored rows.
+"""
 
 import argparse
-import warnings
 
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6 import QtWidgets
-
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 FILTERS = (
     "All",
@@ -70,10 +72,9 @@ def _load_data(
 
 
 class UnitStabilityApp(QtWidgets.QMainWindow):
-    def __init__(self, data: dict[int, pd.DataFrame], n_bins: int = 50) -> None:
+    def __init__(self, data: dict[int, pd.DataFrame]) -> None:
         super().__init__()
         self.data = data
-        self.n_bins = n_bins
         self.position = 0
 
         pg.setConfigOption("background", "white")
@@ -169,7 +170,7 @@ class UnitStabilityApp(QtWidgets.QMainWindow):
         row = rows.iloc[self.position]
         colors = ("#4c78a8", "#f58518", "#54a24b", "#e45756")
         for index, chunk in enumerate(row["chunks"]):
-            counts, edges = np.histogram(chunk, bins=self.n_bins)
+            counts, edges = np.histogram(chunk, bins=50)
             self.hist_plot.plot(
                 np.repeat(edges, 2)[1:-1],
                 np.repeat(counts, 2),
@@ -189,27 +190,23 @@ class UnitStabilityApp(QtWidgets.QMainWindow):
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Browse stored unit stability metrics",
+        description=(
+            "Browse unit stability metrics. "
+            "The app first computes and stores missing rows."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False,
     )
-    required = parser.add_argument_group("required arguments")
-    required.add_argument(
+    parser.add_argument(
         "-a", "--subject", required=True, default=argparse.SUPPRESS, help="Subject name"
     )
-    required.add_argument(
+    parser.add_argument(
         "-s", "--session", required=True, default=argparse.SUPPRESS, help="Session name"
     )
-    optional = parser.add_argument_group("optional arguments")
-    optional.add_argument("-h", "--help", action="help", help="Show this help message")
-    optional.add_argument(
+    parser.add_argument(
         "--unit-criteria-id", type=int, default=1, help="Unit quality criteria"
     )
-    optional.add_argument(
+    parser.add_argument(
         "--stability-param-id", type=int, default=0, help="Unit stability parameters"
-    )
-    optional.add_argument(
-        "--bins", type=int, default=50, help="Amplitude histogram bin count"
     )
     return parser.parse_args()
 
@@ -223,7 +220,7 @@ def main() -> None:
         args.stability_param_id,
     )
     app = pg.mkQApp("Unit stability browser")
-    browser = UnitStabilityApp(data, args.bins)
+    browser = UnitStabilityApp(data)
     browser.show()
     raise SystemExit(app.exec())
 

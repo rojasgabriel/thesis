@@ -1,10 +1,47 @@
-"""Test whether double-peaked stimulus responses reflect pulse onset and offset.
+"""Test whether double-peaked visual-pulse responses reflect pulse onset and offset.
 
-This supplemental figure shows discovery examples, the predicted change in peak
-latency for 15 versus 30 ms pulses, and whether double-peak units cluster by
-waveform duration or recording depth. Pulse-duration comparisons exclude trials
-with another pulse inside the peak-search window. All spike times are
-synchronized to the behavioral-event clock before alignment.
+This supplemental figure shows discovery examples (a), spike duration (b) and
+depth (c) of double-peak units against other excited units, 15 and 30 ms pulse
+responses (d), and the second-peak latency error for 30 ms pulses (e).
+
+Sessions: discovery uses GRB006 20240821_121447 and GRB058 20260224_152424. The
+pulse-width control uses GRB058 20260312_134952. The double-peak test runs
+separately in each session.
+
+Unit selection: units pass quality criterion 1, stability parameter 0, and the
+stored excited classification (stimulus-response parameter 0). A double-peak
+unit has exactly two trial-mean peaks from 0 to 120 ms. The peaks are at least
+20 ms apart. Each peak has a prominence of at least 25% of the maximum
+baseline-subtracted response, and at least 1 sp/s. Each peak is also at least 5
+sp/s above baseline.
+
+Baseline: the trial-mean rate from -40 to 0 ms.
+
+Event alignment: spikes align to the onsets of first-in-train pulses. A
+first-in-train pulse is the first pulse after a gap of more than 1 s. The PETH
+uses 10 ms bins from -100 to 150 ms. Pulse widths are 15 or 30 ms within ±2 ms.
+Other widths are unknown. The double-peak test uses only first pulses with a 15
+ms width. If every stored pulse has zero duration (onset-only events, as in
+repaired GRB006 data), the code sets all widths to 15 ms. In that case, the
+width is not measured. labdata maps spike times to the event clock through
+StreamSync. If no StreamSync row exists, labdata uses the sampling rate and
+gives a warning.
+
+Pulse-width control: the code uses first-in-train 15 and 30 ms pulses with no
+other pulse in the next 120 ms. The control second peak is the trial-mean
+maximum within 15 ms of the unit's double-peak-test second-peak time in the same
+session. For 30 ms pulses, the window moves 15 ms later. This is the
+onset-offset prediction. Panel e shows the 30 ms second-peak latency minus the
+predicted latency (the 15 ms second-peak latency plus 15 ms).
+
+Exclusions: first pulses of unknown width (counted and printed per session).
+The double-peak test also excludes 30 ms first pulses. The control excludes
+pulses with another pulse in the next 120 ms.
+
+Sampling unit: the trial for the mean ± SEM traces in a and d. Panels a and d
+show the first two double-peak units per session, ranked by the smaller peak
+height above baseline. The unit for b, c, and e. Panels b and c pool the two
+discovery sessions.
 """
 
 import os
@@ -20,7 +57,6 @@ from spks.event_aligned import population_peth
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from labdata_plugin.schema import StimulusResponse
 from thesis.ephys.events import fetch_session_events
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import separate_axes
@@ -57,14 +93,11 @@ FIGURE_ROOT = Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
 OUT_PATH = FIGURE_ROOT / "double_peak" / "double_peak_supplement.pdf"
 
 
-def _window_maximum(
-    peth: np.ndarray, bin_centers: np.ndarray, center: float
-) -> tuple[float, float]:
-    """Return the trial-mean maximum within 15 ms of an expected peak."""
+def _window_maximum(peth: np.ndarray, bin_centers: np.ndarray, center: float) -> float:
+    """Return the time of the trial-mean maximum within 15 ms of an expected peak."""
     mean_peth = peth.mean(axis=0)
     mask = np.abs(bin_centers - center) <= 0.015
-    index = np.flatnonzero(mask)[np.argmax(mean_peth[mask])]
-    return float(bin_centers[index]), float(mean_peth[index])
+    return float(bin_centers[np.flatnonzero(mask)[np.argmax(mean_peth[mask])]])
 
 
 def classify_double_peak_units(
@@ -72,7 +105,9 @@ def classify_double_peak_units(
     alignment_times: np.ndarray,
     unit_ids: list[int],
     excited_unit_ids: Collection[int],
-) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[int]]:
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
+    from labdata_plugin.schema import StimulusResponse
+
     peth, bin_edges, _ = population_peth(
         all_spike_times=spike_times,
         alignment_times=alignment_times,
@@ -82,38 +117,12 @@ def classify_double_peak_units(
     )
     peth = peth / (PETH_BINWIDTH_MS / 1000)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    excited_unit_set = set(excited_unit_ids)
-    excited_indices = np.array(
-        [
-            index
-            for index, unit_id in enumerate(unit_ids)
-            if unit_id in excited_unit_set
-        ],
-        dtype=int,
-    )
-    excited_unit_ids = [unit_ids[index] for index in excited_indices]
-    excited_peth = peth[excited_indices]
-    if not excited_unit_ids:
-        return (
-            pd.DataFrame(
-                {
-                    "unit": [],
-                    "n_peaks": [],
-                    "peak_times": [],
-                    "peak_heights": [],
-                    "baseline": [],
-                    "min_peak_height_above_baseline": [],
-                    "max_peak_height_above_baseline": [],
-                }
-            ),
-            peth,
-            bin_centers,
-            [],
-        )
+    # classify_components works per unit, so classifying every unit and keeping
+    # the excited ones gives the same rows as classifying excited units only.
     peak_rows = StimulusResponse.classify_components(
-        excited_peth,
+        peth,
         bin_centers,
-        excited_unit_ids,
+        unit_ids,
         search_window=PEAK_SEARCH_WINDOW,
         baseline_window=BASELINE_WINDOW,
         min_prominence_fraction=MIN_PROMINENCE_FRACTION,
@@ -129,14 +138,14 @@ def classify_double_peak_units(
         }
     )
 
+    baseline_bins = (bin_centers >= BASELINE_WINDOW[0]) & (
+        bin_centers < BASELINE_WINDOW[1]
+    )
+    candidates = peak_rows["n_peaks"].eq(2) & peak_rows["unit"].isin(excited_unit_ids)
     double_peak_rows = []
-    for _, peak_row in peak_rows.loc[peak_rows["n_peaks"] == 2].iterrows():
-        unit_id = int(peak_row["unit"])
-        excited_index = excited_unit_ids.index(unit_id)
-        baseline_bins = (bin_centers >= BASELINE_WINDOW[0]) & (
-            bin_centers < BASELINE_WINDOW[1]
-        )
-        baseline = float(excited_peth[excited_index].mean(axis=0)[baseline_bins].mean())
+    for _, peak_row in peak_rows.loc[candidates].iterrows():
+        unit_index = unit_ids.index(int(peak_row["unit"]))
+        baseline = float(peth[unit_index].mean(axis=0)[baseline_bins].mean())
         peak_heights_above_baseline = [
             float(height - baseline) for height in peak_row["peak_heights"]
         ]
@@ -147,22 +156,15 @@ def classify_double_peak_units(
         double_peak_row["min_peak_height_above_baseline"] = min(
             peak_heights_above_baseline
         )
-        double_peak_row["max_peak_height_above_baseline"] = max(
-            peak_heights_above_baseline
-        )
         double_peak_rows.append(double_peak_row)
 
     double_peak_rows = pd.DataFrame(double_peak_rows)
     if double_peak_rows.empty:
         double_peak_rows = peak_rows.iloc[0:0].reindex(
             columns=list(peak_rows.columns)
-            + [
-                "baseline",
-                "min_peak_height_above_baseline",
-                "max_peak_height_above_baseline",
-            ]
+            + ["baseline", "min_peak_height_above_baseline"]
         )
-    return double_peak_rows, peth, bin_centers, excited_unit_ids
+    return double_peak_rows, peth, bin_centers
 
 
 def _plot_mean_sem_trace(ax, bin_centers, peth_trials, color) -> None:
@@ -172,7 +174,9 @@ def _plot_mean_sem_trace(ax, bin_centers, peth_trials, color) -> None:
     ax.fill_between(bin_centers, mean - sem, mean + sem, alpha=0.25, color=color)
 
 
-def _collect_session(subject: str, session: str) -> dict:
+def _collect_session(subject: str, session: str, *, controls: bool = True) -> dict:
+    from labdata_plugin.schema import StimulusResponse
+
     units = fetch_unit_table(
         subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
     ).reset_index(drop=True)
@@ -189,14 +193,18 @@ def _collect_session(subject: str, session: str) -> dict:
     pulses["next_pulse_delay_s"] = pulses["timestamp"].shift(-1) - pulses["timestamp"]
     first_pulses = pulses[pulses["first_in_train"]]
     mixed_widths = pulses["width_ms"].dropna().nunique() > 1
-    alignment_pulses = first_pulses
-    if mixed_widths:
-        alignment_pulses = first_pulses[first_pulses["width_ms"].eq(15)]
-    first_15ms = alignment_pulses["timestamp"].to_numpy(dtype=float)
+    first_15ms = first_pulses.loc[
+        first_pulses["width_ms"].eq(15), "timestamp"
+    ].to_numpy(dtype=float)
+    if not first_15ms.size:
+        raise ValueError(f"No first 15 ms pulses for {subject} {session}")
+    unknown = int(first_pulses["width_ms"].isna().sum())
+    if unknown:
+        print(f"{subject} {session}: excluded {unknown} first pulses of unknown width")
 
     unit_ids = units["unit_id"].astype(int).tolist()
     spike_times = units["spike_times_s"].tolist()
-    double_peak_table, peth_15, bin_centers, _ = classify_double_peak_units(
+    double_peak_table, peth_15, bin_centers = classify_double_peak_units(
         spike_times, first_15ms, unit_ids, excited_ids
     )
     double_peak_table = double_peak_table.sort_values(
@@ -206,8 +214,6 @@ def _collect_session(subject: str, session: str) -> dict:
 
     excited_units = units[units["unit_id"].isin(excited_ids)].copy()
     excited_units["is_double"] = excited_units["unit_id"].isin(double_peak_unit_ids)
-    excited_units["subject"] = subject
-    excited_units["session"] = session
 
     unit_responses: dict[int, dict] = {}
     for unit_id in double_peak_unit_ids:
@@ -220,7 +226,7 @@ def _collect_session(subject: str, session: str) -> dict:
             "n_15ms": len(first_15ms),
         }
 
-    if mixed_widths and double_peak_unit_ids:
+    if controls and mixed_widths and double_peak_unit_ids:
         isolated = first_pulses[
             first_pulses["next_pulse_delay_s"].isna()
             | first_pulses["next_pulse_delay_s"].gt(PEAK_SEARCH_WINDOW[1])
@@ -245,22 +251,14 @@ def _collect_session(subject: str, session: str) -> dict:
             )
             peth = peth / (PETH_BINWIDTH_MS / 1000)
             for index, unit_id in enumerate(double_peak_unit_ids):
-                discovery_peaks = unit_responses[unit_id]["peak_row_15"]["peak_times"]
-                expected = [
-                    discovery_peaks[0],
-                    discovery_peaks[1] + (0.015 if width_ms == 30 else 0.0),
-                ]
-                maxima = [
-                    _window_maximum(peth[index], bin_centers, center)
-                    for center in expected
-                ]
+                second_peak = unit_responses[unit_id]["peak_row_15"]["peak_times"][1]
+                second_peak += 0.015 if width_ms == 30 else 0.0
                 unit_responses[unit_id].update(
                     {
                         f"peth_control_{width_ms}": peth[index],
-                        f"peak_row_control_{width_ms}": {
-                            "peak_times": [value[0] for value in maxima],
-                            "peak_heights": [value[1] for value in maxima],
-                        },
+                        f"second_peak_control_{width_ms}": _window_maximum(
+                            peth[index], bin_centers, second_peak
+                        ),
                         f"n_control_{width_ms}": len(alignment_times),
                     }
                 )
@@ -268,7 +266,6 @@ def _collect_session(subject: str, session: str) -> dict:
     return {
         "subject": subject,
         "session": session,
-        "n_stable": len(units),
         "units": excited_units,
         "unit_responses": unit_responses,
     }
@@ -278,43 +275,28 @@ def _plot_response(
     ax, unit_response: dict, show_control: bool = False, show_legend: bool = False
 ) -> None:
     bins = unit_response["bin_centers"]
-    peth_15 = (
-        unit_response["peth_control_15"] if show_control else unit_response["peth_15"]
-    )
-    n_15ms = unit_response["n_control_15"] if show_control else unit_response["n_15ms"]
-    color_15 = PULSE_COLORS[15] if show_control else DISCOVERY_COLOR
-    _plot_mean_sem_trace(ax, bins, peth_15, color_15)
-    if show_control:
-        _plot_mean_sem_trace(
-            ax,
-            bins,
-            unit_response["peth_control_30"],
-            PULSE_COLORS[30],
-        )
-        if show_legend:
-            ax.text(
-                0.98,
-                0.96,
-                f"15 ms (n={n_15ms})",
-                color=PULSE_COLORS[15],
-                ha="right",
-                va="top",
-                transform=ax.transAxes,
-                fontsize=6,
+    if not show_control:
+        _plot_mean_sem_trace(ax, bins, unit_response["peth_15"], DISCOVERY_COLOR)
+    else:
+        for width_ms, label_y in ((15, 0.96), (30, 0.84)):
+            color = PULSE_COLORS[width_ms]
+            _plot_mean_sem_trace(
+                ax, bins, unit_response[f"peth_control_{width_ms}"], color
             )
-            ax.text(
-                0.98,
-                0.84,
-                f"30 ms (n={unit_response['n_control_30']})",
-                color=PULSE_COLORS[30],
-                ha="right",
-                va="top",
-                transform=ax.transAxes,
-                fontsize=6,
-            )
+            if show_legend:
+                ax.text(
+                    0.98,
+                    label_y,
+                    f"{width_ms} ms (n={unit_response[f'n_control_{width_ms}']})",
+                    color=color,
+                    ha="right",
+                    va="top",
+                    transform=ax.transAxes,
+                    fontsize=6,
+                )
     ax.axvline(0, color="0.4", linestyle="--", linewidth=0.6)
-    ax.set_xlabel("Time from onset (s)")
-    ax.set_ylabel("Spikes s$^{-1}$")
+    ax.set_xlabel("time from onset (s)")
+    ax.set_ylabel("spikes s$^{-1}$")
     ax.set_ylim(bottom=0)
 
 
@@ -322,15 +304,15 @@ def _plot_second_peak_prediction_error(ax, unit_responses: list[dict]) -> None:
     """Plot observed minus onset-offset-predicted second-peak latency."""
     prediction_errors = []
     for unit_response in unit_responses:
-        latency_15 = 1000 * unit_response["peak_row_control_15"]["peak_times"][1]
-        latency_30 = 1000 * unit_response["peak_row_control_30"]["peak_times"][1]
+        latency_15 = 1000 * unit_response["second_peak_control_15"]
+        latency_30 = 1000 * unit_response["second_peak_control_30"]
         prediction_errors.append(latency_30 - (latency_15 + 15))
     x = np.linspace(-0.06, 0.06, len(prediction_errors))
     ax.scatter(x, prediction_errors, color="0.2", s=16, alpha=0.8, zorder=3)
     ax.axhline(0, color="0.6", linewidth=0.7)
     ax.set_xlim(-0.35, 0.35)
     ax.set_xticks([0], ["30 ms pulse"])
-    ax.set_ylabel("Δ second-peak latency (ms)")
+    ax.set_ylabel("Δ second-peak\nlatency (ms)")
     ax.margins(y=0.2)
 
 
@@ -355,7 +337,7 @@ def _plot_unit_property(ax, units: pd.DataFrame, column: str, ylabel: str) -> No
     for position, (values, color) in enumerate(zip(groups, GROUP_COLORS)):
         x = position + rng.uniform(-0.12, 0.12, len(values))
         ax.scatter(x, values, s=8, alpha=0.8, color=color, rasterized=True)
-    ax.set_xticks([0, 1], ["Other\nexcited", "Double\npeak"])
+    ax.set_xticks([0, 1], ["other\nexcited", "double\npeak"])
     ax.set_ylabel(ylabel)
 
 
@@ -391,12 +373,12 @@ def _make_figure(discovery_data: list[dict], pulse_width_data: dict):
         properties = grid[1].subgridspec(1, 2, wspace=0.4)
         duration_ax = fig.add_subplot(properties[0, 0])
         _plot_unit_property(
-            duration_ax, all_units, "spike_duration_ms", "Spike duration (ms)"
+            duration_ax, all_units, "spike_duration_ms", "spike duration (ms)"
         )
         duration_ax.axhline(NARROW_BROAD_MS, color="0.4", linestyle="--", linewidth=0.6)
 
         depth_ax = fig.add_subplot(properties[0, 1])
-        _plot_unit_property(depth_ax, all_units, "depth", "Depth from probe tip (µm)")
+        _plot_unit_property(depth_ax, all_units, "depth", "depth from probe tip (µm)")
 
         pulse_grid = grid[2].subgridspec(1, 3, wspace=0.65)
         pulse_axes = [fig.add_subplot(pulse_grid[0, index]) for index in range(2)]

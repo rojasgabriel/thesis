@@ -7,19 +7,15 @@ def separate_axes(ax: Axes) -> None:
     """Code provided by Lukas Oesch, Ph.D.."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-
-    ymin, ymax = ax.get_ylim()
-    yticks = [tick for tick in ax.get_yticks() if ymin <= tick <= ymax + 1e-3]
-    ax.spines["left"].set_bounds(yticks[0], yticks[-1])
-    for location, tick in zip(ax.yaxis.get_minorticklocs(), ax.yaxis.get_minor_ticks()):
-        if not yticks[0] <= location <= yticks[-1]:
-            tick.tick1line.set_visible(False)
-            tick.tick2line.set_visible(False)
-
-    xmin, xmax = ax.get_xlim()
-    xticks = [tick for tick in ax.get_xticks() if xmin <= tick <= xmax + 1e-3]
-    ax.spines["bottom"].set_bounds(xticks[0], xticks[-1])
-    for location, tick in zip(ax.xaxis.get_minorticklocs(), ax.xaxis.get_minor_ticks()):
-        if not xticks[0] <= location <= xticks[-1]:
-            tick.tick1line.set_visible(False)
-            tick.tick2line.set_visible(False)
+    for axis, spine, (low, high) in (
+        (ax.yaxis, "left", ax.get_ylim()),
+        (ax.xaxis, "bottom", ax.get_xlim()),
+    ):
+        ticks = [
+            tick for tick in axis.get_majorticklocs() if low <= tick <= high + 1e-3
+        ]
+        ax.spines[spine].set_bounds(ticks[0], ticks[-1])
+        for location, tick in zip(axis.get_minorticklocs(), axis.get_minor_ticks()):
+            if not ticks[0] <= location <= ticks[-1]:
+                tick.tick1line.set_visible(False)
+                tick.tick2line.set_visible(False)

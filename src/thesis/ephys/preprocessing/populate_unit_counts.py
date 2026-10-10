@@ -1,10 +1,6 @@
 """Insert unit-quality criteria and populate unit counts."""
 
 import argparse
-import warnings
-
-# Silence the setuptools pkg_resources deprecation notice
-warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 CRITERIA = [
     {
@@ -26,10 +22,10 @@ CRITERIA = [
 
 
 def main() -> None:
+    # Parse first so --help or a stray argument exits before any database write.
     argparse.ArgumentParser(
         description="Insert unit-quality criteria and populate unit counts"
     ).parse_args()
-
     from labdata.schema import SpikeSorting, UnitCount, UnitCountCriteria, UnitMetrics
 
     UnitCountCriteria().insert(CRITERIA, skip_duplicates=True)
