@@ -54,6 +54,13 @@ def main() -> Path:
             "time from flash (ms)",
         ),
         (
+            "stimulus_onset",
+            "time from stimulus onset",
+            "task",
+            "8 slow causal bases, 0-1500 ms after the first flash",
+            "time from first flash (ms)",
+        ),
+        (
             "withdrawal",
             "withdrawal (center exit)",
             "task",
@@ -79,9 +86,8 @@ def main() -> Path:
     with plt.rc_context(FIGURE_STYLE):
         fig, axes = plt.subplots(2, 3, figsize=(12.6, 5.2))
         axes = axes.ravel()
-        axes[-1].set_visible(False)
         for index, (ax, (key, title, group, coding, xlabel)) in enumerate(
-            zip(axes, panels, strict=False)
+            zip(axes, panels, strict=True)
         ):
             color = GROUP_COLORS[group]
             if key == "video":

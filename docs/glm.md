@@ -1,8 +1,9 @@
 # V1 GLM
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from five regressors: a common flash kernel, a flash-adaptation term, a
-causal post-withdrawal kernel (0 to 100 ms), 10 additive camera motion-energy PCs, and a strictly
+from six regressors: a common flash kernel, a flash-adaptation term, a slow
+time-from-stimulus-onset kernel, a causal post-withdrawal kernel (0 to 100 ms),
+10 additive camera motion-energy PCs, and a strictly
 past self-history filter for each unit. All terms add in log rate. An earlier
 full design had four more regressors; [Design justification](#design-justification)
 gives the fit that removed them.
@@ -69,6 +70,7 @@ drift, go cue, outcome, or punishment kernel.
 | --- | --- | ---: |
 | Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
 | Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
+| Time from stimulus onset | 8 causal raised cosines, 0–1500 ms after the first flash of the trial | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
@@ -306,6 +308,39 @@ folds share training trials, so this test is somewhat too easy to pass.
   and PC 1 within ±100 ms, and at most 0.0013 for the residual of the final
   refit with each of PCs 1 to 10.
 
+### Withdrawal and time from stimulus onset
+
+Tests of 2026-10-10 on the 20-unit sample (medians, 10-fold cross-validated;
+the residual tests are in-sample):
+
+| Model | Full D² | Withdrawal ΔD² | Motion energy ΔD² | Motion energy, trial-specific ΔD² |
+| --- | ---: | ---: | ---: | ---: |
+| Withdrawal −300 to +300 ms, 9 bases | 0.0862 | 0.0065 | 0.0022 | 0.0023 |
+| Withdrawal 0 to 100 ms, 4 bases | 0.0805 | 0.0012 | 0.0033 | 0.0023 |
+| Withdrawal 0 to 100 ms and time from onset | 0.0918 | 0.0005 | 0.0016 | 0.0028 |
+
+- The wide withdrawal kernel held a slow time course and not a withdrawal
+  response. With only the short kernel, motion energy absorbs part of that time
+  course: its unique ΔD² is above its trial-specific ΔD².
+- The onset kernel (median unique ΔD² 0.0065) is low while the animal holds in
+  the center port, about −0.4 in log rate from 200 to 450 ms, and goes back to
+  zero after the go cue (487 ± 5 ms after the first flash) and the withdrawal
+  (median 553 ms). The label gives the clock, not a cause: a change of the
+  visual input in the port, stillness, and a slow visual suppression are not
+  separated.
+- The residual time course of the model without the onset kernel did not depend
+  on flash rate after 300 ms (extra ΔD² 0.0008, shuffled labels 0.0009) and did
+  not depend on the response side before withdrawal (3 of 20 units).
+- After withdrawal, the residuals depend on the response side in about a third
+  of the units, from 100 to 500 ms, with a total ΔD² of about 0.0004. A side
+  contrast of the withdrawal kernel (0.0002) and a response-entry kernel were
+  not added: the signal is not in 0 to 100 ms and is not locked to entry.
+- Session drift is small (median ΔD² 0.0015, shuffled trial order 0.0009), so
+  there is no drift term.
+- Adaptation parameters: a grid of `ADAPT_U` (0.25, 0.5, 0.75) and
+  `ADAPT_TAU_RECOVER_S` (0.1 to 0.8 s) changes the mean validation D² by 3% at
+  most (0.0756 to 0.0779). The values stay at 0.5 and 0.2 s.
+
 ## Results
 
-The full fit of the five-regressor model is not done yet.
+The full fit of the six-regressor model is not done yet.
