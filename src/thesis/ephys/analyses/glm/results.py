@@ -42,6 +42,7 @@ from thesis.ephys.units import fetch_unit_table
 # "first" (raw resource 1, a full pool) or "late" (the mean raw resource of
 # adapted flashes, R < 1; equal to "first" if no flash is adapted). The first
 # flash is always pre-withdrawal, so first-and-post never occurs and is omitted.
+EXAMPLE_UNIT_ID = 197
 FLASH_COMMON = "visual_flash"
 FLASH_STATE = "flash_pre_post_withdrawal"
 FLASH_ADAPT = "flash_adaptation"
@@ -195,8 +196,15 @@ def block_deviance_rate(record: dict, fit: dict, group: str) -> float:
 
 
 def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
-    """Return the unit whose visual flash block explains the most deviance per second."""
+    """Return unit 197 if it was fit, else the unit with the most flash deviance.
+
+    Unit 197 of GRB006 20240821_121447 is the chosen example: 55 spikes/s and a
+    clear flash response. For a fit without it (a sample, or another session),
+    use the unit whose visual flash block explains the most deviance per second.
+    """
     final = {int(item["unit_id"]): item for item in results}
+    if EXAMPLE_UNIT_ID in final:
+        return EXAMPLE_UNIT_ID
     best = max(
         unique_records,
         key=lambda record: block_deviance_rate(

@@ -141,11 +141,13 @@ named summaries under `all_fit_me/`. Restartable per-unit records stay under
 and the bits-versus-deviance scatter in `all_fit_me/`. `unique` writes the
 kernel, model-design, and held-out prediction SVGs there, because these three
 figures show the example unit and its selection needs the `unique` results.
-The example unit is the unit whose visual flash block explains the most
-deviance per second (`example_unit_id` in `results.py`): unique flash ΔD² ×
-bits/spike ÷ D² × firing rate. Unique flash ΔD² alone is not used. It is a
-fraction of the null deviance of the unit, so its maximum selects a unit with
-few spikes, and the rasters of that unit are too sparse to compare.
+The example unit is unit 197 when it was fit (`EXAMPLE_UNIT_ID` in
+`results.py`; 55 spikes/s and a clear flash response in GRB006
+`20240821_121447`). For a fit without it, the example is the unit whose visual
+flash block explains the most deviance per second (`example_unit_id`): unique
+flash ΔD² × bits/spike ÷ D² × firing rate. Unique flash ΔD² alone is not used.
+It is a fraction of the null deviance of the unit, so its maximum selects a unit
+with few spikes, and the rasters of that unit are too sparse to compare.
 `figure_data.json` records the id.
 Use `--units sample` for a 20-unit smoke run; its checkpoints, summaries, and
 figures stay separately in `sample_fit_me/`, and its example unit is the best

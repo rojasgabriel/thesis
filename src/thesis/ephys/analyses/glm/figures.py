@@ -718,8 +718,8 @@ def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Pat
     Pooled median unique ΔD² against the column count of the block, on
     logarithmic axes; the lines are the range over the sets, and a median at or
     below zero cannot be drawn. (e) Fraction of units with unique ΔD² > 0
-    (one-sided t-test over folds), one point per set with the mean; the dotted
-    line is the chance level.
+    (one-sided t-test over folds), one point per set, and a black line at the mean when there
+    is more than one set; the dotted line is the chance level.
     """
     records = [record for sample in samples.values() for record in sample]
     table = block_table(samples)
@@ -790,13 +790,15 @@ def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Pat
                 color=_block_color(group),
                 zorder=3,
             )
-            axes[4].hlines(
-                np.mean(fractions),
-                position - 0.4,
-                position + 0.4,
-                color="black",
-                linewidth=1.1,
-            )
+            # The mean over fit sets; one set has only its point.
+            if len(samples) > 1:
+                axes[4].hlines(
+                    np.mean(fractions),
+                    position - 0.4,
+                    position + 0.4,
+                    color="black",
+                    linewidth=1.1,
+                )
         # Dotted line: the fraction expected by chance for a block with no effect.
         axes[4].axhline(RELIABLE_ALPHA, color="0.35", linestyle=":", linewidth=0.8)
         axes[4].set_ylim(-0.03, 1.03)
