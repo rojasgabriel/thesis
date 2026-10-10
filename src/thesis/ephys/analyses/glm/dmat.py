@@ -43,6 +43,7 @@ WITHDRAWAL_BASES = 4
 # Slow kernel for the time from stimulus onset (the first flash). The residuals
 # of the model without it had a trial-locked time course that did not depend on
 # flash rate or choice; without this kernel, motion energy absorbs part of it.
+IN_PORT = "in_port"
 ONSET_WINDOW_S = 1.5
 ONSET_BASES = 8
 HISTORY_COLUMNS = 10
@@ -275,10 +276,8 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
     return np.concatenate(times), np.concatenate(resource_values)
 
 
-def build_task_design(
-    alignments: np.ndarray, trials
-) -> tuple[DesignMatrix, list[dict]]:
-    """Build sensory and task regressors with the accepted DAMN interface."""
+def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
+    """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
     flashes, resource_raw = flash_events(trials)
     # Center the resource so the common flash kernel stays the average response.
@@ -354,7 +353,22 @@ def build_task_design(
         if name == "flash_adaptation":
             manifest[-1]["adapt_levels_centered"] = adapt_levels
     design.build_matrix()
-    return design, manifest
+    # One state column with no temporal basis: the animal is in the center port.
+    centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
+    times = np.asarray(alignments, dtype=float)[:, None] + centers
+    in_port = (times >= trials["center_entry_s"].to_numpy(dtype=float)[:, None]) & (
+        times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
+    )
+    manifest.append(
+        {
+            "name": IN_PORT,
+            "group": "task",
+            "events": len(alignments),
+            "columns": 1,
+            "coding": "1 from center entry to center exit, else 0",
+        }
+    )
+    return np.column_stack((design.X, in_port.ravel())), manifest
 
 
 def spike_history_basis() -> RaisedCosineBasis:
@@ -467,8 +481,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     ):
         raise ValueError("Video times and scores must be finite and time ordered.")
 
-    task, task_manifest = build_task_design(prepared["alignments"], trials)
-    task_values = task.X
+    task_values, task_manifest = build_task_design(prepared["alignments"], trials)
     task_columns = task_values.shape[1]
     valid = _valid_bin_mask(prepared)
     train_rows, _, _ = _split_masks(prepared["split"], valid)
@@ -565,9 +578,9 @@ def _common_design_is_current(output: Path) -> bool:
     manifest = metadata.get("task_manifest", [])
     return (
         metadata.get("video_columns_per_component") == 1
-        and [item.get("name") for item in manifest] == list(bases)
+        and [item.get("name") for item in manifest] == [*bases, IN_PORT]
         and [item.get("columns") for item in manifest]
-        == [basis.basis.shape[1] for basis in bases.values()]
+        == [*(basis.basis.shape[1] for basis in bases.values()), 1]
         and metadata.get("adapt_u") == ADAPT_U
         and metadata.get("adapt_tau_recover_s") == ADAPT_TAU_RECOVER_S
     )

@@ -60,6 +60,7 @@ DETAILED_GROUPS = (
     "visual_flash",
     "flash_adaptation",
     "stimulus_onset",
+    "in_port",
     "withdrawal",
     "video",
     "history",

@@ -113,8 +113,11 @@ def fitted_kernels(
     cursor = 0
     for item in design_metadata["task_manifest"]:
         name = item["name"]
-        basis = bases[name]
         stop = cursor + int(item["columns"])
+        if name not in bases:  # a state column has a weight and no kernel
+            cursor = stop
+            continue
+        basis = bases[name]
         if stop - cursor != basis.basis.shape[1]:
             raise ValueError(f"Basis size differs from saved metadata for {name}.")
         kernels[name] = (
@@ -233,7 +236,11 @@ def write_figure_data(
     example_training_rate = (
         float(selection_by_id[example_id]["training_mean_count"]) / BINWIDTH_S
     )
-    task_names = [item["name"] for item in design_metadata["task_manifest"]]
+    task_names = [
+        item["name"]
+        for item in design_metadata["task_manifest"]
+        if item["name"] in task_temporal_bases()
+    ]
 
     prepared = _load_windows(windows)
     with np.load(windows, allow_pickle=False) as saved:
