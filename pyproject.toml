@@ -45,8 +45,8 @@ module-name = ["thesis", "labdata_plugin"]
 constraint-dependencies = [
     "cryptography>=48.0.1",
     "pillow>=12.3.0",
-    "tornado>=6.5.7",
-    "urllib3>=2.7.0",
+    "tornado>=6.5.9",
+    "urllib3>=2.8.0",
     "pygments>=2.20.0",
     # DataJoint 0.14 still imports pkg_resources, removed in setuptools 81+.
     "setuptools>=79.0.1,<81",
