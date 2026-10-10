@@ -4,16 +4,15 @@ Question: do units that the visual flash predicts differ from units that
 motion energy predicts, and how do their fitted weights look?
 
 Comparison: this script makes no new fits. It reads the final refit (all valid
-trials) and the `glm unique` records of every completed `sample*_fit_me/`
-directory of one session.
+trials) and the `glm unique` records of one fit set of one session (`--units`,
+`all` by default).
 
 - Panel a: one point per unit. x is the size of its visual flash weights and y
   is the size of its motion-energy weights. The size is the Euclidean norm of
   the block's coefficients. All design columns are z-scored on training bins,
   so a coefficient is the change in log rate per SD of its column. The norm is
-  not exactly comparable between samples, because each sample selected its own
-  motion-energy PC count (more PCs can give a larger norm), and each unit has
-  its own L2 penalty.
+  not exactly comparable between units, because each unit has its own L2
+  penalty.
 - Panels b and c: three example units. Panel b is the common visual flash
   kernel (the response to a flash averaged over the pre/post-withdrawal and
   adaptation terms). Panel c is the motion-energy weight map. Motion energy has
@@ -55,7 +54,6 @@ from scipy.stats import rankdata
 from thesis.ephys.analyses.glm.dmat import HISTORY_COLUMNS
 from thesis.ephys.analyses.glm.figures import FIGURE_STYLE, _save_figure
 from thesis.ephys.analyses.glm.fit import _write_json_atomic, load_unit_records
-from thesis.ephys.analyses.glm.regressor_check import load_samples
 from thesis.ephys.analyses.glm.results import (
     FLASH_COMMON,
     block_deviance_rate,
@@ -67,7 +65,7 @@ EXAMPLE_COLORS = {"flash": "C0", "motion energy": "C1", "both": "C4"}
 UNITY_FACTOR = 1.2
 
 
-def load_units(root: Path) -> list[dict]:
+def load_units(root: Path, unit_set: str) -> list[dict]:
     """Return each unit's final fit, block norms, and block deviance rates."""
     with (root / "common_design_me.json").open() as handle:
         design = json.load(handle)
@@ -79,30 +77,27 @@ def load_units(root: Path) -> list[dict]:
     start = sum(int(item["columns"]) for item in design["task_manifest"][:flash])
     flash_columns = slice(start, start + design["task_manifest"][flash]["columns"])
     base = int(design["base_columns"])
+    checkpoints = root / f"{unit_set}_fit_me" / "checkpoints"
+    final = {
+        int(item["unit_id"]): item
+        for item in load_unit_records(checkpoints, "unit_*_final.json")
+    }
     units = []
-    for name, records in load_samples(root).items():
-        final = {
-            int(item["unit_id"]): item
-            for item in load_unit_records(
-                root / f"{name}_fit_me" / "checkpoints", "unit_*_final.json"
-            )
-        }
-        for record in records:
-            fit = final[int(record["unit_id"])]
-            coefficients = np.asarray(fit["coefficients"], dtype=float)
-            video = coefficients[base : base + int(fit["components"])]
-            units.append(
-                {
-                    "unit_id": int(record["unit_id"]),
-                    "sample": name,
-                    "fit": fit,
-                    "video_coefficients": video,
-                    "flash_norm": float(np.linalg.norm(coefficients[flash_columns])),
-                    "video_norm": float(np.linalg.norm(video)),
-                    "flash_rate": block_deviance_rate(record, fit, FLASH_COMMON),
-                    "video_rate": block_deviance_rate(record, fit, "video"),
-                }
-            )
+    for record in load_unit_records(checkpoints / "unique", "unit_*.json"):
+        fit = final[int(record["unit_id"])]
+        coefficients = np.asarray(fit["coefficients"], dtype=float)
+        video = coefficients[base : base + int(fit["components"])]
+        units.append(
+            {
+                "unit_id": int(record["unit_id"]),
+                "fit": fit,
+                "video_coefficients": video,
+                "flash_norm": float(np.linalg.norm(coefficients[flash_columns])),
+                "video_norm": float(np.linalg.norm(video)),
+                "flash_rate": block_deviance_rate(record, fit, FLASH_COMMON),
+                "video_rate": block_deviance_rate(record, fit, "video"),
+            }
+        )
     return units
 
 
@@ -253,7 +248,12 @@ def main() -> None:
         "--root",
         type=Path,
         default=Path("figures/glm/GRB006_20240821_121447"),
-        help="Session artifact directory that holds the sample fits.",
+        help="Session artifact directory that holds the fit.",
+    )
+    parser.add_argument(
+        "--units",
+        default="all",
+        help="Fit set to read: all, sample, or sample1 to sample9.",
     )
     args = parser.parse_args()
     with (args.root / "common_design_me.json").open() as handle:
@@ -267,7 +267,7 @@ def main() -> None:
             "mean": data["mean"].reshape(shape),
             "shape": shape,
         }
-    units = load_units(args.root)
+    units = load_units(args.root, args.units)
     examples = select_examples(units)
     figure = plot_kernel_comparison(
         units, examples, design, video, args.root / "kernel_comparison"
@@ -279,7 +279,6 @@ def main() -> None:
                 key: unit[key]
                 for key in (
                     "unit_id",
-                    "sample",
                     "flash_norm",
                     "video_norm",
                     "flash_rate",

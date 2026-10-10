@@ -221,39 +221,29 @@ logarithmic axes; (e) the fraction of units for which the block gives unique
 ΔD² > 0 (one-sided t-test of the fold values against zero, p < 0.05), with a
 dotted line at the chance level of 0.05.
 
-## Regressor check
-
-Use this to find blocks that add design columns but no held-out deviance. It
-identifies these blocks; it does not remove them. Fit
-and score some samples that share no unit, then compare them:
-
-```bash
-uv run glm fit --units sample1 && uv run glm unique --units sample1
-uv run python -m thesis.ephys.analyses.glm.regressor_check
-```
-
-The script makes no new fits. It reads the `unique` records of each completed
-`sample*_fit_me/` directory and writes `regressor_check.svg` and
-`regressor_check.json` in the session output directory. The figure has the same
-five panels as `deviance_explained.svg`, for the units of all samples. Panels d
-and e also show the spread over the samples. Each sample selects its own
-motion-energy PC count, so the motion-energy block can have a different column
-count in each sample.
-
-## Kernel comparison
+## Kernel comparison and lag check
 
 ```bash
 uv run python -m thesis.ephys.analyses.glm.kernel_comparison
+uv run python -m thesis.ephys.analyses.glm.motion_lag_check
 ```
 
-This script also makes no new fits and reads all completed sample fits. It
-writes `kernel_comparison.svg` and `kernel_comparison.json`. Panel a compares
-the size of the visual flash weights and of the motion-energy weights (the norm
-of the block's coefficients) for every unit. Panels b and c show the common
-visual flash kernel and the motion-energy weight map of three example units: one
-that the flash predicts, one that motion energy predicts, and one that both
-predict. Motion energy has no temporal kernel, so its panel is a map over the
-video frame. The module docstring gives the selection rule.
+These scripts make no new fits. Each reads one fit set (`--units`, `all` by
+default) in the session output directory.
+
+`kernel_comparison` writes `kernel_comparison.svg` and `kernel_comparison.json`.
+Panel a compares the size of the visual flash weights and of the motion-energy
+weights (the norm of the block's coefficients) for every unit. Panels b and c
+show the common visual flash kernel and the motion-energy weight map of three
+example units: one that the flash predicts, one that motion energy predicts, and
+one that both predict. Motion energy has no temporal kernel, so its panel is a
+map over the video frame. The module docstring gives the selection rule.
+
+`motion_lag_check` writes `motion_lag_check.svg` and `motion_lag_check.json`. It
+correlates motion-energy PCs at lags from −200 to +200 ms with the spike count
+and with the residual of the final refit. It tests whether lagged motion energy
+predicts spikes that the same-bin weights miss. It needs the database for the
+spike times.
 
 ## Synthetic check
 
@@ -283,4 +273,40 @@ with a self-history block but no coupling between units.
 
 ## Results
 
-Not yet run for this design. Do not treat `all_fit/` numbers as current.
+Full fit of 2026-10-10: 167 units, 294 trials, the design above. Artifacts are
+in `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
+
+- Motion-energy PCs: 25 selected. Mean validation D² is 0.0733, 0.0738, 0.0736,
+  0.0723, and 0.0690 for 10, 25, 50, 100, and 200 PCs, so the choice between 10
+  and 50 is not a strong one.
+- Full model: median cross-validated D² 0.071 (IQR 0.042 to 0.101), median
+  0.51 bits/spike.
+
+| Block | Columns | Median unique ΔD² | Share of median full-model D² | Units with unique ΔD² > 0 |
+| --- | ---: | ---: | ---: | ---: |
+| Spike history | 10 | 0.0253 | 35.9% | 91% |
+| Visual flash | 6 | 0.0044 | 6.2% | 80% |
+| Withdrawal | 9 | 0.0029 | 4.1% | 75% |
+| Motion energy | 25 | 0.0019 | 2.6% | 56% |
+| Flash adaptation | 6 | 0.0016 | 2.3% | 66% |
+| Flash state contrast | 6 | 0.0009 | 1.2% | 46% |
+| Flash × motion energy | 6 | 0.0005 | 0.7% | 30% |
+| Response entry | 6 | 0.0003 | 0.4% | 17% |
+| Initiation | 4 | 0.0001 | 0.1% | 18% |
+
+The last column is the fraction of units with a one-sided t-test of the fold
+values against zero at p < 0.05; a block with no effect gives about 5%. The
+folds share training trials, so this test is somewhat too easy to pass.
+
+- Initiation and response entry explain almost nothing. No block was removed.
+- Flash × motion energy is weak. Its maximal ΔD² (0.0024) is about 5 times its
+  unique ΔD², so other blocks carry most of what it explains.
+- Motion energy is trial-specific. With the block taken from another trial, the
+  median loss is 0.0023 (IQR 0.0009 to 0.0046), and 89% of the units lose
+  deviance. This is not smaller than the unique ΔD² from the shuffle within a
+  trial.
+- Lags are not necessary for motion energy. The correlation of the spike count
+  with PC 1 is about 0.011 within ±100 ms. For the residual of the final refit
+  it is at most 0.0013 for each of PCs 1 to 10.
+- An earlier fit of 100 units in 5 samples, without the flash × motion-energy
+  block, gave the same order of blocks and similar values.

@@ -10,8 +10,8 @@ use PC 1, which follows the total motion energy (r = 0.93). Panel c shows PCs 1
 to 10, because the later PCs change faster than PC 1. The lags go from −200 to
 +200 ms in 10-ms steps. At a positive lag the motion comes before the spikes.
 
-Units: every unit of the completed `sample*_fit_me/` directories of one
-session (quality criterion set 1, stability set 0, unit 212 excluded).
+Units: every unit of one fit set of one session (`--units`, `all` by default):
+quality criterion set 1, stability set 0, unit 212 excluded.
 
 Bins, alignment, and exclusions: 1-ms bins in windows aligned to the first
 measured flash. Spike bins after response entry are excluded. Motion energy is
@@ -58,7 +58,6 @@ from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     load_unit_records,
 )
-from thesis.ephys.analyses.glm.regressor_check import load_samples
 from thesis.ephys.units import fetch_unit_table
 
 LAGS_MS = np.arange(-200, 201, 10)
@@ -81,7 +80,7 @@ def lagged_correlation(signal: np.ndarray, motion: np.ndarray) -> np.ndarray:
     return np.asarray(values)
 
 
-def unit_curves(root: Path) -> dict[str, np.ndarray]:
+def unit_curves(root: Path, unit_set: str) -> dict[str, np.ndarray]:
     """Return the lagged correlations of each unit, for counts and residuals."""
     prepared = _load_windows(root / "stimulus_windows_me.npz")
     with (root / "common_design_me.json").open() as handle:
@@ -103,33 +102,32 @@ def unit_curves(root: Path) -> dict[str, np.ndarray]:
     ).set_index("unit_id")["spike_times_s"]
 
     curves = {"count": [], "count_control": [], "residual": [], "residual_control": []}
-    for name in load_samples(root):
-        fits = load_unit_records(
-            root / f"{name}_fit_me" / "checkpoints", "unit_*_final.json"
+    fits = load_unit_records(
+        root / f"{unit_set}_fit_me" / "checkpoints", "unit_*_final.json"
+    )
+    # One fit set has one PC count, so its units share these design columns.
+    columns = base + int(fits[0]["components"])
+    design = np.asarray(common[:, :columns])
+    for fit in fits:
+        spikes = np.asarray(spike_times.loc[int(fit["unit_id"])], dtype=float)
+        counts = build_unit_counts(prepared["alignments"], spikes).astype(float)
+        history, _, _ = training_zscore(
+            build_unit_history(prepared["alignments"], spikes), valid
         )
-        # One sample has one PC count, so its units share these design columns.
-        columns = base + int(fits[0]["components"])
-        design = np.asarray(common[:, :columns])
-        for fit in fits:
-            spikes = np.asarray(spike_times.loc[int(fit["unit_id"])], dtype=float)
-            counts = build_unit_counts(prepared["alignments"], spikes).astype(float)
-            history, _, _ = training_zscore(
-                build_unit_history(prepared["alignments"], spikes), valid
-            )
-            coefficients = np.asarray(fit["coefficients"], dtype=float)
-            fitted = np.exp(
-                fit["intercept"]
-                + design @ coefficients[:columns]
-                + history @ coefficients[columns:]
-            )
-            count = np.where(valid, counts, np.nan).reshape(trials, -1)
-            residual = np.where(valid, counts - fitted, np.nan).reshape(trials, -1)
-            curves["count"].append(lagged_correlation(count, motion[0]))
-            curves["count_control"].append(lagged_correlation(count, other_trial))
-            curves["residual"].append(
-                [lagged_correlation(residual, values) for values in motion]
-            )
-            curves["residual_control"].append(lagged_correlation(residual, other_trial))
+        coefficients = np.asarray(fit["coefficients"], dtype=float)
+        fitted = np.exp(
+            fit["intercept"]
+            + design @ coefficients[:columns]
+            + history @ coefficients[columns:]
+        )
+        count = np.where(valid, counts, np.nan).reshape(trials, -1)
+        residual = np.where(valid, counts - fitted, np.nan).reshape(trials, -1)
+        curves["count"].append(lagged_correlation(count, motion[0]))
+        curves["count_control"].append(lagged_correlation(count, other_trial))
+        curves["residual"].append(
+            [lagged_correlation(residual, values) for values in motion]
+        )
+        curves["residual_control"].append(lagged_correlation(residual, other_trial))
     return {key: np.asarray(values) for key, values in curves.items()}
 
 
@@ -198,10 +196,15 @@ def main() -> None:
         "--root",
         type=Path,
         default=Path("figures/glm/GRB006_20240821_121447"),
-        help="Session artifact directory that holds the sample fits.",
+        help="Session artifact directory that holds the fit.",
+    )
+    parser.add_argument(
+        "--units",
+        default="all",
+        help="Fit set to read: all, sample, or sample1 to sample9.",
     )
     args = parser.parse_args()
-    curves = unit_curves(args.root)
+    curves = unit_curves(args.root, args.units)
     figure = plot_lag_check(curves, args.root / "motion_lag_check")
     near = np.abs(LAGS_MS) <= 100
     count = curves["count"].mean(axis=0)
