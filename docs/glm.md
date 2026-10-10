@@ -1,11 +1,11 @@
 # V1 GLM
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from a common flash kernel, a pre/post-withdrawal contrast, a flash-adaptation
-term, a flash × motion-energy interaction, an initiation kernel truncated at
-the first flash, peri-withdrawal
-movement, response entry, and additive camera motion-energy PCs. Each unit
-also has a strictly past self-history filter.
+from five regressors: a common flash kernel, a flash-adaptation term, a
+peri-withdrawal kernel, 10 additive camera motion-energy PCs, and a strictly
+past self-history filter for each unit. All terms add in log rate. An earlier
+full design had four more regressors; [Design justification](#design-justification)
+gives the fit that removed them.
 Coefficients are conditional associations, not causal effects.
 
 `prepare` reuses saved windows and video features by file presence. It reuses
@@ -36,12 +36,12 @@ at a time.
   shorten the grid. Only flashes from initiation through response entry enter
   the design.
 - Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Models fit on the
-  training block. The validation block chooses the motion-energy PC count. To
-  score each PC count, validation also picks a penalty for each unit and model,
+  training block. The validation block scores the model with and without the
+  10 motion-energy PCs. Validation also picks a penalty for each unit and model,
   but no later step uses these penalties: each cross-validation fold picks its
   own. The third block is not scored on its own; held-out performance comes from
   cross-validation over whole trials.
-- `fit` then cross-validates at that PC count: 10 folds over whole trials
+- `fit` then cross-validates with 10 PCs: 10 folds over whole trials
   (`CV_SEED = 20260913`). Each trial belongs to one test fold. A fold with no
   test spikes for a unit is skipped; at least two scored folds are required.
   Reports per-unit mean and SEM across the scored folds. It finally refits each
@@ -52,8 +52,8 @@ at a time.
   fold records. `unique` refits within those folds using their
   selected penalties.
 
-The PC count is selected once before cross-validation. PCA and common-design
-scaling also use the original training split, rather than being recomputed
+The PC count is fixed at 10. PCA and common-design
+scaling use the original training split, rather than being recomputed
 inside each fold. These scores are not a fully nested estimate of the complete
 selection and preprocessing procedure.
 
@@ -68,16 +68,13 @@ drift, go cue, outcome, or punishment kernel.
 | Group | Representation | Columns |
 | --- | --- | ---: |
 | Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
-| Flash state contrast | Same flash bases, scaled −0.5 before withdrawal and +0.5 at or after withdrawal | 6 |
 | Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
-| Flash × motion energy | Same flash bases, scaled by the total motion energy of the video frame at the flash (mean over pixels), centered and in SD over all modeled flashes | 6 |
-| Initiation | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
 | Withdrawal | 9 raised cosines, −300–+300 ms | 9 |
-| Response entry | 6 bases before the event, −300 to −1 ms; the entry bin gets no value | 6 |
-| Motion energy | One contemporaneous value per selected PC; no temporal basis | 1 / PC |
+| Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
-No response-side, same-bin history, cross-unit coupling, or previous-trial
+No flash × movement interaction, initiation, response-entry, response-side,
+same-bin history, cross-unit coupling, or previous-trial
 terms. Motion-energy coefficients are contemporaneous nuisance associations.
 Pose tracking is not included.
 
@@ -88,7 +85,7 @@ NIDQ ch1 falling edges in decoded-frame order. Do not use container times.
 640×512 grayscale → 80×64. Feature is `|frame[t] − frame[t−1]|` when decoded
 indices are adjacent; the first frame of a gap is zeros. PCA on training
 frames that have a real difference, 200 axes. Scores scaled on those training
-frames. Validation prefixes: 10, 25, 50, 100, 200.
+frames. The model uses the first 10.
 
 ## Fit
 
@@ -97,16 +94,13 @@ frames. Validation prefixes: 10, 25, 50, 100, 200.
 DAMN supplies the 1 ms grid, the spike counts, and the event convolution, and it
 clips each kernel at the trial-window edges. NumPy `np.interp` puts the
 motion-energy scores on the grid; bins outside the camera frame times get zero.
-The code, not DAMN, sets the initiation kernel to zero at and after the first
-flash.
 Fits use sklearn `PoissonRegressor` (log link, unpenalized intercept, L2,
 LBFGS). Each unit's design appends its standardized self-history regressor.
 
 Per unit and model: fixed L2 grid from 1e−6 to 1e4 in powers of ten. Fit from
 strong to weak penalties, with a cold retry after a failed warm start. Drop
 penalties that still fail to converge and break loss ties toward the stronger
-penalty. The grid does not expand automatically. Choose the motion-energy PC
-count by mean per-unit validation D². Each cross-validation fold selects its
+penalty. The grid does not expand automatically. Each cross-validation fold selects its
 penalty using an inner validation split. The null is a constant rate from the
 training rows for selection, or all non-test rows for a cross-validation fold.
 `cross_validation_summary.json` gives the median and IQR over units of the
@@ -174,8 +168,7 @@ entry are shaded within the displayed interval.
 The model-design figure uses one real test trial from the example unit. The trial is
 nearest the unit's median pre-response spike count. Panel a shows every
 modeled flash (the measured flashes from initiation through response entry),
-the other task
-events and their filter support, the first three continuous motion-energy PC
+withdrawal and the filter support of both, the first three continuous motion-energy PC
 scores, and strictly past history support. Panel b
 shows the exact fitted terms `X_g β_g` for visual, other task, all selected
 motion-energy, and history columns. Their sum plus the intercept is checked
@@ -223,20 +216,6 @@ logarithmic axes; (e) the fraction of units for which the regressor gives unique
 dotted line at the chance level of 0.05. Panel e shows, for each regressor, the
 fraction of units that gain, that lose, and that have no reliable change.
 
-## Joint shuffle
-
-```bash
-uv run glm joint --units all
-```
-
-`joint` shuffles flash post − pre withdrawal and flash × motion energy together
-and writes `unique_deviance/joint_summary.json`. If two regressors replace each
-other, the drop in D² when both are shuffled is much larger than the sum of the
-two single drops. Result of 2026-10-10 (167 units): the joint drop has a median
-of 0.0014 and the sum of the single drops 0.0015, so the two regressors do not
-replace each other. Their joint maximal ΔD² is 0.0094, so the other regressors
-carry about 86% of what the two can explain.
-
 ## Kernel comparison
 
 ```bash
@@ -279,36 +258,45 @@ with a self-history regressor but no coupling between units.
 [Stringer et al. 2019](https://pmc.ncbi.nlm.nih.gov/articles/PMC6525101/)
 (video as broad behavior). Basis counts and windows remain assumptions.
 
-## Results
+## Design justification
 
-Full fit of 2026-10-10: 167 units, 294 trials, the design above. Artifacts are
-in `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
+The full design had nine regressors: the five above and flash post − pre
+withdrawal (6 columns), flash × motion energy (6), initiation (4), and response
+entry (6), with 25 motion-energy PCs selected on validation. Its fit of
+2026-10-10 (167 units, 294 trials) is in
+`figures/glm/GRB006_20240821_121447_full_design/all_fit_me/`, which git does not
+track. Do not render that folder again with the current code; the code for that
+design is at commit `fcd34fa`.
 
-- Motion-energy PCs: 25 selected. Mean validation D² is 0.0733, 0.0738, 0.0736,
-  0.0723, and 0.0690 for 10, 25, 50, 100, and 200 PCs, so the choice between 10
-  and 50 is not a strong one.
+- Motion-energy PCs: mean validation D² was 0.0733, 0.0738, 0.0736, 0.0723, and
+  0.0690 for 10, 25, 50, 100, and 200 PCs. The curve is flat from 10 to 50, so
+  the count is now fixed at 10.
 - Full model: median cross-validated D² 0.071 (IQR 0.042 to 0.101), median
   0.51 bits/spike.
 
-| Block | Columns | Median unique ΔD² | Share of median full-model D² | Units with unique ΔD² > 0 |
-| --- | ---: | ---: | ---: | ---: |
-| Spike history | 10 | 0.0253 | 35.9% | 91% |
-| Visual flash | 6 | 0.0044 | 6.2% | 80% |
-| Withdrawal | 9 | 0.0029 | 4.1% | 75% |
-| Motion energy | 25 | 0.0019 | 2.6% | 56% |
-| Flash adaptation | 6 | 0.0016 | 2.3% | 66% |
-| Flash state contrast | 6 | 0.0009 | 1.2% | 46% |
-| Flash × motion energy | 6 | 0.0005 | 0.7% | 30% |
-| Response entry | 6 | 0.0003 | 0.4% | 17% |
-| Initiation | 4 | 0.0001 | 0.1% | 18% |
+| Regressor | Columns | Median unique ΔD² | Share of median full-model D² | Units with unique ΔD² > 0 | Kept |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Spike history | 10 | 0.0253 | 35.9% | 91% | yes |
+| Visual flash | 6 | 0.0044 | 6.2% | 80% | yes |
+| Withdrawal | 9 | 0.0029 | 4.1% | 75% | yes |
+| Motion energy | 25 | 0.0019 | 2.6% | 56% | yes, 10 PCs |
+| Flash adaptation | 6 | 0.0016 | 2.3% | 66% | yes |
+| Flash post − pre withdrawal | 6 | 0.0009 | 1.2% | 46% | no |
+| Flash × motion energy | 6 | 0.0005 | 0.7% | 30% | no |
+| Response entry | 6 | 0.0003 | 0.4% | 17% | no |
+| Initiation | 4 | 0.0001 | 0.1% | 18% | no |
 
-The last column is the fraction of units with a one-sided t-test of the fold
+The fifth column is the fraction of units with a one-sided t-test of the fold
 values against zero at p < 0.05; a regressor with no effect gives about 5%. The
 folds share training trials, so this test is somewhat too easy to pass.
 
-- Initiation and response entry explain almost nothing. No regressor was removed.
-- Flash × motion energy is weak. Its maximal ΔD² (0.0024) is about 5 times its
-  unique ΔD², so other regressors carry most of what it explains.
+- Initiation and response entry explain almost nothing.
+- The two flash × movement terms are weak: together they add a median ΔD² of
+  0.0014 (both shuffled together), about 2% of the full model. The sum of their
+  single values is 0.0015, so they do not replace each other. Their joint
+  maximal ΔD² is 0.0094, so the other regressors carry about 86% of what the
+  two can explain. The simple model has no interaction term: movement is
+  additive. A one-column gain test is planned as a separate comparison.
 - Motion energy is trial-specific. With the regressor taken from another trial, the
   median loss is 0.0023 (IQR 0.0009 to 0.0046), and 89% of the units lose
   deviance. This is not smaller than the unique ΔD² from the shuffle within a
@@ -317,5 +305,7 @@ folds share training trials, so this test is somewhat too easy to pass.
   code on 2026-10-10) found a correlation of about 0.011 between the spike count
   and PC 1 within ±100 ms, and at most 0.0013 for the residual of the final
   refit with each of PCs 1 to 10.
-- An earlier fit of 100 units in 5 samples, without the flash × motion-energy
-  regressor, gave the same order of regressors and similar values.
+
+## Results
+
+The full fit of the five-regressor model is not done yet.
