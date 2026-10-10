@@ -36,9 +36,10 @@ BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
 # One count: the validation D² was flat from 10 to 50 PCs in the full-design fit.
 VIDEO_COMPONENT_COUNTS = (10,)
-# Withdrawal kernel: this far before and after center exit, with this many bases.
-WITHDRAWAL_HALF_WINDOW_S = 0.3
-WITHDRAWAL_BASES = 9
+# Causal withdrawal kernel: this long after center exit, with this many bases.
+# It is short so that it holds few flashes, and it has no part before the event.
+WITHDRAWAL_WINDOW_S = 0.1
+WITHDRAWAL_BASES = 4
 HISTORY_COLUMNS = 10
 # Short-term synaptic-depression parameters for the flash-adaptation covariate:
 # each flash spends fraction ADAPT_U of the available resource, which recovers
@@ -216,16 +217,13 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
     # short response window instead of spending log-spaced bases below 10 ms.
     flash = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
-    peri_exit = RaisedCosineBasis(
-        WITHDRAWAL_BASES,
-        WITHDRAWAL_HALF_WINDOW_S + BINWIDTH_S,
-        WITHDRAWAL_HALF_WINDOW_S + BINWIDTH_S,
-        BINWIDTH_S,
+    withdrawal = RaisedCosineBasis(
+        WITHDRAWAL_BASES, 0, WITHDRAWAL_WINDOW_S + BINWIDTH_S, BINWIDTH_S
     )
     return {
         "visual_flash": flash,
         "flash_adaptation": flash,
-        "withdrawal": peri_exit,
+        "withdrawal": withdrawal,
     }
 
 

@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm.dmat import (
     WITHDRAWAL_BASES,
-    WITHDRAWAL_HALF_WINDOW_S,
+    WITHDRAWAL_WINDOW_S,
     spike_history_basis,
     task_temporal_bases,
 )
@@ -57,7 +57,7 @@ def main() -> Path:
             "withdrawal",
             "withdrawal (center exit)",
             "task",
-            f"{WITHDRAWAL_BASES} bases spanning ±{1000 * WITHDRAWAL_HALF_WINDOW_S:.0f} ms",
+            f"{WITHDRAWAL_BASES} causal bases, 0-{1000 * WITHDRAWAL_WINDOW_S:.0f} ms",
             "time from center exit (ms)",
         ),
         (

@@ -2,7 +2,7 @@
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
 from five regressors: a common flash kernel, a flash-adaptation term, a
-peri-withdrawal kernel, 10 additive camera motion-energy PCs, and a strictly
+causal post-withdrawal kernel (0 to 100 ms), 10 additive camera motion-energy PCs, and a strictly
 past self-history filter for each unit. All terms add in log rate. An earlier
 full design had four more regressors; [Design justification](#design-justification)
 gives the fit that removed them.
@@ -69,7 +69,7 @@ drift, go cue, outcome, or punishment kernel.
 | --- | --- | ---: |
 | Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
 | Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
-| Withdrawal | 9 raised cosines, −300–+300 ms | 9 |
+| Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 

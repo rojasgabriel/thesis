@@ -60,7 +60,7 @@ FLASH_PEAK_S = 0.04
 FLASH_GAIN = 1.5
 ADAPT_GAIN = 1.0  # flash kernel scale per unit of centered resource
 WITHDRAWAL_PEAK_S = 0.05
-WITHDRAWAL_GAIN = 0.8
+WITHDRAWAL_GAIN = 1.5
 VIDEO_GAIN = 0.4
 POST_RESPONSE_GAIN = np.log(3)
 UNITS = {
@@ -80,10 +80,10 @@ def flash_kernel(lag: np.ndarray) -> np.ndarray:
 
 
 def withdrawal_kernel(lag: np.ndarray) -> np.ndarray:
-    """Gaussian log-rate bump around withdrawal, inside the kernel support."""
+    """Gaussian log-rate bump after withdrawal, inside the causal support."""
     lag = np.asarray(lag, dtype=float)
-    bump = WITHDRAWAL_GAIN * np.exp(-0.5 * ((lag - WITHDRAWAL_PEAK_S) / 0.06) ** 2)
-    return np.where(np.abs(lag) <= dmat.WITHDRAWAL_HALF_WINDOW_S, bump, 0.0)
+    bump = WITHDRAWAL_GAIN * np.exp(-0.5 * ((lag - WITHDRAWAL_PEAK_S) / 0.02) ** 2)
+    return np.where((lag >= 0) & (lag <= dmat.WITHDRAWAL_WINDOW_S), bump, 0.0)
 
 
 def history_kernel(lag_bins: np.ndarray) -> np.ndarray:
