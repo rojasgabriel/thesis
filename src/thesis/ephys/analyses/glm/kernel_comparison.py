@@ -14,8 +14,8 @@ trials) and the `glm unique` records of one fit set of one session (`--units`,
   not exactly comparable between units, because each unit has its own L2
   penalty.
 - Panels b and c: three example units. Panel b is the common visual flash
-  kernel (the response to a flash averaged over the pre/post-withdrawal and
-  adaptation terms). Panel c is the motion-energy weight map. Motion energy has
+  kernel (the response to a flash averaged over the short-interval
+  flash term). Panel c is the motion-energy weight map. Motion energy has
   no temporal kernel in this model: each PC has one same-bin coefficient. The
   map is the sum of the PC images weighted by the coefficients, so it shows
   where in the back-view video frame motion goes with more (red) or fewer

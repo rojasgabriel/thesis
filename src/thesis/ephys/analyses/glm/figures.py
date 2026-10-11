@@ -45,9 +45,9 @@ GROUP_COLORS = {
 }
 TASK_LABELS = {
     "visual_flash": "visual flash",
-    "flash_adaptation": "flash: adaptation",
-    "flash_first": "first flash",
-    "flash_later": "later flash, adapted",
+    "flash_adaptation": "flash: after a recent flash",
+    "flash_isolated": "flash, none in the last 50 ms",
+    "flash_repeat": "flash, after a flash in the last 50 ms",
     "in_port": "in center port",
     "withdrawal": "withdrawal",
 }

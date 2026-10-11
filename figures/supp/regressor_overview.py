@@ -43,14 +43,14 @@ def main() -> Path:
             "visual_flash",
             "visual flash",
             "sensory",
-            "6 raised-cosine bases, weight +1 at every flash",
+            "8 raised-cosine bases, weight +1 at every flash",
             "time from flash (ms)",
         ),
         (
             "flash_adaptation",
-            "flash: adaptation",
+            "flash: after a recent flash",
             "sensory",
-            "same bases, centered synaptic resource at each flash",
+            "same bases, 1 after a flash in the last 50 ms (centered)",
             "time from flash (ms)",
         ),
         (

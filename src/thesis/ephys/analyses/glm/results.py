@@ -36,15 +36,13 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-# The design codes flashes as a common kernel plus a centered synaptic-resource
-# term. Each displayed flash condition maps to a resource-level key that selects
-# a centered resource value from the design metadata: "first" (raw resource 1, a
-# full pool) or "late" (the mean raw resource of adapted flashes, R < 1; equal
-# to "first" if no flash is adapted).
+# The design codes flashes as a common kernel plus a centered term that is 1
+# for a flash that follows another within `dmat.RECENT_FLASH_S`. Each displayed
+# flash condition maps to the key of its centered value in the design metadata.
 EXAMPLE_UNIT_ID = 197
 FLASH_COMMON = "visual_flash"
 FLASH_ADAPT = "flash_adaptation"
-FLASH_CONDITIONS = {"flash_first": "first", "flash_later": "late"}
+FLASH_CONDITIONS = {"flash_isolated": "isolated", "flash_repeat": "repeat"}
 
 
 def fitted_trial_contributions(
@@ -415,7 +413,7 @@ def write_figure_data(
         "test_trials": trial_count,
         "model_design_trial": int(test_trial_numbers[typical_trial]),
         "model_design_flashes": len(modeled_flash_times),
-        "model_design_first_flashes": int(np.count_nonzero(resource_values == 1.0)),
+        "model_design_isolated_flashes": int(np.count_nonzero(resource_values == 0)),
         "model_design_valid_bins": int(displayed_rows.sum()),
         "display_task_names": list(display_task_names),
         "kernel_keys": kernel_keys,

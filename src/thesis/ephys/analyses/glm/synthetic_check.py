@@ -58,7 +58,7 @@ BASE_RATE_HZ = 20.0
 PC_COUNTS = (2, 5)
 FLASH_PEAK_S = 0.04
 FLASH_GAIN = 1.5
-ADAPT_GAIN = 1.0  # flash kernel scale per unit of centered resource
+ADAPT_GAIN = -0.6  # flash kernel scale after a flash in the last 50 ms (centered)
 WITHDRAWAL_PEAK_S = 0.05
 WITHDRAWAL_GAIN = 1.5
 VIDEO_GAIN = 0.4
@@ -194,10 +194,9 @@ def simulate_unit(
         ]
         for row in trials.itertuples()
     ]
-    resources = [
-        dmat.flash_resource(times, dmat.ADAPT_U, dmat.ADAPT_TAU_RECOVER_S)
-        for times in modeled
-    ]
+    # 1 for a flash that follows another within 50 ms, computed here and not
+    # with dmat.flash_recent.
+    resources = [np.r_[0.0, np.diff(times) <= 0.05] for times in modeled]
     center = np.concatenate(resources).mean()
     history = history_kernel(np.arange(1, 101))
     spikes = []

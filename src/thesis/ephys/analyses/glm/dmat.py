@@ -5,7 +5,7 @@ standardized numeric design. `write_stimulus_windows` selects trials, lays down
 the equal first-flash bin grid, fixes the 60/20/20 whole-trial split, and maps
 camera frames to trial windows. From that window file the rest of the module
 builds every regressor column: the task and sensory regressors (flash kernel,
-flash-adaptation resource, withdrawal), the contemporaneous motion-energy video
+the short-interval flash term, withdrawal, the center-port state), the contemporaneous motion-energy video
 PCs, and
 each unit's own strictly past spike-history block. `prepare_common_design`
 writes the shared task and video columns to a memmapped `.npy`;
@@ -36,6 +36,15 @@ BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
 # One count: the validation D² was flat from 10 to 50 PCs in the full-design fit.
 VIDEO_COMPONENT_COUNTS = (10,)
+# Flash kernel: this long after each flash, with this many bases.
+FLASH_WINDOW_S = 0.15
+FLASH_BASES = 8
+# The second flash term scales the flash kernel by 1 for a flash that follows
+# another flash within this time, else 0 (the shortest interval is 40 ms). A
+# synaptic-depression resource was tested in its place: validation D² went up as
+# its recovery got faster, to the level of this term (`adaptation_grid.py`).
+SECOND_FLASH_TERM = True
+RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
 WITHDRAWAL_WINDOW_S = 0.1
@@ -45,11 +54,6 @@ WITHDRAWAL_BASES = 4
 # this column, motion energy absorbs part of that time course.
 IN_PORT = "in_port"
 HISTORY_COLUMNS = 10
-# Short-term synaptic-depression parameters for the flash-adaptation covariate:
-# each flash spends fraction ADAPT_U of the available resource, which recovers
-# toward full with time constant ADAPT_TAU_RECOVER_S between flashes.
-ADAPT_U = 0.5
-ADAPT_TAU_RECOVER_S = 0.2
 
 
 def training_zscore(
@@ -220,41 +224,31 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     """Return the temporal basis used for each sensory or task regressor."""
     # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
     # short response window instead of spending log-spaced bases below 10 ms.
-    flash = RaisedCosineBasis(6, 0, 0.151, BINWIDTH_S)
+    flash = RaisedCosineBasis(FLASH_BASES, 0, FLASH_WINDOW_S + BINWIDTH_S, BINWIDTH_S)
     withdrawal = RaisedCosineBasis(
         WITHDRAWAL_BASES, 0, WITHDRAWAL_WINDOW_S + BINWIDTH_S, BINWIDTH_S
     )
-    return {
+    bases = {
         "visual_flash": flash,
         "flash_adaptation": flash,
         "withdrawal": withdrawal,
     }
+    if not SECOND_FLASH_TERM:
+        del bases["flash_adaptation"]
+    return bases
 
 
-def flash_resource(modeled: np.ndarray, u: float, tau_recover_s: float) -> np.ndarray:
-    """Available synaptic resource at each flash, from short-term depression.
-
-    A resource pool starts full (R = 1). Each flash spends fraction `u` of what
-    is available, then the pool recovers toward 1 with time constant
-    `tau_recover_s` before the next flash. Returns R just before each flash: the
-    first flash sees a full pool (R = 1, the strongest response) and later
-    flashes in a dense train see a depleted pool (graded adaptation).
-
-    This is the Tsodyks-Markram depression model (Tsodyks & Markram, 1997, PNAS),
-    driven by stimulus flashes.
-    """
-    resource = np.ones(len(modeled))
-    for position in range(1, len(modeled)):
-        recovery = np.exp(-(modeled[position] - modeled[position - 1]) / tau_recover_s)
-        resource[position] = 1 - (1 - resource[position - 1] * (1 - u)) * recovery
-    return resource
+def flash_recent(modeled: np.ndarray) -> np.ndarray:
+    """Return 1 for each flash that follows another within `RECENT_FLASH_S`, else 0."""
+    recent = np.zeros(len(modeled))
+    recent[1:] = np.diff(modeled) <= RECENT_FLASH_S
+    return recent
 
 
 def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
-    """Return modeled flashes and the raw resource at each.
+    """Return modeled flashes and the `flash_recent` value of each.
 
-    The resource is the available-pool trace from `flash_resource` (R = 1 at the
-    first flash, lower for adapted later flashes). `build_task_design` centers it.
+    `build_task_design` centers the values.
     """
     times, resource_values = [], []
     for flashes, center_entry, response_entry in zip(
@@ -268,7 +262,7 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
         if not len(modeled):
             raise ValueError("Every modeled trial must contain at least one flash.")
         times.append(modeled)
-        resource_values.append(flash_resource(modeled, ADAPT_U, ADAPT_TAU_RECOVER_S))
+        resource_values.append(flash_recent(modeled))
     return np.concatenate(times), np.concatenate(resource_values)
 
 
@@ -276,18 +270,11 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
     flashes, resource_raw = flash_events(trials)
-    # Center the resource so the common flash kernel stays the average response.
-    # A first flash sees a full pool (R = 1); adapted later flashes see less.
+    # Center the values so the common flash kernel stays the average response.
     # Store two representative centered levels for the kernel figure.
     adapt_center = float(resource_raw.mean())
     adapt_values = resource_raw - adapt_center
-    later = resource_raw[resource_raw < 1.0]
-    adapt_levels = {
-        "first": 1.0 - adapt_center,
-        "late": (float(later.mean()) - adapt_center)
-        if len(later)
-        else 1.0 - adapt_center,
-    }
+    adapt_levels = {"isolated": -adapt_center, "repeat": 1.0 - adapt_center}
     specifications = [
         (
             "visual_flash",
@@ -301,8 +288,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             flashes,
             adapt_values,
             "sensory",
-            f"centered depression resource, u={ADAPT_U}, "
-            f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
+            f"centered; 1 after a flash in the last {1000 * RECENT_FLASH_S:.0f} ms, "
+            "else 0",
         ),
         (
             "withdrawal",
@@ -315,6 +302,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
     manifest = []
     for name, times, values, group, coding in specifications:
+        if name not in bases:
+            continue
         basis = bases[name]
         design.add_regressor(
             EventRegressor(
@@ -536,8 +525,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "training_mean": base_mean.tolist() + video_mean,
         "training_scale": base_scale.tolist() + video_scale,
         "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
-        "adapt_u": ADAPT_U,
-        "adapt_tau_recover_s": ADAPT_TAU_RECOVER_S,
+        "recent_flash_s": RECENT_FLASH_S,
     }
     matrix.flush()
     del matrix
@@ -570,6 +558,5 @@ def _common_design_is_current(output: Path) -> bool:
         and [item.get("name") for item in manifest] == [*bases, IN_PORT]
         and [item.get("columns") for item in manifest]
         == [*(basis.basis.shape[1] for basis in bases.values()), 1]
-        and metadata.get("adapt_u") == ADAPT_U
-        and metadata.get("adapt_tau_recover_s") == ADAPT_TAU_RECOVER_S
+        and metadata.get("recent_flash_s") == RECENT_FLASH_S
     )
