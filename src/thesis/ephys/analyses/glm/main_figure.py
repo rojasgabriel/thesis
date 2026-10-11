@@ -30,8 +30,8 @@ default) of one session, after `glm fit` and `glm unique`.
 - Panel e (what explains the spikes): for each regressor, the unique ΔD²
   (filled; the D² that the model loses when that regressor is shuffled in time
   within each trial) and the maximal ΔD² (open; the D² of that regressor alone
-  minus the D² with every regressor shuffled); box plots over units (quartiles,
-  whiskers from the 5th to the 95th percentile, no outlier points). The axis is logarithmic and starts at `FLOOR`; a smaller value is
+  minus the D² with every regressor shuffled); median and interquartile range
+  over units. The axis is logarithmic and starts at `FLOOR`; a smaller value is
   drawn at the floor. The number at the right is the fraction of units whose
   unique ΔD² is above zero (one-sided t-test of the fold values,
   p < `RELIABLE_ALPHA`; a regressor with no effect gives about 5%).
@@ -239,19 +239,18 @@ def _plot_unique(axis, records: list[dict]) -> None:
     order = sorted(REGRESSORS, key=lambda name: np.median(values(name, UNIQUE)))
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
-        for key, offset, face in ((MAXIMAL, 0.19, "white"), (UNIQUE, -0.19, color)):
-            axis.boxplot(
-                np.maximum(values(name, key), FLOOR),
-                positions=[position + offset],
-                vert=False,
-                widths=0.3,
-                whis=(5, 95),
-                showfliers=False,
-                patch_artist=True,
-                boxprops={"facecolor": face, "edgecolor": color, "linewidth": 0.9},
-                medianprops={"color": "black" if face != "white" else color},
-                whiskerprops={"color": color, "linewidth": 0.8},
-                capprops={"color": color, "linewidth": 0.8},
+        for key, offset, face in ((MAXIMAL, 0.17, "white"), (UNIQUE, -0.17, color)):
+            low, median, high = np.maximum(
+                np.percentile(values(name, key), [25, 50, 75]), FLOOR
+            )
+            axis.plot([low, high], [position + offset] * 2, color=color, linewidth=1.2)
+            axis.scatter(
+                median,
+                position + offset,
+                s=22,
+                zorder=3,
+                facecolor=face,
+                edgecolor=color,
             )
         axis.text(
             1.04,
@@ -264,7 +263,7 @@ def _plot_unique(axis, records: list[dict]) -> None:
     axis.text(
         1.04,
         len(order) - 0.35,
-        "units with\nunique > 0",
+        "units with\nunique " + r"$\Delta D^2$ > 0",
         transform=axis.get_yaxis_transform(),
         fontsize=6.5,
     )
