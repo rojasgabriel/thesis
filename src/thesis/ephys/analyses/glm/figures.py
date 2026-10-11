@@ -18,7 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patheffects import withStroke
 
-from thesis.ephys.analyses.glm.dmat import BINWIDTH_S, VIDEO_COMPONENT_COUNTS
+from thesis.ephys.analyses.glm.dmat import BINWIDTH_S, IN_PORT, VIDEO_COMPONENT_COUNTS
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.results import write_figure_data
 from thesis.ephys.analyses.glm.unique_dev import (
@@ -188,7 +188,7 @@ def plot_model_design(
         )
     ):
         raise ValueError("Model-design values must be finite.")
-    expected_events = {"visual_flash", "withdrawal"}
+    expected_events = {"visual_flash", IN_PORT, "withdrawal"}
     if set(events) != expected_events:
         raise ValueError("Model-design task events are incomplete.")
 
@@ -208,10 +208,15 @@ def plot_model_design(
     right_ms = max(model_right_ms, float(event_values_ms.max()))
     spike_times_ms = np.repeat(times_ms, counts.astype(int, copy=False))
     manifest = {item["name"]: item for item in design_metadata["task_manifest"]}
-    event_order = ("visual_flash", "withdrawal")
-    event_labels = {"visual_flash": "visual flashes", "withdrawal": "withdrawal"}
+    event_order = ("visual_flash", IN_PORT, "withdrawal")
+    event_labels = {
+        "visual_flash": "visual flashes",
+        IN_PORT: "in center port",
+        "withdrawal": "withdrawal",
+    }
     event_colors = {
         "visual_flash": GROUP_COLORS["visual"],
+        IN_PORT: GROUP_COLORS["task"],
         "withdrawal": GROUP_COLORS["task"],
     }
 
@@ -234,6 +239,17 @@ def plot_model_design(
         positions = np.arange(len(event_order))[::-1]
         for position, name in zip(positions, event_order, strict=True):
             color = event_colors[name]
+            if name == IN_PORT:  # a state from center entry to center exit
+                entry_ms, exit_ms = 1000 * event_arrays[name]
+                event_axis.fill_betweenx(
+                    (position - 0.28, position + 0.28),
+                    max(left_ms, entry_ms),
+                    exit_ms,
+                    color=color,
+                    alpha=0.45,
+                    linewidth=0,
+                )
+                continue
             kernel_start, kernel_stop = manifest[name]["kernel_range_s"]
             for event_time in event_arrays[name]:
                 support_start = max(left_ms, 1000 * (event_time + kernel_start))
@@ -521,8 +537,20 @@ def plot_kernel_figure(
             axes.append(figure.add_subplot(location))
         for axis, name in zip(axes, names, strict=True):
             times_ms, values = kernels[name]
-            axis.plot(times_ms, values, color="black", linewidth=1.1)
             axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
+            if name == IN_PORT:  # one weight for the time in the port, no kernel
+                axis.step(
+                    [-0.5, 0, 1, 1.5],
+                    [0, values[0], 0, 0],
+                    where="post",
+                    color="black",
+                    linewidth=1.1,
+                )
+                axis.set_xticks([0, 1], ["center entry", "center exit"])
+                axis.set_title(TASK_LABELS[name], fontsize=8)
+                axis.set_ylabel(r"$\Delta$ log rate", fontsize=7)
+                continue
+            axis.plot(times_ms, values, color="black", linewidth=1.1)
             if times_ms[0] <= 0 <= times_ms[-1]:
                 axis.axvline(0, color="black", linewidth=0.45)
             axis.set_title(
@@ -836,6 +864,39 @@ def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Pat
         return save_figure(figure, output)
 
 
+def plot_in_port_weights(results: list[dict], metadata: dict, output: Path) -> Path:
+    """Show each unit's rate in the center port relative to its rate outside it.
+
+    The in-port column is 1 from center entry to center exit, so exp(weight) is
+    the rate factor that the final refit gives to the time in the port.
+    """
+    column = metadata["column_names"].index(f"{IN_PORT}_basis_01")
+    factors = np.exp(
+        np.asarray([item["coefficients"][column] for item in results])
+        / metadata["training_scale"][column]
+    )
+    median = float(np.median(factors))
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axis = plt.subplots(figsize=(3.4, 2.6))
+        edges = np.geomspace(factors.min(), factors.max(), 25)
+        axis.hist(factors, bins=edges, color=GROUP_COLORS["task"], alpha=0.75)
+        axis.axvline(1, color="0.65", linestyle="--", linewidth=0.8)
+        axis.axvline(median, color="black", linewidth=1.5)
+        axis.text(
+            median,
+            1.01,
+            f"median = {median:.2f}\n{np.mean(factors < 1):.0%} of units below 1",
+            transform=axis.get_xaxis_transform(),
+            ha="center",
+            va="bottom",
+        )
+        axis.set_xscale("log")
+        axis.set_xlabel("rate in center port / rate outside it (model)")
+        axis.set_ylabel("units")
+        label_panels([axis], -0.2)
+        return save_figure(figure, output)
+
+
 def plot_fit(fit_dir: Path) -> None:
     """Write this fit's figures inside its own artifact directory.
 
@@ -852,6 +913,11 @@ def plot_fit(fit_dir: Path) -> None:
         results, selections, figure_dir / "summary"
     )
     written = {"summary": str(summary)}
+    with (fit_dir.parent / "common_design_me.json").open() as handle:
+        metadata = json.load(handle)
+    written["in_port_weight"] = str(
+        plot_in_port_weights(results, metadata, figure_dir / "in_port_weight")
+    )
     payload = {
         "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
         "figure_dir": str(figure_dir),
@@ -887,7 +953,10 @@ def plot_example_unit(
             data["model_counts"],
             data["motion_times"],
             data["motion_scores"],
-            {name: data[f"event__{name}"] for name in ("visual_flash", "withdrawal")},
+            {
+                name: data[f"event__{name}"]
+                for name in ("visual_flash", IN_PORT, "withdrawal")
+            },
             {
                 name: data[f"contrib__{name}"]
                 for name in ("visual", "task", "video", "history")

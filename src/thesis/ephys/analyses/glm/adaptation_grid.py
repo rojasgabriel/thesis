@@ -54,7 +54,7 @@ from thesis.plotting import (
 )
 
 U_VALUES = (0.25, 0.5, 0.75, 0.9)
-TAU_VALUES_S = (0.05, 0.1, 0.2, 0.4, 0.8)
+TAU_VALUES_S = (0.0125, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8)
 UNIT_SET = "sample"
 INPUTS = ("stimulus_windows_me.npz", "video_me_features.npz", "frame_times.npy")
 
@@ -135,7 +135,7 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
             means = [values[(u, tau)].mean() for tau in TAU_VALUES_S]
             axes[0].plot(positions, means, marker="o", markerfacecolor="white", **style)
             axes[0].text(
-                positions[-1] + 0.12,
+                positions[-1] + 0.25,
                 means[-1],
                 f"{u:.0%} used per flash",
                 va="center",

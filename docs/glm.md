@@ -352,6 +352,10 @@ the residual tests are in-sample):
   below its trial-specific ΔD² (0.0016 against 0.0025). With both in the model
   the onset kernel still adds 0.0025, so about 20% of the slow structure follows
   the stimulus clock; it was left out to keep one column with a tested meaning.
+- `uv run python -m thesis.ephys.analyses.glm.residual_checks --units all`
+  repeats the residual checks of this section (session drift, time in trial,
+  flash rate, response side) on a fit set and writes `residual_checks.svg` in
+  its fit directory. Use `--root` to run it on another design.
 - Session drift is small (median ΔD² 0.0015, shuffled trial order 0.0009), so
   there is no drift term.
 - Adaptation parameters: a grid of `ADAPT_U` (0.25, 0.5, 0.75) and

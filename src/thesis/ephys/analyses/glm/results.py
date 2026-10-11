@@ -18,6 +18,7 @@ import numpy as np
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
     HISTORY_COLUMNS,
+    IN_PORT,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
@@ -114,7 +115,8 @@ def fitted_kernels(
     for item in design_metadata["task_manifest"]:
         name = item["name"]
         stop = cursor + int(item["columns"])
-        if name not in bases:  # a state column has a weight and no kernel
+        if name not in bases:  # a state column: one weight, shown as a step
+            kernels[name] = (np.asarray([0.0, 1.0]), np.repeat(weights[cursor], 2))
             cursor = stop
             continue
         basis = bases[name]
@@ -236,11 +238,7 @@ def write_figure_data(
     example_training_rate = (
         float(selection_by_id[example_id]["training_mean_count"]) / BINWIDTH_S
     )
-    task_names = [
-        item["name"]
-        for item in design_metadata["task_manifest"]
-        if item["name"] in task_temporal_bases()
-    ]
+    task_names = [item["name"] for item in design_metadata["task_manifest"]]
 
     prepared = _load_windows(windows)
     with np.load(windows, allow_pickle=False) as saved:
@@ -370,6 +368,7 @@ def write_figure_data(
         raise ValueError("Every displayed flash must be represented exactly once.")
     events = {
         "visual_flash": modeled_flash_times - alignment,
+        IN_PORT: np.asarray([center_entry - alignment, center_exit - alignment]),
         "withdrawal": np.asarray([center_exit - alignment]),
     }
     with np.load(
