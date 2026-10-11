@@ -5,7 +5,8 @@ parameters, and not others? This script makes no fits and no new analysis. It
 draws results of the other design modules in one figure and writes the caption
 next to it. Each panel answers one question, written above it, and the panels
 follow one regressor at a time. A dotted circle marks the value that the model
-uses.
+uses. The axes are drawn with `separate_axes`, and no p value is in the figure:
+the marks are in the panels and the p values are in the caption.
 
 - Panel a (the starting point): regressors of the first, nine-regressor
   design. Median and interquartile range of the unique ΔD² (167 units). Gray
@@ -80,6 +81,7 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     mark_selected,
     save_figure,
+    separate_axes,
 )
 
 FLOOR = 1e-5
@@ -122,27 +124,27 @@ the option that the model uses (dotted circle); in **e** it is the ±300 ms
 kernel. Boxes are the quartiles, whiskers reach 1.5 times the interquartile
 range, and outliers are not drawn. The mark over a box is a two-sided Wilcoxon
 signed-rank test of those differences against zero (n.s., p ≥ 0.05; \*,
-p < 0.05; \*\*, p < 0.01; \*\*\*, p < 0.001). The Friedman test under each
-panel compares all its options at once, paired over units. Where two options do
-not differ reliably, the model uses the simpler one. The exact values are in
-`design_optimization_stats.json`.
+p < 0.05; \*\*, p < 0.01; \*\*\*, p < 0.001); the p value of each option is
+given below. A Friedman test compares all options of a panel at once, paired
+over units. Where two options do not differ reliably, the model uses the
+simpler one.
 **a**, The starting point: the unique ΔD² of each regressor of the first,
 nine-regressor design (median and interquartile range of {full_units} units).
 Gray regressors explained almost nothing and were removed. The arrows name the
 panels that test each kept regressor.
 **b, c, Visual flash kernel** ({sample_units} units). **b**, Number of raised
-cosines. **c**, Length of the kernel.
+cosines ({p_b}). **c**, Length of the kernel ({p_c}).
 **d, Adaptation term**: a second flash kernel for a flash that follows another
 flash. No such term, a synaptic-depression resource that recovers slowly
 (200 ms) or fast (25 ms), and a term that is 1 for a flash that follows another
 within 50 ms (recent flash). The depression model is best when it recovers
 faster than the shortest interval between flashes (40 ms), where it is the same
-as the recent-flash term.
+as the recent-flash term ({p_d}).
 **e–h, Withdrawal.** **e**, Width of the withdrawal kernel. A kernel shorter
-than ±300 ms predicts worse. **f**, A column that is 1 while the animal is in
+than ±300 ms predicts worse ({p_e}). **f**, A column that is 1 while the animal is in
 the center port: the 0 to 100 ms kernel with this column (both) is better than
 the kernel alone and than the column alone, and the ±300 ms kernel is not
-better than both. **g**, What the column captures: observed firing rate (black)
+better than both ({p_f}). **g**, What the column captures: observed firing rate (black)
 and the rate that the model predicts without the column (purple, dashed) and
 with it (purple, solid), against time from the first flash (median of
 {sample_units} units). Each rate is divided by the mean rate of that unit, so 1
@@ -153,7 +155,8 @@ against the motion energy of the video frame, by the state of the animal
 (median and interquartile range of {port_units} units). At a side port, with
 the same motion energy and no stimulus, the rate is higher.
 **i, j, Motion energy.** **i**, Number of motion-energy PCs in the first design
-({full_units} units); 25 and 50 are not reliably better than 10. **j**, Does
+({full_units} units); 25 and 50 are not reliably better than 10 ({p_i}).
+**j**, Does
 motion energy predict spikes through the movement of that trial, or only
 because movement and firing both change with the time in the trial? The D² that
 each unit loses when motion energy is shuffled in time within the trial,
@@ -266,7 +269,7 @@ def _plot_choice(
     axis.set_xticks(positions, labels)
     axis.set_xlim(-0.6, len(labels) - 0.4)
     axis.margins(y=0.12)
-    axis.set_xlabel(f"{xlabel}\n(Friedman p = {omnibus:.2g})")
+    axis.set_xlabel(xlabel)
     axis.set_ylabel(r"change in $D^2$")
     return stats
 
@@ -504,7 +507,7 @@ def main() -> None:
         _plot_rates(g, no_port, residual)
         port_vs_stillness.plot(port, None, axes=(h, *spare))
         h.set_ylabel("")  # the same axis as panel g
-        h.set_xlabel("motion energy of the video frame")
+        h.set_xlabel("motion energy (percentile)")
         plt.close(spare_figure)
         stats["i motion-energy PCs"] = _plot_choice(
             i,
@@ -542,41 +545,51 @@ def main() -> None:
                 fontsize=7,
                 style="italic",
             )
-        # Letters at one distance from each panel; the panels differ in width.
-        wide = {a: 0.27, k: 0.26}
         panels = (a, b, c, d, e, f, g, h, i, j, k)
+        for axis in panels:
+            separate_axes(axis)
+        # Letters at the left edge of each panel, tick labels and axis label
+        # included, with the name of the regressor group next to the first one.
+        groups = {
+            a: ("the first design", "black"),
+            b: ("visual flash kernel", VISUAL),
+            d: ("adaptation term", VISUAL),
+            e: ("withdrawal", TASK),
+            i: ("motion energy", MOTION),
+            k: ("what is left out", "black"),
+        }
+        figure.canvas.draw()
+        to_figure = figure.transFigure.inverted()
         for letter, axis in zip("abcdefghijk", panels, strict=True):
-            box = axis.get_position()
-            figure.text(
-                box.x0 - wide.get(axis, 0.075),
-                box.y1 + 0.03,
-                letter,
-                fontweight="bold",
-                fontsize=10,
-            )
-        # One line above the first panel of each group names its regressor.
-        for axis, text, color in (
-            (a, "the first design", "black"),
-            (b, "visual flash kernel", VISUAL),
-            (d, "adaptation term", VISUAL),
-            (e, "withdrawal", TASK),
-            (i, "motion energy", MOTION),
-            (k, "what is left out", "black"),
-        ):
-            box = axis.get_position()
-            figure.text(
-                box.x0 - wide.get(axis, 0.075) + 0.025,
-                box.y1 + 0.0305,
-                text,
-                color=color,
-                fontsize=9,
-            )
+            left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
+            top = axis.get_position().y1 + 0.03
+            figure.text(left, top, letter, fontweight="bold", fontsize=10)
+            if axis in groups:
+                text, color = groups[axis]
+                figure.text(left + 0.025, top + 0.0005, text, color=color, fontsize=9)
         output = save_figure(figure, root / "design_optimization")
 
     output.with_name("design_optimization_stats.json").write_text(
         json.dumps(stats, indent=1, ensure_ascii=False)
     )
+
+    def tests(panel: str) -> str:
+        """Write the Friedman p and each Wilcoxon p of one panel as text."""
+        values = stats[panel]
+        pairs = "; ".join(
+            f"{name}, p = {item['wilcoxon_p']:.2g}"
+            for name, item in values.items()
+            if isinstance(item, dict)
+        )
+        return f"Friedman p = {values['friedman_p_all_choices']:.2g}; Wilcoxon: {pairs}"
+
     caption = CAPTION.format(
+        p_b=tests("b flash bases"),
+        p_c=tests("c flash window"),
+        p_d=tests("d adaptation term"),
+        p_e=tests("e withdrawal width"),
+        p_f=tests("f in-port column"),
+        p_i=tests("i motion-energy PCs"),
         full_units=pc_summary["units"],
         sample_units=len(adaptation[(None, None)]),
         port_units=len(port["rate"]),

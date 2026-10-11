@@ -201,17 +201,19 @@ def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]
                 elinewidth=0.7,
                 capsize=1.5,
             )
-            axes[0].text(
+            axes[0].text(  # outside the axis, so the axis ends at the data
                 GROUPS - 0.7,
                 median[-1] + (0.09, -0.09, 0)[(index + 2) % 3],
                 name,
                 color=color,
                 va="center",
+                clip_on=False,
             )
-        axes[0].set_xticks(range(GROUPS), ["least", *[""] * (GROUPS - 2), "most"])
-        axes[0].set_xlim(-0.4, GROUPS + 1.6)
+        centers = (np.arange(GROUPS) + 0.5) * 100 / GROUPS
+        axes[0].set_xticks(range(GROUPS), [f"{center:.0f}" for center in centers])
+        axes[0].set_xlim(-0.3, GROUPS - 0.8)
         axes[0].set_ylim(bottom=0)
-        axes[0].set_xlabel("motion energy of the frame (quintile)")
+        axes[0].set_xlabel("motion energy of the frame (percentile)")
         axes[0].set_ylabel("rate / mean rate of the unit")
 
         limit = 1.05 * np.nanmax(np.r_[center[paired], side[paired]])
