@@ -202,7 +202,7 @@ def _plot_choice(
     axis.set_xlim(-0.6, len(labels) - 0.4)
     axis.margins(y=0.12)
     axis.set_xlabel(xlabel)
-    axis.set_ylabel(r"change in $D^2$")
+    axis.set_ylabel(r"$\Delta D^2$")
     return stats
 
 
