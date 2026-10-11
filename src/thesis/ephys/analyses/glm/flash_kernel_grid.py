@@ -19,6 +19,9 @@ fixed 20-unit sample. The sampling unit is the unit.
 More bases can only fit the training trials better, so the rule is the smallest
 kernel after which the validation D² is flat, not the maximum.
 
+The script also scores the design in `dmat.py` with one more term, a separate
+kernel for the first flash of each trial (`first_flash.json`).
+
     uv run python -m thesis.ephys.analyses.glm.flash_kernel_grid
 
 A design that has saved scores in `flash_kernel_grid/flash_kernel_grid.json` is
@@ -72,13 +75,25 @@ def run_grid(source: Path, output: Path) -> list[dict]:
     return rows
 
 
+def score_first_flash(source: Path, output: Path) -> dict[str, float]:
+    """Score the design in `dmat.py` with a separate kernel for the first flash."""
+    path = output / "first_flash.json"
+    if not path.exists():
+        scores = score_design(
+            source, output / "work", "first_flash", {"FIRST_FLASH_TERM": True}
+        )
+        path.write_text(json.dumps(scores, indent=1))
+    return json.loads(path.read_text())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
     args = parser.parse_args()
     output = args.root / "flash_kernel_grid"
     rows = run_grid(args.root, output)
-    print(f"{len(rows)} designs in {output}")
+    score_first_flash(args.root, output)
+    print(f"{len(rows)} designs and the first-flash design in {output}")
 
 
 if __name__ == "__main__":

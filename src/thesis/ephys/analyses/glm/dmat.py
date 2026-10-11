@@ -45,6 +45,8 @@ FLASH_BASES = 8
 # synaptic-depression resource was tested in its place: validation D² went up as
 # its recovery got faster, to the level of this term (`adaptation_grid.py`).
 SECOND_FLASH_TERM = True
+# A separate kernel for the first flash of a trial, added to the common kernel.
+FIRST_FLASH_TERM = False
 RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
@@ -239,10 +241,13 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     bases = {
         "visual_flash": flash,
         "flash_adaptation": flash,
+        "flash_first": flash,
         "withdrawal": withdrawal,
     }
     if not SECOND_FLASH_TERM:
         del bases["flash_adaptation"]
+    if not FIRST_FLASH_TERM:
+        del bases["flash_first"]
     if not WITHDRAWAL_KERNEL:
         del bases["withdrawal"]
     return bases
@@ -300,6 +305,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             f"centered; 1 after a flash in the last {1000 * RECENT_FLASH_S:.0f} ms, "
             "else 0",
+        ),
+        (
+            "flash_first",
+            np.asarray(alignments, dtype=float),
+            None,
+            "sensory",
+            "the first flash of each trial, in addition to the common kernel",
         ),
         (
             "withdrawal",

@@ -9,8 +9,9 @@ default) of one session, after `glm fit` and `glm unique`.
 - Panel a (the task and the model): one held-out trial of the example unit,
   against time from the first flash. Flashes, the time in the center port, and
   the withdrawal; the first motion-energy PC; the term that each group of
-  regressors adds to the log rate in the final refit (visual, task, motion
-  energy, spike history, in their colors); and the observed spikes.
+  regressors adds to the log rate in the final refit (visual, task, and motion
+  energy in one row, spike history in its own row, in their colors); and the
+  observed spikes.
 - Panel b (what the model learns): the kernels of the example unit from the
   final refit, as a change in log rate. Flash kernel for a flash with no flash
   in the last 50 ms and for a flash that follows one; withdrawal kernel; the
@@ -82,7 +83,7 @@ REGRESSORS = {
 
 def _plot_trial(axes, data) -> None:
     """One trial: events, motion-energy PC 1, the fitted terms, and the spikes."""
-    events, motion, terms, spikes = axes
+    events, motion, terms, history, spikes = axes
     times = 1000 * data["model_times"]
     left, right = times[0], times[-1]
     entry, leave = 1000 * data["event__in_port"]
@@ -105,15 +106,13 @@ def _plot_trial(axes, data) -> None:
     )
     motion.set_ylabel("motion\nenergy PC 1", color=MOTION)
     # Each group of regressors adds its term to the log rate.
-    for key, color in (
-        ("history", HISTORY),
-        ("video", MOTION),
-        ("task", TASK),
-        ("visual", VISUAL),
-    ):
+    # Spike history has its own row: for a unit with a high rate it hides the rest.
+    for key, color in (("video", MOTION), ("task", TASK), ("visual", VISUAL)):
         terms.plot(times, data[f"contrib__{key}"], color=color, lw=0.9)
-    terms.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-    terms.set_ylabel(r"$\Delta$ log rate")
+    history.plot(times, data["contrib__history"], color=HISTORY, lw=0.6)
+    for axis in (terms, history):
+        axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+        axis.set_ylabel(r"$\Delta$ log rate")
     spikes.vlines(
         np.repeat(times, data["model_counts"].astype(int)), 0, 1, color="black", lw=0.7
     )
@@ -122,7 +121,7 @@ def _plot_trial(axes, data) -> None:
     spikes.set_xlabel("time from first flash (ms)")
     for axis in axes:
         axis.set_xlim(left, right)
-    for axis in (events, motion, terms):  # one time axis, under the spikes
+    for axis in (events, motion, terms, history):  # one time axis, under the spikes
         axis.tick_params(bottom=False, labelbottom=False)
 
 
@@ -248,7 +247,7 @@ def main() -> None:
     unique = json.loads((fit_dir / "unique_deviance" / "summary.json").read_text())
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 6.6))
+        figure = plt.figure(figsize=(7.4, 7.2))
         top = figure.add_gridspec(
             1,
             2,
@@ -260,7 +259,7 @@ def main() -> None:
             width_ratios=(1, 1.15),
         )
         trial = top[0].subgridspec(
-            4, 1, height_ratios=(1.2, 0.8, 1.3, 0.5), hspace=0.15
+            5, 1, height_ratios=(1.1, 0.8, 1.1, 0.8, 0.45), hspace=0.18
         )
         trial_axes = [figure.add_subplot(cell) for cell in trial]
         kernel_axes = [
@@ -291,7 +290,7 @@ def main() -> None:
         _plot_unique(unique_axis, unique["groups"], records)
         for axis in (*trial_axes, *kernel_axes, population, unique_axis):
             separate_axes(axis)
-        for axis in trial_axes[:3]:
+        for axis in trial_axes[:4]:
             axis.spines["bottom"].set_visible(False)
 
         figure.canvas.draw()
