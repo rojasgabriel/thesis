@@ -34,9 +34,9 @@ PRE_S = 0.1
 POST_S = 2.54
 BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
-# One count: the mean validation D² of the first design was highest at 25 PCs
-# (10, 25, 50, 100, and 200 were tested).
-VIDEO_COMPONENT_COUNTS = (25,)
+# One count. In the first design, 25 and 50 PCs were not reliably better than
+# 10 (paired over units), and 100 and 200 were worse; the smallest is used.
+VIDEO_COMPONENT_COUNTS = (10,)
 # Flash kernel: this long after each flash, with this many bases.
 FLASH_WINDOW_S = 0.15
 FLASH_BASES = 8

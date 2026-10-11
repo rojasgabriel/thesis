@@ -3,41 +3,48 @@
 Question: why does the design matrix have these regressors, with these
 parameters, and not others? This script makes no fits and no new analysis. It
 draws results of the other design modules in one figure and writes the caption
-next to it. Each panel answers one question, and the panels follow one
-regressor at a time. A dotted circle marks the value that the model uses.
+next to it. Each panel answers one question, written above it, and the panels
+follow one regressor at a time. A dotted circle marks the value that the model
+uses.
 
-- Panel a (the starting point): regressors of the full nine-regressor design.
-  Median and interquartile range of the unique ΔD² (167 units). Gray
+- Panel a (the starting point): regressors of the first, nine-regressor
+  design. Median and interquartile range of the unique ΔD² (167 units). Gray
   regressors were removed; the arrow next to a kept regressor names the panels
   that test it.
-- Visual flash. Panel b: number of bases of the flash kernel (150 ms window).
-  Panel c: window of the flash kernel (8 bases). `flash_kernel_grid.py`.
-- Second flash term. Panel d: no second term, a synaptic-depression resource
-  with a slow and with a fast recovery, and "a flash in the last 50 ms".
+- Visual flash kernel. Panel b: number of bases (150 ms window). Panel c:
+  window (8 bases). `flash_kernel_grid.py`.
+- Adaptation term. Panel d: no term, a synaptic-depression resource with a
+  slow and with a fast recovery, and "a flash in the last 50 ms".
   `flash_kernel_grid.py` and `adaptation_grid.py`.
-- Withdrawal. Panel e: width of the withdrawal kernel, and the short kernel
-  with a state column for the time in the center port. Panel f: observed and
-  predicted firing rate against time from the first flash, for the short
-  kernel without and with the in-port column; the shaded time is the median
-  time in the center port. Panel g: the lower rate in the center port is not
-  stillness (`port_vs_stillness.py`, all units, raw rates). Panels e and f use
-  20-unit fits of designs that differ only in these terms (`COMPARISONS`).
-- Motion energy. Panel h: number of PCs (full design, 167 units). Panel i:
+- Withdrawal. Panel e: width of the withdrawal kernel, without the in-port
+  column. Panel f: observed firing rate and the rate that the model with the
+  0 to 100 ms kernel and no in-port column predicts, against time from the
+  first flash; the shaded time is the median time in the center port. Panel g:
+  the lower rate in the center port is not stillness (`port_vs_stillness.py`,
+  all units, raw rates). Panel h: the 0 to 100 ms kernel, the in-port column
+  alone, and both; the dashed line is the ±300 ms kernel. `withdrawal_grid.py`.
+- Motion energy. Panel i: number of PCs (first design, 167 units). Panel j:
   each unit's unique ΔD² of motion energy against its trial-specific ΔD²
   (motion energy taken from another trial) in the final design; bars are the
   SEM over folds.
-- Panel j (what is left out): the ΔD² that a term not in the final design
+- Panel k (what is left out): the ΔD² that a term not in the final design
   would add (`residual_checks.py`, in-sample; median and interquartile range
   over units), and the median with the labels shuffled over trials (gray
-  line). "Time in trial" has no shuffle.
+  line).
 
-Panels b to e and h show the mean D² over units for each choice (validation
-trials; panel e, 10-fold cross-validation). Panels a and j have a logarithmic
-axis that starts at `FLOOR`; a smaller value is drawn at the floor. Each module
-docstring gives the comparison, units, baseline, alignment, exclusions, and
-sampling unit of its panels. The full design is the model at commit `fcd34fa`.
-Its fit and the comparison fits are in directories next to the session
-directory, with the suffixes in `FULL_SUFFIX` and `COMPARISONS`.
+Panels b to e, h, and i show the mean D² over units on the validation trials
+for each choice. Panels a and k have a logarithmic axis that starts at
+`FLOOR`; a smaller value is drawn at the floor. Firing rates are divided by
+the mean rate of that unit over all bins of the analysis. The choice panels
+have no error bars: the units differ much more in D² than the options do, so
+the paired test carries the uncertainty of each choice. The mark over an
+option is a two-sided Wilcoxon signed-rank test against the circled option,
+paired over units (panel e: against the ±300 ms kernel); the exact values go
+to `design_optimization_stats.json`.
+Each module docstring gives the comparison, units, baseline, alignment,
+exclusions, and sampling unit of its panels. The first design is the model at
+commit `fcd34fa`; its fit is in the directory next to the session directory
+with the suffix `FULL_SUFFIX`.
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization --units all
 
@@ -55,8 +62,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import friedmanchisquare, wilcoxon
 
-from thesis.ephys.analyses.glm import cli, dmat, port_vs_stillness, residual_checks
+from thesis.ephys.analyses.glm import (
+    cli,
+    dmat,
+    port_vs_stillness,
+    residual_checks,
+    withdrawal_grid,
+)
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -75,28 +89,21 @@ VISUAL, TASK, MOTION = (
     CONCEPT_COLORS["motion energy"],
 )
 FULL_SUFFIX = "_full_design"
-# 20-unit fits that differ only in the withdrawal kernel and the in-port column.
-COMPARISONS = {
-    "±300": "_withdrawal_300ms",
-    "±100": "_withdrawal_100ms",
-    "0–100": "_causal_no_onset",
-    "0–100\n+ port": "_port_only",
-}
 # Synaptic-depression models of panel d: (fraction used, recovery in s).
 DEPRESSION = {"slow\ndepression": (0.5, 0.2), "fast\ndepression": (0.5, 0.025)}
 # Regressors of the full design: label, color (gray = removed), note.
 FULL_DESIGN = {
     "history": ("spike history", CONCEPT_COLORS["history"], "kept"),
     "visual_flash": ("visual flash", VISUAL, "→ b, c"),
-    "withdrawal": ("withdrawal, ±300 ms", TASK, "→ e–g"),
-    "video": ("motion energy, 25 PCs", MOTION, "→ h, i"),
+    "withdrawal": ("withdrawal, ±300 ms", TASK, "→ e–h"),
+    "video": ("motion energy, 25 PCs", MOTION, "→ i, j"),
     "flash_adaptation": ("flash adaptation", VISUAL, "→ d"),
     "flash_pre_post_withdrawal": ("flash: post − pre withdrawal", REMOVED_COLOR, ""),
     "flash_motion_energy": ("flash × motion energy", REMOVED_COLOR, ""),
     "response_entry": ("response entry", REMOVED_COLOR, ""),
     "initiation": ("initiation", REMOVED_COLOR, ""),
 }
-# Terms that are not in the final design (panel j), in `residual_checks` names.
+# Terms that are not in the final design (panel k), in `residual_checks` names.
 LEFT_OUT = {
     "time in trial": "time in the trial",
     "session drift": "drift over the session",
@@ -105,42 +112,56 @@ LEFT_OUT = {
     "side, before withdrawal": "response side, before exit",
 }
 CAPTION = """\
-**Optimizing the GLM design matrix.** A dotted circle marks the value that the
-model uses. D² is the deviance explained on trials that were not used for the
-fit, as the mean over units.
+**Optimizing the GLM design matrix.** The question that a panel answers is
+above it. A dotted circle marks the value that the model uses. D² is the
+deviance explained on trials that were not used for the fit, as the mean over
+units. Where two options do not differ reliably, the model uses the simpler one.
+The Friedman test in each panel compares all options at once, paired over units.
+The mark over each other option is a two-sided Wilcoxon signed-rank test
+of that option against the circled one, paired over units (n.s., p ≥ 0.05;
+\*, p < 0.05; \*\*, p < 0.01; \*\*\*, p < 0.001; in **e**, against the
+±300 ms kernel). The exact values are in `design_optimization_stats.json`.
 **a**, The starting point: the unique ΔD² of each regressor of the first,
 nine-regressor design (median and interquartile range of {full_units} units).
 Gray regressors explained almost nothing and were removed. The arrows name the
 panels that test each kept regressor.
 **b, c, Visual flash kernel** ({sample_units} units). **b**, D² against the
-number of raised cosines; eight are better than six, and more give nothing.
-**c**, D² against the length of the kernel; a longer kernel is not reliably
-better.
-**d, Second flash term.** D² with no second term, with a synaptic-depression
-resource that recovers slowly (200 ms) or fast (25 ms), and with a term that is
-1 for a flash that follows another within 50 ms (recent flash). A second term is needed. The
-depression model is best when it recovers faster than the shortest interval
-between flashes (40 ms), where it is the same as the simple term.
-**e–g, Withdrawal.** **e**, D² against the width of the withdrawal kernel. A
-kernel shorter than ±300 ms predicts worse, unless the model has a column for
-the time in the center port. **f**, Why: firing rate against time from the
-first flash (median of {sample_units} units; rates are relative to the mean rate of each unit). With the 0 to 100 ms
-kernel, the model (dashed) predicts too many spikes
+number of raised cosines. **c**, D² against the length of the kernel.
+**d, Adaptation term**: a second flash kernel for a flash that follows another
+flash. D² with no such term, with a synaptic-depression resource that recovers
+slowly (200 ms) or fast (25 ms), and with a term that is 1 for a flash that
+follows another within 50 ms (recent flash). The depression model is best when
+it recovers faster than the shortest interval between flashes (40 ms), where
+it is the same as the recent-flash term.
+**e–h, Withdrawal.** **e**, D² against the width of the withdrawal kernel. A
+kernel shorter than ±300 ms predicts worse. **f**, What the short kernel
+misses: observed firing rate (black) and the rate that the model with the 0 to
+100 ms kernel predicts (purple, dashed), against time from the first flash
+(median of {sample_units} units). Each rate is divided by the mean rate of that
+unit, so 1 is the average rate of the unit. The model predicts too many spikes
 while the animal is in the center port (shaded: median time in the port). With
-the in-port column (solid), it follows the observed rate (black). **g**, The
-lower rate in the center port is not stillness: firing rate against the motion
-energy of the video frame, by the state of the animal (median and
-interquartile range of {port_units} units). At a side port, with the same
-motion energy and no stimulus, the rate is higher.
-**h, i, Motion energy.** **h**, D² against the number of motion-energy PCs in
-the first design ({full_units} units). **i**, The D² that each unit loses when
-motion energy is shuffled in time within the trial, against the loss when it is
-taken from another trial (final design; bars are the SEM over folds). The two
-are equal, so motion energy predicts spikes through the movement of that trial
-and not through the time in the trial.
-**j**, What is left out: the ΔD² that each term would add to the final design
-(median and interquartile range of {residual_units} units), and the same value
-with the labels shuffled over trials (gray line).
+a column for the time in the port (purple, solid), the prediction is closer. **g**, This lower rate is not because the animal
+is still: firing rate against the motion energy of the video frame, by the
+state of the animal (median and interquartile range of {port_units} units). At
+a side port, with the same motion energy and no stimulus, the rate is higher.
+**h**, D² with the 0 to 100 ms kernel, with a column that is 1 while the animal
+is in the center port (port only), and with both (dashed line: the ±300 ms
+kernel, which is not better than both; p = {wide_p:.2f}).
+**i, j, Motion energy.** **i**, D² against the number of motion-energy PCs in
+the first design ({full_units} units); 25 and 50 are not reliably better than
+10. **j**, Does motion energy predict spikes
+through the movement of that trial, or only because movement and firing both
+change with the time in the trial? The D² that each unit loses when motion
+energy is shuffled in time within the trial, against the loss when it is
+replaced with the motion energy of another trial, which has the same average
+time course (final design; bars are the SEM over folds). The two losses are
+equal, so the movement of that trial is what predicts the spikes.
+**k**, Terms that are not in the final design: the ΔD² that each one would add
+(median and interquartile range of {residual_units} units). Gray line: the same
+value after the labels of that term are shuffled 30 times (order of the time
+bins for the time in the trial, trial order for the drift, rate group for the
+flash rate, response side for the two side terms), which is what a term with no
+relation to the spikes gains by chance.
 """
 
 
@@ -172,33 +193,69 @@ def _plot_full_design(axis, groups: dict) -> None:
     axis.set_xlabel(r"unique $\Delta D^2$ in the first design")
 
 
-def _plot_choice(axis, labels, values, selected, color, xlabel, line=True) -> None:
-    """Mean D² for each choice; a dotted circle marks the selected one."""
+def _stars(p: float) -> str:
+    return "n.s." if p >= 0.05 else "*" * (1 + (p < 0.01) + (p < 0.001))
+
+
+def _plot_choice(
+    axis, scores: dict, color, xlabel, selected=None, reference=None, line=True
+) -> dict:
+    """Mean D² over units for each choice, with a paired test against one choice.
+
+    `scores` maps the label of each choice to the D² of each unit (same unit
+    order). A dotted circle marks `selected`. Each other choice gets the result
+    of a two-sided Wilcoxon signed-rank test against `reference` (default:
+    `selected`) over units. Returns the statistics.
+    """
+    labels = list(scores)
+    reference = selected if reference is None else reference
+    means = [float(np.mean(scores[label])) for label in labels]
     positions = np.arange(len(labels))
+    base = np.asarray(scores[reference])
     axis.plot(
         positions,
-        values,
+        means,
         color=color,
         marker="o",
         markerfacecolor="white",
         linestyle="-" if line else "none",
     )
-    mark_selected(axis, selected, values[selected])
+    if selected is not None:
+        mark_selected(axis, labels.index(selected), means[labels.index(selected)])
     axis.set_xticks(positions, labels)
     axis.set_xlim(-0.5, len(labels) - 0.5)
-    axis.margins(y=0.18)
+    axis.margins(y=0.25)
     axis.set_xlabel(xlabel)
     axis.set_ylabel(r"mean $D^2$")
-
-
-def _cross_validated(root: Path) -> np.ndarray:
-    records = load_unit_records(root / "sample_fit_me" / "checkpoints", "*_final.json")
-    if not records:
-        raise FileNotFoundError(f"No 20-unit fit in {root}; see docs/glm.md.")
-    return np.asarray([item["cross_validated_deviance_explained"] for item in records])
+    # Omnibus test over all choices, paired over units, before the pairwise tests.
+    omnibus = float(friedmanchisquare(*(scores[label] for label in labels)).pvalue)
+    stats = {"friedman_p_all_choices": omnibus}
+    axis.set_xlabel(f"{xlabel}\n(Friedman p = {omnibus:.2g})")
+    for position, label in enumerate(labels):
+        if label == reference:
+            continue
+        other = np.asarray(scores[label])
+        p_value = float(wilcoxon(base, other).pvalue)
+        stats[str(label).replace("\n", " ")] = {
+            "reference": str(reference).replace("\n", " "),
+            "mean_difference_reference_minus_choice": float(np.mean(base - other)),
+            "units_reference_higher": int(np.sum(base > other)),
+            "units": len(base),
+            "wilcoxon_p": p_value,
+        }
+        axis.annotate(
+            _stars(p_value),
+            (position, means[position]),
+            xytext=(0, 7),
+            textcoords="offset points",
+            ha="center",
+            fontsize=7,
+        )
+    return stats
 
 
 def _plot_rates(axis, without: dict, with_port: dict) -> None:
+    """Observed rate and the rates that the model predicts without and with the port column."""
     edges = residual_checks.ONSET_EDGES_S
     x = 1000 * (edges[:-1] + edges[1:]) / 2
     median = lambda curve: np.nanmedian(np.asarray(curve), axis=0)  # noqa: E731
@@ -212,8 +269,7 @@ def _plot_rates(axis, without: dict, with_port: dict) -> None:
         ha="center",
         transform=axis.get_xaxis_transform(),
     )
-    observed = median(with_port["curves"]["observed"])
-    axis.plot(x, observed, color="black", linewidth=1.4)
+    axis.plot(x, median(with_port["curves"]["observed"]), color="black", linewidth=1.4)
     axis.plot(
         x, median(without["curves"]["predicted"]), color=MODEL_COLOR, linestyle="--"
     )
@@ -222,14 +278,14 @@ def _plot_rates(axis, without: dict, with_port: dict) -> None:
     top = axis.get_ylim()[1]
     for height, text, color in (
         (0.36, "observed", "black"),
-        (0.26, "model (dashed)", MODEL_COLOR),
-        (0.16, "model + in port", MODEL_COLOR),
+        (0.26, "predicted, no port column", MODEL_COLOR),
+        (0.16, "predicted, with port column", MODEL_COLOR),
     ):
         axis.text(
-            x[-1], height * top, text, color=color, ha="right", va="top", fontsize=7
+            x[-1], height * top, text, color=color, ha="right", va="top", fontsize=6.5
         )
     axis.set_xlabel("time from first flash (ms)")
-    axis.set_ylabel("relative firing rate")
+    axis.set_ylabel("rate / mean rate of the unit")
 
 
 def _plot_motion_control(axis, records: list[dict]) -> None:
@@ -306,26 +362,35 @@ def main() -> None:
     full = sibling(FULL_SUFFIX) / "all_fit_me"
     pc_summary = _load(full / "validation_summary.json", "glm fit (full design)")
     full_unique = _load(full / "unique_deviance" / "summary.json", "glm unique")
-    mean = lambda row: float(np.mean(list(row["units"].values())))  # noqa: E731
+    per_unit = lambda units: np.asarray([units[u] for u in sorted(units)])  # noqa: E731
     flash = {
-        (row["bases"], row["window"], row["second"]): mean(row)
+        (row["bases"], row["window"], row["second"]): per_unit(row["units"])
         for row in _load(
             root / "flash_kernel_grid" / "flash_kernel_grid.json",
             f"{module}.flash_kernel_grid",
         )
     }
-    adaptation_rows = _load(
-        root / "adaptation_grid" / "adaptation_grid.json", f"{module}.adaptation_grid"
-    )
-    adaptation = {(row["u"], row["tau"]): mean(row) for row in adaptation_rows}
-    port = _load(root / "port_vs_stillness.npz", f"{module}.port_vs_stillness")
-    hold = {
-        name: _load(
-            sibling(COMPARISONS[name]) / "sample_fit_me" / "residual_checks.json",
-            f"{module}.residual_checks --units sample --root <that directory>",
+    adaptation = {
+        (row["u"], row["tau"]): per_unit(row["units"])
+        for row in _load(
+            root / "adaptation_grid" / "adaptation_grid.json",
+            f"{module}.adaptation_grid",
         )
-        for name in ("0–100", "0–100\n+ port")
     }
+    port = _load(root / "port_vs_stillness.npz", f"{module}.port_vs_stillness")
+    kernel = {
+        name: per_unit(units)
+        for name, units in _load(
+            root / "withdrawal_grid" / "withdrawal_grid.json",
+            f"{module}.withdrawal_grid",
+        ).items()
+    }
+    no_port = _load(
+        sibling(withdrawal_grid.NO_PORT_SUFFIX)
+        / "sample_fit_me"
+        / "residual_checks.json",
+        f"{module}.withdrawal_grid",
+    )
     fit_dir = cli.PoissonGLM(root=root).fit_dir(args.units)
     residual = _load(
         fit_dir / "residual_checks.json",
@@ -337,11 +402,19 @@ def main() -> None:
     bases, window = dmat.FLASH_BASES, dmat.FLASH_WINDOW_S
     base_counts = sorted({key[0] for key in flash})
     windows = sorted({key[1] for key in flash})
-    pc_scores = pc_summary["mean_validation_deviance_explained"]
-    pc_counts = sorted(pc_scores, key=int)
+    selections = load_unit_records(full / "checkpoints", "unit_*_validation.json")
+    pcs = {
+        count: np.asarray(
+            [
+                item["plus_video"][count]["validation"]["deviance_explained"]
+                for item in selections
+            ]
+        )
+        for count in sorted(selections[0]["plus_video"], key=int)
+    }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 9.6))
+        figure = plt.figure(figsize=(7.4, 11.2))
 
         # Fixed positions: the panels carry labels outside their axes.
         def row(top, bottom, widths, left=0.1, right=0.98, wspace=0.62):
@@ -357,83 +430,120 @@ def main() -> None:
             )
             return [figure.add_subplot(cell) for cell in grid]
 
-        (a,) = row(0.955, 0.80, (1,), left=0.36, right=0.8)
-        b, c, d = row(0.71, 0.58, (1, 0.8, 1.5))
-        e, f, g = row(0.49, 0.345, (1, 1.15, 1.7), wspace=0.5)
-        h, i = row(0.25, 0.085, (1, 0.9), right=0.5, wspace=0.95)
-        (j,) = row(0.25, 0.085, (1,), left=0.76)
+        (a,) = row(0.962, 0.84, (1,), left=0.36, right=0.8)
+        b, c, d = row(0.755, 0.655, (1, 0.8, 1.5))
+        e, f, g, h = row(0.535, 0.43, (0.85, 1.1, 1.75, 0.9), wspace=0.8)
+        i, j = row(0.3, 0.17, (1, 0.9), right=0.5, wspace=0.95)
+        (k,) = row(0.3, 0.17, (1,), left=0.76)
         spare_figure = plt.figure()
         spare = spare_figure.subplots(1, 2)
 
         _plot_full_design(a, full_unique["groups"])
-        _plot_choice(
+        stats = {}
+        stats["b flash bases"] = _plot_choice(
             b,
-            base_counts,
-            [flash[(count, window, True)] for count in base_counts],
-            base_counts.index(bases),
+            {count: flash[(count, window, True)] for count in base_counts},
             VISUAL,
             "raised cosines in the flash kernel",
+            selected=bases,
         )
-        _plot_choice(
+        stats["c flash window"] = _plot_choice(
             c,
-            [f"{1000 * value:.0f}" for value in windows],
-            [flash[(bases, value, True)] for value in windows],
-            windows.index(window),
+            {f"{1000 * value:.0f}": flash[(bases, value, True)] for value in windows},
             VISUAL,
             "length of the flash kernel (ms)",
+            selected=f"{1000 * window:.0f}",
         )
         second = {"none": flash[(bases, window, False)]}
         second |= {name: adaptation[pair] for name, pair in DEPRESSION.items()}
         second["recent\nflash"] = adaptation[(None, None)]
-        _plot_choice(
-            d,
-            list(second),
-            list(second.values()),
-            3,
-            VISUAL,
-            "second flash term",
-            False,
+        stats["d adaptation term"] = _plot_choice(
+            d, second, VISUAL, "adaptation term", selected="recent\nflash", line=False
         )
         d.tick_params(axis="x", labelsize=7)
-        kernel = {
-            name: _cross_validated(sibling(s)).mean() for name, s in COMPARISONS.items()
-        }
-        _plot_choice(
+        stats["e withdrawal width"] = _plot_choice(
             e,
-            list(kernel),
-            list(kernel.values()),
-            3,
+            {name: kernel[name] for name in ("±300", "±100", "0–100")},
             TASK,
             "withdrawal kernel (ms)",
-            False,
+            reference="±300",
         )
         e.tick_params(axis="x", labelsize=7)
-        _plot_rates(f, hold["0–100"], hold["0–100\n+ port"])
+        in_use = withdrawal_grid.IN_USE
+        stats["h in-port column"] = _plot_choice(
+            h,
+            {
+                "0–100": kernel["0–100"],
+                "port\nonly": kernel["in port\nonly"],
+                "both": kernel[in_use],
+            },
+            TASK,
+            "withdrawal terms",
+            selected="both",
+            line=False,
+        )
+        wide = float(kernel["±300"].mean())
+        h.axhline(wide, color=TASK, linestyle="--", linewidth=0.8)
+        h.text(-0.45, wide, "±300 ms", color=TASK, va="bottom", fontsize=7)
+        h.tick_params(axis="x", labelsize=7)
+        stats["h in-port column"]["±300 ms kernel"] = {
+            "reference": "both",
+            "mean_difference_reference_minus_choice": float(
+                np.mean(kernel[in_use] - kernel["±300"])
+            ),
+            "units_reference_higher": int(np.sum(kernel[in_use] > kernel["±300"])),
+            "units": len(kernel[in_use]),
+            "wilcoxon_p": float(wilcoxon(kernel[in_use], kernel["±300"]).pvalue),
+        }
+        _plot_rates(f, no_port, residual)
         port_vs_stillness.plot(port, None, axes=(g, *spare))
-        g.set_ylabel("relative firing rate")
+        g.set_ylabel("")  # the same axis as panel f
         g.set_xlabel("motion energy of the video frame")
         plt.close(spare_figure)
-        _plot_choice(
-            h,
-            pc_counts,
-            [pc_scores[count] for count in pc_counts],
-            pc_counts.index(str(max(dmat.VIDEO_COMPONENT_COUNTS))),
+        stats["i motion-energy PCs"] = _plot_choice(
+            i,
+            pcs,
             MOTION,
             "motion-energy PCs",
+            selected=str(max(dmat.VIDEO_COMPONENT_COUNTS)),
         )
-        h.tick_params(axis="x", labelsize=7)
-        _plot_motion_control(i, unique_records)
-        _plot_left_out(j, residual["units"])
+        i.tick_params(axis="x", labelsize=7)
+        _plot_motion_control(j, unique_records)
+        _plot_left_out(k, residual["units"])
 
+        # The question that each panel answers, above it.
+        questions = {
+            a: "how much does each regressor of the first design explain?",
+            b: "how many bases?",
+            c: "how long a kernel?",
+            d: "which term for a flash that follows a flash?",
+            e: "how wide a kernel?",
+            f: "what does the short kernel miss?",
+            g: "is the lower rate in the port stillness?",
+            h: "does a column for the port fix it?",
+            i: "how many PCs?",
+            j: "movement, or time in the trial?",
+            k: "how much would each term add?",
+        }
+        for axis, question in questions.items():
+            axis.text(
+                0.5 if axis not in (a, k) else 0.3,
+                1.03,
+                question,
+                transform=axis.transAxes,
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                style="italic",
+            )
         # Letters at one distance from each panel; the panels differ in width.
-        wide = {a: 0.27, j: 0.26}
-        for letter, axis in zip(
-            "abcdefghij", (a, b, c, d, e, f, g, h, i, j), strict=True
-        ):
+        wide = {a: 0.27, k: 0.26}
+        panels = (a, b, c, d, e, f, g, h, i, j, k)
+        for letter, axis in zip("abcdefghijk", panels, strict=True):
             box = axis.get_position()
             figure.text(
                 box.x0 - wide.get(axis, 0.075),
-                box.y1 + 0.018,
+                box.y1 + 0.03,
                 letter,
                 fontweight="bold",
                 fontsize=10,
@@ -442,26 +552,30 @@ def main() -> None:
         for axis, text, color in (
             (a, "the first design", "black"),
             (b, "visual flash kernel", VISUAL),
-            (d, "second flash term", VISUAL),
+            (d, "adaptation term", VISUAL),
             (e, "withdrawal", TASK),
-            (h, "motion energy", MOTION),
-            (j, "what is left out", "black"),
+            (i, "motion energy", MOTION),
+            (k, "what is left out", "black"),
         ):
             box = axis.get_position()
             figure.text(
                 box.x0 - wide.get(axis, 0.075) + 0.025,
-                box.y1 + 0.0185,
+                box.y1 + 0.0305,
                 text,
                 color=color,
                 fontsize=9,
             )
         output = save_figure(figure, root / "design_optimization")
 
+    output.with_name("design_optimization_stats.json").write_text(
+        json.dumps(stats, indent=1, ensure_ascii=False)
+    )
     caption = CAPTION.format(
         full_units=pc_summary["units"],
-        sample_units=len(adaptation_rows[0]["units"]),
+        sample_units=len(adaptation[(None, None)]),
         port_units=len(port["rate"]),
         residual_units=len(residual["units"]),
+        wide_p=stats["h in-port column"]["±300 ms kernel"]["wilcoxon_p"],
     )
     output.with_name("design_optimization_caption.md").write_text(caption)
     print(output)

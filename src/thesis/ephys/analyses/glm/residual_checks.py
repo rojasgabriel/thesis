@@ -13,8 +13,8 @@ that it gains, as a fraction of the unit's null deviance (ΔD²), next to the
 same value with the labels shuffled over trials:
 
 - session drift: a cubic spline over trial number; shuffle = trial order.
-- time in trial: a cubic spline over the time from the first flash, 0 to 1.5 s.
-  It has no shuffle; compare it with the ΔD² of the regressors in the model.
+- time in trial: a cubic spline over the time from the first flash, 0 to 1.5 s
+  (20-ms bins); shuffle = order of the time bins.
 - flash rate: one time-in-trial spline for low-rate (< 12 Hz) and one for
   high-rate (> 12 Hz) trials, minus one shared spline; shuffle = rate labels.
 - response side: one scale per response side in each 100 ms window from 300 ms
@@ -235,8 +235,11 @@ def run_checks(root: Path, unit_set: str) -> dict:
                 - _gain(env_n[both].sum(0), env_m[both].sum(0), envelope_features)
             )
 
-        shuffled_rate, shuffled_side, shuffled_session = [], [], []
+        shuffled_rate, shuffled_side, shuffled_session, shuffled_time = [], [], [], []
+        time_n, time_m = env_n.sum(0), env_m.sum(0)
         for _ in range(SHUFFLES):
+            mixed = rng.permutation(len(time_n))
+            shuffled_time.append(_gain(time_n[mixed], time_m[mixed], envelope_features))
             mixed = rng.permutation(rate_trials)
             shuffled_rate.append(rate_gain(mixed[: low.sum()], mixed[low.sum() :]))
             shuffled_side.append(_side_gain(side_n, side_m, rng.permutation(right)))
@@ -251,8 +254,8 @@ def run_checks(root: Path, unit_set: str) -> dict:
                 "unit_id": int(record["unit_id"]),
                 "session drift": _gain(trial_n, trial_m, session_features) / null,
                 "session drift shuffle": float(np.mean(shuffled_session)) / null,
-                "time in trial": _gain(env_n.sum(0), env_m.sum(0), envelope_features)
-                / null,
+                "time in trial": _gain(time_n, time_m, envelope_features) / null,
+                "time in trial shuffle": float(np.mean(shuffled_time)) / null,
                 "flash rate": rate_gain(np.flatnonzero(low), np.flatnonzero(high))
                 / null,
                 "flash rate shuffle": float(np.mean(shuffled_rate)) / null,
