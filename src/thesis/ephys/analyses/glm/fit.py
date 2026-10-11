@@ -4,9 +4,8 @@ Scientific comparison
 ---------------------
 For GRB006 session 20240821_121447, predict V1 spikes from six regressors: a
 common flash kernel, the flash kernel of a flash that follows another within
-50 ms, a state
-column for the time in the center port, a causal post-withdrawal kernel (0 to
-100 ms), the first 10 additive video motion-energy PCs, and the strictly past
+50 ms, a kernel for the stimulus during the hold (first flash to center
+exit), a causal post-withdrawal kernel (0 to 100 ms), the first 10 additive video motion-energy PCs, and the strictly past
 spike history of each unit. All terms are additive in log rate.
 The model has no flash × movement interaction, initiation, response-entry,
 response-side, coupling, session-drift, go-cue, outcome, or punishment terms.

@@ -2,10 +2,9 @@
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
 from six regressors: a common flash kernel, the flash kernel of a flash that
-follows another within 50 ms (the recent-flash term), a state
-column for the time in the center port, a causal post-withdrawal kernel (0 to
-100 ms),
-10 additive camera motion-energy PCs, and a strictly
+follows another within 50 ms (the recent-flash term), a kernel for the
+stimulus during the hold (first flash to center exit), a causal
+post-withdrawal kernel (0 to 100 ms), 10 additive camera motion-energy PCs, and a strictly
 past self-history filter for each unit. All terms add in log rate. An earlier
 full design had four more regressors; [Design justification](#design-justification)
 gives the fit that removed them.
@@ -73,7 +72,7 @@ drift, go cue, outcome, or punishment kernel.
 | Common flash | Every modeled flash; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
 | Recent flash | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
-| In center port | 1 from center entry to center exit, else 0; no temporal basis | 1 |
+| Stimulus during hold | One kernel on the first flash, set to zero from the center exit on; 10 raised cosines with even spacing in log(t + 50 ms), 0–950 ms; no step | 10 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
@@ -379,6 +378,59 @@ the residual tests are in-sample):
   the exit is 1.87 times the rate of completed trials at the same time from
   onset. So the go cue does not end the suppression; the exit does.
 
+### Stimulus during hold
+
+Tests of 2026-10-10 and 2026-10-11 on the 20-unit sample. The in-port column
+of the section above became one kernel, from the first flash to the center
+exit (`hold` in `dmat.py`).
+
+- Why: with the in-port column, the model reached 50% of the first-flash peak
+  of the units with a clear peak, and observed / predicted was 1.34 just before
+  the first flash and 0.75 at 150 ms. The drop starts about 80 ms after the
+  first flash in trials with a short and with a long delay from center entry,
+  so it follows the first flash, not the entry. It ends at the center exit,
+  while the flashes go on to the response entry. So the term is on only while
+  the stimulus is on and the animal holds: "stimulus during hold".
+- Form (`hold_grid`, validation D², against the kernel in use): no term
+  −0.0065 (median; p = 4e-5), step from center entry −0.0021 (p = 0.0006), step
+  from the first flash −0.0010 (p = 0.0004). A step from the first flash with a
+  150 ms kernel on the first flash is equal (p = 0.76), and so is the kernel
+  with linear spacing (p = 0.73; in 10-fold cross-validation the log spacing is
+  0.6% better, 14 of 20 units, p = 0.033). The kernel was selected because it
+  is one regressor and its flat level after the drop is then a result (median
+  gain 0.6 from 300 to 550 ms; below 0.9 in 17 of 20 units, above 1.1 in 1).
+  It reaches 88% of the first-flash peak.
+- Other forms that were tested and removed from the code: a step with a delay
+  of 50 to 150 ms (best at 80 ms, +2.9% against the in-port column, but with no
+  meaning of its own); a flash kernel of 300 to 800 ms with no hold term (2 to
+  5% worse); a flash-recovery term, 1 − exp(−gap / τ) or log(gap), with or
+  without the recent-flash term (0 to +0.5% alone).
+- The window (950 ms) must be longer than the longest hold, because no step
+  goes with the kernel; `build_task_design` stops if it is not (longest hold
+  here: 941 ms). After about 650 ms fewer than 10% of the trials give data.
+- The kernel multiplies the rate (it adds to the log rate). It has no
+  interaction with the flash kernel. In raw rates, the ratio of the flash
+  response to the rate before the flash is the same in the hold and after the
+  exit (1.27 and 1.26 for flashes 40 ms after another; 2.4 and 2.2 after a gap
+  of 240 ms or more; population means, 20 units).
+- Two residuals of this design, both left out of the model:
+  - A response to the center entry. In the 96 trials with the first flash
+    66 ms or more after the entry, the rate goes up 20 to 30 ms after the entry
+    (observed 1.23 to 1.31, model 1.03 to 1.09). It is large in 7 of 20 units
+    and not reliable over units (median observed / model 1.04, p = 0.28). A
+    causal entry kernel (0 to 100 ms) gives +0.5% (p = 0.81). The first 40 ms
+    of the hold kernel take part of it. Open question: it is not known if a
+    light or a sound changes at the center poke.
+  - The response to a flash after a pause has three phases. After the first
+    flash, observed / model is 0.93 at 130 to 210 ms (p = 0.008), 1.11 at 230
+    to 290 ms (p = 0.017), and 0.91 at 310 to 450 ms (p = 0.0001); the rebound
+    is also there in the 44 trials with no flash from 100 to 260 ms. A later
+    flash after a gap of 240 ms or more has a larger response than the model
+    (1.35 against 1.09, p = 0.044) and a deeper dip at 100 to 160 ms (0.59
+    against 0.82, p < 0.001). A flash kernel of 200 to 300 ms (+0.6 to +0.8%,
+    p > 0.3) and a recovery term (+0.3 to +0.6%, p = 0.2) do not predict
+    reliably better, and with the 300 ms kernel the dip stays.
+
 ### Design optimization figure
 
 `design_optimization.svg` is the one figure for these choices. Each of its
@@ -391,6 +443,7 @@ are written next to it.
 ```bash
 uv run python -m thesis.ephys.analyses.glm.flash_kernel_grid
 uv run python -m thesis.ephys.analyses.glm.adaptation_grid
+uv run python -m thesis.ephys.analyses.glm.hold_grid
 uv run python -m thesis.ephys.analyses.glm.withdrawal_grid
 uv run python -m thesis.ephys.analyses.glm.pc_grid
 uv run python -m thesis.ephys.analyses.glm.port_vs_stillness
@@ -398,17 +451,24 @@ uv run python -m thesis.ephys.analyses.glm.residual_checks --units sample
 uv run python -m thesis.ephys.analyses.glm.design_optimization --units sample
 ```
 
-The first four modules fit and score designs and make no figure. Results of
-2026-10-10 that are not in the list above:
+The first five modules fit and score designs and make no figure. Results of
+2026-10-11, with the hold kernel in the design:
 
-- Flash kernel length: 100 ms is worse than 150 ms (p = 0.0002); 200 and
-  250 ms are not better (p = 0.47 and 0.84).
-- Motion-energy PCs in the final design: no motion energy is worse than 10 PCs
-  (p = 0.002); 25 and 50 are not better (p = 0.23 and 0.26); 200 is worse
-  (p = 0.002).
-- Withdrawal: the ±300 ms kernel is not better than the 0 to 100 ms kernel with
-  the in-port column (p = 0.60); the 0 to 100 ms kernel alone is worse
-  (p = 0.0003).
+- Flash kernel: 6 bases are worse than 8 (p = 0.0003); 10 and 12 are not
+  better (p = 0.67 and 0.19). 100 ms is worse than 150 ms (p = 0.005); 200 and
+  250 ms are not better (p = 0.37 and 0.93).
+- Recent-flash term: with the hold kernel, the model without the term is no
+  longer reliably worse (median −0.0012, mean −0.0033, lower in 13 of 20 units,
+  p = 0.07; it was p = 0.008 with the in-port column). The term stays in the
+  design for now; this is an open decision. A depression resource with a fast
+  recovery is equal to it (p = 0.60).
+- Withdrawal: no kernel is worse than the 0 to 100 ms kernel (p = 0.001); the
+  ±100 and ±300 ms kernels are not better (p = 0.35 and 0.50).
+- Motion-energy PCs: no motion energy is worse than 10 PCs (p = 0.006); 25 and
+  50 are not better (p = 0.60 and 0.50); 200 is worse (p = 0.003).
+
+The fit artifacts of the design with the in-port column are in
+`figures/glm/GRB006_20240821_121447_in_port_step/`.
 
 ## Results
 

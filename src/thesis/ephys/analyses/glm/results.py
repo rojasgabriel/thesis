@@ -18,7 +18,7 @@ import numpy as np
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
     HISTORY_COLUMNS,
-    IN_PORT,
+    HOLD,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
@@ -366,7 +366,7 @@ def write_figure_data(
         raise ValueError("Every displayed flash must be represented exactly once.")
     events = {
         "visual_flash": modeled_flash_times - alignment,
-        IN_PORT: np.asarray([center_entry - alignment, center_exit - alignment]),
+        HOLD: np.asarray([0.0, center_exit - alignment]),  # first flash to exit
         "withdrawal": np.asarray([center_exit - alignment]),
     }
     with np.load(

@@ -5,9 +5,8 @@ standardized numeric design. `write_stimulus_windows` selects trials, lays down
 the equal first-flash bin grid, fixes the 60/20/20 whole-trial split, and maps
 camera frames to trial windows. From that window file the rest of the module
 builds every regressor column: the task and sensory regressors (flash kernel,
-the short-interval flash term, withdrawal, the center-port state), the contemporaneous motion-energy video
-PCs, and
-each unit's own strictly past spike-history block. `prepare_common_design`
+the short-interval flash term, the stimulus-during-hold kernel, withdrawal),
+the contemporaneous motion-energy video PCs, and each unit's own strictly past spike-history block. `prepare_common_design`
 writes the shared task and video columns to a memmapped `.npy`;
 `build_unit_history` and `_design_with_history` add the per-unit history block
 at fit time. `fit.py` consumes what is here and never rebuilds the design.
@@ -24,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 from damn.alignment import construct_timebins
-from damn.objects.basis_function_objects import RaisedCosineBasis
+from damn.objects.basis_function_objects import BasisFunction, RaisedCosineBasis
 from damn.objects.design_matrix_objects import DesignMatrix
 from damn.objects.regressor_objects import EventRegressor
 
@@ -45,43 +44,56 @@ FLASH_BASES = 8
 # synaptic-depression resource was tested in its place: validation D² went up as
 # its recovery got faster, to the level of this term (`adaptation_grid.py`).
 SECOND_FLASH_TERM = True
-# A separate kernel for the first flash of a trial, added to the common kernel.
-FIRST_FLASH_TERM = False
-FIRST_FLASH_WINDOW_S = 0.15
-FIRST_FLASH_BASES = 8
-# Slow part of the flash kernel: wide bases over this window after each flash
-# (0 = off). The fast bases above keep the resolution of the first 150 ms.
-FLASH_SLOW_WINDOW_S = 0.0
-FLASH_SLOW_BASES = 5
-# Slow recovery of the flash response: the flash kernel scaled by
-# 1 - exp(-gap / tau), where gap is the time since the last flash and the first
-# flash of a trial counts as fully recovered (0 = off).
-FLASH_RECOVERY_TAU_S = 0.0
-# The same term with log10(gap) in place of the exponential: the gap is limited
-# to this value, and the first flash of a trial has this value (0 = off).
-FLASH_RECOVERY_LOG_CAP_S = 0.0
 RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
 WITHDRAWAL_PRE_S = 0.0
 WITHDRAWAL_WINDOW_S = 0.1
 WITHDRAWAL_BASES = 4
-# `withdrawal_grid.py` turns these off to test the model without each term.
+# `withdrawal_grid.py` turns this off to test the model without the term.
 WITHDRAWAL_KERNEL = True
-IN_PORT_COLUMN = True
-# The state column starts at the first flash and not at center entry.
+# Stimulus during hold: one kernel on the first flash, set to zero from the
+# center exit on. Units fire less from about 80 ms after the first flash until
+# the animal leaves the center port; the flashes go on to the response entry.
+# The bases have even spacing in log(t + stretch): close together early (the
+# first-flash response and the drop), far apart late (a level). No step goes
+# with the kernel, so the window must be longer than the longest hold.
+HOLD_KERNEL = True
+HOLD_WINDOW_S = 0.95
+HOLD_BASES = 10
+HOLD_STRETCH_S = 0.05
+# Earlier forms of that term, for `hold_grid.py`: one column that is 1 from
+# center entry (or from the first flash) to center exit, and a separate kernel
+# for the first flash of a trial that goes with it.
+IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
-# Time from that start to the start of the state column.
-STATE_DELAY_S = 0.0
-# Wide bases on the first flash over this window, set to zero from the center
-# exit on: the state can then change over the time in view (0 = off).
-STATE_SLOW_WINDOW_S = 0.0
-STATE_SLOW_BASES = 5
-# State column: the animal is in the center port. Units fire less there, with
-# the stimulus in view, than at a side port with the same motion energy. Without
-# this column, motion energy absorbs part of that time course.
+FIRST_FLASH_TERM = False
 IN_PORT = "in_port"
+HOLD = "hold"
 HISTORY_COLUMNS = 10
+
+
+class StretchedCosineBasis(BasisFunction):
+    """Causal raised cosines with even spacing in log(t + stretch_s).
+
+    The bases are close together just after the event and farther apart later.
+    A larger `stretch_s` gives a more even spacing; DAMN's log basis is the case
+    of a stretch of one bin, which puts most bases in the first 30 ms.
+    """
+
+    def __init__(
+        self, n_funcs: int, post_s: float, binwidth_s: float, stretch_s: float
+    ):
+        self.n_funcs = n_funcs
+        self.stretch_s = stretch_s
+        super().__init__(0, post_s, binwidth_s)
+
+    def construct_basis(self):
+        times, _, _ = construct_timebins(0, self.post_s, self.binwidth_s)
+        warped = np.log(times + self.stretch_s)
+        centers = np.linspace(warped[0], warped[-1], self.n_funcs)
+        phase = (warped[:, None] - centers[None, :]) * np.pi / (centers[1] - centers[0])
+        return 0.5 * (1 + np.cos(np.clip(phase, -np.pi, np.pi))), times
 
 
 def training_zscore(
@@ -248,7 +260,7 @@ def write_stimulus_windows(
     print(json.dumps(summary, indent=2))
 
 
-def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
+def task_temporal_bases() -> dict[str, BasisFunction]:
     """Return the temporal basis used for each sensory or task regressor."""
     # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
     # short response window instead of spending log-spaced bases below 10 ms.
@@ -262,24 +274,14 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     bases = {
         "visual_flash": flash,
         "flash_adaptation": flash,
-        "flash_first": RaisedCosineBasis(
-            FIRST_FLASH_BASES, 0, FIRST_FLASH_WINDOW_S + BINWIDTH_S, BINWIDTH_S
-        ),
-        "flash_slow": RaisedCosineBasis(
-            FLASH_SLOW_BASES, 0, max(FLASH_SLOW_WINDOW_S, 0.1) + BINWIDTH_S, BINWIDTH_S
-        ),
-        "flash_recovery": flash,
-        "state_slow": RaisedCosineBasis(
-            STATE_SLOW_BASES, 0, max(STATE_SLOW_WINDOW_S, 0.1) + BINWIDTH_S, BINWIDTH_S
+        "flash_first": flash,
+        "hold": StretchedCosineBasis(
+            HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_STRETCH_S
         ),
         "withdrawal": withdrawal,
     }
-    if not STATE_SLOW_WINDOW_S:
-        del bases["state_slow"]
-    if not (FLASH_RECOVERY_TAU_S or FLASH_RECOVERY_LOG_CAP_S):
-        del bases["flash_recovery"]
-    if not FLASH_SLOW_WINDOW_S:
-        del bases["flash_slow"]
+    if not HOLD_KERNEL:
+        del bases["hold"]
     if not SECOND_FLASH_TERM:
         del bases["flash_adaptation"]
     if not FIRST_FLASH_TERM:
@@ -317,36 +319,20 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
     return np.concatenate(times), np.concatenate(resource_values)
 
 
-def flash_recovery(trials, tau_s: float) -> np.ndarray:
-    """Return 1 - exp(-gap / tau) for each modeled flash; 1 for the first of a trial."""
-    values = []
-    for flashes, center_entry, response_entry in zip(
-        trials["stim_pulse_times_s"],
-        trials["center_entry_s"],
-        trials["response_port_entry_s"],
-        strict=True,
-    ):
-        flashes = np.asarray(flashes, dtype=float)
-        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
-        gaps = np.r_[np.inf, np.diff(modeled)]
-        if FLASH_RECOVERY_LOG_CAP_S:
-            values.append(np.log10(np.minimum(gaps, FLASH_RECOVERY_LOG_CAP_S)))
-        else:
-            values.append(1 - np.exp(-gaps / tau_s))
-    return np.concatenate(values)
-
-
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
     """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
+    holds = trials["center_exit_s"].to_numpy(dtype=float) - np.asarray(alignments)
+    if "hold" in bases and holds.max() > HOLD_WINDOW_S:
+        raise ValueError(
+            f"The longest hold ({holds.max():.3f} s) is longer than HOLD_WINDOW_S."
+        )
     flashes, resource_raw = flash_events(trials)
     # Center the values so the common flash kernel stays the average response.
     # Store two representative centered levels for the kernel figure.
     adapt_center = float(resource_raw.mean())
     adapt_values = resource_raw - adapt_center
     adapt_levels = {"isolated": -adapt_center, "repeat": 1.0 - adapt_center}
-    recovery = flash_recovery(trials, FLASH_RECOVERY_TAU_S or 1.0)
-    recovery = recovery - recovery.mean()
     specifications = [
         (
             "visual_flash",
@@ -371,25 +357,11 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "the first flash of each trial, in addition to the common kernel",
         ),
         (
-            "flash_slow",
-            flashes,
-            None,
-            "sensory",
-            "each modeled flash; wide bases for the slow part of the flash kernel",
-        ),
-        (
-            "flash_recovery",
-            flashes,
-            recovery,
-            "sensory",
-            f"centered 1 - exp(-gap / {FLASH_RECOVERY_TAU_S} s); first flash of a trial = 1",
-        ),
-        (
-            "state_slow",
+            "hold",
             np.asarray(alignments, dtype=float),
             None,
             "task",
-            "wide bases on the first flash, zero from the center exit on",
+            "one kernel on the first flash, zero from the center exit on",
         ),
         (
             "withdrawal",
@@ -436,19 +408,19 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     before_exit = times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
     values = np.array(design.X, dtype=float)
     cursor = 0
-    for item in manifest:  # the slow state bases end at the center exit
-        if item["name"] == "state_slow":
+    for item in manifest:  # the hold kernel ends at the center exit
+        if item["name"] == "hold":
             values[:, cursor : cursor + item["columns"]] *= before_exit.ravel()[:, None]
         cursor += item["columns"]
     if not IN_PORT_COLUMN:
         return values, manifest
-    # One state column with no temporal basis: the animal is in the center port.
+    # Earlier form of the hold term: one state column with no temporal basis.
     start = (
         np.asarray(alignments, dtype=float)
         if STATE_FROM_FIRST_FLASH
         else trials["center_entry_s"].to_numpy(dtype=float)
     )
-    in_port = (times >= start[:, None] + STATE_DELAY_S) & (
+    in_port = (times >= start[:, None]) & (
         times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
     )
     manifest.append(
@@ -457,7 +429,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "group": "task",
             "events": len(alignments),
             "columns": 1,
-            "coding": "1 from center entry to center exit, else 0",
+            "coding": f"1 from {'first flash' if STATE_FROM_FIRST_FLASH else 'center entry'}"
+            " to center exit, else 0",
         }
     )
     return np.column_stack((values, in_port.ravel())), manifest

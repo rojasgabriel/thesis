@@ -1,23 +1,17 @@
-"""Test the withdrawal kernel and the in-port column of the V1 GLM.
+"""Test the withdrawal kernel of the V1 GLM.
 
-Question: how wide must the withdrawal kernel be, and does the model need the
-state column for the time in the center port?
+Question: does the model need the withdrawal kernel, and how wide must it be?
 
 Comparison: for each design in `DESIGNS`, build the full design and run the
 model-selection stage of `glm fit`: fit on the training trials and score D² on
-the validation trials. Nothing else in the model changes. The comparison is
-paired: each unit is scored with each design.
+the validation trials. Nothing else in the model changes; every design has the
+stimulus-during-hold kernel. The comparison is paired: each unit is scored with
+each design.
 
-- "±300", "±100", "0–100": a withdrawal kernel of that range in ms around the
-  center exit, and no in-port column.
-- "0–100\n+ in port": the design in `dmat.py`.
-- "in port\nonly": the in-port column and no withdrawal kernel.
-
-The script also fits the design in `dmat.py` without the in-port column on the
-same units (`glm fit`, with cross-validation and the final refit), in the
-directory with the suffix `NO_PORT_SUFFIX` next to the session directory, and
-runs `residual_checks` on it. `design_optimization.py` uses its predicted
-rates.
+- "none": no withdrawal kernel.
+- "0–100": the design in `dmat.py`, a causal kernel of 100 ms after the center
+  exit.
+- "±100", "±300": a kernel of that range in ms around the center exit.
 
 Units, alignment, baseline, and exclusions are those of `fit.py`. Units are the
 fixed 20-unit sample. The sampling unit is the unit. `design_optimization.py`
@@ -33,22 +27,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 from pathlib import Path
 
-from thesis.ephys.analyses.glm import cli, dmat, residual_checks
-from thesis.ephys.analyses.glm.adaptation_grid import INPUTS, UNIT_SET, score_design
+from thesis.ephys.analyses.glm import cli
+from thesis.ephys.analyses.glm.adaptation_grid import score_design
 
 WIDE = {"WITHDRAWAL_PRE_S": 0.3, "WITHDRAWAL_WINDOW_S": 0.3, "WITHDRAWAL_BASES": 9}
 DESIGNS = {
-    "±300": {**WIDE, "IN_PORT_COLUMN": False},
-    "±100": {"WITHDRAWAL_PRE_S": 0.1, "IN_PORT_COLUMN": False},
-    "0–100": {"IN_PORT_COLUMN": False},
-    "0–100\n+ in port": {},
-    "in port\nonly": {"WITHDRAWAL_KERNEL": False},
+    "none": {"WITHDRAWAL_KERNEL": False},
+    "0–100": {},
+    "±100": {"WITHDRAWAL_PRE_S": 0.1},
+    "±300": WIDE,
 }
-IN_USE = "0–100\n+ in port"
-NO_PORT_SUFFIX = "_no_in_port"
+IN_USE = "0–100"
 
 
 def run_grid(source: Path, output: Path) -> dict[str, dict]:
@@ -67,27 +58,6 @@ def run_grid(source: Path, output: Path) -> dict[str, dict]:
     return scores
 
 
-def fit_without_in_port(source: Path) -> Path:
-    """Fit the design in use without the in-port column; run its residual checks."""
-    root = source.with_name(source.name + NO_PORT_SUFFIX)
-    model = cli.PoissonGLM(root=root)
-    if (model.fit_dir(UNIT_SET) / "residual_checks.json").exists():
-        return root
-    root.mkdir(exist_ok=True)
-    for name in INPUTS:
-        shutil.copy(source / name, root / name)
-    dmat.IN_PORT_COLUMN = False  # this fit only; restored below
-    try:
-        if not model.design.exists():
-            dmat.prepare_common_design(model.windows, model.video, model.design)
-        model.fit(UNIT_SET)
-        data = residual_checks.run_checks(root, UNIT_SET)
-    finally:
-        dmat.IN_PORT_COLUMN = True
-    residual_checks.save(data, model.fit_dir(UNIT_SET))
-    return root
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
@@ -95,7 +65,6 @@ def main() -> None:
     output = args.root / "withdrawal_grid"
     scores = run_grid(args.root, output)
     print(f"{len(scores)} designs in {output}")
-    print(fit_without_in_port(args.root))
 
 
 if __name__ == "__main__":

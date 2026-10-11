@@ -18,6 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm.dmat import (
+    HOLD_BASES,
     WITHDRAWAL_BASES,
     WITHDRAWAL_WINDOW_S,
     spike_history_basis,
@@ -54,11 +55,11 @@ def main() -> Path:
             "time from flash (ms)",
         ),
         (
-            "in_port",
-            "in center port",
+            "hold",
+            "stimulus during hold",
             "task",
-            "1 column: 1 from center entry to center exit, else 0",
-            "time from center entry (ms)",
+            f"{HOLD_BASES} log-spaced bases, zero from the center exit on",
+            "time from first flash (ms)",
         ),
         (
             "withdrawal",
@@ -97,10 +98,6 @@ def main() -> Path:
                 ax.axvline(0, color="0.6", linewidth=0.8, linestyle="--")
                 ax.set_xlim(-300, 300)
                 ax.set_ylabel("example PC score")
-            elif key == "in_port":
-                ax.step([-200, 0, 600, 800], [0, 1, 0, 0], where="post", color=color)
-                ax.set_xticks([0, 600], ["entry", "exit"])
-                ax.set_ylabel("column value")
             elif key == "history":
                 # History columns use spike times shifted by one bin: lags 1-100 ms.
                 draw_bases(ax, hist, color, offset_ms=1000 * hist.binwidth_s)

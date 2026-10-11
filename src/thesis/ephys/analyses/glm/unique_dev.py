@@ -59,7 +59,7 @@ BROAD_GROUPS = ("task", "video", "history")
 DETAILED_GROUPS = (
     "visual_flash",
     "flash_adaptation",
-    "in_port",
+    "hold",
     "withdrawal",
     "video",
     "history",
