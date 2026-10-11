@@ -362,7 +362,7 @@ def main() -> None:
         d.tick_params(axis="x", labelsize=7)
         _plot_rates(e, residual)
         port_vs_stillness.plot_rates(f, port, states=(0, 2))
-        f.set_ylabel("")  # the same axis as panel e
+        f.set_ylabel("rate / mean rate of the unit")
         f.set_xlabel("motion energy (percentile)")
         stats["g motion-energy PCs"] = _plot_choice(
             g,
