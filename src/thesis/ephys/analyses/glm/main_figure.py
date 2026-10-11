@@ -23,18 +23,24 @@ default) of one session, after `glm fit` and `glm unique`.
   reached the response port.
 - Panel d (population): cross-validated D² of each unit; the line is the
   median.
-- Panel e (what explains the spikes): unique ΔD² of each regressor, the D² that
-  the model loses when that regressor is shuffled in time within each trial;
-  median and interquartile range over units. The axis is logarithmic and starts
-  at `FLOOR`; a smaller quartile is drawn at the floor. The number at the right
-  is the fraction of units whose unique ΔD² is above zero (one-sided t-test of
-  the fold values, p < `RELIABLE_ALPHA`; a regressor with no effect gives about
-  5%).
+- Panel e: the same result in bits/spike, the log-likelihood gain over the
+  constant-rate model for each spike.
+- Panel f: D² against bits/spike, with the units in three groups of equal size
+  by firing rate (`figures._plot_bits_deviance_by_rate`). For the same
+  bits/spike, a unit with a higher rate has a higher D².
+- Panel g (what explains the spikes): for each regressor, the unique ΔD²
+  (filled; the D² that the model loses when that regressor is shuffled in time
+  within each trial) and the maximal ΔD² (open; the D² of that regressor alone
+  minus the D² with every regressor shuffled); median and interquartile range
+  over units. The axis is logarithmic and starts at `FLOOR`; a smaller value is
+  drawn at the floor. The number at the right is the fraction of units whose
+  unique ΔD² is above zero (one-sided t-test of the fold values,
+  p < `RELIABLE_ALPHA`; a regressor with no effect gives about 5%).
 
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
 is the one that `results.example_unit_id` selects (unit 197 when it was fit).
-The sampling unit is the unit in panels d and e.
+The sampling unit is the unit in panels d to g.
 
     uv run python -m thesis.ephys.analyses.glm.main_figure
 """
@@ -42,7 +48,6 @@ The sampling unit is the unit in panels d and e.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import matplotlib
@@ -54,8 +59,12 @@ from scipy.stats import ttest_1samp
 
 from thesis.ephys.analyses.glm import cli
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S
+from thesis.ephys.analyses.glm.figures import (
+    _plot_bits_deviance_by_rate,
+    training_rate_and_deviance,
+)
 from thesis.ephys.analyses.glm.fit import load_unit_records
-from thesis.ephys.analyses.glm.unique_dev import RELIABLE_ALPHA
+from thesis.ephys.analyses.glm.unique_dev import MAXIMAL, RELIABLE_ALPHA, UNIQUE
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
@@ -181,20 +190,19 @@ def _plot_prediction(axis, data) -> None:
     axis.set_ylabel("firing rate (spikes/s)")
 
 
-def _plot_population(axis, final: list[dict]) -> None:
-    scores = np.asarray([item["cross_validated_deviance_explained"] for item in final])
-    median = float(np.median(scores))
-    axis.hist(scores, bins=24, color="black", alpha=0.75)
+def _plot_population(axis, values: np.ndarray, xlabel: str, digits: int) -> None:
+    median = float(np.median(values))
+    axis.hist(values, bins=24, color="black", alpha=0.75)
     axis.axvline(median, color="black", linewidth=1.5)
     axis.text(
         median,
         1.01,
-        f"median = {median:.3f}",
+        f"median = {median:.{digits}f}",
         transform=axis.get_xaxis_transform(),
         ha="center",
         va="bottom",
     )
-    axis.set_xlabel(r"cross-validated $D^2$")
+    axis.set_xlabel(xlabel)
     axis.set_ylabel("units")
 
 
@@ -209,15 +217,27 @@ def _reliable_fraction(records: list[dict], group: str) -> float:
     return float(np.mean(np.asarray(p_values) < RELIABLE_ALPHA))
 
 
-def _plot_unique(axis, groups: dict, records: list[dict]) -> None:
-    order = sorted(REGRESSORS, key=lambda name: groups[name]["median"])
+def _plot_unique(axis, records: list[dict]) -> None:
+    """Unique (filled) and maximal (open) ΔD² of each regressor, over units."""
+    values = lambda name, key: np.asarray(  # noqa: E731
+        [item["groups"][name][key] for item in records]
+    )
+    order = sorted(REGRESSORS, key=lambda name: np.median(values(name, UNIQUE)))
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
-        low, median, high = (
-            max(groups[name][key], FLOOR) for key in ("q25", "median", "q75")
-        )
-        axis.plot([low, high], [position] * 2, color=color, linewidth=1.2)
-        axis.scatter(median, position, color=color, s=22, zorder=3)
+        for key, offset, face in ((MAXIMAL, 0.17, "white"), (UNIQUE, -0.17, color)):
+            low, median, high = np.maximum(
+                np.percentile(values(name, key), [25, 50, 75]), FLOOR
+            )
+            axis.plot([low, high], [position + offset] * 2, color=color, linewidth=1.2)
+            axis.scatter(
+                median,
+                position + offset,
+                s=22,
+                zorder=3,
+                facecolor=face,
+                edgecolor=color,
+            )
         axis.text(
             1.04,
             position,
@@ -232,7 +252,7 @@ def _plot_unique(axis, groups: dict, records: list[dict]) -> None:
     axis.set_yticks(range(len(order)), [REGRESSORS[name][0] for name in order])
     for tick, name in zip(axis.get_yticklabels(), order, strict=True):
         tick.set_color(REGRESSORS[name][1])
-    axis.set_xlabel(r"unique $\Delta D^2$")
+    axis.set_xlabel(r"$\Delta D^2$" + "\n(filled: unique; open: maximal)")
 
 
 def main() -> None:
@@ -244,17 +264,20 @@ def main() -> None:
     with np.load(fit_dir / "figure_data.npz", allow_pickle=False) as saved:
         data = {key: saved[key] for key in saved.files}
     final = load_unit_records(fit_dir / "checkpoints", "unit_*_final.json")
-    unique = json.loads((fit_dir / "unique_deviance" / "summary.json").read_text())
+    selections = load_unit_records(fit_dir / "checkpoints", "unit_*_validation.json")
+    records = load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
+    rate, deviance = training_rate_and_deviance(final, selections)
+    bits = np.asarray([item["cross_validated_bits_per_spike"] for item in final])
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 7.2))
+        figure = plt.figure(figsize=(7.4, 9.4))
         top = figure.add_gridspec(
             1,
             2,
             left=0.16,
-            right=0.98,
-            top=0.95,
-            bottom=0.5,
+            right=0.96,
+            top=0.96,
+            bottom=0.615,
             wspace=0.42,
             width_ratios=(1, 1.15),
         )
@@ -266,37 +289,55 @@ def main() -> None:
             figure.add_subplot(cell)
             for cell in top[1].subgridspec(2, 2, hspace=0.75, wspace=0.6)
         ]
+        middle = figure.add_gridspec(
+            1,
+            2,
+            left=0.1,
+            right=0.98,
+            top=0.52,
+            bottom=0.345,
+            wspace=0.3,
+            width_ratios=(2.2, 1),
+        )
+        prediction, population = (figure.add_subplot(cell) for cell in middle)
         bottom = figure.add_gridspec(
             1,
             3,
             left=0.1,
-            right=0.98,
-            top=0.37,
-            bottom=0.09,
+            right=0.94,
+            top=0.25,
+            bottom=0.06,
             wspace=0.55,
-            width_ratios=(1.7, 0.75, 1.3),
+            width_ratios=(0.8, 1.1, 1.2),
         )
-        prediction, population, unique_axis = (
-            figure.add_subplot(cell) for cell in bottom
-        )
+        bits_axis, relation, unique_axis = (figure.add_subplot(cell) for cell in bottom)
         box = unique_axis.get_position()  # room for the regressor names
         unique_axis.set_position([box.x0 + 0.09, box.y0, box.width - 0.09, box.height])
 
         _plot_trial(trial_axes, data)
         _plot_kernels(kernel_axes, data)
         _plot_prediction(prediction, data)
-        _plot_population(population, final)
-        records = load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
-        _plot_unique(unique_axis, unique["groups"], records)
-        for axis in (*trial_axes, *kernel_axes, population, unique_axis):
+        _plot_population(population, deviance, r"cross-validated $D^2$", 3)
+        _plot_population(bits_axis, bits, "bits/spike", 2)
+        _plot_bits_deviance_by_rate(relation, bits, deviance, rate)
+        _plot_unique(unique_axis, records)
+        for axis in (*trial_axes, *kernel_axes, population, bits_axis, unique_axis):
             separate_axes(axis)
         for axis in trial_axes[:4]:
             axis.spines["bottom"].set_visible(False)
 
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        firsts = (trial_axes[0], kernel_axes[0], prediction, population, unique_axis)
-        for letter, axis in zip("abcde", firsts, strict=True):
+        firsts = (
+            trial_axes[0],
+            kernel_axes[0],
+            prediction,
+            population,
+            bits_axis,
+            relation,
+            unique_axis,
+        )
+        for letter, axis in zip("abcdefg", firsts, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             top_edge = axis.get_position().y1 + 0.02
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
