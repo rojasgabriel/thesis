@@ -57,6 +57,9 @@ FLASH_SLOW_BASES = 5
 # 1 - exp(-gap / tau), where gap is the time since the last flash and the first
 # flash of a trial counts as fully recovered (0 = off).
 FLASH_RECOVERY_TAU_S = 0.0
+# The same term with log10(gap) in place of the exponential: the gap is limited
+# to this value, and the first flash of a trial has this value (0 = off).
+FLASH_RECOVERY_LOG_CAP_S = 0.0
 RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
@@ -264,7 +267,7 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
         "flash_recovery": flash,
         "withdrawal": withdrawal,
     }
-    if not FLASH_RECOVERY_TAU_S:
+    if not (FLASH_RECOVERY_TAU_S or FLASH_RECOVERY_LOG_CAP_S):
         del bases["flash_recovery"]
     if not FLASH_SLOW_WINDOW_S:
         del bases["flash_slow"]
@@ -317,7 +320,10 @@ def flash_recovery(trials, tau_s: float) -> np.ndarray:
         flashes = np.asarray(flashes, dtype=float)
         modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
         gaps = np.r_[np.inf, np.diff(modeled)]
-        values.append(1 - np.exp(-gaps / tau_s))
+        if FLASH_RECOVERY_LOG_CAP_S:
+            values.append(np.log10(np.minimum(gaps, FLASH_RECOVERY_LOG_CAP_S)))
+        else:
+            values.append(1 - np.exp(-gaps / tau_s))
     return np.concatenate(values)
 
 
