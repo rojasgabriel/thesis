@@ -341,13 +341,20 @@ def main() -> None:
             )
             times = kernel["times"][shown]
             gain_axis.plot(
-                times, kernel["gain"][:, shown].T, color="0.8", linewidth=0.3
+                times,
+                kernel["gain"][:, shown].T,
+                color="0.6",
+                linewidth=0.3,
+                alpha=0.3,
+                zorder=1,
             )
             low, median, high = np.percentile(
                 kernel["gain"][:, shown], [25, 50, 75], axis=0
             )
-            gain_axis.fill_between(times, low, high, color=TASK, alpha=0.3, linewidth=0)
-            gain_axis.plot(times, median, color=TASK, linewidth=1.6)
+            gain_axis.fill_between(
+                times, low, high, color=TASK, alpha=0.45, linewidth=0, zorder=2
+            )
+            gain_axis.plot(times, median, color=TASK, linewidth=1.6, zorder=3)
             gain_axis.axhline(1, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
             gain_axis.set_xlim(axis.get_xlim())
             gain_axis.set_xlabel(xlabel + (" (ms)" if name == "exit" else ""))

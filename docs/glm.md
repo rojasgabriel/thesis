@@ -416,6 +416,16 @@ exit (`hold` in `dmat.py`).
   hold (150 to 500 ms) and 1.17 after the exit (higher after the exit in 18 of
   20 units, p = 0.001); that column does not reliably improve D² (+1.4%,
   p = 0.23) and is not in the model.
+- `uv run python -m thesis.ephys.analyses.glm.hold_effect --units all` draws
+  the results figure for this effect (`hold_effect.svg`) on all 167 units. It
+  fits a descriptive model with a kernel from the center exit to the response
+  entry in place of the withdrawal kernel. The raw rate is 0.64 of the unit
+  mean in the last 200 ms of the hold and 1.44 from 100 to 400 ms after the
+  exit (1.11 before the first flash). The model gain is 0.73 in the hold (below
+  1 in 90% of the units) and 1.20 after the exit (below 1 in 19%); it is higher
+  after the exit in 144 of 167 units (p = 5e-22). On the 20 units, that longer
+  kernel does not predict reliably better than the 0 to 100 ms withdrawal
+  kernel (+1.0%, p = 0.20), so the main design keeps the withdrawal kernel.
 - The kernel multiplies the rate (it adds to the log rate). It has no
   interaction with the flash kernel. In raw rates, the ratio of the flash
   response to the rate before the flash is the same in the hold and after the
