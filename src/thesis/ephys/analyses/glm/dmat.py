@@ -53,6 +53,10 @@ FIRST_FLASH_BASES = 8
 # (0 = off). The fast bases above keep the resolution of the first 150 ms.
 FLASH_SLOW_WINDOW_S = 0.0
 FLASH_SLOW_BASES = 5
+# Slow recovery of the flash response: the flash kernel scaled by
+# 1 - exp(-gap / tau), where gap is the time since the last flash and the first
+# flash of a trial counts as fully recovered (0 = off).
+FLASH_RECOVERY_TAU_S = 0.0
 RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
@@ -64,6 +68,8 @@ WITHDRAWAL_KERNEL = True
 IN_PORT_COLUMN = True
 # The state column starts at the first flash and not at center entry.
 STATE_FROM_FIRST_FLASH = False
+# Time from that start to the start of the state column.
+STATE_DELAY_S = 0.0
 # State column: the animal is in the center port. Units fire less there, with
 # the stimulus in view, than at a side port with the same motion energy. Without
 # this column, motion energy absorbs part of that time course.
@@ -255,8 +261,11 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
         "flash_slow": RaisedCosineBasis(
             FLASH_SLOW_BASES, 0, max(FLASH_SLOW_WINDOW_S, 0.1) + BINWIDTH_S, BINWIDTH_S
         ),
+        "flash_recovery": flash,
         "withdrawal": withdrawal,
     }
+    if not FLASH_RECOVERY_TAU_S:
+        del bases["flash_recovery"]
     if not FLASH_SLOW_WINDOW_S:
         del bases["flash_slow"]
     if not SECOND_FLASH_TERM:
@@ -296,6 +305,22 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
     return np.concatenate(times), np.concatenate(resource_values)
 
 
+def flash_recovery(trials, tau_s: float) -> np.ndarray:
+    """Return 1 - exp(-gap / tau) for each modeled flash; 1 for the first of a trial."""
+    values = []
+    for flashes, center_entry, response_entry in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["response_port_entry_s"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
+        gaps = np.r_[np.inf, np.diff(modeled)]
+        values.append(1 - np.exp(-gaps / tau_s))
+    return np.concatenate(values)
+
+
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
     """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
@@ -305,6 +330,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     adapt_center = float(resource_raw.mean())
     adapt_values = resource_raw - adapt_center
     adapt_levels = {"isolated": -adapt_center, "repeat": 1.0 - adapt_center}
+    recovery = flash_recovery(trials, FLASH_RECOVERY_TAU_S or 1.0)
+    recovery = recovery - recovery.mean()
     specifications = [
         (
             "visual_flash",
@@ -334,6 +361,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             None,
             "sensory",
             "each modeled flash; wide bases for the slow part of the flash kernel",
+        ),
+        (
+            "flash_recovery",
+            flashes,
+            recovery,
+            "sensory",
+            f"centered 1 - exp(-gap / {FLASH_RECOVERY_TAU_S} s); first flash of a trial = 1",
         ),
         (
             "withdrawal",
@@ -385,7 +419,7 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
         if STATE_FROM_FIRST_FLASH
         else trials["center_entry_s"].to_numpy(dtype=float)
     )
-    in_port = (times >= start[:, None]) & (
+    in_port = (times >= start[:, None] + STATE_DELAY_S) & (
         times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
     )
     manifest.append(
