@@ -6,9 +6,11 @@ much does each one explain?
 Comparison: no new fits. The script reads one fit set (`--units`, `all` by
 default) of one session, after `glm fit` and `glm unique`.
 
-- Panel a (the task and the model inputs): one held-out trial of the example
-  unit. Flashes, the time in the center port, the withdrawal, the first
-  motion-energy PC, and the observed spikes, against time from the first flash.
+- Panel a (the task and the model): one held-out trial of the example unit,
+  against time from the first flash. Flashes, the time in the center port, and
+  the withdrawal; the first motion-energy PC; the term that each group of
+  regressors adds to the log rate in the final refit (visual, task, motion
+  energy, spike history, in their colors); and the observed spikes.
 - Panel b (what the model learns): the kernels of the example unit from the
   final refit, as a change in log rate. Flash kernel for a flash with no flash
   in the last 50 ms and for a flash that follows one; withdrawal kernel; the
@@ -23,7 +25,10 @@ default) of one session, after `glm fit` and `glm unique`.
 - Panel e (what explains the spikes): unique ΔD² of each regressor, the D² that
   the model loses when that regressor is shuffled in time within each trial;
   median and interquartile range over units. The axis is logarithmic and starts
-  at `FLOOR`; a smaller quartile is drawn at the floor.
+  at `FLOOR`; a smaller quartile is drawn at the floor. The number at the right
+  is the fraction of units whose unique ΔD² is above zero (one-sided t-test of
+  the fold values, p < `RELIABLE_ALPHA`; a regressor with no effect gives about
+  5%).
 
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
@@ -44,10 +49,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import ttest_1samp
 
 from thesis.ephys.analyses.glm import cli
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S
 from thesis.ephys.analyses.glm.fit import load_unit_records
+from thesis.ephys.analyses.glm.unique_dev import RELIABLE_ALPHA
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
@@ -74,8 +81,8 @@ REGRESSORS = {
 
 
 def _plot_trial(axes, data) -> None:
-    """One trial: the events, the first motion-energy PC, and the spikes."""
-    events, motion, spikes = axes
+    """One trial: events, motion-energy PC 1, the fitted terms, and the spikes."""
+    events, motion, terms, spikes = axes
     times = 1000 * data["model_times"]
     left, right = times[0], times[-1]
     entry, leave = 1000 * data["event__in_port"]
@@ -97,6 +104,16 @@ def _plot_trial(axes, data) -> None:
         color=MOTION,
     )
     motion.set_ylabel("motion\nenergy PC 1", color=MOTION)
+    # Each group of regressors adds its term to the log rate.
+    for key, color in (
+        ("history", HISTORY),
+        ("video", MOTION),
+        ("task", TASK),
+        ("visual", VISUAL),
+    ):
+        terms.plot(times, data[f"contrib__{key}"], color=color, lw=0.9)
+    terms.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+    terms.set_ylabel(r"$\Delta$ log rate")
     spikes.vlines(
         np.repeat(times, data["model_counts"].astype(int)), 0, 1, color="black", lw=0.7
     )
@@ -105,7 +122,7 @@ def _plot_trial(axes, data) -> None:
     spikes.set_xlabel("time from first flash (ms)")
     for axis in axes:
         axis.set_xlim(left, right)
-    for axis in (events, motion):  # one time axis, under the spikes
+    for axis in (events, motion, terms):  # one time axis, under the spikes
         axis.tick_params(bottom=False, labelbottom=False)
 
 
@@ -182,7 +199,18 @@ def _plot_population(axis, final: list[dict]) -> None:
     axis.set_ylabel("units")
 
 
-def _plot_unique(axis, groups: dict) -> None:
+def _reliable_fraction(records: list[dict], group: str) -> float:
+    """Fraction of units with a unique ΔD² above zero (one-sided t-test over folds)."""
+    p_values = [
+        ttest_1samp(
+            item["groups"][group]["folds"]["unique"], 0, alternative="greater"
+        ).pvalue
+        for item in records
+    ]
+    return float(np.mean(np.asarray(p_values) < RELIABLE_ALPHA))
+
+
+def _plot_unique(axis, groups: dict, records: list[dict]) -> None:
     order = sorted(REGRESSORS, key=lambda name: groups[name]["median"])
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
@@ -191,6 +219,15 @@ def _plot_unique(axis, groups: dict) -> None:
         )
         axis.plot([low, high], [position] * 2, color=color, linewidth=1.2)
         axis.scatter(median, position, color=color, s=22, zorder=3)
+        axis.text(
+            1.04,
+            position,
+            f"{_reliable_fraction(records, name):.0%}",
+            color=color,
+            va="center",
+            transform=axis.get_yaxis_transform(),
+        )
+    axis.text(1.04, len(order) - 0.35, "units", transform=axis.get_yaxis_transform())
     axis.set_xscale("log")
     axis.set_xlim(FLOOR, 1e-1)
     axis.set_yticks(range(len(order)), [REGRESSORS[name][0] for name in order])
@@ -222,7 +259,9 @@ def main() -> None:
             wspace=0.42,
             width_ratios=(1, 1.15),
         )
-        trial = top[0].subgridspec(3, 1, height_ratios=(1.3, 1, 0.6), hspace=0.15)
+        trial = top[0].subgridspec(
+            4, 1, height_ratios=(1.2, 0.8, 1.3, 0.5), hspace=0.15
+        )
         trial_axes = [figure.add_subplot(cell) for cell in trial]
         kernel_axes = [
             figure.add_subplot(cell)
@@ -248,10 +287,11 @@ def main() -> None:
         _plot_kernels(kernel_axes, data)
         _plot_prediction(prediction, data)
         _plot_population(population, final)
-        _plot_unique(unique_axis, unique["groups"])
+        records = load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
+        _plot_unique(unique_axis, unique["groups"], records)
         for axis in (*trial_axes, *kernel_axes, population, unique_axis):
             separate_axes(axis)
-        for axis in trial_axes[:2]:
+        for axis in trial_axes[:3]:
             axis.spines["bottom"].set_visible(False)
 
         figure.canvas.draw()
