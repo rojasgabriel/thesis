@@ -236,7 +236,7 @@ def main() -> None:
             top=0.37,
             bottom=0.09,
             wspace=0.55,
-            width_ratios=(1.1, 1, 1.25),
+            width_ratios=(2.0, 0.8, 1.0),
         )
         prediction, population, unique_axis = (
             figure.add_subplot(cell) for cell in bottom
