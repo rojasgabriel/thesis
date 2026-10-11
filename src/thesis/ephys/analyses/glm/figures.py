@@ -861,12 +861,12 @@ def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Pat
         return save_figure(figure, output)
 
 
-def plot_hold_gain(results: list[dict], metadata: dict, output: Path) -> Path:
-    """Show the rate factor that each unit's hold kernel gives to the hold.
+def plot_hold_level(results: list[dict], metadata: dict, output: Path) -> Path:
+    """Show the level of each unit's hold kernel, as a change in log rate.
 
-    exp(kernel) is the factor that the final refit gives to the rate at each
-    time from the first flash, until the center exit. The value of a unit is
-    the mean of that factor over `HOLD_LEVEL_MS`.
+    The kernel of the final refit is the change in log rate at each time from
+    the first flash, until the center exit. The value of a unit is the mean of
+    its kernel over `HOLD_LEVEL_MS`.
     """
     columns = [
         index
@@ -880,25 +880,24 @@ def plot_hold_gain(results: list[dict], metadata: dict, output: Path) -> Path:
     )
     times_ms = 1000 * basis.basis_time
     level = (times_ms >= HOLD_LEVEL_MS[0]) & (times_ms < HOLD_LEVEL_MS[1])
-    factors = np.exp(weights @ basis.basis.T)[:, level].mean(axis=1)
-    median = float(np.median(factors))
+    levels = (weights @ basis.basis.T)[:, level].mean(axis=1)
+    median = float(np.median(levels))
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(3.4, 2.6))
-        edges = np.geomspace(factors.min(), factors.max(), 25)
-        axis.hist(factors, bins=edges, color=GROUP_COLORS["task"], alpha=0.75)
-        axis.axvline(1, color="0.65", linestyle="--", linewidth=0.8)
+        axis.hist(levels, bins=25, color=GROUP_COLORS["task"], alpha=0.75)
+        axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
         axis.axvline(median, color="black", linewidth=1.5)
         axis.text(
             median,
             1.01,
-            f"median = {median:.2f}\n{np.mean(factors < 1):.0%} of units below 1",
+            f"median = {median:.2f}\n{np.mean(levels < 0):.0%} of units below 0",
             transform=axis.get_xaxis_transform(),
             ha="center",
             va="bottom",
         )
-        axis.set_xscale("log")
         axis.set_xlabel(
-            f"gain of the hold kernel,\n{HOLD_LEVEL_MS[0]} to {HOLD_LEVEL_MS[1]} ms"
+            r"$\Delta$ log rate of the hold kernel,"
+            f"\n{HOLD_LEVEL_MS[0]} to {HOLD_LEVEL_MS[1]} ms"
         )
         axis.set_ylabel("units")
         label_panels([axis], -0.2)
@@ -924,8 +923,8 @@ def plot_fit(fit_dir: Path) -> None:
     with (fit_dir.parent / "common_design_me.json").open() as handle:
         metadata = json.load(handle)
     if f"{HOLD}_basis_01" in metadata["column_names"]:
-        written["hold_gain"] = str(
-            plot_hold_gain(results, metadata, figure_dir / "hold_gain")
+        written["hold_level"] = str(
+            plot_hold_level(results, metadata, figure_dir / "hold_level")
         )
     payload = {
         "training_rate_test_deviance_spearman_rho": rate_deviance_rho,

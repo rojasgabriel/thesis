@@ -14,17 +14,20 @@ comparison is paired: each unit has a value in both periods.
   rate over the valid bins; the line is the mean over units and the band is its
   SEM. The dashed line is the rate in the 100 ms before the first flash. The
   top row is the fraction of trials with a flash in each 40 ms.
-- Panel b (characterization): the gain that a descriptive model gives to each
-  time, exp(kernel). The model is the design of `dmat.py` with one change: the
+- Panel b (characterization): the kernels of a descriptive model, as a change
+  in log rate. The model is the design of `dmat.py` with one change: the
   withdrawal kernel (0 to 100 ms) is replaced with a kernel from the center
   exit to the response entry (`AFTER_BASES` raised cosines with log spacing,
   `AFTER_WINDOW_S`). Both kernels are relative to the time before the first
   flash. Thin lines are units; the thick line and band are the median and the
   interquartile range.
-- Panel c (the paired comparison): each unit's mean gain over `LEVEL_MS` of
-  the hold against its mean gain over the same time after the center exit.
+- Panel c (the paired comparison): each unit's mean kernel value over
+  `LEVEL_MS` of the hold against its mean over the same time after the center
+  exit.
   Error bars are the SD over the 10 cross-validation folds, in both directions.
-  Two-sided Wilcoxon signed-rank test of the log gains.
+  Two-sided Wilcoxon signed-rank test of the two values. Points outside
+  `LEVEL_LIMITS` are not drawn; they are in the statistics, and their number is
+  in `hold_effect_stats.json`.
 - Panel d (control for stillness): raw rate against motion energy in the
   center port and at a side port (`port_vs_stillness.py`).
 
@@ -83,6 +86,8 @@ AFTER = "after_exit"
 AFTER_WINDOW_S = 0.6
 AFTER_BASES = 8
 LEVEL_MS = (150, 500)
+# Axis limits of the kernel panels (Δ log rate).
+LEVEL_LIMITS = (-1.6, 1.6)
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
@@ -152,8 +157,8 @@ def fit_descriptive(source: Path, unit_set: str) -> Path:
     return root
 
 
-def kernel_gains(root: Path, unit_set: str) -> dict:
-    """Return exp(kernel) of the hold and after-exit kernels: final refit and folds."""
+def kernel_values(root: Path, unit_set: str) -> dict:
+    """Return the hold and after-exit kernels (Δ log rate): final refit and folds."""
     model = cli.PoissonGLM(root=root)
     metadata = json.loads(model.design.with_suffix(".json").read_text())
     names = metadata["column_names"]
@@ -172,20 +177,20 @@ def kernel_gains(root: Path, unit_set: str) -> dict:
         columns = [i for i, column in enumerate(names) if column.startswith(name)]
         times = 1000 * basis.basis_time
         level = (times >= LEVEL_MS[0]) & (times < LEVEL_MS[1])
-        gain = lambda weights: np.exp(  # noqa: E731
+        values_of = lambda weights: (  # noqa: E731
             (np.asarray(weights)[columns] / scale[columns]) @ basis.basis.T
         )
-        curves = np.asarray([gain(item["coefficients"]) for item in final])
+        curves = np.asarray([values_of(item["coefficients"]) for item in final])
         fold_levels = [
             [
-                gain(fold["coefficients"])[level].mean()
+                values_of(fold["coefficients"])[level].mean()
                 for fold in folds[item["unit_id"]]["folds"]
             ]
             for item in final
         ]
         out[name] = {
             "times": times,
-            "gain": curves,
+            "values": curves,
             "level": curves[:, level].mean(axis=1),
             "level_sd": np.asarray([np.std(values) for values in fold_levels]),
         }
@@ -273,9 +278,9 @@ def main() -> None:
         raise FileNotFoundError(f"{stillness_path}: run `port_vs_stillness` first.")
     with np.load(stillness_path, allow_pickle=False) as data:
         stillness = {key: data[key] for key in data.files}
-    gains = kernel_gains(fit_descriptive(args.root, args.units), args.units)
+    kernels = kernel_values(fit_descriptive(args.root, args.units), args.units)
     rates = raw_rates(args.root, args.units)
-    hold, after = gains[dmat.HOLD], gains[AFTER]
+    hold, after = kernels[dmat.HOLD], kernels[AFTER]
     before = float(rates["flash"][1][:, rates["flash"][0] < 0].mean())
 
     with plt.rc_context(FIGURE_STYLE):
@@ -331,7 +336,7 @@ def main() -> None:
                 flash_axis.tick_params(labelleft=False)
                 axis.tick_params(labelleft=False)
 
-            gain_axis = figure.add_subplot(
+            kernel_axis = figure.add_subplot(
                 middle[column], sharey=panel_axes[1] if column else None
             )
             kernel = hold if name == "flash" else after
@@ -340,53 +345,48 @@ def main() -> None:
                 <= (FLASH_WINDOW_MS if column == 0 else EXIT_WINDOW_MS)[1]
             )
             times = kernel["times"][shown]
-            gain_axis.plot(
+            kernel_axis.plot(
                 times,
-                kernel["gain"][:, shown].T,
+                kernel["values"][:, shown].T,
                 color="0.6",
                 linewidth=0.3,
                 alpha=0.3,
                 zorder=1,
             )
             low, median, high = np.percentile(
-                kernel["gain"][:, shown], [25, 50, 75], axis=0
+                kernel["values"][:, shown], [25, 50, 75], axis=0
             )
-            gain_axis.fill_between(
+            kernel_axis.fill_between(
                 times, low, high, color=TASK, alpha=0.45, linewidth=0, zorder=2
             )
-            gain_axis.plot(times, median, color=TASK, linewidth=1.6, zorder=3)
-            gain_axis.axhline(1, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            gain_axis.set_xlim(axis.get_xlim())
-            gain_axis.set_xlabel(xlabel + (" (ms)" if name == "exit" else ""))
+            kernel_axis.plot(times, median, color=TASK, linewidth=1.6, zorder=3)
+            kernel_axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+            kernel_axis.set_xlim(axis.get_xlim())
+            kernel_axis.set_xlabel(xlabel + (" (ms)" if name == "exit" else ""))
             if column == 0:
-                gain_axis.set_yscale("log")
-                gain_axis.set_ylim(0.2, 5)
-                gain_axis.set_yticks(
-                    [0.25, 0.5, 1, 2, 4], ["0.25", "0.5", "1", "2", "4"]
-                )
-                gain_axis.minorticks_off()
-                gain_axis.set_ylabel("gain (model)")
-                gain_axis.text(
+                kernel_axis.set_ylim(*LEVEL_LIMITS)
+                kernel_axis.set_ylabel(r"$\Delta$ log rate")
+                kernel_axis.text(
                     0.98,
                     0.96,
                     "units",
                     color="0.55",
-                    transform=gain_axis.transAxes,
+                    transform=kernel_axis.transAxes,
                     ha="right",
                     va="top",
                 )
-                gain_axis.text(
+                kernel_axis.text(
                     0.98,
                     0.86,
                     "median and IQR",
                     color=TASK,
-                    transform=gain_axis.transAxes,
+                    transform=kernel_axis.transAxes,
                     ha="right",
                     va="top",
                 )
-                panel_axes.append(gain_axis)
+                panel_axes.append(kernel_axis)
             else:
-                gain_axis.tick_params(labelleft=False)
+                kernel_axis.tick_params(labelleft=False)
 
         paired = figure.add_subplot(bottom[0])
         paired.errorbar(
@@ -400,24 +400,20 @@ def main() -> None:
             elinewidth=0.4,
             alpha=0.7,
         )
-        limits = (0.15, 6)
+        limits = LEVEL_LIMITS
         paired.plot(
             limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
         )
         for line in (paired.axhline, paired.axvline):
-            line(1, color=REFERENCE_COLOR, linewidth=0.5)
-        paired.set_xscale("log")
-        paired.set_yscale("log")
+            line(0, color=REFERENCE_COLOR, linewidth=0.5)
         paired.set_xlim(limits)
         paired.set_ylim(limits)
-        ticks = [0.25, 0.5, 1, 2, 4]
-        paired.set_xticks(ticks, [f"{tick:g}" for tick in ticks])
-        paired.set_yticks(ticks, [f"{tick:g}" for tick in ticks])
-        paired.minorticks_off()
         paired.set_aspect("equal")
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
-        paired.set_xlabel(f"gain in the hold,\n{window} from first flash")
-        paired.set_ylabel(f"gain after the center exit,\n{window} from exit")
+        paired.set_xlabel(
+            r"$\Delta$ log rate in the hold," + f"\n{window} from first flash"
+        )
+        paired.set_ylabel(r"$\Delta$ log rate after exit," + f"\n{window} from exit")
         stillness_axis = figure.add_subplot(bottom[1])
         port_vs_stillness.plot_rates(stillness_axis, stillness, states=(0, 2))
         panel_axes += [paired, stillness_axis]
@@ -452,14 +448,12 @@ def main() -> None:
         "rate_100_to_400_ms_after_exit": float(
             values[:, (centers > 100) & (centers < 400)].mean()
         ),
-        "median_gain_hold": float(np.median(hold["level"])),
-        "median_gain_after_exit": float(np.median(after["level"])),
-        "fraction_units_hold_below_1": float(np.mean(hold["level"] < 1)),
-        "fraction_units_after_exit_below_1": float(np.mean(after["level"] < 1)),
-        "units_gain_higher_after_exit": int(np.sum(after["level"] > hold["level"])),
-        "wilcoxon_p": float(
-            wilcoxon(np.log(after["level"]), np.log(hold["level"])).pvalue
-        ),
+        "median_delta_log_rate_hold": float(np.median(hold["level"])),
+        "median_delta_log_rate_after_exit": float(np.median(after["level"])),
+        "fraction_units_hold_below_0": float(np.mean(hold["level"] < 0)),
+        "fraction_units_after_exit_below_0": float(np.mean(after["level"] < 0)),
+        "units_higher_after_exit": int(np.sum(after["level"] > hold["level"])),
+        "wilcoxon_p": float(wilcoxon(after["level"], hold["level"]).pvalue),
         "units_outside_the_axis_limits_of_panel_c": outside,
         "median_center_exit_ms_from_first_flash": rates["median_exit_ms"],
     }
