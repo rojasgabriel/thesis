@@ -472,33 +472,40 @@ The fit artifacts of the design with the in-port column are in
 
 ## Results
 
-Full fit of the final design, 2026-10-10: 167 units, 294 trials, 10
+Full fit of the final design, 2026-10-11: 167 units, 294 trials, 10
 motion-energy PCs. Artifacts are in
 `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
 
-- Full model: median cross-validated D² 0.068, median 0.50 bits/spike.
-- Against the first, nine-regressor design, D² is 0.0016 lower per unit (paired
-  median; lower in 126 of 167 units, p = 9e-12), about 2% of D².
+- Full model: median cross-validated D² 0.071, median 0.54 bits/spike.
+- Against the design with the in-port column (0.068, 0.50 bits/spike), D² is
+  0.0020 higher per unit (paired median; higher in 136 of 167 units,
+  p = 2e-18).
+- Example unit 197: the model reaches 77% of the first-flash peak of the
+  observed rate (52% with the in-port column). Its predicted rate before the
+  first flash is too high (46 against 33 spikes/s).
+- Hold kernel: the median gain from 150 to 500 ms is 0.61, and it is below 1 in
+  89% of the units (`hold_gain.svg`).
 
 | Regressor | Columns | Median unique ΔD² | Units with unique ΔD² > 0 |
 | --- | ---: | ---: | ---: |
-| Spike history | 10 | 0.0276 | 92% |
-| Visual flash | 8 | 0.0056 | 86% |
-| In center port | 1 | 0.0034 | 72% |
-| Flash adaptation (recent flash) | 8 | 0.0020 | 66% |
-| Motion energy | 10 | 0.0019 | 68% |
-| Withdrawal | 4 | 0.0013 | 62% |
+| Spike history | 10 | 0.0266 | 92% |
+| Stimulus during hold | 10 | 0.0065 | 88% |
+| Visual flash | 8 | 0.0052 | 84% |
+| Motion energy | 10 | 0.0019 | 65% |
+| Withdrawal | 4 | 0.0016 | 61% |
+| Flash adaptation (recent flash) | 8 | 0.0015 | 57% |
 
 - Motion energy is trial-specific: with the regressor taken from another trial,
-  the median loss is 0.0021 (IQR 0.0008 to 0.0042).
+  the median loss is 0.0021 (IQR 0.0008 to 0.0041), the same as with the
+  shuffle within a trial (p = 0.66).
 - Held-out units (`heldout_units.py`): the 147 units that took no part in the
-  design choices have a median D² of 0.068, against 0.089 for the 20 selection
-  units (Mann-Whitney p = 0.44); no unique ΔD² differs between the two groups
-  (p from 0.32 to 0.63). Against the first design, the loss is 0.0017 in the
-  held-out units and 0.0010 in the selection units.
+  design choices have a median D² of 0.070, against 0.094 for the 20 selection
+  units (Mann-Whitney p = 0.45); no unique ΔD² differs between the two groups
+  (p from 0.39 to 0.97).
 - Residual checks on all units (in-sample ΔD² of a term that is not in the
-  model, and with shuffled labels): time in trial 0.0025 (0.0010), session
-  drift 0.0013 (0.0007), response side after withdrawal 0.0013 (0.0003), flash
-  rate 0.0009 (0.0006), response side before withdrawal 0.0002 (0.0002).
+  model, and with shuffled labels): session drift 0.0013 (0.0007), response
+  side after withdrawal 0.0013 (0.0003), time in trial 0.0009 (0.0007; it was
+  0.0025 with the in-port column), flash rate 0.0009 (0.0006), response side
+  before withdrawal 0.0002 (0.0002).
 - `uv run python -m thesis.ephys.analyses.glm.main_figure` draws the main
   figure (`main_figure.svg`) for the example unit and all units.

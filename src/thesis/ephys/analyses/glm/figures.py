@@ -898,8 +898,7 @@ def plot_hold_gain(results: list[dict], metadata: dict, output: Path) -> Path:
         )
         axis.set_xscale("log")
         axis.set_xlabel(
-            f"rate factor of the hold kernel, {HOLD_LEVEL_MS[0]} to "
-            f"{HOLD_LEVEL_MS[1]} ms (model)"
+            f"gain of the hold kernel,\n{HOLD_LEVEL_MS[0]} to {HOLD_LEVEL_MS[1]} ms"
         )
         axis.set_ylabel("units")
         label_panels([axis], -0.2)
