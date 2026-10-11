@@ -21,14 +21,13 @@ default) of one session, after `glm fit` and `glm unique`.
   trial comes from the cross-validation fold that did not train on it. A time
   bin is shown while at least `MIN_TRIAL_FRACTION` of the test trials have not
   reached the response port.
-- Panel d (population): cross-validated D² of each unit; the line is the
-  median.
-- Panel e: the same result in bits/spike, the log-likelihood gain over the
-  constant-rate model for each spike.
-- Panel f: D² against bits/spike, with the units in three groups of equal size
-  by firing rate (`figures._plot_bits_deviance_by_rate`). For the same
-  bits/spike, a unit with a higher rate has a higher D².
-- Panel g (what explains the spikes): for each regressor, the unique ΔD²
+- Panel d (population): cross-validated D² of each unit against its
+  bits/spike (the log-likelihood gain over the constant-rate model for each
+  spike), with the units in three groups of equal size by firing rate
+  (`figures._plot_bits_deviance_by_rate`). For the same bits/spike, a unit with
+  a higher rate has a higher D². The histograms above and at the right are the
+  distributions of the two measures over units, with their medians.
+- Panel e (what explains the spikes): for each regressor, the unique ΔD²
   (filled; the D² that the model loses when that regressor is shuffled in time
   within each trial) and the maximal ΔD² (open; the D² of that regressor alone
   minus the D² with every regressor shuffled); median and interquartile range
@@ -40,7 +39,7 @@ default) of one session, after `glm fit` and `glm unique`.
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
 is the one that `results.example_unit_id` selects (unit 197 when it was fit).
-The sampling unit is the unit in panels d to g.
+The sampling unit is the unit in panels d and e.
 
     uv run python -m thesis.ephys.analyses.glm.main_figure
 """
@@ -190,20 +189,35 @@ def _plot_prediction(axis, data) -> None:
     axis.set_ylabel("firing rate (spikes/s)")
 
 
-def _plot_population(axis, values: np.ndarray, xlabel: str, digits: int) -> None:
-    median = float(np.median(values))
-    axis.hist(values, bins=24, color="black", alpha=0.75)
-    axis.axvline(median, color="black", linewidth=1.5)
-    axis.text(
-        median,
-        1.01,
-        f"median = {median:.{digits}f}",
-        transform=axis.get_xaxis_transform(),
-        ha="center",
+def _plot_population(axis, bits, deviance, rate) -> None:
+    """D² against bits/spike by firing-rate group, with the two distributions."""
+    _plot_bits_deviance_by_rate(axis, bits, deviance, rate)
+    axis.set_xlabel("bits/spike")
+    axis.set_ylabel(r"cross-validated $D^2$")
+    above = axis.inset_axes([0, 1.04, 1, 0.22], sharex=axis)
+    side = axis.inset_axes([1.04, 0, 0.22, 1], sharey=axis)
+    above.hist(bits, bins=24, color="black", alpha=0.75)
+    side.hist(deviance, bins=24, color="black", alpha=0.75, orientation="horizontal")
+    above.axvline(np.median(bits), color="black", linewidth=1.2)
+    side.axhline(np.median(deviance), color="black", linewidth=1.2)
+    above.text(
+        np.median(bits),
+        1.02,
+        f"median {np.median(bits):.2f}",
+        transform=above.get_xaxis_transform(),
         va="bottom",
+        fontsize=6.5,
     )
-    axis.set_xlabel(xlabel)
-    axis.set_ylabel("units")
+    side.text(
+        1.0,
+        np.median(deviance),
+        f" median\n {np.median(deviance):.3f}",
+        transform=side.get_yaxis_transform(),
+        va="center",
+        fontsize=6.5,
+    )
+    for inset in (above, side):  # only the shape of each distribution
+        inset.axis("off")
 
 
 def _reliable_fraction(records: list[dict], group: str) -> float:
@@ -246,7 +260,13 @@ def _plot_unique(axis, records: list[dict]) -> None:
             va="center",
             transform=axis.get_yaxis_transform(),
         )
-    axis.text(1.04, len(order) - 0.35, "units", transform=axis.get_yaxis_transform())
+    axis.text(
+        1.04,
+        len(order) - 0.35,
+        "units with\nunique > 0",
+        transform=axis.get_yaxis_transform(),
+        fontsize=6.5,
+    )
     axis.set_xscale("log")
     axis.set_xlim(FLOOR, 1e-1)
     axis.set_yticks(range(len(order)), [REGRESSORS[name][0] for name in order])
@@ -275,7 +295,7 @@ def main() -> None:
             1,
             2,
             left=0.16,
-            right=0.96,
+            right=0.93,
             top=0.96,
             bottom=0.615,
             wspace=0.42,
@@ -289,57 +309,40 @@ def main() -> None:
             figure.add_subplot(cell)
             for cell in top[1].subgridspec(2, 2, hspace=0.75, wspace=0.6)
         ]
-        middle = figure.add_gridspec(
+        (prediction,) = (
+            figure.add_subplot(cell)
+            for cell in figure.add_gridspec(
+                1, 1, left=0.1, right=0.98, top=0.52, bottom=0.365
+            )
+        )
+        bottom = figure.add_gridspec(
             1,
             2,
             left=0.1,
-            right=0.98,
-            top=0.52,
-            bottom=0.345,
-            wspace=0.3,
-            width_ratios=(2.2, 1),
-        )
-        prediction, population = (figure.add_subplot(cell) for cell in middle)
-        bottom = figure.add_gridspec(
-            1,
-            3,
-            left=0.1,
-            right=0.94,
+            right=0.93,
             top=0.25,
             bottom=0.06,
-            wspace=0.55,
-            width_ratios=(0.8, 1.1, 1.2),
+            wspace=0.95,
+            width_ratios=(1, 1.05),
         )
-        bits_axis, relation, unique_axis = (figure.add_subplot(cell) for cell in bottom)
-        box = unique_axis.get_position()  # room for the regressor names
-        unique_axis.set_position([box.x0 + 0.09, box.y0, box.width - 0.09, box.height])
+        population, unique_axis = (figure.add_subplot(cell) for cell in bottom)
 
         _plot_trial(trial_axes, data)
         _plot_kernels(kernel_axes, data)
         _plot_prediction(prediction, data)
-        _plot_population(population, deviance, r"cross-validated $D^2$", 3)
-        _plot_population(bits_axis, bits, "bits/spike", 2)
-        _plot_bits_deviance_by_rate(relation, bits, deviance, rate)
+        _plot_population(population, bits, deviance, rate)
         _plot_unique(unique_axis, records)
-        for axis in (*trial_axes, *kernel_axes, population, bits_axis, unique_axis):
+        for axis in (*trial_axes, *kernel_axes, unique_axis):
             separate_axes(axis)
         for axis in trial_axes[:4]:
             axis.spines["bottom"].set_visible(False)
 
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        firsts = (
-            trial_axes[0],
-            kernel_axes[0],
-            prediction,
-            population,
-            bits_axis,
-            relation,
-            unique_axis,
-        )
-        for letter, axis in zip("abcdefg", firsts, strict=True):
+        firsts = (trial_axes[0], kernel_axes[0], prediction, population, unique_axis)
+        for letter, axis in zip("abcde", firsts, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
-            top_edge = axis.get_position().y1 + 0.02
+            top_edge = axis.get_position().y1 + (0.05 if axis is population else 0.02)
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
         print(save_figure(figure, fit_dir / "main_figure"))
 
