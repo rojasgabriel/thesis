@@ -17,15 +17,11 @@ Units, alignment, baseline, and exclusions are those of `fit.py`. Units are the
 fixed 20-unit sample (`--units sample`), because the grid needs one design and
 one fit set for each pair. The sampling unit is the unit.
 
-- Panel a: mean validation D² over units against the recovery time constant,
-  one line for each fraction of the resource used per flash. The black line is the term in use.
-- Panel b: for each pair, the validation D² of each unit minus its value with
-  the term in use (small points), and the median over units (large points).
+`design_optimization.py` draws the scores; this module has no figure.
 
 The shortest interval between flashes is 40 ms. With a recovery much faster
 than that, the resource is full again at each flash unless the last flash was
-40 ms before, so the depression model becomes the term in use. The y range of
-panel a is small; read the size of the differences from the axis.
+40 ms before, so the depression model becomes the term in use.
 
     uv run python -m thesis.ephys.analyses.glm.adaptation_grid
 
@@ -40,20 +36,9 @@ import json
 import shutil
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 from thesis.ephys.analyses.glm import cli, dmat, fit
-from thesis.plotting import (
-    CONCEPT_COLORS,
-    FIGURE_STYLE,
-    REFERENCE_COLOR,
-    label_panels,
-    save_figure,
-)
 
 U_VALUES = (0.25, 0.5, 0.75, 0.9)
 TAU_VALUES_S = (0.0125, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8)
@@ -151,82 +136,6 @@ def run_grid(source: Path, output: Path) -> list[dict]:
     return rows
 
 
-def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
-    """Plot mean validation D² and each unit's change from the term in use.
-
-    With `axes`, draw into them and do not label or save (for a combined figure).
-    """
-    scores = {(row["u"], row["tau"]): row["units"] for row in rows}
-    current = (None, None)
-    unit_ids = sorted(scores[current])
-    if any(sorted(units) != unit_ids for units in scores.values()):
-        raise ValueError("Every pair must score the same units.")
-    values = {
-        pair: np.asarray([units[unit] for unit in unit_ids])
-        for pair, units in scores.items()
-    }
-    positions = np.arange(len(TAU_VALUES_S))
-    # One concept, the visual response; a darker line uses more of the resource.
-    shades = dict(zip(U_VALUES, np.linspace(0.3, 1.0, len(U_VALUES)), strict=True))
-    dodge = 0.18 * (np.arange(len(U_VALUES)) - (len(U_VALUES) - 1) / 2)
-    rng = np.random.default_rng(0)
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure = None
-        if axes is None:
-            figure, axes = plt.subplots(1, 2, figsize=(7.4, 3.1))
-        for index, u in enumerate(U_VALUES):
-            style = {"color": CONCEPT_COLORS["visual"], "alpha": shades[u]}
-            means = [values[(u, tau)].mean() for tau in TAU_VALUES_S]
-            axes[0].plot(positions, means, marker="o", **style)
-            axes[0].text(
-                positions[-1] + 0.25,
-                means[-1],
-                f"{u:.0%} used",
-                va="center",
-                **style,
-            )
-            offset = dodge[index]
-            for position, tau in zip(positions, TAU_VALUES_S, strict=True):
-                change = values[(u, tau)] - values[current]
-                axes[1].scatter(
-                    position + offset + rng.uniform(-0.05, 0.05, len(change)),
-                    change,
-                    s=5,
-                    linewidths=0,
-                    color=CONCEPT_COLORS["visual"],
-                    alpha=0.45 * shades[u],
-                )
-                axes[1].scatter(
-                    position + offset,
-                    np.median(change),
-                    s=34,
-                    edgecolors="white",
-                    zorder=3,
-                    **style,
-                )
-        axes[0].axhline(values[current].mean(), color="black", linewidth=1.2)
-        axes[0].text(
-            positions[-1] + 1.6,
-            values[current].mean(),
-            "term in use:\nflash in the last 50 ms",
-            ha="right",
-            va="bottom",
-        )
-        axes[0].set_xlim(-0.3, positions[-1] + 1.6)
-        axes[0].set_ylabel(r"mean validation $D^2$")
-        axes[1].axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-        axes[1].set_ylabel(r"validation $D^2$ minus the term in use")
-        for axis in axes:
-            axis.set_xticks(positions, [f"{1000 * tau:.0f}" for tau in TAU_VALUES_S])
-            axis.set_xlabel("recovery time constant (ms)")
-        if figure is None:
-            return None
-        label_panels(axes, -0.2)
-        figure.tight_layout(w_pad=2.0)
-        return save_figure(figure, output)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -238,7 +147,7 @@ def main() -> None:
     args = parser.parse_args()
     output = args.root / "adaptation_grid"
     rows = run_grid(args.root, output)
-    print(plot_grid(rows, output / "adaptation_grid"))
+    print(f"{len(rows)} designs in {output}")
 
 
 if __name__ == "__main__":

@@ -20,9 +20,8 @@ runs `residual_checks` on it. `design_optimization.py` uses its predicted
 rates.
 
 Units, alignment, baseline, and exclusions are those of `fit.py`. Units are the
-fixed 20-unit sample. The sampling unit is the unit. The figure shows the mean
-validation D² over units for each design; the open point is the design in
-`dmat.py`.
+fixed 20-unit sample. The sampling unit is the unit. `design_optimization.py`
+draws the scores; this module has no figure.
 
     uv run python -m thesis.ephys.analyses.glm.withdrawal_grid
 
@@ -37,21 +36,8 @@ import json
 import shutil
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-
 from thesis.ephys.analyses.glm import cli, dmat, residual_checks
 from thesis.ephys.analyses.glm.adaptation_grid import INPUTS, UNIT_SET, score_design
-from thesis.plotting import (
-    CONCEPT_COLORS,
-    FIGURE_STYLE,
-    label_panels,
-    mark_selected,
-    save_figure,
-)
 
 WIDE = {"WITHDRAWAL_PRE_S": 0.3, "WITHDRAWAL_WINDOW_S": 0.3, "WITHDRAWAL_BASES": 9}
 DESIGNS = {
@@ -102,55 +88,13 @@ def fit_without_in_port(source: Path) -> Path:
     return root
 
 
-def plot_grid(scores: dict[str, dict], output: Path | None, axes=None) -> Path | None:
-    """Plot mean validation D² for the kernel widths and for the in-port column.
-
-    With `axes`, draw into them and do not label or save (for a combined figure).
-    """
-    mean = {
-        name: float(np.mean(list(units.values()))) for name, units in scores.items()
-    }
-    color = CONCEPT_COLORS["task"]
-    widths = ("±300", "±100", "0–100")
-    port = ("0–100", "in port\nonly", IN_USE)
-    with plt.rc_context(FIGURE_STYLE):
-        figure = None
-        if axes is None:
-            figure, axes = plt.subplots(1, 2, figsize=(5.2, 2.6), layout="constrained")
-        axes[0].plot(range(3), [mean[name] for name in widths], color=color, marker="o")
-        axes[0].set_xticks(range(3), widths)
-        axes[0].set_xlabel("withdrawal kernel (ms), no in-port column")
-        axes[1].plot(
-            range(3),
-            [mean[name] for name in port],
-            color=color,
-            marker="o",
-            linestyle="none",
-        )
-        axes[1].axhline(mean["±300"], color=color, linestyle="--", linewidth=0.8)
-        axes[1].text(
-            -0.4, mean["±300"], "±300 ms kernel", color=color, va="bottom", fontsize=7
-        )
-        mark_selected(axes[1], port.index(IN_USE), mean[IN_USE], color)
-        axes[1].set_xticks(range(3), port, fontsize=7)
-        axes[1].set_xlabel("withdrawal terms")
-        for axis in axes:
-            axis.set_xlim(-0.5, 2.5)
-            axis.margins(y=0.18)
-            axis.set_ylabel(r"mean validation $D^2$")
-        if figure is None:
-            return None
-        label_panels(axes, -0.3)
-        return save_figure(figure, output)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
     args = parser.parse_args()
     output = args.root / "withdrawal_grid"
     scores = run_grid(args.root, output)
-    print(plot_grid(scores, output / "withdrawal_grid"))
+    print(f"{len(scores)} designs in {output}")
     print(fit_without_in_port(args.root))
 
 
