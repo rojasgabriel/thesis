@@ -321,8 +321,6 @@ def main() -> None:
         a, b, c = row(0.955, 0.775, (1, 0.8, 1.5), wspace=0.6)
         d, e, f = row(0.63, 0.45, (1.2, 1.0, 1.5), wspace=0.6)
         g, h = row(0.295, 0.095, (1.3, 1.0), right=0.7, wspace=0.6)
-        spare_figure = plt.figure()
-        spare = spare_figure.subplots(1, 2)
 
         stats = {}
         stats["a flash bases"] = _plot_choice(
@@ -363,10 +361,9 @@ def main() -> None:
         )
         d.tick_params(axis="x", labelsize=7)
         _plot_rates(e, residual)
-        port_vs_stillness.plot(port, None, axes=(f, *spare), states=(0, 2))
+        port_vs_stillness.plot_rates(f, port, states=(0, 2))
         f.set_ylabel("")  # the same axis as panel e
         f.set_xlabel("motion energy (percentile)")
-        plt.close(spare_figure)
         stats["g motion-energy PCs"] = _plot_choice(
             g,
             pcs,

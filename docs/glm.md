@@ -355,8 +355,8 @@ the residual tests are in-sample):
   the stimulus clock; it was left out to keep one column with a tested meaning.
 - `uv run python -m thesis.ephys.analyses.glm.residual_checks --units all`
   repeats the residual checks of this section (session drift, time in trial,
-  flash rate, response side) on a fit set and writes `residual_checks.svg` in
-  its fit directory. Use `--root` to run it on another design.
+  flash rate, response side) on a fit set and writes `residual_checks.json` in
+  its fit directory; it makes no figure. Use `--root` to run it on another design.
 - Session drift is small (median ΔD² 0.0015, shuffled trial order 0.0009), so
   there is no drift term.
 - Flash kernel (`flash_kernel_grid`, 20 units, validation D²): 8 bases against

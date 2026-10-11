@@ -26,13 +26,10 @@ exclusions (bins after response entry) are those of `fit.py`. The sampling unit
 is the unit. Every ΔD² is in-sample: the small model is fit and scored on the
 same bins, so the shuffle value, not zero, is the reference.
 
-- Panel a: ratio against trial number (deciles of the session).
-- Panel b: ratio against time from the first flash, by flash-rate group.
-- Panel c: ratio against time from the withdrawal, by response side.
-- Panel d: ΔD² of each check for each unit (colored) and its shuffle (gray).
-  The axis is logarithmic and starts at `FLOOR`; a smaller value is drawn at
-  the floor. The statistics in the JSON use the real values.
-Panels a to c show the median and the interquartile range over units.
+The script writes the curves (median inputs of each check, per unit), the
+per-unit ΔD² values, and their summary to `residual_checks.json` in the fit
+directory; it makes no figure. `design_optimization.py` uses the observed and
+predicted rate curves.
 
     uv run python -m thesis.ephys.analyses.glm.residual_checks --units all
 """
@@ -46,7 +43,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.special import xlogy
 from sklearn.linear_model import PoissonRegressor
@@ -55,13 +51,6 @@ from sklearn.preprocessing import SplineTransformer
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import build_unit_counts, load_unit_records
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import (
-    CONCEPT_COLORS,
-    FIGURE_STYLE,
-    REFERENCE_COLOR,
-    label_panels,
-    save_figure,
-)
 
 BOUNDARY_HZ = 12
 SHUFFLES = 30
@@ -280,22 +269,9 @@ def run_checks(root: Path, unit_set: str) -> dict:
     }
 
 
-def _band(axis, x, values, color, label, label_at=-1, dy=0.0) -> None:
-    low, median, high = np.nanpercentile(values, [25, 50, 75], axis=0)
-    axis.fill_between(x, low, high, color=color, alpha=0.18, linewidth=0)
-    axis.plot(x, median, color=color, linewidth=1.2)
-    if label:
-        axis.text(
-            x[label_at], median[label_at] + dy, f" {label}", color=color, va="center"
-        )
-
-
-def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]:
-    """Draw the four panels; return the figure path and the summary statistics.
-
-    With `axes`, draw into them and do not label or save (for a combined figure).
-    """
-    curves, checks = data["curves"], data["checks"]
+def summarize(data: dict) -> dict:
+    """Return the median ΔD² of each check and of its shuffle over units."""
+    checks = data["checks"]
     names = [key for key in checks[0] if key != "unit_id" and "shuffle" not in key]
     summary = {"units": len(checks)}
     for name in names:
@@ -307,95 +283,12 @@ def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]
                 "shuffle_median": float(np.median(null)),
                 "fraction_units_above_shuffle": float(np.mean(real > null)),
             }
-    visual, task = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
-    centers = lambda edges: 1000 * (edges[:-1] + edges[1:]) / 2  # noqa: E731
-    rng = np.random.default_rng(0)
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure = None
-        if axes is None:
-            figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.4), layout="constrained")
-            axes = axes.ravel()
-        _band(axes[0], np.arange(1, SESSION_BINS + 1), curves["session"], "black", "")
-        axes[0].set_xlabel("trial number (decile of the session)")
-        x = centers(ONSET_EDGES_S)
-        _band(axes[1], x, curves["low"], visual, "low rate", 4, -0.12)
-        _band(axes[1], x, curves["high"], "0.3", "high rate", 4, 0.12)
-        axes[1].set_xlabel("time from first flash (ms)")
-        x = centers(EXIT_EDGES_S)
-        _band(axes[2], x, curves["left"], task, "left", dy=-0.06)
-        _band(axes[2], x, curves["right"], "0.3", "right", dy=0.06)
-        axes[2].axvline(0, color="black", linewidth=0.45)
-        axes[2].set_xlabel("time from withdrawal (ms)")
-        axes[2].set_xlim(right=x[-1] + 160)
-        for axis in axes[:3]:
-            axis.axhline(1, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            axis.set_ylabel("observed / predicted spikes")
-
-        for position, name in enumerate(names):
-            real = np.asarray([item[name] for item in checks])
-            jitter = rng.uniform(-0.12, 0.12, len(real))
-            if f"{name} shuffle" in checks[0]:
-                null = np.asarray([item[f"{name} shuffle"] for item in checks])
-                axes[3].scatter(
-                    position + 0.2 + jitter,
-                    np.maximum(null, FLOOR),
-                    s=5,
-                    color=REFERENCE_COLOR,
-                    linewidths=0,
-                )
-                axes[3].plot(
-                    [position + 0.05, position + 0.35],
-                    [np.median(null)] * 2,
-                    color="0.4",
-                    linewidth=1.5,
-                )
-            axes[3].scatter(
-                position - 0.2 + jitter,
-                np.maximum(real, FLOOR),
-                s=5,
-                color="black",
-                linewidths=0,
-                alpha=0.7,
-            )
-            axes[3].plot(
-                [position - 0.35, position - 0.05],
-                [np.median(real)] * 2,
-                color="black",
-                linewidth=1.5,
-            )
-        axes[3].set_yscale("log")
-        axes[3].set_ylim(bottom=FLOOR)
-        axes[3].set_xticks(
-            range(len(names)),
-            [
-                name.replace("withdrawal", "exit")
-                .replace(", ", ",\n")
-                .replace(" ", "\n", 1)
-                for name in names
-            ],
-            fontsize=7,
-        )
-        axes[3].set_ylabel(r"$\Delta D^2$ of the missing term (in-sample)")
-        axes[3].text(0.02, 0.1, "units", transform=axes[3].transAxes, va="bottom")
-        axes[3].text(
-            0.02,
-            0.03,
-            "labels shuffled",
-            color="0.4",
-            transform=axes[3].transAxes,
-            va="bottom",
-        )
-        if figure is None:
-            return None, summary
-        label_panels(axes, -0.16)
-        return save_figure(figure, output), summary
+    return summary
 
 
-def save(data: dict, fit_dir: Path, summary: dict | None = None) -> None:
-    """Write the curves and the per-unit values of `run_checks` to the fit directory."""
-    if summary is None:
-        _, summary = plot(data, fit_dir / "residual_checks")
+def save(data: dict, fit_dir: Path) -> dict:
+    """Write the curves, per-unit values, and summary to the fit directory."""
+    summary = summarize(data)
     curves = {key: value.tolist() for key, value in data["curves"].items()}
     (fit_dir / "residual_checks.json").write_text(
         json.dumps(
@@ -408,6 +301,7 @@ def save(data: dict, fit_dir: Path, summary: dict | None = None) -> None:
             indent=1,
         )
     )
+    return summary
 
 
 def main() -> None:
@@ -417,9 +311,7 @@ def main() -> None:
     args = parser.parse_args()
     fit_dir = cli.PoissonGLM(root=args.root).fit_dir(args.units)
     data = run_checks(args.root, args.units)
-    figure, summary = plot(data, fit_dir / "residual_checks")
-    save(data, fit_dir, summary)
-    print(json.dumps({**summary, "figure": str(figure)}, indent=2))
+    print(json.dumps(save(data, fit_dir), indent=2))
 
 
 if __name__ == "__main__":

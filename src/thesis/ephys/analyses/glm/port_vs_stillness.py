@@ -27,16 +27,18 @@ Units, trials, alignment, and exclusions are those of `fit.py` (all eligible
 units; completed trials; windows aligned to the first flash). The sampling unit
 is the unit.
 
-- Panel a (observation): rate against motion energy for each state; median and
-  interquartile range over units.
-- Panel b (the paired test): each unit's rate in the center port against its
-  rate at the side port, in the group with the least motion energy. Bars are
-  the Poisson standard error of each rate. Two-sided Wilcoxon signed-rank test.
-- Panel c (prediction of the stillness account): if stillness caused the
-  suppression, the units that movement excites most would be the most
-  suppressed. x is the Spearman correlation of the spike count with motion
-  energy outside the center port; y is the rate in the center port relative to
-  the rate outside it, over all frames (not matched for motion energy).
+The script writes the rates to `port_vs_stillness.npz` and these statistics to
+`port_vs_stillness.json`; it makes no figure. `design_optimization.py` draws
+the rate against motion energy with `plot_rates`.
+
+- Paired test: each unit's rate in the center port against its rate at the
+  side port, in the group with the least motion energy (two-sided Wilcoxon
+  signed-rank test).
+- Prediction of the stillness account: if stillness caused the suppression,
+  the units that movement excites most would be the most suppressed. Spearman
+  correlation, over units, of the spike count's correlation with motion energy
+  outside the center port against the rate in the center port relative to the
+  rate outside it (all frames, not matched for motion energy).
 
 Limits: motion energy comes from one camera view of the body and has no eye,
 pupil, or whisker signal. The comparison does not separate the stimulus in
@@ -54,7 +56,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr, wilcoxon
 
@@ -63,10 +64,6 @@ from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
-    FIGURE_STYLE,
-    REFERENCE_COLOR,
-    label_panels,
-    save_figure,
 )
 
 STATES = ("in center port", "moving to side port", "at side port")
@@ -149,15 +146,9 @@ def unit_rates(frames: dict, units) -> dict[str, np.ndarray]:
     }
 
 
-def plot(
-    data: dict, output: Path | None, axes=None, states=(0, 1, 2)
-) -> tuple[Path | None, dict]:
-    """Draw the three panels and return the figure path and the statistics.
-
-    With `axes`, draw into them and do not label or save (for a combined figure).
-    `states` selects the states (indices of `STATES`) that panel a shows.
-    """
-    rate, error = data["rate"], data["error"]
+def summarize(data: dict) -> dict:
+    """Return the statistics of the paired test and of the stillness prediction."""
+    rate = data["rate"]
     energy = data["group_energy"]
     center, side = rate[:, 0, 0], rate[:, 2, 0]
     paired = np.isfinite(center) & np.isfinite(side) & (center > 0) & (side > 0)
@@ -180,92 +171,43 @@ def plot(
             "p": float(relation.pvalue),
         },
     }
+    return summary
 
-    with plt.rc_context(FIGURE_STYLE):
-        figure = None
-        if axes is None:
-            figure, axes = plt.subplots(
-                1, 3, figsize=(7.4, 2.5), width_ratios=(1.5, 1, 1), layout="constrained"
-            )
-        for index, (name, color) in enumerate(zip(STATES, STATE_COLORS, strict=True)):
-            if index not in states:
-                continue
-            used = data["frames"][index] >= MIN_FRAMES
-            low, median, high = np.nanpercentile(
-                rate[:, index, used], [25, 50, 75], axis=0
-            )
-            positions = np.flatnonzero(used)
-            axes[0].errorbar(
-                positions + 0.06 * (index - 1),
-                median,
-                yerr=(median - low, high - median),
-                color=color,
-                marker="o",
-                markersize=3.5,
-                linewidth=1.2,
-                elinewidth=0.7,
-                capsize=1.5,
-            )
-            axes[0].text(  # outside the axis, so the axis ends at the data
-                GROUPS - 0.7,
-                median[-1] + (0.09, -0.09, 0)[(index + 2) % 3],
-                name,
-                color=color,
-                va="center",
-                clip_on=False,
-            )
-        centers = (np.arange(GROUPS) + 0.5) * 100 / GROUPS
-        axes[0].set_xticks(range(GROUPS), [f"{center:.0f}" for center in centers])
-        axes[0].set_xlim(-0.3, GROUPS - 0.8)
-        axes[0].set_ylim(bottom=0)
-        axes[0].set_xlabel("motion energy of the frame (percentile)")
-        axes[0].set_ylabel("rate / mean rate of the unit")
 
-        limit = 1.05 * np.nanmax(np.r_[center[paired], side[paired]])
-        axes[1].plot([0, limit], [0, limit], color=REFERENCE_COLOR, linewidth=0.8)
-        axes[1].errorbar(
-            side[paired],
-            center[paired],
-            xerr=error[paired, 2, 0],
-            yerr=error[paired, 0, 0],
-            fmt="o",
-            color="black",
-            markersize=2,
-            elinewidth=0.4,
-            alpha=0.6,
+def plot_rates(axis, data: dict, states=(0, 1, 2)) -> None:
+    """Draw rate against motion-energy group for the states in `states` (indices of `STATES`)."""
+    rate = data["rate"]
+    for index, (name, color) in enumerate(zip(STATES, STATE_COLORS, strict=True)):
+        if index not in states:
+            continue
+        used = data["frames"][index] >= MIN_FRAMES
+        low, median, high = np.nanpercentile(rate[:, index, used], [25, 50, 75], axis=0)
+        positions = np.flatnonzero(used)
+        axis.errorbar(
+            positions + 0.06 * (index - 1),
+            median,
+            yerr=(median - low, high - median),
+            color=color,
+            marker="o",
+            markersize=3.5,
+            linewidth=1.2,
+            elinewidth=0.7,
+            capsize=1.5,
         )
-        axes[1].set_xlim(0, limit)
-        axes[1].set_ylim(0, limit)
-        axes[1].set_xlabel("rate at side port")
-        axes[1].set_ylabel("rate in center port")
-        axes[1].text(
-            0.5,
-            1.02,
-            f"lower in center port:\n{np.mean(ratio < 1):.0%} of {paired.sum()} units",
-            transform=axes[1].transAxes,
-            ha="center",
-            va="bottom",
+        axis.text(  # outside the axis, so the axis ends at the data
+            GROUPS - 0.7,
+            median[-1] + (0.09, -0.09, 0)[(index + 2) % 3],
+            name,
+            color=color,
+            va="center",
+            clip_on=False,
         )
-
-        axes[2].axhline(1, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-        axes[2].scatter(
-            sensitivity, hold_ratio, s=6, color="black", alpha=0.6, linewidths=0
-        )
-        axes[2].set_yscale("log")
-        axes[2].set_xlabel("movement sensitivity\noutside port (ρ)")
-        axes[2].set_ylabel("rate in center port / outside it")
-        axes[2].text(
-            0.5,
-            1.02,
-            f"ρ = {relation.statistic:.2f}, p = {relation.pvalue:.2g}",
-            transform=axes[2].transAxes,
-            ha="center",
-            va="bottom",
-        )
-        if figure is None:
-            return None, summary
-        label_panels(axes, -0.3, 1.14)
-        return save_figure(figure, output), summary
+    centers = (np.arange(GROUPS) + 0.5) * 100 / GROUPS
+    axis.set_xticks(range(GROUPS), [f"{center:.0f}" for center in centers])
+    axis.set_xlim(-0.3, GROUPS - 0.8)
+    axis.set_ylim(bottom=0)
+    axis.set_xlabel("motion energy of the frame (percentile)")
+    axis.set_ylabel("rate / mean rate of the unit")
 
 
 def main() -> None:
@@ -287,9 +229,9 @@ def main() -> None:
     )
     data = unit_rates(frames, units.iloc[analysis_unit_indices(units, "all")])
     np.savez(args.root / "port_vs_stillness.npz", **data)
-    figure, summary = plot(data, args.root / "port_vs_stillness")
+    summary = summarize(data)
     (args.root / "port_vs_stillness.json").write_text(json.dumps(summary, indent=2))
-    print(json.dumps({**summary, "figure": str(figure)}, indent=2))
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
