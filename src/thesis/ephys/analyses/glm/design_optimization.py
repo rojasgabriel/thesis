@@ -12,34 +12,29 @@ constant-rate model. A dotted circle marks the value that the model uses.
 - Adaptation term. Panel c: no term, a synaptic-depression resource with a
   slow and with a fast recovery, and "a flash in the last 50 ms".
   `flash_kernel_grid.py` and `adaptation_grid.py`.
-- Withdrawal. Panel d: width of the withdrawal kernel, without the in-port
-  column. Panel e: the ±300 ms kernel, the 0 to 100 ms kernel, the in-port
-  column alone, and both (`withdrawal_grid.py`). Panel f: observed firing rate
-  and the rate that the final design predicts, against time from the first
-  flash; the shaded time is the median time in the center port. Panel g: the
-  lower rate in the center port is not stillness (`port_vs_stillness.py`, all
-  units, raw rates).
-- Motion energy. Panel h: no motion energy and five numbers of PCs
-  (`pc_grid.py`). Panel i: each unit's unique ΔD² of motion energy against its
-  trial-specific ΔD² (motion energy taken from another trial) in the final
-  design; bars are the SEM over folds.
-- Panel j (the result): unique ΔD² of each regressor of the final design
-  (`glm unique`; median and interquartile range over units).
+- Withdrawal. Panel d: the ±300 ms kernel (the reference), shorter kernels,
+  and the 0 to 100 ms kernel with the in-port column (`withdrawal_grid.py`).
+  Panel e: observed firing rate and the rate that the final design predicts,
+  against time from the first flash; the shaded time is the median time in the
+  center port. Panel f: firing rate against motion energy in the center port
+  and on the way to the side port (`port_vs_stillness.py`, all units, raw
+  rates).
+- Motion energy. Panel g: no motion energy and five numbers of PCs
+  (`pc_grid.py`). Panel h: the final design with its motion energy shuffled in
+  time within each trial, or taken from another trial (`glm unique`).
 
-Panels a to e and h are box plots, over units, of the validation D² with each
-choice minus the D² with a reference choice (the one in use; panel d: the
-±300 ms kernel), with whiskers to 1.5 IQR and no outlier points. The mark over
-a box is a two-sided Wilcoxon signed-rank test of those differences against
-zero; the p values, and a Friedman test over all choices of a panel, go to the
-caption and to `design_optimization_stats.json`. Firing rates are divided by
-the mean rate of that unit over all bins of the analysis. Panel f has the
-origin at (0, 0) and default spines, and starts at the first flash; the other
-panels use `separate_axes`. Panel i has logarithmic axes that start at
-`CONTROL_FLOOR`: a unit with a smaller ΔD² on one axis is drawn at the axis,
-and the caption gives the count.
-Panel j has a logarithmic axis that starts at `FLOOR`. Each module docstring
-gives the comparison, units, baseline, alignment, exclusions, and sampling unit
-of its panels.
+Panels a to d, g, and h are box plots, over units, of the D² with each choice
+minus the D² with a reference choice (the one in use; panel d: the ±300 ms
+kernel), with whiskers to 1.5 IQR and no outlier points. D² is on the
+validation trials; in panel h it is the mean over the 10 cross-validation
+folds. The mark over a box is a two-sided Wilcoxon signed-rank test of those
+differences against zero; the p values, and a Friedman test over all choices of
+a panel, go to the caption and to `design_optimization_stats.json`. Firing
+rates are divided by the mean rate of that unit over all bins of the analysis.
+Panel e has the origin at (0, 0) and default spines, and starts at the first
+flash; the other panels use `separate_axes`. Each module docstring gives the
+comparison, units, baseline, alignment, exclusions, and sampling unit of its
+panels.
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization --units all
 
@@ -77,9 +72,6 @@ from thesis.plotting import (
     separate_axes,
 )
 
-FLOOR = 1e-5
-# Panel i: a unit with a smaller ΔD² on an axis is drawn at this value.
-CONTROL_FLOOR = 1e-4
 REMOVED_COLOR = "0.6"
 VISUAL, TASK, MOTION = (
     CONCEPT_COLORS["visual"],
@@ -88,30 +80,21 @@ VISUAL, TASK, MOTION = (
 )
 # Synaptic-depression models of panel d: (fraction used, recovery in s).
 DEPRESSION = {"slow\ndepression": (0.5, 0.2), "fast\ndepression": (0.5, 0.025)}
-# Regressors of the final design (panel j): label and color.
-FINAL_DESIGN = {
-    "history": ("spike history", CONCEPT_COLORS["history"]),
-    "visual_flash": ("visual flash", VISUAL),
-    "flash_adaptation": ("flash adaptation", VISUAL),
-    "in_port": ("in center port", TASK),
-    "withdrawal": ("withdrawal", TASK),
-    "video": ("motion energy", MOTION),
-}
 CAPTION = """\
 **Optimizing the GLM design matrix.** Each panel tests one choice in the final
 design, with all other regressors as in the final design. D² is the deviance
 explained on trials that were not used for the fit, relative to a model with a
-constant firing rate. In the box plots (**a–e**, **h**), each unit is scored with every option,
+constant firing rate. In the box plots, each unit is scored with every option,
 and a box shows, over units, the D² with that option minus the D² with the
-reference option of the panel, which is at zero (dashed line). The reference is
-the option that the model uses (dotted circle); in **d** it is the ±300 ms
-kernel. Boxes are the quartiles, whiskers reach 1.5 times the interquartile
-range, and outliers are not drawn. The mark over a box is a two-sided Wilcoxon
-signed-rank test of those differences against zero (n.s., p ≥ 0.05; \*,
-p < 0.05; \*\*, p < 0.01; \*\*\*, p < 0.001); the p value of each option is
-given below. A Friedman test compares all options of a panel at once, paired
-over units. Where two options do not differ reliably, the model uses the
-simpler one.
+reference option of the panel, which is at zero (dashed line). The dotted
+circle marks the option that the model uses; it is the reference in all panels
+but **d**, where the reference is the ±300 ms kernel. Boxes are the quartiles,
+whiskers reach 1.5 times the interquartile range, and outliers are not drawn.
+The mark over a box is a two-sided Wilcoxon signed-rank test of those
+differences against zero (n.s., p ≥ 0.05; \*, p < 0.05; \*\*, p < 0.01;
+\*\*\*, p < 0.001); the p value of each option is given below. A Friedman
+test compares all options of a panel at once, paired over units. Where two
+options do not differ reliably, the model uses the simpler one.
 **a, b, Visual flash kernel** ({sample_units} units). **a**, Number of raised
 cosines ({p_a}). **b**, Length of the kernel ({p_b}).
 **c, Adaptation**: a second flash kernel for a flash that follows another
@@ -120,31 +103,27 @@ flash. No such term, a synaptic-depression resource that recovers slowly
 within 50 ms (recent flash). The depression model is best when it recovers
 faster than the shortest interval between flashes (40 ms), where it is the same
 as the recent-flash term ({p_c}).
-**d–g, Withdrawal.** **d**, Width of the withdrawal kernel. A kernel shorter
-than ±300 ms predicts worse ({p_d}). **e**, A column that is 1 while the animal
-is in the center port: the 0 to 100 ms kernel with this column (both) is better
-than the kernel alone and than the column alone, and the ±300 ms kernel is not
-better than both ({p_e}). **f**, What the column captures: observed firing rate
-(black) and the rate that the model with the 0 to 100 ms kernel and the port
-column predicts (purple), against time from the first flash (median of
-{sample_units} units). Each rate is divided by the mean rate of that unit, so 1
-is the average rate of the unit. The rate is lower while the animal is in the
-center port (shaded: median time in the port). **g**, This lower rate does not
-depend on how much the animal moves: firing rate against the motion energy of
-the video frame, in five groups of 20 percentiles, in the center port and on
-the way to the side port (median and interquartile range of {port_units}
-units).
-**h, i, Motion energy.** **h**, No motion energy (0) and five numbers of
-motion-energy PCs ({sample_units} units; {p_h}). **i**, Does motion energy predict spikes through the movement of that
-trial, or only because movement and firing both change with the time in the
-trial? The D² that each unit loses when motion energy is shuffled in time
-within the trial, against the loss when it is replaced with the motion energy
-of another trial, which has the same average time course (final design,
-{final_units} units; bars are the SEM over folds; logarithmic axes; {negative_units} units with a
-value below 0.0001 are drawn at the axis). The two losses are equal, so the
-movement of that trial is what predicts the spikes.
-**j**, The design with the selected parameters: the unique ΔD² of each
-regressor (median and interquartile range of {final_units} units).
+**d–f, Withdrawal.** **d**, A withdrawal kernel from 300 ms before to 300 ms
+after the withdrawal, shorter kernels, and the 0 to 100 ms kernel with a column
+that is 1 while the animal is in the center port. The shorter kernels predict
+worse than the ±300 ms kernel; the short kernel with the port column does not
+({p_d}). **e**, What the port column describes: observed firing rate (black)
+and the rate that the final design predicts (purple), against time from the
+first flash (median of {sample_units} units). Each rate is divided by the mean
+rate of that unit, so 1 is the average rate of the unit. The rate is lower
+while the animal is in the center port (shaded: median time in the port).
+**f**, Firing rate against the motion energy of the video frame, in five groups
+of 20 percentiles, in the center port and on the way to the side port (median
+and interquartile range of {port_units} units).
+**g, h, Motion energy.** **g**, No motion energy (0) and five numbers of
+motion-energy PCs ({sample_units} units; {p_g}). **h**, Does motion energy
+predict spikes through the movement of that trial, or only because movement and
+firing both change with the time in the trial? The motion energy of the final
+design is shuffled in time within each trial, or replaced with the motion
+energy of another trial, which has the same average time course ({final_units}
+units; {p_h}). Both changes lower D², and by the same amount (shuffled against
+another trial, p = {p_swap:.2g}), so the movement of that trial is what
+predicts the spikes.
 """
 
 
@@ -157,23 +136,6 @@ def _load(path: Path, command: str):
     return json.loads(path.read_text())
 
 
-def _plot_final_design(axis, groups: dict) -> None:
-    order = sorted(FINAL_DESIGN, key=lambda name: groups[name]["median"])
-    for position, name in enumerate(order):
-        color = FINAL_DESIGN[name][1]
-        low, median, high = (
-            max(groups[name][key], FLOOR) for key in ("q25", "median", "q75")
-        )
-        axis.plot([low, high], [position] * 2, color=color, linewidth=1.2)
-        axis.scatter(median, position, color=color, s=22, zorder=3)
-    axis.set_xscale("log")
-    axis.set_xlim(1e-4, 1e-1)
-    axis.set_yticks(range(len(order)), [FINAL_DESIGN[name][0] for name in order])
-    for tick, name in zip(axis.get_yticklabels(), order, strict=True):
-        tick.set_color(FINAL_DESIGN[name][1])
-    axis.set_xlabel(r"unique $\Delta D^2$")
-
-
 def _stars(p: float) -> str:
     return "n.s." if p >= 0.05 else "*" * (1 + (p < 0.01) + (p < 0.001))
 
@@ -184,8 +146,8 @@ def _plot_choice(
     """Box plots of each choice's D² minus the D² of one reference choice, per unit.
 
     `scores` maps the label of each choice to the D² of each unit (same unit
-    order). The reference (default: `selected`) is at zero; a dotted circle
-    marks it when it is the selected choice. Each other choice has a box of its
+    order). The reference (default: `selected`) is at zero. A dotted circle
+    marks the selected choice. Each other choice has a box of its
     per-unit differences from the reference (whiskers to 1.5 IQR, no outlier
     points) and the result of a two-sided Wilcoxon signed-rank test of those
     differences against zero. A line connects the medians. Returns the
@@ -225,6 +187,8 @@ def _plot_choice(
             "units": len(change),
             "wilcoxon_p": p_value,
         }
+        if label == selected:
+            mark_selected(axis, position, medians[-1])
         axis.annotate(
             _stars(p_value),
             (position, box["whiskers"][1].get_ydata()[1]),
@@ -237,7 +201,7 @@ def _plot_choice(
         axis.plot(positions, medians, color=color, linewidth=1, zorder=1)
     spot = labels.index(reference)
     axis.scatter(spot, 0, s=26, facecolor="white", edgecolor=color, zorder=3)
-    if selected is not None:
+    if selected == reference:
         mark_selected(axis, spot, 0)
     axis.set_xticks(positions, labels)
     axis.set_xlim(-0.6, len(labels) - 0.4)
@@ -274,45 +238,19 @@ def _plot_rates(axis, residual: dict) -> None:
     axis.set_ylabel("rate / mean rate of the unit")
 
 
-def _plot_motion_control(axis, records: list[dict]) -> int:
-    """Scatter the two ΔD² of motion energy on log axes; return the units at the floor."""
-    video = [item["groups"]["video"] for item in records]
-    unique, unique_sem, specific, specific_sem = (
-        np.asarray([item[key] for item in video])
-        for key in (
-            "unique_test_deviance_explained",
-            "unique_test_deviance_explained_sem",
-            "trial_specific_test_deviance_explained",
-            "trial_specific_test_deviance_explained_sem",
-        )
+def _motion_control_scores(records: list[dict]) -> dict:
+    """Return each unit's D² with real, shuffled, and trial-swapped motion energy."""
+    complete = np.asarray(
+        [item["complete_test_deviance_explained"] for item in records]
     )
-    negative = int(np.sum((unique < CONTROL_FLOOR) | (specific < CONTROL_FLOOR)))
-    high = 2 * max(unique.max(), specific.max())
-    axis.plot(
-        [CONTROL_FLOOR, high],
-        [CONTROL_FLOOR, high],
-        color=REFERENCE_COLOR,
-        linewidth=0.8,
+    lost = lambda key: np.asarray(  # noqa: E731
+        [item["groups"]["video"][key] for item in records]
     )
-    x, y = np.maximum(unique, CONTROL_FLOOR), np.maximum(specific, CONTROL_FLOOR)
-    axis.errorbar(
-        x,
-        y,
-        xerr=(np.minimum(unique_sem, x - CONTROL_FLOOR), unique_sem),
-        yerr=(np.minimum(specific_sem, y - CONTROL_FLOOR), specific_sem),
-        fmt="o",
-        color=MOTION,
-        markersize=2.5,
-        elinewidth=0.5,
-        alpha=0.8,
-    )
-    axis.set_xscale("log")
-    axis.set_yscale("log")
-    axis.set_xlim(CONTROL_FLOOR, high)
-    axis.set_ylim(CONTROL_FLOOR, high)
-    axis.set_xlabel(r"$D^2$ lost: motion energy" + "\nshuffled in the trial")
-    axis.set_ylabel(r"$D^2$ lost: motion energy" + "\nfrom another trial")
-    return negative
+    return {
+        "real": complete,
+        "shuffled\nin trial": complete - lost("unique_test_deviance_explained"),
+        "another\ntrial": complete - lost("trial_specific_test_deviance_explained"),
+    }
 
 
 def main() -> None:
@@ -350,9 +288,6 @@ def main() -> None:
         fit_dir / "residual_checks.json",
         f"{module}.residual_checks --units {args.units}",
     )
-    final_unique = _load(
-        fit_dir / "unique_deviance" / "summary.json", f"glm unique --units {args.units}"
-    )
     unique_records = load_unit_records(
         fit_dir / "checkpoints" / "unique", "unit_*.json"
     )
@@ -384,9 +319,8 @@ def main() -> None:
             return [figure.add_subplot(cell) for cell in grid]
 
         a, b, c = row(0.955, 0.775, (1, 0.8, 1.5), wspace=0.6)
-        d, e, f, g = row(0.63, 0.45, (1.0, 1.25, 1.1, 1.6), wspace=0.72)
-        h, i = row(0.295, 0.095, (1.15, 0.85), right=0.52, wspace=0.95)
-        (j,) = row(0.295, 0.095, (1,), left=0.76)
+        d, e, f = row(0.63, 0.45, (1.2, 1.0, 1.5), wspace=0.6)
+        g, h = row(0.295, 0.095, (1.3, 1.0), right=0.7, wspace=0.6)
         spare_figure = plt.figure()
         spare = spare_figure.subplots(1, 2)
 
@@ -412,53 +346,53 @@ def main() -> None:
             c, second, VISUAL, "adaptation term", selected="recent\nflash", line=False
         )
         c.tick_params(axis="x", labelsize=6.5)
-        stats["d withdrawal width"] = _plot_choice(
+        stats["d withdrawal"] = _plot_choice(
             d,
-            {name: kernel[name] for name in ("±300", "±100", "0–100")},
-            TASK,
-            "withdrawal kernel (ms)",
-            reference="±300",
-        )
-        d.tick_params(axis="x", labelsize=6)
-        stats["e in-port column"] = _plot_choice(
-            e,
             {
                 "±300": kernel["±300"],
+                "±100": kernel["±100"],
                 "0–100": kernel["0–100"],
-                "port\ncolumn": kernel["in port\nonly"],
-                "both": kernel[withdrawal_grid.IN_USE],
+                "0–100\n+ port": kernel[withdrawal_grid.IN_USE],
             },
             TASK,
-            "kernel (ms), port column",
-            selected="both",
+            "withdrawal kernel (ms)",
+            selected="0–100\n+ port",
+            reference="±300",
             line=False,
         )
-        e.tick_params(axis="x", labelsize=6)
-        _plot_rates(f, residual)
-        port_vs_stillness.plot(port, None, axes=(g, *spare), states=(0, 1))
-        g.set_ylabel("")  # the same axis as panel f
-        g.set_xlabel("motion energy (percentile)")
+        d.tick_params(axis="x", labelsize=7)
+        _plot_rates(e, residual)
+        port_vs_stillness.plot(port, None, axes=(f, *spare), states=(0, 1))
+        f.set_ylabel("")  # the same axis as panel e
+        f.set_xlabel("motion energy (percentile)")
         plt.close(spare_figure)
-        stats["h motion-energy PCs"] = _plot_choice(
-            h,
+        stats["g motion-energy PCs"] = _plot_choice(
+            g,
             pcs,
             MOTION,
             "motion-energy PCs",
             selected=str(max(dmat.VIDEO_COMPONENT_COUNTS)),
         )
+        g.tick_params(axis="x", labelsize=7)
+        control = _motion_control_scores(unique_records)
+        stats["h motion energy control"] = _plot_choice(
+            h, control, MOTION, "motion energy", selected="real", line=False
+        )
         h.tick_params(axis="x", labelsize=7)
-        negative = _plot_motion_control(i, unique_records)
-        _plot_final_design(j, final_unique["groups"])
+        swap = float(
+            wilcoxon(control["shuffled\nin trial"], control["another\ntrial"]).pvalue
+        )
+        stats["h motion energy control"]["shuffled against another trial, p"] = swap
 
-        panels = (a, b, c, d, e, f, g, h, i, j)
+        panels = (a, b, c, d, e, f, g, h)
         for axis in panels:
-            if axis is not f:  # panel f has the origin at (0, 0)
+            if axis is not e:  # panel e has the origin at (0, 0)
                 separate_axes(axis)
         # Letters at the left edge of each panel, tick labels and axis label
         # included.
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefghij", panels, strict=True):
+        for letter, axis in zip("abcdefgh", panels, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             top = axis.get_position().y1 + 0.022
             figure.text(left, top, letter, fontweight="bold", fontsize=10)
@@ -482,13 +416,13 @@ def main() -> None:
         p_a=tests("a flash bases"),
         p_b=tests("b flash window"),
         p_c=tests("c adaptation term"),
-        p_d=tests("d withdrawal width"),
-        p_e=tests("e in-port column"),
-        p_h=tests("h motion-energy PCs"),
+        p_d=tests("d withdrawal"),
+        p_g=tests("g motion-energy PCs"),
+        p_h=tests("h motion energy control"),
+        p_swap=swap,
         sample_units=len(adaptation[(None, None)]),
         port_units=len(port["rate"]),
         final_units=len(unique_records),
-        negative_units=negative,
     )
     output.with_name("design_optimization_caption.md").write_text(caption)
     print(output)
