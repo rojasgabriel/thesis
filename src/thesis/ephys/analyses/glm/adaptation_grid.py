@@ -178,7 +178,7 @@ def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
         for index, u in enumerate(U_VALUES):
             style = {"color": CONCEPT_COLORS["visual"], "alpha": shades[u]}
             means = [values[(u, tau)].mean() for tau in TAU_VALUES_S]
-            axes[0].plot(positions, means, marker="o", markerfacecolor="white", **style)
+            axes[0].plot(positions, means, marker="o", **style)
             axes[0].text(
                 positions[-1] + 0.25,
                 means[-1],

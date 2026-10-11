@@ -44,17 +44,10 @@ def label_panels(axes, x: float = -0.14, y: float = 1.05) -> None:
         )
 
 
-def mark_selected(axis: Axes, x: float, y: float) -> None:
-    """Put a dotted circle around the value that the model uses."""
+def mark_selected(axis: Axes, x: float, y: float, color="black") -> None:
+    """Draw the value that the model uses as an open point; the others are filled."""
     axis.scatter(
-        x,
-        y,
-        s=170,
-        facecolors="none",
-        edgecolors="black",
-        linestyles=":",
-        linewidths=1.3,
-        zorder=4,
+        x, y, s=42, facecolors="white", edgecolors=color, linewidths=1.3, zorder=4
     )
 
 

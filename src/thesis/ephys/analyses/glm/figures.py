@@ -410,7 +410,6 @@ def plot_population_summary(
             validation_deviance,
             color="black",
             marker="o",
-            markerfacecolor="white",
         )
         selected_position = component_counts.index(selected)
         mark_selected(
