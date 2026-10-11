@@ -12,20 +12,18 @@ constant-rate model. A dotted circle marks the value that the model uses.
 - Adaptation term. Panel c: no term, a synaptic-depression resource with a
   slow and with a fast recovery, and "a flash in the last 50 ms".
   `flash_kernel_grid.py` and `adaptation_grid.py`.
-- Withdrawal. Panel d: the ±300 ms kernel (the reference), shorter kernels,
-  and the 0 to 100 ms kernel with the in-port column (`withdrawal_grid.py`).
+- Withdrawal. Panel d: the ±300 ms kernel, shorter kernels, and the 0 to
+  100 ms kernel with the in-port column (`withdrawal_grid.py`).
   Panel e: observed firing rate and the rate that the final design predicts,
   against time from the first flash; the shaded time is the median time in the
   center port. Panel f: firing rate against motion energy in the center port
-  and on the way to the side port (`port_vs_stillness.py`, all units, raw
-  rates).
+  and at the side port (`port_vs_stillness.py`, all units, raw rates).
 - Motion energy. Panel g: no motion energy and five numbers of PCs
   (`pc_grid.py`). Panel h: the final design with its motion energy shuffled in
   time within each trial, or taken from another trial (`glm unique`).
 
 Panels a to d, g, and h are box plots, over units, of the D² with each choice
-minus the D² with a reference choice (the one in use; panel d: the ±300 ms
-kernel), with whiskers to 1.5 IQR and no outlier points. D² is on the
+minus the D² with the choice in use, with whiskers to 1.5 IQR and no outlier points. D² is on the
 validation trials; in panel h it is the mean over the 10 cross-validation
 folds. The mark over a box is a two-sided Wilcoxon signed-rank test of those
 differences against zero; the p values, and a Friedman test over all choices of
@@ -86,9 +84,8 @@ design, with all other regressors as in the final design. D² is the deviance
 explained on trials that were not used for the fit, relative to a model with a
 constant firing rate. In the box plots, each unit is scored with every option,
 and a box shows, over units, the D² with that option minus the D² with the
-reference option of the panel, which is at zero (dashed line). The dotted
-circle marks the option that the model uses; it is the reference in all panels
-but **d**, where the reference is the ±300 ms kernel. Boxes are the quartiles,
+reference option of the panel, which is at zero (dashed line). The reference is
+always the option that the model uses (dotted circle). Boxes are the quartiles,
 whiskers reach 1.5 times the interquartile range, and outliers are not drawn.
 The mark over a box is a two-sided Wilcoxon signed-rank test of those
 differences against zero (n.s., p ≥ 0.05; \*, p < 0.05; \*\*, p < 0.01;
@@ -105,16 +102,18 @@ faster than the shortest interval between flashes (40 ms), where it is the same
 as the recent-flash term ({p_c}).
 **d–f, Withdrawal.** **d**, A withdrawal kernel from 300 ms before to 300 ms
 after the withdrawal, shorter kernels, and the 0 to 100 ms kernel with a column
-that is 1 while the animal is in the center port. The shorter kernels predict
-worse than the ±300 ms kernel; the short kernel with the port column does not
-({p_d}). **e**, What the port column describes: observed firing rate (black)
+that is 1 while the animal is in the center port, which is the reference. The
+short kernels without the port column predict worse; the ±300 ms kernel does
+not predict better ({p_d}). **e**, What the port column describes: observed firing rate (black)
 and the rate that the final design predicts (purple), against time from the
 first flash (median of {sample_units} units). Each rate is divided by the mean
 rate of that unit, so 1 is the average rate of the unit. The rate is lower
 while the animal is in the center port (shaded: median time in the port).
-**f**, Firing rate against the motion energy of the video frame, in five groups
-of 20 percentiles, in the center port and on the way to the side port (median
-and interquartile range of {port_units} units).
+**f**, The lower rate is not because the animal is still: firing rate against
+the motion energy of the video frame, in five groups of 20 percentiles, in the
+center port and at the side port, where the animal is also still and the
+stimulus is off (median and interquartile range of {port_units} units). At the
+same motion energy, the rate is higher at the side port.
 **g, h, Motion energy.** **g**, No motion energy (0) and five numbers of
 motion-energy PCs ({sample_units} units; {p_g}). **h**, Does motion energy
 predict spikes through the movement of that trial, or only because movement and
@@ -357,12 +356,11 @@ def main() -> None:
             TASK,
             "withdrawal kernel (ms)",
             selected="0–100\n+ port",
-            reference="±300",
             line=False,
         )
         d.tick_params(axis="x", labelsize=7)
         _plot_rates(e, residual)
-        port_vs_stillness.plot(port, None, axes=(f, *spare), states=(0, 1))
+        port_vs_stillness.plot(port, None, axes=(f, *spare), states=(0, 2))
         f.set_ylabel("")  # the same axis as panel e
         f.set_xlabel("motion energy (percentile)")
         plt.close(spare_figure)
