@@ -3,8 +3,9 @@
 Question: why does the design matrix have these regressors, with these
 parameters? This script makes no fits and no new analysis. It draws results of
 the other design modules in one figure and writes the caption next to it. Each
-panel answers one question, written above it, and the panels follow one
-regressor at a time. A dotted circle marks the value that the model uses.
+panel answers one question, and the panels follow one regressor at a time. Each
+test is the final design with one thing changed, and D² is relative to the
+constant-rate model. A dotted circle marks the value that the model uses.
 
 - Visual flash kernel. Panel a: number of bases (150 ms window). Panel b:
   window (8 bases). `flash_kernel_grid.py`.
@@ -18,8 +19,8 @@ regressor at a time. A dotted circle marks the value that the model uses.
   flash; the shaded time is the median time in the center port. Panel g: the
   lower rate in the center port is not stillness (`port_vs_stillness.py`, all
   units, raw rates).
-- Motion energy. Panel h: number of PCs (first, nine-regressor design, 167
-  units). Panel i: each unit's unique ΔD² of motion energy against its
+- Motion energy. Panel h: no motion energy and five numbers of PCs
+  (`pc_grid.py`). Panel i: each unit's unique ΔD² of motion energy against its
   trial-specific ΔD² (motion energy taken from another trial) in the final
   design; bars are the SEM over folds.
 - Panel j (the result): unique ΔD² of each regressor of the final design
@@ -31,14 +32,14 @@ choice minus the D² with a reference choice (the one in use; panel d: the
 a box is a two-sided Wilcoxon signed-rank test of those differences against
 zero; the p values, and a Friedman test over all choices of a panel, go to the
 caption and to `design_optimization_stats.json`. Firing rates are divided by
-the mean rate of that unit over all bins of the analysis. Panels f and i have
-the origin at (0, 0) and default spines; the other panels use `separate_axes`.
-Panel f starts at the first flash. Panel i starts at zero: a unit with a
-negative ΔD² on one axis is drawn at the axis, and the caption gives the count.
+the mean rate of that unit over all bins of the analysis. Panel f has the
+origin at (0, 0) and default spines, and starts at the first flash; the other
+panels use `separate_axes`. Panel i has logarithmic axes that start at
+`CONTROL_FLOOR`: a unit with a smaller ΔD² on one axis is drawn at the axis,
+and the caption gives the count.
 Panel j has a logarithmic axis that starts at `FLOOR`. Each module docstring
 gives the comparison, units, baseline, alignment, exclusions, and sampling unit
-of its panels. The first design is the model at commit `fcd34fa`; its fit is in
-the directory next to the session directory with the suffix `FULL_SUFFIX`.
+of its panels.
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization --units all
 
@@ -77,13 +78,14 @@ from thesis.plotting import (
 )
 
 FLOOR = 1e-5
+# Panel i: a unit with a smaller ΔD² on an axis is drawn at this value.
+CONTROL_FLOOR = 1e-4
 REMOVED_COLOR = "0.6"
 VISUAL, TASK, MOTION = (
     CONCEPT_COLORS["visual"],
     CONCEPT_COLORS["task"],
     CONCEPT_COLORS["motion energy"],
 )
-FULL_SUFFIX = "_full_design"
 # Synaptic-depression models of panel d: (fraction used, recovery in s).
 DEPRESSION = {"slow\ndepression": (0.5, 0.2), "fast\ndepression": (0.5, 0.025)}
 # Regressors of the final design (panel j): label and color.
@@ -96,9 +98,10 @@ FINAL_DESIGN = {
     "video": ("motion energy", MOTION),
 }
 CAPTION = """\
-**Optimizing the GLM design matrix.** The question that a panel answers is
-above it. D² is the deviance explained on trials that were not used for the
-fit. In the box plots (**a–e**, **h**), each unit is scored with every option,
+**Optimizing the GLM design matrix.** Each panel tests one choice in the final
+design, with all other regressors as in the final design. D² is the deviance
+explained on trials that were not used for the fit, relative to a model with a
+constant firing rate. In the box plots (**a–e**, **h**), each unit is scored with every option,
 and a box shows, over units, the D² with that option minus the D² with the
 reference option of the panel, which is at zero (dashed line). The reference is
 the option that the model uses (dotted circle); in **d** it is the ±300 ms
@@ -126,20 +129,19 @@ better than both ({p_e}). **f**, What the column captures: observed firing rate
 column predicts (purple), against time from the first flash (median of
 {sample_units} units). Each rate is divided by the mean rate of that unit, so 1
 is the average rate of the unit. The rate is lower while the animal is in the
-center port (shaded: median time in the port). **g**, This lower rate is not
-because the animal is still: firing rate against the motion energy of the video
-frame, in five groups of 20 percentiles, by the state of the animal (median and
-interquartile range of {port_units} units). At a side port, with the same
-motion energy and no stimulus, the rate is higher.
-**h, i, Motion energy.** **h**, Number of motion-energy PCs, tested in the
-first design ({full_units} units); 25 and 50 are not reliably better than 10
-({p_h}). **i**, Does motion energy predict spikes through the movement of that
+center port (shaded: median time in the port). **g**, This lower rate does not
+depend on how much the animal moves: firing rate against the motion energy of
+the video frame, in five groups of 20 percentiles, in the center port and on
+the way to the side port (median and interquartile range of {port_units}
+units).
+**h, i, Motion energy.** **h**, No motion energy (0) and five numbers of
+motion-energy PCs ({sample_units} units; {p_h}). **i**, Does motion energy predict spikes through the movement of that
 trial, or only because movement and firing both change with the time in the
 trial? The D² that each unit loses when motion energy is shuffled in time
 within the trial, against the loss when it is replaced with the motion energy
 of another trial, which has the same average time course (final design,
-{final_units} units; bars are the SEM over folds; {negative_units} units with a
-negative value are drawn at the axis). The two losses are equal, so the
+{final_units} units; bars are the SEM over folds; logarithmic axes; {negative_units} units with a
+value below 0.0001 are drawn at the axis). The two losses are equal, so the
 movement of that trial is what predicts the spikes.
 **j**, The design with the selected parameters: the unique ΔD² of each
 regressor (median and interquartile range of {final_units} units).
@@ -273,7 +275,7 @@ def _plot_rates(axis, residual: dict) -> None:
 
 
 def _plot_motion_control(axis, records: list[dict]) -> int:
-    """Scatter the two ΔD² of motion energy from (0, 0); return the units below zero."""
+    """Scatter the two ΔD² of motion energy on log axes; return the units at the floor."""
     video = [item["groups"]["video"] for item in records]
     unique, unique_sem, specific, specific_sem = (
         np.asarray([item[key] for item in video])
@@ -284,23 +286,30 @@ def _plot_motion_control(axis, records: list[dict]) -> int:
             "trial_specific_test_deviance_explained_sem",
         )
     )
-    negative = int(np.sum((unique < 0) | (specific < 0)))
-    high = 1.08 * max(np.max(unique + unique_sem), np.max(specific + specific_sem))
-    axis.plot([0, high], [0, high], color=REFERENCE_COLOR, linewidth=0.8)
+    negative = int(np.sum((unique < CONTROL_FLOOR) | (specific < CONTROL_FLOOR)))
+    high = 2 * max(unique.max(), specific.max())
+    axis.plot(
+        [CONTROL_FLOOR, high],
+        [CONTROL_FLOOR, high],
+        color=REFERENCE_COLOR,
+        linewidth=0.8,
+    )
+    x, y = np.maximum(unique, CONTROL_FLOOR), np.maximum(specific, CONTROL_FLOOR)
     axis.errorbar(
-        np.maximum(unique, 0),
-        np.maximum(specific, 0),
-        xerr=unique_sem,
-        yerr=specific_sem,
+        x,
+        y,
+        xerr=(np.minimum(unique_sem, x - CONTROL_FLOOR), unique_sem),
+        yerr=(np.minimum(specific_sem, y - CONTROL_FLOOR), specific_sem),
         fmt="o",
         color=MOTION,
         markersize=2.5,
         elinewidth=0.5,
         alpha=0.8,
-        clip_on=False,
     )
-    axis.set_xlim(0, high)
-    axis.set_ylim(0, high)
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    axis.set_xlim(CONTROL_FLOOR, high)
+    axis.set_ylim(CONTROL_FLOOR, high)
     axis.set_xlabel(r"$D^2$ lost: motion energy" + "\nshuffled in the trial")
     axis.set_ylabel(r"$D^2$ lost: motion energy" + "\nfrom another trial")
     return negative
@@ -313,9 +322,6 @@ def main() -> None:
     args = parser.parse_args()
     root = args.root
     module = "uv run python -m thesis.ephys.analyses.glm"
-    sibling = lambda suffix: root.with_name(root.name + suffix)  # noqa: E731
-    full = sibling(FULL_SUFFIX) / "all_fit_me"
-    pc_summary = _load(full / "validation_summary.json", "glm fit (full design)")
     per_unit = lambda units: np.asarray([units[u] for u in sorted(units)])  # noqa: E731
     flash = {
         (row["bases"], row["window"], row["second"]): per_unit(row["units"])
@@ -353,19 +359,15 @@ def main() -> None:
     bases, window = dmat.FLASH_BASES, dmat.FLASH_WINDOW_S
     base_counts = sorted({key[0] for key in flash})
     windows = sorted({key[1] for key in flash})
-    selections = load_unit_records(full / "checkpoints", "unit_*_validation.json")
     pcs = {
-        count: np.asarray(
-            [
-                item["plus_video"][count]["validation"]["deviance_explained"]
-                for item in selections
-            ]
-        )
-        for count in sorted(selections[0]["plus_video"], key=int)
+        count: per_unit(units)
+        for count, units in _load(
+            root / "pc_grid" / "pc_grid.json", f"{module}.pc_grid"
+        ).items()
     }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 9.4))
+        figure = plt.figure(figsize=(7.4, 7.6))
 
         # Fixed positions: the panels carry labels outside their axes.
         def row(top, bottom, widths, left=0.1, right=0.98, wspace=0.62):
@@ -381,10 +383,10 @@ def main() -> None:
             )
             return [figure.add_subplot(cell) for cell in grid]
 
-        a, b, c = row(0.94, 0.80, (1, 0.8, 1.5), wspace=0.6)
-        d, e, f, g = row(0.635, 0.495, (1.0, 1.25, 1.1, 1.6), wspace=0.72)
-        h, i = row(0.33, 0.17, (1.15, 0.85), right=0.52, wspace=0.95)
-        (j,) = row(0.33, 0.17, (1,), left=0.76)
+        a, b, c = row(0.955, 0.775, (1, 0.8, 1.5), wspace=0.6)
+        d, e, f, g = row(0.63, 0.45, (1.0, 1.25, 1.1, 1.6), wspace=0.72)
+        h, i = row(0.295, 0.095, (1.15, 0.85), right=0.52, wspace=0.95)
+        (j,) = row(0.295, 0.095, (1,), left=0.76)
         spare_figure = plt.figure()
         spare = spare_figure.subplots(1, 2)
 
@@ -423,17 +425,17 @@ def main() -> None:
             {
                 "±300": kernel["±300"],
                 "0–100": kernel["0–100"],
-                "port\nonly": kernel["in port\nonly"],
+                "port\ncolumn": kernel["in port\nonly"],
                 "both": kernel[withdrawal_grid.IN_USE],
             },
             TASK,
-            "withdrawal terms",
+            "kernel (ms), port column",
             selected="both",
             line=False,
         )
         e.tick_params(axis="x", labelsize=6)
         _plot_rates(f, residual)
-        port_vs_stillness.plot(port, None, axes=(g, *spare))
+        port_vs_stillness.plot(port, None, axes=(g, *spare), states=(0, 1))
         g.set_ylabel("")  # the same axis as panel f
         g.set_xlabel("motion energy (percentile)")
         plt.close(spare_figure)
@@ -448,33 +450,9 @@ def main() -> None:
         negative = _plot_motion_control(i, unique_records)
         _plot_final_design(j, final_unique["groups"])
 
-        # The question that each panel answers, above it.
-        questions = {
-            a: "how many bases?",
-            b: "how long a kernel?",
-            c: "how to model adaptation?",
-            d: "how wide a kernel?",
-            e: "does a port column help?",
-            f: "what does it capture?",
-            g: "is the lower rate stillness?",
-            h: "how many PCs?",
-            i: "movement, or time in the trial?",
-            j: "how much does each regressor explain?",
-        }
-        for axis, question in questions.items():
-            axis.text(
-                0.5 if axis is not j else 0.3,
-                1.03,
-                question,
-                transform=axis.transAxes,
-                ha="center",
-                va="bottom",
-                fontsize=7,
-                style="italic",
-            )
         panels = (a, b, c, d, e, f, g, h, i, j)
         for axis in panels:
-            if axis not in (f, i):  # these two have the origin at (0, 0)
+            if axis is not f:  # panel f has the origin at (0, 0)
                 separate_axes(axis)
         # Letters at the left edge of each panel, tick labels and axis label
         # included.
@@ -482,7 +460,7 @@ def main() -> None:
         to_figure = figure.transFigure.inverted()
         for letter, axis in zip("abcdefghij", panels, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
-            top = axis.get_position().y1 + 0.03
+            top = axis.get_position().y1 + 0.022
             figure.text(left, top, letter, fontweight="bold", fontsize=10)
         output = save_figure(figure, root / "design_optimization")
 
@@ -507,7 +485,6 @@ def main() -> None:
         p_d=tests("d withdrawal width"),
         p_e=tests("e in-port column"),
         p_h=tests("h motion-energy PCs"),
-        full_units=pc_summary["units"],
         sample_units=len(adaptation[(None, None)]),
         port_units=len(port["rate"]),
         final_units=len(unique_records),

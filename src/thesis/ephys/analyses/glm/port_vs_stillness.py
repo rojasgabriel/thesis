@@ -149,10 +149,13 @@ def unit_rates(frames: dict, units) -> dict[str, np.ndarray]:
     }
 
 
-def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]:
+def plot(
+    data: dict, output: Path | None, axes=None, states=(0, 1, 2)
+) -> tuple[Path | None, dict]:
     """Draw the three panels and return the figure path and the statistics.
 
     With `axes`, draw into them and do not label or save (for a combined figure).
+    `states` selects the states (indices of `STATES`) that panel a shows.
     """
     rate, error = data["rate"], data["error"]
     energy = data["group_energy"]
@@ -185,6 +188,8 @@ def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]
                 1, 3, figsize=(7.4, 2.5), width_ratios=(1.5, 1, 1), layout="constrained"
             )
         for index, (name, color) in enumerate(zip(STATES, STATE_COLORS, strict=True)):
+            if index not in states:
+                continue
             used = data["frames"][index] >= MIN_FRAMES
             low, median, high = np.nanpercentile(
                 rate[:, index, used], [25, 50, 75], axis=0
