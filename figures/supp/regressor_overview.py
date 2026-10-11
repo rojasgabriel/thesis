@@ -95,8 +95,9 @@ def main() -> Path:
                 times_ms = np.linspace(-300, 300, 601)
                 score = (np.sin(times_ms / 70) + 0.4 * np.sin(times_ms / 23 + 1)) * 0.6
                 ax.plot(times_ms, score, color=color, linewidth=1.2)
-                ax.axvline(0, color="0.6", linewidth=0.8, linestyle="--")
+                ax.plot([0, 0], [-0.8, 0.8], color="0.6", linewidth=0.8, linestyle="--")
                 ax.set_xlim(-300, 300)
+                ax.set_ylim(-0.8, 1.05)
                 ax.set_ylabel("example PC score")
             elif key == "history":
                 # History columns use spike times shifted by one bin: lags 1-100 ms.
@@ -108,20 +109,31 @@ def main() -> Path:
                 ax.axhline(0, color="0.85", linewidth=0.6, zorder=0)
                 if bases[key].basis_time[0] <= 0 <= bases[key].basis_time[-1]:
                     ax.axvline(0, color="0.5", linewidth=0.8)
-            ax.set_title(title, fontsize=9, color=color, pad=12)
+            # The name and the coding go in the axes, above the curves.
+            ax.set_ylim(top=ax.get_ylim()[1] * 1.32)
             ax.text(
                 0.5,
-                1.005,
+                0.97,
+                title,
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=9,
+                color=color,
+            )
+            ax.text(
+                0.5,
+                0.88,
                 coding,
                 transform=ax.transAxes,
                 ha="center",
-                va="bottom",
+                va="top",
                 fontsize=7,
                 color="0.35",
             )
             ax.text(
                 -0.14,
-                1.12,
+                1.04,
                 ascii_lowercase[index],
                 transform=ax.transAxes,
                 fontsize=10,
