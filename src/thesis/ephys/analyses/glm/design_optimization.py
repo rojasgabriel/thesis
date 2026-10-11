@@ -14,23 +14,17 @@ constant-rate model. An open point at zero marks the value that the model uses.
   `flash_kernel_grid.py` and `adaptation_grid.py`.
 - Withdrawal. Panel d: the ±300 ms kernel, shorter kernels, and the 0 to
   100 ms kernel with the in-port column (`withdrawal_grid.py`).
-  Panel e: observed firing rate and the rate that the final design predicts
-  (mean and SEM over units), against time from the first flash; the shaded time is the median time in the
-  center port. Panel f: firing rate against motion energy in the center port
-  and at the side port (`port_vs_stillness.py`, all units, raw rates).
-- Motion energy. Panel g: no motion energy and five numbers of PCs
-  (`pc_grid.py`). Panel h: the final design with its motion energy shuffled in
+- Motion energy. Panel e: no motion energy and five numbers of PCs
+  (`pc_grid.py`). Panel f: the final design with its motion energy shuffled in
   time within each trial, or taken from another trial (`glm unique`).
 
-Panels a to d, g, and h are box plots, over units, of the D² with each choice
+All panels are box plots, over units, of the D² with each choice
 minus the D² with the choice in use, with whiskers to 1.5 IQR and no outlier points. D² is on the
-validation trials; in panel h it is the mean over the 10 cross-validation
+validation trials; in panel f it is the mean over the 10 cross-validation
 folds. The mark over a box is a two-sided Wilcoxon signed-rank test of those
 differences against zero; the p values, and a Friedman test over all choices of
-a panel, go to the caption and to `design_optimization_stats.json`. Firing
-rates are divided by the mean rate of that unit over all bins of the analysis.
-Panel e has the origin at (0, 0) and default spines, and starts at the first
-flash; the other panels use `separate_axes`. Each module docstring gives the
+a panel, go to the caption and to `design_optimization_stats.json`. All panels
+use `separate_axes`. Each module docstring gives the
 comparison, units, baseline, alignment, exclusions, and sampling unit of its
 panels.
 
@@ -55,15 +49,12 @@ from scipy.stats import friedmanchisquare, wilcoxon
 from thesis.ephys.analyses.glm import (
     cli,
     dmat,
-    port_vs_stillness,
-    residual_checks,
     withdrawal_grid,
 )
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
-    MODEL_COLOR,
     REFERENCE_COLOR,
     save_figure,
     separate_axes,
@@ -101,28 +92,18 @@ flash. No such term, a synaptic-depression resource that recovers slowly
 within 50 ms (recent flash). The depression model is best when it recovers
 faster than the shortest interval between flashes (40 ms), where it is the same
 as the recent-flash term ({p_c}).
-**d–f, Withdrawal.** **d**, A withdrawal kernel from 300 ms before to 300 ms
-after the withdrawal, shorter kernels, and the 0 to 100 ms kernel with a column
-that is 1 while the animal is in the center port, which is the reference. The
-short kernels without the port column predict worse; the ±300 ms kernel does
-not predict better ({p_d}). **e**, What the port column describes: observed firing rate (black)
-and the rate that the final design predicts (purple), against time from the
-first flash (mean and SEM over {sample_units} units). The normalized firing rate
-is the rate divided by the mean rate of that unit, so 1 is the average rate of
-the unit. The rate is lower
-while the animal is in the center port (shaded: median time in the port).
-**f**, The lower rate is not because the animal is still: firing rate against
-the motion energy of the video frame, in five groups of 20 percentiles, in the
-center port and at the side port, where the animal is also still and the
-stimulus is off (median and interquartile range of {port_units} units). At the
-same motion energy, the rate is higher at the side port.
-**g, h, Motion energy.** **g**, No motion energy (0) and five numbers of
-motion-energy PCs ({sample_units} units; {p_g}). **h**, Does motion energy
+**d, Withdrawal.** A withdrawal kernel from 300 ms before to 300 ms after the
+withdrawal, shorter kernels, and the 0 to 100 ms kernel with a column that is 1
+while the animal is in the center port, where the firing rate is lower; this
+last design is the reference. The short kernels without the port column predict
+worse; the ±300 ms kernel does not predict better ({p_d}).
+**e, f, Motion energy.** **e**, No motion energy (0) and five numbers of
+motion-energy PCs ({sample_units} units; {p_e}). **f**, Does motion energy
 predict spikes through the movement of that trial, or only because movement and
 firing both change with the time in the trial? The motion energy of the final
 design is shuffled in time within each trial, or replaced with the motion
 energy of another trial, which has the same average time course ({final_units}
-units; {p_h}). Both changes lower D², and by the same amount (shuffled against
+units; {p_f}). Both changes lower D², and by the same amount (shuffled against
 another trial, p = {p_swap:.2g}), so the movement of that trial is what
 predicts the spikes.
 """
@@ -207,38 +188,6 @@ def _plot_choice(
     return stats
 
 
-def _plot_rates(axis, residual: dict) -> None:
-    """Observed rate and the rate that the final design predicts, from the first flash."""
-    edges = residual_checks.ONSET_EDGES_S
-    x = 1000 * (edges[:-1] + edges[1:]) / 2
-    shown = x >= 0
-    leave = 1000 * residual["hold_s"][1]
-    axis.axvspan(0, leave, color=TASK, alpha=0.15, linewidth=0)
-    axis.text(
-        leave / 2,
-        0.93,
-        "in port",
-        color=TASK,
-        ha="center",
-        transform=axis.get_xaxis_transform(),
-    )
-    for key, color in (("observed", "black"), ("predicted", MODEL_COLOR)):
-        curves = np.asarray(residual["curves"][key])[:, shown]
-        mean = np.nanmean(curves, axis=0)
-        sem = np.nanstd(curves, axis=0, ddof=1) / np.sqrt(len(curves))
-        axis.fill_between(
-            x[shown], mean - sem, mean + sem, color=color, alpha=0.25, linewidth=0
-        )
-        axis.plot(x[shown], mean, color=color)
-    axis.set_xlim(0, 1000)
-    axis.set_ylim(bottom=0)
-    top = axis.get_ylim()[1]
-    axis.text(1000, 0.3 * top, "observed", color="black", ha="right", va="top")
-    axis.text(1000, 0.18 * top, "predicted", color=MODEL_COLOR, ha="right", va="top")
-    axis.set_xlabel("time from first flash (ms)")
-    axis.set_ylabel("normalized firing rate")
-
-
 def _motion_control_scores(records: list[dict]) -> dict:
     """Return each unit's D² with real, shuffled, and trial-swapped motion energy."""
     complete = np.asarray(
@@ -276,7 +225,6 @@ def main() -> None:
             f"{module}.adaptation_grid",
         )
     }
-    port = _load(root / "port_vs_stillness.npz", f"{module}.port_vs_stillness")
     kernel = {
         name: per_unit(units)
         for name, units in _load(
@@ -285,10 +233,6 @@ def main() -> None:
         ).items()
     }
     fit_dir = cli.PoissonGLM(root=root).fit_dir(args.units)
-    residual = _load(
-        fit_dir / "residual_checks.json",
-        f"{module}.residual_checks --units {args.units}",
-    )
     unique_records = load_unit_records(
         fit_dir / "checkpoints" / "unique", "unit_*.json"
     )
@@ -303,7 +247,7 @@ def main() -> None:
     }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 7.6))
+        figure = plt.figure(figsize=(7.4, 5.0))
 
         # Fixed positions: the panels carry labels outside their axes.
         def row(top, bottom, widths, left=0.1, right=0.98, wspace=0.62):
@@ -319,9 +263,8 @@ def main() -> None:
             )
             return [figure.add_subplot(cell) for cell in grid]
 
-        a, b, c = row(0.955, 0.775, (1, 0.8, 1.5), wspace=0.6)
-        d, e, f = row(0.63, 0.45, (1.2, 1.0, 1.5), wspace=0.6)
-        g, h = row(0.295, 0.095, (1.3, 1.0), right=0.7, wspace=0.6)
+        a, b, c = row(0.94, 0.66, (1, 0.8, 1.5), wspace=0.6)
+        d, e, f = row(0.47, 0.11, (1.0, 1.3, 0.9), wspace=0.6)
 
         stats = {}
         stats["a flash bases"] = _plot_choice(
@@ -361,39 +304,34 @@ def main() -> None:
             line=False,
         )
         d.tick_params(axis="x", labelsize=7)
-        _plot_rates(e, residual)
-        port_vs_stillness.plot_rates(f, port, states=(0, 2))
-        f.set_ylabel("normalized firing rate")
-        f.set_xlabel("motion energy (percentile)")
-        stats["g motion-energy PCs"] = _plot_choice(
-            g,
+        stats["e motion-energy PCs"] = _plot_choice(
+            e,
             pcs,
             MOTION,
             "motion-energy PCs",
             selected=str(max(dmat.VIDEO_COMPONENT_COUNTS)),
         )
-        g.tick_params(axis="x", labelsize=7)
+        e.tick_params(axis="x", labelsize=7)
         control = _motion_control_scores(unique_records)
-        stats["h motion energy control"] = _plot_choice(
-            h, control, MOTION, "motion energy", selected="real", line=False
+        stats["f motion energy control"] = _plot_choice(
+            f, control, MOTION, "motion energy", selected="real", line=False
         )
-        h.tick_params(axis="x", labelsize=7)
+        f.tick_params(axis="x", labelsize=7)
         swap = float(
             wilcoxon(control["shuffled\nin trial"], control["another\ntrial"]).pvalue
         )
-        stats["h motion energy control"]["shuffled against another trial, p"] = swap
+        stats["f motion energy control"]["shuffled against another trial, p"] = swap
 
-        panels = (a, b, c, d, e, f, g, h)
+        panels = (a, b, c, d, e, f)
         for axis in panels:
-            if axis is not e:  # panel e has the origin at (0, 0)
-                separate_axes(axis)
+            separate_axes(axis)
         # Letters at the left edge of each panel, tick labels and axis label
         # included.
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefgh", panels, strict=True):
+        for letter, axis in zip("abcdef", panels, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
-            top = axis.get_position().y1 + 0.022
+            top = axis.get_position().y1 + 0.03
             figure.text(left, top, letter, fontweight="bold", fontsize=10)
         output = save_figure(figure, root / "design_optimization")
 
@@ -416,11 +354,10 @@ def main() -> None:
         p_b=tests("b flash window"),
         p_c=tests("c adaptation term"),
         p_d=tests("d withdrawal"),
-        p_g=tests("g motion-energy PCs"),
-        p_h=tests("h motion energy control"),
+        p_e=tests("e motion-energy PCs"),
+        p_f=tests("f motion energy control"),
         p_swap=swap,
         sample_units=len(adaptation[(None, None)]),
-        port_units=len(port["rate"]),
         final_units=len(unique_records),
     )
     output.with_name("design_optimization_caption.md").write_text(caption)
