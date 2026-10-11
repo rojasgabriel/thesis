@@ -55,14 +55,19 @@ WITHDRAWAL_KERNEL = True
 # Stimulus during hold: one kernel on the first flash, set to zero from the
 # center exit on. Units fire less from about 80 ms after the first flash until
 # the animal leaves the center port; the flashes go on to the response entry.
-# The bases have even spacing in time. No step goes with the kernel, so the
-# window must be longer than the longest hold.
+# The bases have even spacing in log(t + stretch). They are close together
+# early, where the rate changes fast and every trial gives data, and far apart
+# late, where the rate is almost flat and only the longer holds give data. No
+# step goes with the kernel, so the window must be longer than the longest
+# hold. A stretch of 0 gives even spacing in time (`hold_grid.py`).
 HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
 HOLD_BASES = 10
-# For `hold_grid.py`: even spacing in log(t + this value) in place of even
-# spacing in time (0 = off). It did not predict reliably better.
-HOLD_LOG_STRETCH_S = 0.0
+HOLD_LOG_STRETCH_S = 0.05
+# Test switch: one column that is 1 from the center entry to the first flash
+# (the fixation before the stimulus), where no other term is on.
+FIXATION_COLUMN = False
+FIXATION = "fixation"
 # Earlier forms of that term, for `hold_grid.py`: one column that is 1 from
 # center entry (or from the first flash) to center exit, and a separate kernel
 # for the first flash of a trial that goes with it.
@@ -415,6 +420,19 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
         if item["name"] == "hold":
             values[:, cursor : cursor + item["columns"]] *= before_exit.ravel()[:, None]
         cursor += item["columns"]
+    if FIXATION_COLUMN:
+        entry = trials["center_entry_s"].to_numpy(dtype=float)[:, None]
+        first = np.asarray(alignments, dtype=float)[:, None]
+        values = np.column_stack((values, ((times >= entry) & (times < first)).ravel()))
+        manifest.append(
+            {
+                "name": FIXATION,
+                "group": "task",
+                "events": len(alignments),
+                "columns": 1,
+                "coding": "1 from center entry to the first flash, else 0",
+            }
+        )
     if not IN_PORT_COLUMN:
         return values, manifest
     # Earlier form of the hold term: one state column with no temporal basis.
@@ -646,11 +664,15 @@ def _common_design_is_current(output: Path) -> bool:
     return (
         metadata.get("video_columns_per_component") == 1
         and [item.get("name") for item in manifest]
-        == [*bases, *([IN_PORT] if IN_PORT_COLUMN else [])]
+        == [
+            *bases,
+            *([FIXATION] if FIXATION_COLUMN else []),
+            *([IN_PORT] if IN_PORT_COLUMN else []),
+        ]
         and [item.get("columns") for item in manifest]
         == [
             *(basis.basis.shape[1] for basis in bases.values()),
-            *([1] * IN_PORT_COLUMN),
+            *([1] * (FIXATION_COLUMN + IN_PORT_COLUMN)),
         ]
         and metadata.get("recent_flash_s") == RECENT_FLASH_S
     )

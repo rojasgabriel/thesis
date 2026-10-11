@@ -15,7 +15,7 @@ constant-rate model. An open point at zero marks the value that the model uses.
 - Task (row 2). Panel e: the bases of the stimulus-during-hold kernel. Panel f:
   no term, a step from the center entry or from the first flash to the center
   exit, that step with a kernel on the first flash, and one kernel from the
-  first flash to the center exit with linear or log spacing (`hold_grid.py`).
+  first flash to the center exit with log or linear spacing (`hold_grid.py`).
   Panel g: the bases of the withdrawal kernel. Panel h: no kernel, the 0 to
   100 ms kernel, and wider kernels (`withdrawal_grid.py`).
 - Motion energy and spike history (row 3). Motion energy has no bases: each PC
@@ -103,7 +103,7 @@ term. No term; a column that is 1 from the center entry to the withdrawal
 (step, entry) or from the first flash to the withdrawal (step, flash); that
 last column with a 150 ms kernel on the first flash (step + onset); one kernel
 from the first flash to the withdrawal (kernel, the reference); and the same
-kernel with log spacing of its raised cosines ({p_d}). **g**, The raised
+kernel with linear spacing of its raised cosines ({p_d}). **g**, The raised
 cosines of the withdrawal kernel. **h**, No withdrawal kernel, the kernel from
 0 to 100 ms after the withdrawal (the reference), and kernels from 100 or
 300 ms before to 100 or 300 ms after it ({p_e}).

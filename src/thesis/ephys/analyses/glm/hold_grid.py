@@ -15,9 +15,8 @@ paired: each unit is scored with each design.
 - "step +\nonset": that column, and a kernel of 150 ms on the first flash
   (the bases of the flash kernel). The term is flat after 150 ms.
 - "kernel": the design in `dmat.py`. One kernel from the first flash to the
-  center exit, with bases at even spacing in time, and no step.
-- "log\nkernel": the same kernel with even spacing in log(t + 50 ms): bases
-  close together early and far apart late.
+  center exit, with bases at even spacing in log(t + 50 ms), and no step.
+- "linear\nkernel": the same kernel with bases at even spacing in time.
 
 Units, alignment, baseline, and exclusions are those of `fit.py`. Units are the
 fixed 20-unit sample. The sampling unit is the unit. `design_optimization.py`
@@ -44,7 +43,7 @@ DESIGNS = {
     "step,\nflash": {**STEP, "STATE_FROM_FIRST_FLASH": True},
     "step +\nonset": {**STEP, "STATE_FROM_FIRST_FLASH": True, "FIRST_FLASH_TERM": True},
     "kernel": {},
-    "log\nkernel": {"HOLD_LOG_STRETCH_S": 0.05},
+    "linear\nkernel": {"HOLD_LOG_STRETCH_S": 0.0},
 }
 IN_USE = "kernel"
 

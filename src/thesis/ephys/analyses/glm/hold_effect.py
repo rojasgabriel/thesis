@@ -110,10 +110,14 @@ EXIT_WINDOW_MS = (-200, 500)
 TASK, VISUAL = CONCEPT_COLORS["task"], CONCEPT_COLORS["visual"]
 
 
-def after_exit_basis() -> dmat.RaisedCosineBasis:
-    return dmat.RaisedCosineBasis(
-        AFTER_BASES, 0, AFTER_WINDOW_S + dmat.BINWIDTH_S, dmat.BINWIDTH_S
-    )
+def after_exit_basis() -> dmat.BasisFunction:
+    """Bases of the kernel after the center exit, spaced like the hold kernel."""
+    post = AFTER_WINDOW_S + dmat.BINWIDTH_S
+    if dmat.HOLD_LOG_STRETCH_S:
+        return dmat.StretchedCosineBasis(
+            AFTER_BASES, post, dmat.BINWIDTH_S, dmat.HOLD_LOG_STRETCH_S
+        )
+    return dmat.RaisedCosineBasis(AFTER_BASES, 0, post, dmat.BINWIDTH_S)
 
 
 def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> Path:
