@@ -412,4 +412,33 @@ The first four modules fit and score designs and make no figure. Results of
 
 ## Results
 
-The full fit of the six-regressor model is not done yet.
+Full fit of the final design, 2026-10-10: 167 units, 294 trials, 10
+motion-energy PCs. Artifacts are in
+`figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
+
+- Full model: median cross-validated D² 0.068, median 0.50 bits/spike.
+- Against the first, nine-regressor design, D² is 0.0016 lower per unit (paired
+  median; lower in 126 of 167 units, p = 9e-12), about 2% of D².
+
+| Regressor | Columns | Median unique ΔD² | Units with unique ΔD² > 0 |
+| --- | ---: | ---: | ---: |
+| Spike history | 10 | 0.0276 | 92% |
+| Visual flash | 8 | 0.0056 | 86% |
+| In center port | 1 | 0.0034 | 72% |
+| Flash adaptation (recent flash) | 8 | 0.0020 | 66% |
+| Motion energy | 10 | 0.0019 | 68% |
+| Withdrawal | 4 | 0.0013 | 62% |
+
+- Motion energy is trial-specific: with the regressor taken from another trial,
+  the median loss is 0.0021 (IQR 0.0008 to 0.0042).
+- Held-out units (`heldout_units.py`): the 147 units that took no part in the
+  design choices have a median D² of 0.068, against 0.089 for the 20 selection
+  units (Mann-Whitney p = 0.44); no unique ΔD² differs between the two groups
+  (p from 0.32 to 0.63). Against the first design, the loss is 0.0017 in the
+  held-out units and 0.0010 in the selection units.
+- Residual checks on all units (in-sample ΔD² of a term that is not in the
+  model, and with shuffled labels): time in trial 0.0025 (0.0010), session
+  drift 0.0013 (0.0007), response side after withdrawal 0.0013 (0.0003), flash
+  rate 0.0009 (0.0006), response side before withdrawal 0.0002 (0.0002).
+- `uv run python -m thesis.ephys.analyses.glm.main_figure` draws the main
+  figure (`main_figure.svg`) for the example unit and all units.
