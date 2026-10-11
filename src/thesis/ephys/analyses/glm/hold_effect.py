@@ -9,30 +9,39 @@ Comparison: the hold (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods.
 
-- Panel a (observation): raw firing rate, no model, against time from the first
+- Panel a (examples): spikes of two units against time from the first flash,
+  with the trials sorted by the length of the hold. Left: the example unit of
+  the main figure. Right: the unit with the highest hold level among the units
+  that fire at `EXAMPLE_MIN_RATE` or more.
+- Panel b (observation): raw firing rate, no model, against time from the first
   flash and from the center exit. The rate of a unit is divided by its mean
   rate over the valid bins; the line is the mean over units and the band is its
   SEM. The dashed line is the rate in the 100 ms before the first flash. The
   top row is the fraction of trials with a flash in each 40 ms.
-- Panel b (characterization): the kernels of a descriptive model, as a change
+- Panel c (characterization): the kernels of a descriptive model, as a change
   in log rate. The model is the design of `dmat.py` with one change: the
   withdrawal kernel (0 to 100 ms) is replaced with a kernel from the center
-  exit to the response entry (`AFTER_BASES` raised cosines with log spacing,
-  `AFTER_WINDOW_S`). Both kernels are relative to the time before the first
-  flash. Thin lines are units; the thick line and band are the median and the
-  interquartile range.
-- Panel c (the paired comparison): each unit's mean kernel value over
+  exit to the response entry (`AFTER_BASES` raised cosines, `AFTER_WINDOW_S`).
+  Both kernels are relative to the time before the first flash. Thin lines are
+  units; the thick line and band are the median and the interquartile range.
+- Panel d (the paired comparison): each unit's mean kernel value over
   `LEVEL_MS` of the hold against its mean over the same time after the center
-  exit.
-  Error bars are the SD over the 10 cross-validation folds, in both directions.
-  Two-sided Wilcoxon signed-rank test of the two values. Points outside
-  `LEVEL_LIMITS` are not drawn; they are in the statistics, and their number is
-  in `hold_effect_stats.json`.
-- Panel d (control for stillness): raw rate against motion energy in the
+  exit. Error bars are the SD over the 10 cross-validation folds, in both
+  directions. Two-sided Wilcoxon signed-rank test of the two values. Points
+  outside `LEVEL_LIMITS` are not drawn; they are in the statistics, and their
+  number is in `hold_effect_stats.json`.
+- Panel e (control for the order of fitting): does the hold kernel take
+  variance from the other terms? Each unit's hold level in the main model (all
+  terms fit together) against its level in a two-step fit: the design with no
+  hold kernel first, then the hold kernel alone on top of that fixed
+  prediction (`two_step_levels`). The two-step value is a lower bound. Both are
+  in-sample.
+- Panel f (control for stillness): raw rate against motion energy in the
   center port and at a side port (`port_vs_stillness.py`).
 
-The descriptive model is fit here (`glm fit` stages, with cross-validation) in
-the directory with the suffix `ROOT_SUFFIX` next to the session directory. It
+The descriptive model and the design with no hold kernel are fit here (`glm
+fit` stages, with cross-validation) in the directories with the suffixes
+`ROOT_SUFFIX` and `NO_HOLD_SUFFIX` next to the session directory. It
 is not the model of the main figure: the longer kernel after the exit does not
 predict reliably better than the withdrawal kernel (`docs/glm.md`).
 
@@ -43,7 +52,7 @@ session directory.
 
     uv run python -m thesis.ephys.analyses.glm.hold_effect --units all
 
-The fit of all units takes about 20 minutes; a fit that is there is not run
+Each fit of all units takes about 20 minutes; a fit that is there is not run
 again. Run `port_vs_stillness` first.
 """
 
@@ -60,6 +69,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import sem, wilcoxon
+from sklearn.linear_model import PoissonRegressor
 
 from thesis.ephys.analyses.glm import cli, dmat, port_vs_stillness
 from thesis.ephys.analyses.glm.adaptation_grid import INPUTS
@@ -71,6 +81,7 @@ from thesis.ephys.analyses.glm.fit import (
     load_unit_records,
     refit_final,
 )
+from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -82,6 +93,10 @@ from thesis.plotting import (
 )
 
 ROOT_SUFFIX = "_after_exit_kernel"
+NO_HOLD_SUFFIX = "_no_hold_term"
+# The excited example unit must fire at this rate or more (spikes/s).
+EXAMPLE_MIN_RATE = 2.0
+EXAMPLE_WINDOW_MS = (-100, 900)
 AFTER = "after_exit"
 AFTER_WINDOW_S = 0.6
 AFTER_BASES = 8
@@ -95,54 +110,26 @@ EXIT_WINDOW_MS = (-200, 500)
 TASK, VISUAL = CONCEPT_COLORS["task"], CONCEPT_COLORS["visual"]
 
 
-def after_exit_basis() -> dmat.StretchedCosineBasis:
-    return dmat.StretchedCosineBasis(
-        AFTER_BASES,
-        AFTER_WINDOW_S + dmat.BINWIDTH_S,
-        dmat.BINWIDTH_S,
-        dmat.HOLD_STRETCH_S,
+def after_exit_basis() -> dmat.RaisedCosineBasis:
+    return dmat.RaisedCosineBasis(
+        AFTER_BASES, 0, AFTER_WINDOW_S + dmat.BINWIDTH_S, dmat.BINWIDTH_S
     )
 
 
-def fit_descriptive(source: Path, unit_set: str) -> Path:
-    """Fit the design with a kernel from the center exit to the response entry."""
-    root = source.with_name(source.name + ROOT_SUFFIX)
+def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> Path:
+    """Fit the design with some `dmat` attributes replaced, in a sibling directory."""
+    root = source.with_name(source.name + suffix)
     model = cli.PoissonGLM(root=root)
     directory = model.fit_dir(unit_set)
     root.mkdir(exist_ok=True)
     for name in INPUTS:
         if not (root / name).exists():
             shutil.copy(source / name, root / name)
-    basis = after_exit_basis().basis
-    original = dmat.build_task_design
-
-    def with_after_kernel(alignments, trials):
-        values, manifest = original(alignments, trials)
-        centers, _, _ = dmat.construct_timebins(
-            dmat.PRE_S, dmat.POST_S, dmat.BINWIDTH_S
-        )
-        leave = trials["center_exit_s"].to_numpy(dtype=float)
-        since = centers[None, :] - (leave - np.asarray(alignments))[:, None]
-        limit = trials["response_port_entry_s"].to_numpy(dtype=float) - leave
-        index = np.rint(since / dmat.BINWIDTH_S).astype(int)
-        inside = (index >= 0) & (index < len(basis)) & (since < limit[:, None])
-        block = np.where(
-            inside[..., None], basis[np.clip(index, 0, len(basis) - 1)], 0.0
-        )
-        manifest.append(
-            {
-                "name": AFTER,
-                "group": "task",
-                "events": len(alignments),
-                "columns": basis.shape[1],
-                "coding": "kernel on the center exit, zero from the response entry on",
-            }
-        )
-        return np.column_stack((values, block.reshape(-1, basis.shape[1]))), manifest
-
     # ponytail: the design reads module attributes; set them for this fit and
     # restore them. Make them arguments if the design gets more callers.
-    dmat.build_task_design, dmat.WITHDRAWAL_KERNEL = with_after_kernel, False
+    saved = {name: getattr(dmat, name) for name in attributes}
+    for name, value in attributes.items():
+        setattr(dmat, name, value)
     try:
         if not model.design.exists():
             dmat.prepare_common_design(model.windows, model.video, model.design)
@@ -153,8 +140,131 @@ def fit_descriptive(source: Path, unit_set: str) -> Path:
             crossvalidate(model.windows, model.design, unit_set, directory, components)
             refit_final(model.windows, model.design, unit_set, directory, components)
     finally:
-        dmat.build_task_design, dmat.WITHDRAWAL_KERNEL = original, True
+        for name, value in saved.items():
+            setattr(dmat, name, value)
     return root
+
+
+def _time_in_trial() -> np.ndarray:
+    centers, _, _ = dmat.construct_timebins(dmat.PRE_S, dmat.POST_S, dmat.BINWIDTH_S)
+    return centers
+
+
+def _kernel_block(basis: np.ndarray, since: np.ndarray, keep: np.ndarray) -> np.ndarray:
+    """Place the basis rows at each bin's time since an event; zero where not kept."""
+    index = np.rint(since / dmat.BINWIDTH_S).astype(int)
+    inside = (index >= 0) & (index < len(basis)) & keep
+    block = np.where(inside[..., None], basis[np.clip(index, 0, len(basis) - 1)], 0.0)
+    return block.reshape(-1, basis.shape[1])
+
+
+def fit_descriptive(source: Path, unit_set: str) -> Path:
+    """Fit the design with a kernel from the center exit to the response entry."""
+    basis = after_exit_basis().basis
+    original = dmat.build_task_design
+
+    def with_after_kernel(alignments, trials):
+        values, manifest = original(alignments, trials)
+        leave = trials["center_exit_s"].to_numpy(dtype=float)
+        since = _time_in_trial()[None, :] - (leave - np.asarray(alignments))[:, None]
+        limit = trials["response_port_entry_s"].to_numpy(dtype=float) - leave
+        manifest.append(
+            {
+                "name": AFTER,
+                "group": "task",
+                "events": len(alignments),
+                "columns": basis.shape[1],
+                "coding": "kernel on the center exit, zero from the response entry on",
+            }
+        )
+        block = _kernel_block(basis, since, since < limit[:, None])
+        return np.column_stack((values, block)), manifest
+
+    return _fit_variant(
+        source,
+        unit_set,
+        ROOT_SUFFIX,
+        {"build_task_design": with_after_kernel, "WITHDRAWAL_KERNEL": False},
+    )
+
+
+def two_step_levels(source: Path, unit_set: str) -> dict:
+    """Return each unit's hold level from the joint fit and from a two-step fit.
+
+    Step 1 is the design with no hold kernel. Step 2 fits the hold kernel alone
+    on top of the fixed prediction of step 1 (Poisson, no intercept, no
+    penalty), so the other terms keep all that they can explain. Both fits use
+    all valid bins; the values are in-sample.
+    """
+    cache = source / f"hold_two_step_{unit_set}.npz"
+    if cache.exists():
+        with np.load(cache, allow_pickle=False) as data:
+            return {key: data[key] for key in data.files}
+    first = cli.PoissonGLM(
+        root=_fit_variant(source, unit_set, NO_HOLD_SUFFIX, {"HOLD_KERNEL": False})
+    )
+    joint = cli.PoissonGLM(root=source)
+    prepared = dmat._load_windows(joint.windows)
+    trials = dmat._load_selected_trials(prepared)
+    alignments = prepared["alignments"]
+    valid = dmat._valid_bin_mask(prepared)
+    basis = dmat.task_temporal_bases()[dmat.HOLD]
+    times = 1000 * basis.basis_time
+    level = (times >= LEVEL_MS[0]) & (times < LEVEL_MS[1])
+    leave = trials["center_exit_s"].to_numpy(dtype=float) - alignments
+    since = np.broadcast_to(_time_in_trial(), (len(alignments), len(_time_in_trial())))
+    hold_columns = _kernel_block(basis.basis, since, since < leave[:, None])[valid]
+    metadata = json.loads(first.design.with_suffix(".json").read_text())
+    common = np.load(first.design, mmap_mode="r", allow_pickle=False)
+    joint_metadata = json.loads(joint.design.with_suffix(".json").read_text())
+    columns = [
+        index
+        for index, name in enumerate(joint_metadata["column_names"])
+        if name.startswith(f"{dmat.HOLD}_basis_")
+    ]
+    scale = np.asarray(joint_metadata["training_scale"])[columns]
+    joint_records = {
+        item["unit_id"]: item
+        for item in load_unit_records(
+            joint.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
+        )
+    }
+    units = fetch_unit_table(
+        prepared["metadata"]["subject_name"],
+        prepared["metadata"]["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    ).set_index("unit_id")
+    out = {"unit_ids": [], "joint": [], "two_step": [], "rate": []}
+    for record in load_unit_records(
+        first.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
+    ):
+        unit_id = record["unit_id"]
+        spikes = np.asarray(units.loc[unit_id, "spike_times_s"], dtype=float)
+        counts = build_unit_counts(alignments, spikes).astype(float)[valid]
+        history, _, _ = dmat.training_zscore(
+            dmat.build_unit_history(alignments, spikes), valid
+        )
+        width = int(metadata["base_columns"]) + int(record["components"])
+        weights = np.asarray(record["coefficients"], dtype=float)
+        predicted = np.exp(
+            record["intercept"]
+            + np.asarray(common[:, :width])[valid] @ weights[:width]
+            + history[valid] @ weights[width:]
+        )
+        second = PoissonRegressor(alpha=0.0, fit_intercept=False, max_iter=1000).fit(
+            hold_columns, counts / predicted, sample_weight=predicted
+        )
+        joint_weights = np.asarray(joint_records[unit_id]["coefficients"])[columns]
+        out["unit_ids"].append(unit_id)
+        out["rate"].append(joint_records[unit_id]["fit_mean_count"] / dmat.BINWIDTH_S)
+        out["two_step"].append((second.coef_ @ basis.basis.T)[level].mean())
+        out["joint"].append(((joint_weights / scale) @ basis.basis.T)[level].mean())
+        print(f"Two-step fit of unit {unit_id}.", flush=True)
+    out = {key: np.asarray(value) for key, value in out.items()}
+    np.savez(cache, **out)
+    return out
 
 
 def kernel_values(root: Path, unit_set: str) -> dict:
@@ -197,7 +307,7 @@ def kernel_values(root: Path, unit_set: str) -> dict:
     return out
 
 
-def raw_rates(source: Path, unit_set: str) -> dict:
+def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
     """Return each unit's normalized rate from the first flash and from the center exit."""
     prepared = dmat._load_windows(source / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
@@ -235,12 +345,20 @@ def raw_rates(source: Path, unit_set: str) -> dict:
     )
     units = units.iloc[analysis_unit_indices(units, unit_set)]
     rates = {name: [] for name in windows}
+    shown = (relative >= EXAMPLE_WINDOW_MS[0] / 1000) & (
+        relative < EXAMPLE_WINDOW_MS[1] / 1000
+    )
+    order = np.argsort(leave)
+    rasters = {}
     for _, unit in units.iterrows():
         spikes = np.asarray(unit["spike_times_s"], dtype=float)
         counts = build_unit_counts(alignments, spikes).reshape(grid)
         mean_count = counts[valid].mean()
         if mean_count <= 0:
             continue
+        if int(unit["unit_id"]) in examples:
+            rows, bins = np.nonzero(counts[order][:, shown] > 0)
+            rasters[int(unit["unit_id"])] = (1000 * relative[shown][bins], rows)
         for name, (rows, columns, used, _) in windows.items():
             shape = (grid[0], -1, step)
             spikes_in = (counts[rows, columns] * used).reshape(shape).sum((0, 2))
@@ -265,6 +383,8 @@ def raw_rates(source: Path, unit_set: str) -> dict:
         "flash_fraction": flash_fraction(np.zeros(grid[0]), FLASH_WINDOW_MS),
         "exit_fraction": flash_fraction(leave, EXIT_WINDOW_MS),
         "median_exit_ms": float(1000 * np.median(leave)),
+        "rasters": rasters,
+        "sorted_exit_ms": 1000 * leave[order],
     }
 
 
@@ -279,20 +399,68 @@ def main() -> None:
     with np.load(stillness_path, allow_pickle=False) as data:
         stillness = {key: data[key] for key in data.files}
     kernels = kernel_values(fit_descriptive(args.root, args.units), args.units)
-    rates = raw_rates(args.root, args.units)
+    steps = two_step_levels(args.root, args.units)
+    # Example units: the example of the main figure (the most suppressed unit
+    # if it was not fit), and the most excited unit that fires enough.
+    ids, joint = steps["unit_ids"], steps["joint"]
+    active = steps["rate"] >= EXAMPLE_MIN_RATE
+    suppressed = (
+        EXAMPLE_UNIT_ID
+        if EXAMPLE_UNIT_ID in ids
+        else int(ids[active][np.argmin(joint[active])])
+    )
+    excited = int(ids[active][np.argmax(joint[active])])
+    rates = raw_rates(args.root, args.units, (suppressed, excited))
     hold, after = kernels[dmat.HOLD], kernels[AFTER]
     before = float(rates["flash"][1][:, rates["flash"][0] < 0].mean())
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 7.0))
-        top = figure.add_gridspec(
-            2, 2, left=0.11, right=0.97, top=0.95, bottom=0.71, height_ratios=(1, 4)
+        figure = plt.figure(figsize=(7.4, 9.2))
+        examples = figure.add_gridspec(
+            1, 2, left=0.11, right=0.97, top=0.975, bottom=0.87
         )
-        middle = figure.add_gridspec(1, 2, left=0.11, right=0.97, top=0.6, bottom=0.4)
+        top = figure.add_gridspec(
+            2, 2, left=0.11, right=0.97, top=0.795, bottom=0.615, height_ratios=(1, 4)
+        )
+        middle = figure.add_gridspec(
+            1, 2, left=0.11, right=0.97, top=0.53, bottom=0.375
+        )
         bottom = figure.add_gridspec(
-            1, 2, left=0.11, right=0.86, top=0.29, bottom=0.07, wspace=0.35
+            1, 3, left=0.11, right=0.88, top=0.265, bottom=0.06, wspace=0.75
         )
         panel_axes = []
+        exits = rates["sorted_exit_ms"]
+        for column, (unit_id, label) in enumerate(
+            ((suppressed, "suppressed"), (excited, "excited"))
+        ):
+            axis = figure.add_subplot(examples[column])
+            spike_ms, rows = rates["rasters"][unit_id]
+            axis.plot(spike_ms, rows, "|", color=OBSERVED_COLOR, markersize=1.5)
+            axis.plot(exits, np.arange(len(exits)), color=TASK, linewidth=1)
+            axis.set_xlim(*EXAMPLE_WINDOW_MS)
+            axis.set_xlabel("time from first flash (ms)")
+            axis.text(
+                0.99,
+                1.02,
+                f"unit {unit_id}, {label}",
+                transform=axis.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=6.5,
+            )
+            if column == 0:
+                axis.set_ylabel("trial, sorted\nby hold length")
+                axis.text(
+                    exits[-1] + 15,
+                    len(exits),
+                    "center exit",
+                    color=TASK,
+                    va="top",
+                    fontsize=6.5,
+                )
+                panel_axes.append(axis)
+            else:
+                axis.tick_params(labelleft=False)
         shared = None
         for column, (name, xlabel) in enumerate(
             (("flash", "time from first flash (ms)"), ("exit", "time from center exit"))
@@ -414,14 +582,37 @@ def main() -> None:
             r"$\Delta$ log rate in the hold," + f"\n{window} from first flash"
         )
         paired.set_ylabel(r"$\Delta$ log rate after exit," + f"\n{window} from exit")
-        stillness_axis = figure.add_subplot(bottom[1])
+        order_axis = figure.add_subplot(bottom[1])
+        order_axis.plot(
+            steps["joint"],
+            steps["two_step"],
+            "o",
+            color=TASK,
+            markersize=2.5,
+            alpha=0.7,
+        )
+        order_axis.plot(
+            limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
+        )
+        for line in (order_axis.axhline, order_axis.axvline):
+            line(0, color=REFERENCE_COLOR, linewidth=0.5)
+        order_axis.set_xlim(limits)
+        order_axis.set_ylim(limits)
+        order_axis.set_aspect("equal")
+        order_axis.set_xlabel(
+            r"$\Delta$ log rate in the hold," + "\nall terms fit together"
+        )
+        order_axis.set_ylabel(
+            r"$\Delta$ log rate in the hold," + "\nhold kernel fit last"
+        )
+        stillness_axis = figure.add_subplot(bottom[2])
         port_vs_stillness.plot_rates(stillness_axis, stillness, states=(0, 2))
-        panel_axes += [paired, stillness_axis]
-        for axis in panel_axes[1:]:
+        panel_axes += [paired, order_axis, stillness_axis]
+        for axis in panel_axes[2:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcd", panel_axes, strict=True):
+        for letter, axis in zip("abcdef", panel_axes, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,
@@ -454,7 +645,20 @@ def main() -> None:
         "fraction_units_after_exit_below_0": float(np.mean(after["level"] < 0)),
         "units_higher_after_exit": int(np.sum(after["level"] > hold["level"])),
         "wilcoxon_p": float(wilcoxon(after["level"], hold["level"]).pvalue),
-        "units_outside_the_axis_limits_of_panel_c": outside,
+        "units_outside_the_axis_limits_of_panel_d": outside,
+        "example_units_suppressed_and_excited": [suppressed, excited],
+        "two_step": {
+            "median_delta_log_rate_joint": float(np.median(steps["joint"])),
+            "median_delta_log_rate_two_step": float(np.median(steps["two_step"])),
+            "fraction_units_two_step_below_0": float(np.mean(steps["two_step"] < 0)),
+            "wilcoxon_p_two_step_against_0": float(wilcoxon(steps["two_step"]).pvalue),
+            "units_outside_the_axis_limits_of_panel_e": int(
+                np.sum(
+                    (np.abs(steps["joint"]) > limits[1])
+                    | (np.abs(steps["two_step"]) > limits[1])
+                )
+            ),
+        },
         "median_center_exit_ms_from_first_flash": rates["median_exit_ms"],
     }
     output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))

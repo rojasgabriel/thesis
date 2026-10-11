@@ -55,13 +55,14 @@ WITHDRAWAL_KERNEL = True
 # Stimulus during hold: one kernel on the first flash, set to zero from the
 # center exit on. Units fire less from about 80 ms after the first flash until
 # the animal leaves the center port; the flashes go on to the response entry.
-# The bases have even spacing in log(t + stretch): close together early (the
-# first-flash response and the drop), far apart late (a level). No step goes
-# with the kernel, so the window must be longer than the longest hold.
+# The bases have even spacing in time. No step goes with the kernel, so the
+# window must be longer than the longest hold.
 HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
 HOLD_BASES = 10
-HOLD_STRETCH_S = 0.05
+# For `hold_grid.py`: even spacing in log(t + this value) in place of even
+# spacing in time (0 = off). It did not predict reliably better.
+HOLD_LOG_STRETCH_S = 0.0
 # Earlier forms of that term, for `hold_grid.py`: one column that is 1 from
 # center entry (or from the first flash) to center exit, and a separate kernel
 # for the first flash of a trial that goes with it.
@@ -276,8 +277,10 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         "flash_adaptation": flash,
         "flash_first": flash,
         "hold": StretchedCosineBasis(
-            HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_STRETCH_S
-        ),
+            HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
+        )
+        if HOLD_LOG_STRETCH_S
+        else RaisedCosineBasis(HOLD_BASES, 0, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S),
         "withdrawal": withdrawal,
     }
     if not HOLD_KERNEL:

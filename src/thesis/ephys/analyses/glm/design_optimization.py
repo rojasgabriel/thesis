@@ -7,24 +7,28 @@ panel answers one question, and the panels follow one regressor at a time. Each
 test is the final design with one thing changed, and D² is relative to the
 constant-rate model. An open point at zero marks the value that the model uses.
 
-- Visual flash kernel. Panel a: number of bases (150 ms window). Panel b:
-  window (8 bases). `flash_kernel_grid.py`.
-- Adaptation term. Panel c: no term, a synaptic-depression resource with a
-  slow and with a fast recovery, and "a flash in the last 50 ms".
-  `flash_kernel_grid.py` and `adaptation_grid.py`.
-- Stimulus during hold. Panel d: no term, a step from the center entry or
-  from the first flash to the center exit, that step with a kernel on the first
-  flash, and one kernel from the first flash to the center exit with log or
-  linear spacing (`hold_grid.py`).
-- Withdrawal. Panel e: no kernel, the 0 to 100 ms kernel, and wider kernels
-  (`withdrawal_grid.py`).
-- Motion energy. Panel f: no motion energy and five numbers of PCs
-  (`pc_grid.py`). Panel g: the final design with its motion energy shuffled in
-  time within each trial, or taken from another trial (`glm unique`).
+- Visual flash (row 1). Panel a: the bases of the flash kernel. Panel b:
+  number of bases (150 ms window). Panel c: window (8 bases). Panel d:
+  adaptation term: none, a synaptic-depression resource with a slow and with a
+  fast recovery, and "a flash in the last 50 ms". `flash_kernel_grid.py` and
+  `adaptation_grid.py`.
+- Task (row 2). Panel e: the bases of the stimulus-during-hold kernel. Panel f:
+  no term, a step from the center entry or from the first flash to the center
+  exit, that step with a kernel on the first flash, and one kernel from the
+  first flash to the center exit with linear or log spacing (`hold_grid.py`).
+  Panel g: the bases of the withdrawal kernel. Panel h: no kernel, the 0 to
+  100 ms kernel, and wider kernels (`withdrawal_grid.py`).
+- Motion energy and spike history (row 3). Motion energy has no bases: each PC
+  is one column at the same time bin. Panel i: no motion energy and five
+  numbers of PCs (`pc_grid.py`). Panel j: the final design with its motion
+  energy shuffled in time within each trial, or taken from another trial
+  (`glm unique`). Panel k: the bases of the spike-history kernel, which has no
+  test here.
 
-All panels are box plots, over units, of the D² with each choice
+The basis panels (a, e, g, k) are drawn from `dmat.py` with no fit. The test
+panels are box plots, over units, of the D² with each choice
 minus the D² with the choice in use, with whiskers to 1.5 IQR and no outlier points. D² is on the
-validation trials; in panel g it is the mean over the 10 cross-validation
+validation trials; in panel j it is the mean over the 10 cross-validation
 folds. The mark over a box is a two-sided Wilcoxon signed-rank test of those
 differences against zero; the p values, and a Friedman test over all choices of
 a panel, go to the caption and to `design_optimization_stats.json`. All panels
@@ -84,32 +88,34 @@ differences against zero (n.s., p ≥ 0.05; \*, p < 0.05; \*\*, p < 0.01;
 \*\*\*, p < 0.001); the p value of each option is given below. A Friedman
 test compares all options of a panel at once, paired over units. Where two
 options do not differ reliably, the model uses the simpler one.
-**a, b, Visual flash kernel** ({sample_units} units). **a**, Number of raised
-cosines ({p_a}). **b**, Length of the kernel ({p_b}).
-**c, Adaptation**: a second flash kernel for a flash that follows another
-flash. No such term, a synaptic-depression resource that recovers slowly
-(200 ms) or fast (25 ms), and a term that is 1 for a flash that follows another
-within 50 ms (recent flash). The depression model is best when it recovers
-faster than the shortest interval between flashes (40 ms), where it is the same
-as the recent-flash term ({p_c}).
-**d, Stimulus during hold.** A term for the time from the first flash to the
-withdrawal from the center port, where the firing rate is lower while the
-flashes go on. No term; a column that is 1 from the center entry to the
-withdrawal (step, entry) or from the first flash to the withdrawal (step,
-flash); that last column with a 150 ms kernel on the first flash (step +
-onset); one kernel from the first flash to the withdrawal with log-spaced
-raised cosines (kernel, the reference); and the same kernel with linear spacing
-({p_d}).
-**e, Withdrawal.** No withdrawal kernel, the kernel from 0 to 100 ms after the
-withdrawal (the reference), and kernels from 100 or 300 ms before to 100 or
-300 ms after it ({p_e}).
-**f, g, Motion energy.** **f**, No motion energy (0) and five numbers of
-motion-energy PCs ({sample_units} units; {p_f}). **g**, Does motion energy
+Each row is one group of regressors: the raised cosines that build its kernel
+(drawn from the model definition, no fit), then the tests of its choices.
+**a–d, Visual flash** ({sample_units} units). **a**, The raised cosines of the
+flash kernel. **b**, Number of raised cosines ({p_a}). **c**, Length of the
+kernel ({p_b}). **d**, Adaptation: a second flash kernel for a flash that
+follows another flash. No such term, a synaptic-depression resource that
+recovers slowly (200 ms) or fast (25 ms), and a term that is 1 for a flash that
+follows another within 50 ms (recent flash) ({p_c}).
+**e–h, Task.** **e**, The raised cosines of the kernel for the stimulus during
+the hold: the time from the first flash to the withdrawal from the center port,
+where the firing rate is lower while the flashes go on. **f**, The form of that
+term. No term; a column that is 1 from the center entry to the withdrawal
+(step, entry) or from the first flash to the withdrawal (step, flash); that
+last column with a 150 ms kernel on the first flash (step + onset); one kernel
+from the first flash to the withdrawal (kernel, the reference); and the same
+kernel with log spacing of its raised cosines ({p_d}). **g**, The raised
+cosines of the withdrawal kernel. **h**, No withdrawal kernel, the kernel from
+0 to 100 ms after the withdrawal (the reference), and kernels from 100 or
+300 ms before to 100 or 300 ms after it ({p_e}).
+**i–k, Motion energy and spike history.** Motion energy has no kernel: each PC
+is one value at the same time bin. **i**, No motion energy (0) and five numbers
+of motion-energy PCs ({sample_units} units; {p_f}). **j**, Does motion energy
 predict spikes through the movement of that trial, or only because movement and
 firing both change with the time in the trial? The motion energy of the final
 design is shuffled in time within each trial, or replaced with the motion
 energy of another trial, which has the same average time course ({final_units}
-units; {p_g}; shuffled against another trial, p = {p_swap:.2g}).
+units; {p_g}; shuffled against another trial, p = {p_swap:.2g}). **k**, The
+raised cosines of the spike-history kernel (not tested here).
 """
 
 
@@ -273,19 +279,54 @@ def main() -> None:
             )
             return [figure.add_subplot(cell) for cell in grid]
 
-        a, b, c = row(0.96, 0.77, (1, 0.8, 1.5), wspace=0.6)
-        d, e = row(0.635, 0.445, (1.6, 1), wspace=0.4)
-        f, g = row(0.295, 0.105, (1.6, 1), wspace=0.4)
+        # One row for each group of regressors: its bases, then its tests.
+        flash_basis, a, b, c = row(0.96, 0.77, (1.1, 1, 0.8, 1.5), wspace=0.75)
+        hold_basis, d, exit_basis, e = row(
+            0.635, 0.445, (1.1, 1.9, 0.8, 1.1), wspace=0.6
+        )
+        f, g, history_basis = row(0.295, 0.105, (1.6, 1, 1.0), wspace=0.5)
+        task_bases = dmat.task_temporal_bases()
+        history = dmat.spike_history_basis()
+        for axis, basis, color, xlabel, offset_ms in (
+            (
+                flash_basis,
+                task_bases["visual_flash"],
+                VISUAL,
+                "time from flash (ms)",
+                0,
+            ),
+            (hold_basis, task_bases[dmat.HOLD], TASK, "time from first flash (ms)", 0),
+            (
+                exit_basis,
+                task_bases["withdrawal"],
+                TASK,
+                "time from withdrawal (ms)",
+                0,
+            ),
+            # History columns use spike times shifted by one bin: lags 1 to 100 ms.
+            (
+                history_basis,
+                history,
+                CONCEPT_COLORS["history"],
+                "time since spike (ms)",
+                1000 * history.binwidth_s,
+            ),
+        ):
+            axis.plot(
+                1000 * basis.basis_time + offset_ms, basis.basis, color=color, lw=0.8
+            )
+            axis.set_xlabel(xlabel)
+            axis.set_ylabel("basis value")
 
         stats = {}
-        stats["a flash bases"] = _plot_choice(
+        stats["flash bases"] = _plot_choice(
             a,
             {count: flash[(count, window, True)] for count in base_counts},
             VISUAL,
             "raised cosines in the flash kernel",
             selected=bases,
         )
-        stats["b flash window"] = _plot_choice(
+        stats["flash window"] = _plot_choice(
             b,
             {f"{1000 * value:.0f}": flash[(bases, value, True)] for value in windows},
             VISUAL,
@@ -297,11 +338,11 @@ def main() -> None:
             "recent\nflash": adaptation[(None, None)],
         }
         second |= {name: adaptation[pair] for name, pair in DEPRESSION.items()}
-        stats["c adaptation term"] = _plot_choice(
+        stats["adaptation term"] = _plot_choice(
             c, second, VISUAL, "adaptation term", selected="recent\nflash", line=False
         )
         c.tick_params(axis="x", labelsize=6.5)
-        stats["d stimulus during hold"] = _plot_choice(
+        stats["stimulus during hold"] = _plot_choice(
             d,
             hold,
             TASK,
@@ -310,7 +351,7 @@ def main() -> None:
             line=False,
         )
         d.tick_params(axis="x", labelsize=7)
-        stats["e withdrawal"] = _plot_choice(
+        stats["withdrawal"] = _plot_choice(
             e,
             kernel,
             TASK,
@@ -319,7 +360,7 @@ def main() -> None:
             line=False,
         )
         e.tick_params(axis="x", labelsize=7)
-        stats["f motion-energy PCs"] = _plot_choice(
+        stats["motion-energy PCs"] = _plot_choice(
             f,
             pcs,
             MOTION,
@@ -328,23 +369,35 @@ def main() -> None:
         )
         f.tick_params(axis="x", labelsize=7)
         control = _motion_control_scores(unique_records)
-        stats["g motion energy control"] = _plot_choice(
+        stats["motion energy control"] = _plot_choice(
             g, control, MOTION, "motion energy", selected="real", line=False
         )
         g.tick_params(axis="x", labelsize=7)
         swap = float(
             wilcoxon(control["shuffled\nin trial"], control["another\ntrial"]).pvalue
         )
-        stats["g motion energy control"]["shuffled against another trial, p"] = swap
+        stats["motion energy control"]["shuffled against another trial, p"] = swap
 
-        panels = (a, b, c, d, e, f, g)
+        panels = (
+            flash_basis,
+            a,
+            b,
+            c,
+            hold_basis,
+            d,
+            exit_basis,
+            e,
+            f,
+            g,
+            history_basis,
+        )
         for axis in panels:
             separate_axes(axis)
         # Letters at the left edge of each panel, tick labels and axis label
         # included.
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefg", panels, strict=True):
+        for letter, axis in zip("abcdefghijk", panels, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             top = axis.get_position().y1 + 0.02
             figure.text(left, top, letter, fontweight="bold", fontsize=10)
@@ -365,13 +418,13 @@ def main() -> None:
         return f"Friedman p = {values['friedman_p_all_choices']:.2g}; Wilcoxon: {pairs}"
 
     caption = CAPTION.format(
-        p_a=tests("a flash bases"),
-        p_b=tests("b flash window"),
-        p_c=tests("c adaptation term"),
-        p_d=tests("d stimulus during hold"),
-        p_e=tests("e withdrawal"),
-        p_f=tests("f motion-energy PCs"),
-        p_g=tests("g motion energy control"),
+        p_a=tests("flash bases"),
+        p_b=tests("flash window"),
+        p_c=tests("adaptation term"),
+        p_d=tests("stimulus during hold"),
+        p_e=tests("withdrawal"),
+        p_f=tests("motion-energy PCs"),
+        p_g=tests("motion energy control"),
         p_swap=swap,
         sample_units=len(adaptation[(None, None)]),
         final_units=len(unique_records),

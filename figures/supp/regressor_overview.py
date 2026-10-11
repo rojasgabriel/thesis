@@ -58,7 +58,7 @@ def main() -> Path:
             "hold",
             "stimulus during hold",
             "task",
-            f"{HOLD_BASES} log-spaced bases, zero from the center exit on",
+            f"{HOLD_BASES} raised-cosine bases, zero from the center exit on",
             "time from first flash (ms)",
         ),
         (

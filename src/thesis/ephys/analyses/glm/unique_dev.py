@@ -404,11 +404,10 @@ def run_unique(
     )
 
     summary = _write_summary(records, output_dir)
-    from thesis.ephys.analyses.glm.figures import plot_example_unit
-    from thesis.ephys.analyses.glm.results import example_unit_id
+    from thesis.ephys.analyses.glm.results import example_unit_id, write_figure_data
 
     print(json.dumps(summary, indent=2))
     final_records = load_unit_records(checkpoints, "unit_*_final.json")
-    plot_example_unit(
+    write_figure_data(
         windows, design_path, fit_dir, example_unit_id(records, final_records)
     )

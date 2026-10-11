@@ -7,27 +7,19 @@ the other panels from the saved figure data and uses the helpers here.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import matplotlib
 import numpy as np
 from scipy.stats import sem
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from matplotlib.patheffects import withStroke
 
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
 )
-from thesis.ephys.analyses.glm.results import write_figure_data
 from thesis.plotting import (
-    FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
-    label_panels,
-    save_figure,
 )
 
 COUNT_BIN_MS = 10
@@ -171,15 +163,15 @@ def _plot_bits_deviance_by_rate(
     axis.set_ylabel(r"test deviance explained ($D^2$)")
 
 
-def plot_prediction_figure(
+def draw_prediction(
+    axes,
     relative_times: np.ndarray,
     observed: np.ndarray,
     predicted: np.ndarray,
     conditional: np.ndarray,
     valid: np.ndarray,
-    output: Path,
-) -> Path:
-    """Compare held-out observed and one-step-predicted spikes for the example unit."""
+) -> None:
+    """Draw held-out observed spikes, predicted spikes, and both rates on three axes."""
     observed = np.asarray(observed)
     predicted = np.asarray(predicted)
     conditional = np.asarray(conditional)
@@ -202,123 +194,68 @@ def plot_prediction_figure(
         relative_times[np.flatnonzero(shown)[-1]] + BINWIDTH_S / 2,
     )
 
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            3,
-            1,
-            figsize=(4.5, 5.8),
-            sharex=True,
-            gridspec_kw={"height_ratios": [1, 1, 1.2]},
+    for axis, counts, color in zip(
+        axes[:2], (observed, predicted), (OBSERVED_COLOR, MODEL_COLOR), strict=True
+    ):
+        for trial, keep in enumerate(valid, start=1):
+            missing = np.flatnonzero(~keep & shown)
+            if missing.size:
+                axis.fill_betweenx(
+                    (trial - 0.4, trial + 0.4),
+                    relative_times[missing[0]] - BINWIDTH_S / 2,
+                    edges[1],
+                    color="0.94",
+                    linewidth=0,
+                    zorder=0,
+                )
+        axis.eventplot(
+            _raster_events(counts, relative_times, valid),
+            colors=color,
+            lineoffsets=np.arange(1, trial_count + 1),
+            linelengths=0.8,
+            linewidths=0.3,
         )
-        for axis, counts, color in zip(
-            axes[:2], (observed, predicted), (OBSERVED_COLOR, MODEL_COLOR), strict=True
-        ):
-            for trial, keep in enumerate(valid, start=1):
-                missing = np.flatnonzero(~keep & shown)
-                if missing.size:
-                    axis.fill_betweenx(
-                        (trial - 0.4, trial + 0.4),
-                        relative_times[missing[0]] - BINWIDTH_S / 2,
-                        edges[1],
-                        color="0.94",
-                        linewidth=0,
-                        zorder=0,
-                    )
-            axis.eventplot(
-                _raster_events(counts, relative_times, valid),
-                colors=color,
-                lineoffsets=np.arange(1, trial_count + 1),
-                linelengths=0.8,
-                linewidths=0.3,
-            )
-            axis.set_ylim(0.5, trial_count + 0.5)
-            axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
-            axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
+        axis.set_ylim(0.5, trial_count + 0.5)
+        axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
+        axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
 
-        samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
-        binned_times = (
-            relative_times[: len(relative_times) // samples * samples]
-            .reshape(-1, samples)
-            .mean(axis=1)
-        )
-        for values, label, color in zip(
-            (observed, conditional),
-            ("observed", "predicted"),
-            (OBSERVED_COLOR, MODEL_COLOR),
-            strict=True,
-        ):
-            rate, keep = binned_rates(values, valid)
-            axes[2].plot(
-                binned_times[keep],
-                rate[keep],
-                color=color,
-                linewidth=1.15,
-                label=label,
-                drawstyle="steps-mid",
-            )
-        for row, (label, color) in enumerate(
-            (("observed", OBSERVED_COLOR), ("predicted", MODEL_COLOR))
-        ):
-            axes[2].text(
-                0.98,
-                0.97 - 0.09 * row,
-                label,
-                color=color,
-                transform=axes[2].transAxes,
-                ha="right",
-                va="top",
-            )
-        axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
-
-        label_panels(axes, -0.13)
-        axes[0].set_ylabel("observed\nheld-out trials")
-        axes[1].set_ylabel("predicted\nheld-out trials")
-        axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
-        axes[-1].set_xlim(*edges)
-        axes[-1].set_xlabel("time from first measured flash (s)")
-        figure.align_ylabels(axes)
-        figure.tight_layout(h_pad=0.8)
-        return save_figure(figure, output)
-
-
-def plot_example_unit(
-    windows: Path, design: Path, fit_dir: Path, example_id: int
-) -> None:
-    """Write the figure data and the held-out prediction figure of one unit."""
-    figure_dir = fit_dir
-    written = {}
-    write_figure_data(windows, design, fit_dir, example_id)
-    data = np.load(fit_dir / "figure_data.npz", allow_pickle=False)
-    with (fit_dir / "figure_data.json").open() as handle:
-        meta = json.load(handle)
-
-    prediction_observed = data["prediction_observed"]
-    conditional = data["conditional"]
-    test_valid = data["test_valid"]
-    seed = PREDICTION_SEED + int(meta["example_unit_id"])
-    predicted = np.zeros_like(prediction_observed, dtype=int)
-    predicted[test_valid] = np.random.default_rng(seed).poisson(conditional[test_valid])
-    written["predicted_spike_trains"] = str(
-        plot_prediction_figure(
-            data["relative_times"],
-            prediction_observed,
-            predicted,
-            conditional,
-            test_valid,
-            figure_dir / "predicted_spike_trains",
-        )
+    samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
+    binned_times = (
+        relative_times[: len(relative_times) // samples * samples]
+        .reshape(-1, samples)
+        .mean(axis=1)
     )
-    print(
-        json.dumps(
-            {
-                "figures": written,
-                **{k: v for k, v in meta.items() if not isinstance(v, list)},
-                "prediction_observed_spikes": int(
-                    prediction_observed[test_valid].sum()
-                ),
-                "prediction_sampled_spikes": int(predicted[test_valid].sum()),
-                "prediction_seed": seed,
-            },
-            indent=2,
+    for values, label, color in zip(
+        (observed, conditional),
+        ("observed", "predicted"),
+        (OBSERVED_COLOR, MODEL_COLOR),
+        strict=True,
+    ):
+        rate, keep = binned_rates(values, valid)
+        axes[2].plot(
+            binned_times[keep],
+            rate[keep],
+            color=color,
+            linewidth=1.15,
+            label=label,
+            drawstyle="steps-mid",
         )
-    )
+    for row, (label, color) in enumerate(
+        (("observed", OBSERVED_COLOR), ("predicted", MODEL_COLOR))
+    ):
+        axes[2].text(
+            0.98,
+            0.97 - 0.09 * row,
+            label,
+            color=color,
+            transform=axes[2].transAxes,
+            ha="right",
+            va="top",
+        )
+    axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
+
+    axes[0].set_ylabel("observed\nheld-out trials")
+    axes[1].set_ylabel("predicted\nheld-out trials")
+    axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
+    axes[2].set_xlim(*edges)
+    axes[2].set_xlabel("time from first flash (s)")
