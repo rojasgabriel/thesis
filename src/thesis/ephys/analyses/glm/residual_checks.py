@@ -389,14 +389,10 @@ def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]
         return save_figure(figure, output), summary
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
-    parser.add_argument("--units", type=cli._unit_set, default="all")
-    args = parser.parse_args()
-    fit_dir = cli.PoissonGLM(root=args.root).fit_dir(args.units)
-    data = run_checks(args.root, args.units)
-    figure, summary = plot(data, fit_dir / "residual_checks")
+def save(data: dict, fit_dir: Path, summary: dict | None = None) -> None:
+    """Write the curves and the per-unit values of `run_checks` to the fit directory."""
+    if summary is None:
+        _, summary = plot(data, fit_dir / "residual_checks")
     curves = {key: value.tolist() for key, value in data["curves"].items()}
     (fit_dir / "residual_checks.json").write_text(
         json.dumps(
@@ -409,6 +405,17 @@ def main() -> None:
             indent=1,
         )
     )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
+    parser.add_argument("--units", type=cli._unit_set, default="all")
+    args = parser.parse_args()
+    fit_dir = cli.PoissonGLM(root=args.root).fit_dir(args.units)
+    data = run_checks(args.root, args.units)
+    figure, summary = plot(data, fit_dir / "residual_checks")
+    save(data, fit_dir, summary)
     print(json.dumps({**summary, "figure": str(figure)}, indent=2))
 
 

@@ -912,9 +912,10 @@ def plot_fit(fit_dir: Path) -> None:
     written = {"summary": str(summary)}
     with (fit_dir.parent / "common_design_me.json").open() as handle:
         metadata = json.load(handle)
-    written["in_port_weight"] = str(
-        plot_in_port_weights(results, metadata, figure_dir / "in_port_weight")
-    )
+    if f"{IN_PORT}_basis_01" in metadata["column_names"]:
+        written["in_port_weight"] = str(
+            plot_in_port_weights(results, metadata, figure_dir / "in_port_weight")
+        )
     payload = {
         "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
         "figure_dir": str(figure_dir),

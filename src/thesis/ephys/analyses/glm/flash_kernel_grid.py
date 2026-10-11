@@ -157,7 +157,7 @@ def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
         axes[0].text(
             0,
             1.02,
-            "solid: with the recent-flash term; dashed: without it",
+            "solid: with the adaptation term; dashed: without it",
             transform=axes[0].transAxes,
             va="bottom",
             fontsize=7,
@@ -174,7 +174,7 @@ def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
                 current,
             ),
             (
-                "recent-flash term:\nwith minus without",
+                "adaptation term:\nwith minus without",
                 (bases, window, True),
                 (bases, window, False),
             ),

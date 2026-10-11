@@ -34,8 +34,9 @@ PRE_S = 0.1
 POST_S = 2.54
 BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
-# One count: the validation D² was flat from 10 to 50 PCs in the full-design fit.
-VIDEO_COMPONENT_COUNTS = (10,)
+# One count: the mean validation D² of the first design was highest at 25 PCs
+# (10, 25, 50, 100, and 200 were tested).
+VIDEO_COMPONENT_COUNTS = (25,)
 # Flash kernel: this long after each flash, with this many bases.
 FLASH_WINDOW_S = 0.15
 FLASH_BASES = 8
@@ -47,8 +48,12 @@ SECOND_FLASH_TERM = True
 RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
+WITHDRAWAL_PRE_S = 0.0
 WITHDRAWAL_WINDOW_S = 0.1
 WITHDRAWAL_BASES = 4
+# `withdrawal_grid.py` turns these off to test the model without each term.
+WITHDRAWAL_KERNEL = True
+IN_PORT_COLUMN = True
 # State column: the animal is in the center port. Units fire less there, with
 # the stimulus in view, than at a side port with the same motion energy. Without
 # this column, motion energy absorbs part of that time course.
@@ -226,7 +231,10 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     # short response window instead of spending log-spaced bases below 10 ms.
     flash = RaisedCosineBasis(FLASH_BASES, 0, FLASH_WINDOW_S + BINWIDTH_S, BINWIDTH_S)
     withdrawal = RaisedCosineBasis(
-        WITHDRAWAL_BASES, 0, WITHDRAWAL_WINDOW_S + BINWIDTH_S, BINWIDTH_S
+        WITHDRAWAL_BASES,
+        WITHDRAWAL_PRE_S + BINWIDTH_S * (WITHDRAWAL_PRE_S > 0),
+        WITHDRAWAL_WINDOW_S + BINWIDTH_S,
+        BINWIDTH_S,
     )
     bases = {
         "visual_flash": flash,
@@ -235,6 +243,8 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     }
     if not SECOND_FLASH_TERM:
         del bases["flash_adaptation"]
+    if not WITHDRAWAL_KERNEL:
+        del bases["withdrawal"]
     return bases
 
 
@@ -331,6 +341,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
         if name == "flash_adaptation":
             manifest[-1]["adapt_levels_centered"] = adapt_levels
     design.build_matrix()
+    if not IN_PORT_COLUMN:
+        return design.X, manifest
     # One state column with no temporal basis: the animal is in the center port.
     centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
     times = np.asarray(alignments, dtype=float)[:, None] + centers
@@ -555,8 +567,12 @@ def _common_design_is_current(output: Path) -> bool:
     manifest = metadata.get("task_manifest", [])
     return (
         metadata.get("video_columns_per_component") == 1
-        and [item.get("name") for item in manifest] == [*bases, IN_PORT]
+        and [item.get("name") for item in manifest]
+        == [*bases, *([IN_PORT] if IN_PORT_COLUMN else [])]
         and [item.get("columns") for item in manifest]
-        == [*(basis.basis.shape[1] for basis in bases.values()), 1]
+        == [
+            *(basis.basis.shape[1] for basis in bases.values()),
+            *([1] * IN_PORT_COLUMN),
+        ]
         and metadata.get("recent_flash_s") == RECENT_FLASH_S
     )
