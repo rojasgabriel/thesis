@@ -47,6 +47,12 @@ FLASH_BASES = 8
 SECOND_FLASH_TERM = True
 # A separate kernel for the first flash of a trial, added to the common kernel.
 FIRST_FLASH_TERM = False
+FIRST_FLASH_WINDOW_S = 0.15
+FIRST_FLASH_BASES = 8
+# Slow part of the flash kernel: wide bases over this window after each flash
+# (0 = off). The fast bases above keep the resolution of the first 150 ms.
+FLASH_SLOW_WINDOW_S = 0.0
+FLASH_SLOW_BASES = 5
 RECENT_FLASH_S = 0.05
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
@@ -56,6 +62,8 @@ WITHDRAWAL_BASES = 4
 # `withdrawal_grid.py` turns these off to test the model without each term.
 WITHDRAWAL_KERNEL = True
 IN_PORT_COLUMN = True
+# The state column starts at the first flash and not at center entry.
+STATE_FROM_FIRST_FLASH = False
 # State column: the animal is in the center port. Units fire less there, with
 # the stimulus in view, than at a side port with the same motion energy. Without
 # this column, motion energy absorbs part of that time course.
@@ -241,9 +249,16 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     bases = {
         "visual_flash": flash,
         "flash_adaptation": flash,
-        "flash_first": flash,
+        "flash_first": RaisedCosineBasis(
+            FIRST_FLASH_BASES, 0, FIRST_FLASH_WINDOW_S + BINWIDTH_S, BINWIDTH_S
+        ),
+        "flash_slow": RaisedCosineBasis(
+            FLASH_SLOW_BASES, 0, max(FLASH_SLOW_WINDOW_S, 0.1) + BINWIDTH_S, BINWIDTH_S
+        ),
         "withdrawal": withdrawal,
     }
+    if not FLASH_SLOW_WINDOW_S:
+        del bases["flash_slow"]
     if not SECOND_FLASH_TERM:
         del bases["flash_adaptation"]
     if not FIRST_FLASH_TERM:
@@ -314,6 +329,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "the first flash of each trial, in addition to the common kernel",
         ),
         (
+            "flash_slow",
+            flashes,
+            None,
+            "sensory",
+            "each modeled flash; wide bases for the slow part of the flash kernel",
+        ),
+        (
             "withdrawal",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
@@ -358,7 +380,12 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     # One state column with no temporal basis: the animal is in the center port.
     centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
     times = np.asarray(alignments, dtype=float)[:, None] + centers
-    in_port = (times >= trials["center_entry_s"].to_numpy(dtype=float)[:, None]) & (
+    start = (
+        np.asarray(alignments, dtype=float)
+        if STATE_FROM_FIRST_FLASH
+        else trials["center_entry_s"].to_numpy(dtype=float)
+    )
+    in_port = (times >= start[:, None]) & (
         times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
     )
     manifest.append(
