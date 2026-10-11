@@ -430,7 +430,7 @@ def main() -> None:
             1, 2, left=0.11, right=0.97, top=0.53, bottom=0.375
         )
         bottom = figure.add_gridspec(
-            1, 3, left=0.11, right=0.88, top=0.265, bottom=0.06, wspace=0.75
+            1, 3, left=0.11, right=0.88, top=0.275, bottom=0.06, wspace=0.75
         )
         panel_axes = []
         exits = rates["sorted_exit_ms"]
@@ -581,7 +581,6 @@ def main() -> None:
             line(0, color=REFERENCE_COLOR, linewidth=0.5)
         paired.set_xlim(limits)
         paired.set_ylim(limits)
-        paired.set_aspect("equal")
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
         paired.set_xlabel(
             r"$\Delta$ log rate in the hold," + f"\n{window} from first flash"
@@ -603,7 +602,6 @@ def main() -> None:
             line(0, color=REFERENCE_COLOR, linewidth=0.5)
         order_axis.set_xlim(limits)
         order_axis.set_ylim(limits)
-        order_axis.set_aspect("equal")
         order_axis.set_xlabel(
             r"$\Delta$ log rate in the hold," + "\nall terms fit together"
         )

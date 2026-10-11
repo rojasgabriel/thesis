@@ -1,6 +1,6 @@
 """Draw the checks of the V1 GLM in one supplementary figure.
 
-Question: can the fitted model be trusted? Three checks, with no new fit.
+Question: can the fitted model be trusted? Four checks, with no new fit.
 
 - Panels a to c (single trials): observed spikes of the example unit on the
   held-out test trials, spikes drawn from the predicted rate of the same
@@ -17,6 +17,12 @@ Question: can the fitted model be trusted? Three checks, with no new fit.
   shuffled labels (`residual_checks.py`). The comparison is paired over units;
   the mark is a two-sided Wilcoxon signed-rank test.
 
+- Panels g to i (recovery of planted kernels): `synthetic_check.py` simulates
+  units with known kernels and runs the real pipeline on them. The panels show
+  the planted and the recovered kernel of the unit that has every effect, for
+  the visual flash, the stimulus during hold, and the withdrawal. The hold
+  kernel is drawn to 350 ms, the shortest simulated hold.
+
 Box plots are the quartiles with whiskers to 1.5 IQR and no outlier points;
 every unit is in the tests. Units, trials, alignment, baseline, and exclusions
 are those of `fit.py`. The sampling unit is the unit in panels d to f and the
@@ -24,8 +30,9 @@ trial in panels a to c.
 
     uv run python -m thesis.ephys.analyses.glm.model_checks
 
-Run `glm fit` and `glm unique` with `--units all` and `--units sample`, and
-`residual_checks --units all`, first. The script writes `model_checks.svg` and
+Run `glm fit` and `glm unique` with `--units all` and `--units sample`,
+`residual_checks --units all`, and `synthetic_check --out
+figures/glm/synthetic_check`, first. The script writes `model_checks.svg` and
 `model_checks_stats.json` in the session directory.
 """
 
@@ -50,6 +57,7 @@ from thesis.ephys.analyses.glm.main_figure import REGRESSORS
 from thesis.ephys.analyses.glm.unique_dev import UNIQUE
 from thesis.plotting import (
     FIGURE_STYLE,
+    MODEL_COLOR,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
     save_figure,
@@ -58,6 +66,13 @@ from thesis.plotting import (
 
 PREDICTION_SEED = 2008
 HELD_OUT_COLOR = "0.55"
+# Synthetic unit with every effect, and how far each kernel is drawn (ms).
+SYNTHETIC_UNIT = 197
+SYNTHETIC_KERNELS = {
+    "visual flash": 150,
+    "stimulus during hold": 350,
+    "withdrawal": 100,
+}
 # Candidate terms of `residual_checks.py`, with their labels.
 CHECKS = {
     "session drift": "session\ndrift",
@@ -103,6 +118,12 @@ def _mark(axis, position: float, p_value: float) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
+    parser.add_argument(
+        "--synthetic",
+        type=Path,
+        default=Path("figures/glm/synthetic_check/synthetic_recovery.json"),
+        help="Kernels that `synthetic_check` wrote.",
+    )
     args = parser.parse_args()
     model = cli.PoissonGLM(root=args.root)
     fit_dir = model.fit_dir("all")
@@ -141,14 +162,14 @@ def main() -> None:
     stats = {"example_unit_id": int(example), "selection_units": int(chosen.sum())}
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 7.6))
+        figure = plt.figure(figsize=(7.4, 9.2))
         trials = figure.add_gridspec(
             3,
             1,
             left=0.11,
             right=0.5,
             top=0.96,
-            bottom=0.07,
+            bottom=0.30,
             height_ratios=(1, 1, 1.1),
             hspace=0.22,
         )
@@ -158,7 +179,7 @@ def main() -> None:
             left=0.64,
             right=0.97,
             top=0.96,
-            bottom=0.09,
+            bottom=0.32,
             height_ratios=(0.8, 1.25, 1.1),
             hspace=0.62,
         )
@@ -272,12 +293,52 @@ def main() -> None:
             va="top",
         )
 
-        panels = (*trial_axes, full, parts, left_out)
+        # Planted and recovered kernels of the synthetic unit with every effect.
+        recovery = json.loads(args.synthetic.read_text())[str(SYNTHETIC_UNIT)]
+        planted_grid = figure.add_gridspec(
+            1, 3, left=0.11, right=0.97, top=0.2, bottom=0.06, wspace=0.45
+        )
+        planted_axes = []
+        for column, (name, limit_ms) in enumerate(SYNTHETIC_KERNELS.items()):
+            axis = figure.add_subplot(planted_grid[column])
+            kernel = recovery[name]
+            times = np.asarray(kernel["time_ms"])
+            keep = times <= limit_ms
+            axis.plot(
+                times[keep], np.asarray(kernel["planted"])[keep], color=OBSERVED_COLOR
+            )
+            axis.plot(
+                times[keep], np.asarray(kernel["recovered"])[keep], color=MODEL_COLOR
+            )
+            axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+            axis.set_xlabel(f"{name}: time from event (ms)")
+            if column == 0:
+                axis.set_ylabel(r"$\Delta$ log rate")
+                axis.text(
+                    0.98,
+                    0.95,
+                    "planted",
+                    color=OBSERVED_COLOR,
+                    transform=axis.transAxes,
+                    ha="right",
+                    va="top",
+                )
+                axis.text(
+                    0.98,
+                    0.84,
+                    "recovered",
+                    color=MODEL_COLOR,
+                    transform=axis.transAxes,
+                    ha="right",
+                    va="top",
+                )
+            planted_axes.append(axis)
+        panels = (*trial_axes, full, parts, left_out, *planted_axes)
         for axis in panels[3:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdef", panels, strict=True):
+        for letter, axis in zip("abcdefghi", panels, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,

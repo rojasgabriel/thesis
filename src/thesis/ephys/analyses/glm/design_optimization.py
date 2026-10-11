@@ -73,7 +73,7 @@ VISUAL, TASK, MOTION = (
 # Flash kernel lengths of panel b, from `flash_kernel_grid.py`.
 FLASH_WINDOWS_S = (0.1, 0.15, 0.2, 0.25)
 # Synaptic-depression models of panel c: (fraction used, recovery in s).
-DEPRESSION = {"slow\ndepression": (0.5, 0.2), "fast\ndepression": (0.5, 0.025)}
+DEPRESSION = {"slow\nresource": (0.5, 0.2), "fast\nresource": (0.5, 0.025)}
 CAPTION = """\
 **Optimizing the GLM design matrix.** Each panel tests one choice in the final
 design, with all other regressors as in the final design. D² is the deviance
@@ -94,7 +94,7 @@ Each row is one group of regressors: the raised cosines that build its kernel
 flash kernel. **b**, Number of raised cosines ({p_a}). **c**, Length of the
 kernel ({p_b}). **d**, Adaptation: a second flash kernel for a flash that
 follows another flash. No such term, a synaptic-depression resource that
-recovers slowly (200 ms) or fast (25 ms), and a term that is 1 for a flash that
+recovers slowly (slow resource, 200 ms) or fast (fast resource, 25 ms), and a term that is 1 for a flash that
 follows another within 50 ms (recent flash) ({p_c}).
 **e–h, Task.** **e**, The raised cosines of the kernel for the stimulus during
 the hold: the time from the first flash to the withdrawal from the center port,

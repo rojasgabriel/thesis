@@ -18,6 +18,8 @@ check. Units (all 20 spikes/s baseline, 1 ms bins):
 - 102: motion-energy PC 1 only.
 - 103: withdrawal only.
 - 104: constant rate, no history (null unit).
+- 105: stimulus during hold only: a drop of the rate from the first flash to
+  the withdrawal.
 - 197: every effect. Its figures are drawn if it is selected as the example unit.
 
 Bins after response entry have 3x the rate. The pipeline masks them, so they
@@ -36,7 +38,8 @@ z-scoring on all rows.
     uv run python -m thesis.ephys.analyses.glm.synthetic_check [--out DIR]
 
 The command raises AssertionError when a check fails. Use --out to keep the
-artifacts and inspect the figures.
+artifacts. It writes the planted and the recovered kernels of each unit to
+`synthetic_recovery.json` there; `model_checks.py` draws them.
 """
 
 from __future__ import annotations
@@ -62,13 +65,16 @@ ADAPT_GAIN = -0.6  # flash kernel scale after a flash in the last 50 ms (centere
 WITHDRAWAL_PEAK_S = 0.05
 WITHDRAWAL_GAIN = 1.5
 VIDEO_GAIN = 0.4
+HOLD_GAIN = -0.6
+HOLD_TAU_S = 0.08
 POST_RESPONSE_GAIN = np.log(3)
 UNITS = {
     101: {"flash", "history"},
     102: {"video"},
     103: {"withdrawal"},
     104: set(),
-    197: {"flash", "adapt", "withdrawal", "video", "history"},
+    105: {"hold"},
+    197: {"flash", "adapt", "hold", "withdrawal", "video", "history"},
 }
 
 
@@ -86,6 +92,12 @@ def withdrawal_kernel(lag: np.ndarray) -> np.ndarray:
     return np.where((lag >= 0) & (lag <= dmat.WITHDRAWAL_WINDOW_S), bump, 0.0)
 
 
+def hold_kernel(lag: np.ndarray) -> np.ndarray:
+    """Log-rate drop that starts at the first flash and stays for the hold."""
+    lag = np.asarray(lag, dtype=float)
+    return np.where(lag >= 0, HOLD_GAIN * (1 - np.exp(-lag / HOLD_TAU_S)), 0.0)
+
+
 def history_kernel(lag_bins: np.ndarray) -> np.ndarray:
     """Refractory log-rate kernel at strictly past lags of 1..100 bins."""
     lag_bins = np.asarray(lag_bins, dtype=float)
@@ -100,7 +112,9 @@ def synthetic_trials(rng: np.random.Generator) -> pd.DataFrame:
         gaps = rng.uniform(0.03, 0.08, size=40)
         flashes = first + np.concatenate(([0.0], np.cumsum(gaps)))
         flashes = flashes[flashes <= first + 1.0]
-        exit_s = first + rng.uniform(0.35, 0.8)
+        # Some holds must be longer than 845 ms, or the last hold basis is
+        # zero in every training row.
+        exit_s = first + rng.uniform(0.35, 0.93)
         rows.append(
             {
                 "trial_num": index + 1,
@@ -209,6 +223,8 @@ def simulate_unit(
             drive += scale * flash_kernel(times - flash)
         if "withdrawal" in effects:
             drive += withdrawal_kernel(times - row.center_exit_s)
+        if "hold" in effects:
+            drive += hold_kernel(centers) * (times < row.center_exit_s)
         if "video" in effects:
             drive += VIDEO_GAIN * np.interp(times, video[:, 0], video[:, 1])
         drive += POST_RESPONSE_GAIN * (centers > row.response_port_entry_s - alignment)
@@ -258,12 +274,10 @@ def main() -> None:
     )
 
     # Swap the database reads for the synthetic session and shrink the PC grid.
-    from thesis.ephys.analyses.glm import figures
-
     dmat.build_trial_table = lambda *_, **__: trials.copy()
     for module in (fit, unique_dev, results):
         module.fetch_unit_table = lambda *_, **__: units.copy()
-    for module in (dmat, fit, figures):
+    for module in (dmat, fit):
         module.VIDEO_COMPONENT_COUNTS = PC_COUNTS
 
     model.prepare()
@@ -274,7 +288,7 @@ def main() -> None:
     alignments = trials["stim_pulse_times_s"].str[0].to_numpy(dtype=float)
     valid = dmat._valid_bin_mask(dmat._load_windows(model.windows))
     metadata = json.loads(model.design.with_suffix(".json").read_text())
-    report, failures = {}, []
+    report, failures, recovery = {}, [], {}
 
     def check(label: str, passed: bool) -> None:
         report[label] = bool(passed)
@@ -364,6 +378,7 @@ def main() -> None:
             "cv_d2": round(d2, 4),
             "unique": {name: round(value, 4) for name, value in unique.items()},
         }
+        recovery[unit_id] = {}
         flash_t, flash_v = kernels["visual_flash"]
         if "flash" in effects:
             # Flashes repeat every 30-80 ms, so a timing error smears the kernel
@@ -374,6 +389,7 @@ def main() -> None:
                 f"{unit_id} flash peak within 20%",
                 abs(flash_v.max() / truth.max() - 1) < 0.2,
             )
+            recovery[unit_id]["visual flash"] = (flash_t, flash_v, truth)
         if "adapt" in effects:
             _, adapt_v = kernels["flash_adaptation"]
             truth = ADAPT_GAIN * flash_kernel(flash_t / 1000)
@@ -386,6 +402,21 @@ def main() -> None:
             check(
                 f"{unit_id} withdrawal kernel r>0.9", _correlation(exit_v, truth) > 0.9
             )
+            recovery[unit_id]["withdrawal"] = (exit_t, exit_v, truth)
+        if "hold" in effects:
+            hold_t, hold_v = kernels[dmat.HOLD]
+            truth = hold_kernel(hold_t / 1000)
+            seen = hold_t <= 350  # every hold is at least this long
+            check(
+                f"{unit_id} hold kernel r>0.9",
+                _correlation(hold_v[seen], truth[seen]) > 0.9,
+            )
+            level = (hold_t >= 200) & seen
+            check(
+                f"{unit_id} hold level within 25%",
+                abs(hold_v[level].mean() / truth[level].mean() - 1) < 0.25,
+            )
+            recovery[unit_id]["stimulus during hold"] = (hold_t, hold_v, truth)
         if "history" in effects:
             lag, values = kernels["history"]
             check(f"{unit_id} refractory history", values[lag <= 3].mean() < -1)
@@ -401,6 +432,7 @@ def main() -> None:
             "flash": "visual_flash",
             "video": "video",
             "withdrawal": "withdrawal",
+            "hold": dmat.HOLD,
         }
         if len(effects - {"history"}) == 1:
             (effect,) = effects - {"history"}
@@ -414,6 +446,21 @@ def main() -> None:
 
     figure_dir = model.fit_dir("all")
     check("figure data written", (figure_dir / "figure_data.npz").exists())
+    (root / "synthetic_recovery.json").write_text(
+        json.dumps(
+            {
+                str(unit_id): {
+                    name: {
+                        "time_ms": np.asarray(times).tolist(),
+                        "recovered": np.asarray(fitted).tolist(),
+                        "planted": np.asarray(truth).tolist(),
+                    }
+                    for name, (times, fitted, truth) in kernels_of_unit.items()
+                }
+                for unit_id, kernels_of_unit in recovery.items()
+            }
+        )
+    )
 
     print(
         json.dumps(
