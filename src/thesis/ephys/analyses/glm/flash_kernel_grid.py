@@ -154,7 +154,7 @@ def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
         axes[0].annotate(
             "design in use",
             (current[0], values[current].mean()),
-            xytext=(6, -12),
+            xytext=(8, -17),
             textcoords="offset points",
         )
         axes[0].set_xticks(BASES)

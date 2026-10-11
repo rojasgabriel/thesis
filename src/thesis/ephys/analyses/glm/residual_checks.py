@@ -167,7 +167,7 @@ def run_checks(root: Path, unit_set: str) -> dict:
     records = load_unit_records(
         model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
     )
-    curves = {key: [] for key in ("session", "low", "high", "left", "right")}
+    curves = {key: [] for key in ("session", "all", "low", "high", "left", "right")}
     checks = []
     for record in records:
         spikes = np.asarray(units.loc[record["unit_id"], "spike_times_s"], dtype=float)
@@ -203,6 +203,7 @@ def run_checks(root: Path, unit_set: str) -> dict:
             np.bincount(decile, trial_n, SESSION_BINS)
             / np.bincount(decile, trial_m, SESSION_BINS)
         )
+        curves["all"].append(_ratio(onset_n, onset_m, slice(None)))
         curves["low"].append(_ratio(onset_n, onset_m, low))
         curves["high"].append(_ratio(onset_n, onset_m, high))
         curves["left"].append(_ratio(exit_n, exit_m, ~right))
@@ -246,9 +247,15 @@ def run_checks(root: Path, unit_set: str) -> dict:
             }
         )
         print(f"Checked unit {record['unit_id']}.", flush=True)
+    entry = trials["center_entry_s"].to_numpy(float) - alignments
     return {
         "curves": {key: np.asarray(value) for key, value in curves.items()},
         "checks": checks,
+        # Median time of center entry and center exit from the first flash.
+        "hold_s": [
+            float(np.median(entry)),
+            float(np.median(trials["center_exit_s"].to_numpy(float) - alignments)),
+        ],
     }
 
 
@@ -375,7 +382,13 @@ def main() -> None:
     curves = {key: value.tolist() for key, value in data["curves"].items()}
     (fit_dir / "residual_checks.json").write_text(
         json.dumps(
-            {"summary": summary, "units": data["checks"], "curves": curves}, indent=1
+            {
+                "summary": summary,
+                "units": data["checks"],
+                "curves": curves,
+                "hold_s": data["hold_s"],
+            },
+            indent=1,
         )
     )
     print(json.dumps({**summary, "figure": str(figure)}, indent=2))
