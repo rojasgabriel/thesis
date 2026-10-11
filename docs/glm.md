@@ -379,6 +379,37 @@ the residual tests are in-sample):
   the exit is 1.87 times the rate of completed trials at the same time from
   onset. So the go cue does not end the suppression; the exit does.
 
+### Design optimization figure
+
+`design_optimization.svg` is the one figure for these choices. Each of its
+tests is the final design with one thing changed, scored as D² on the
+validation trials against the constant-rate model, on the 20-unit sample. Where
+two options do not differ reliably (paired Wilcoxon signed-rank test over
+units), the model uses the simpler one. Its caption and the exact test values
+are written next to it.
+
+```bash
+uv run python -m thesis.ephys.analyses.glm.flash_kernel_grid
+uv run python -m thesis.ephys.analyses.glm.adaptation_grid
+uv run python -m thesis.ephys.analyses.glm.withdrawal_grid
+uv run python -m thesis.ephys.analyses.glm.pc_grid
+uv run python -m thesis.ephys.analyses.glm.port_vs_stillness
+uv run python -m thesis.ephys.analyses.glm.residual_checks --units sample
+uv run python -m thesis.ephys.analyses.glm.design_optimization --units sample
+```
+
+The first four modules fit and score designs and make no figure. Results of
+2026-10-10 that are not in the list above:
+
+- Flash kernel length: 100 ms is worse than 150 ms (p = 0.0002); 200 and
+  250 ms are not better (p = 0.47 and 0.84).
+- Motion-energy PCs in the final design: no motion energy is worse than 10 PCs
+  (p = 0.002); 25 and 50 are not better (p = 0.23 and 0.26); 200 is worse
+  (p = 0.002).
+- Withdrawal: the ±300 ms kernel is not better than the 0 to 100 ms kernel with
+  the in-port column (p = 0.60); the 0 to 100 ms kernel alone is worse
+  (p = 0.0003).
+
 ## Results
 
 The full fit of the six-regressor model is not done yet.
