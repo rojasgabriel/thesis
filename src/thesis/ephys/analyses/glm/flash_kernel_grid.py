@@ -57,7 +57,7 @@ from thesis.plotting import (
 )
 
 BASES = (6, 8, 10, 12)
-WINDOWS_S = (0.15, 0.25, 0.35)
+WINDOWS_S = (0.1, 0.15, 0.2, 0.25, 0.35)
 # Panel b shows differences inside this range; see the module docstring.
 PANEL_B_LIMIT = 0.004
 

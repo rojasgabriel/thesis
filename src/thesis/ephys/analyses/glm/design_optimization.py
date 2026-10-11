@@ -5,7 +5,7 @@ parameters? This script makes no fits and no new analysis. It draws results of
 the other design modules in one figure and writes the caption next to it. Each
 panel answers one question, and the panels follow one regressor at a time. Each
 test is the final design with one thing changed, and D² is relative to the
-constant-rate model. A dotted circle marks the value that the model uses.
+constant-rate model. An open point at zero marks the value that the model uses.
 
 - Visual flash kernel. Panel a: number of bases (150 ms window). Panel b:
   window (8 bases). `flash_kernel_grid.py`.
@@ -14,8 +14,8 @@ constant-rate model. A dotted circle marks the value that the model uses.
   `flash_kernel_grid.py` and `adaptation_grid.py`.
 - Withdrawal. Panel d: the ±300 ms kernel, shorter kernels, and the 0 to
   100 ms kernel with the in-port column (`withdrawal_grid.py`).
-  Panel e: observed firing rate and the rate that the final design predicts,
-  against time from the first flash; the shaded time is the median time in the
+  Panel e: observed firing rate and the rate that the final design predicts
+  (mean and SEM over units), against time from the first flash; the shaded time is the median time in the
   center port. Panel f: firing rate against motion energy in the center port
   and at the side port (`port_vs_stillness.py`, all units, raw rates).
 - Motion energy. Panel g: no motion energy and five numbers of PCs
@@ -65,7 +65,6 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
-    mark_selected,
     save_figure,
     separate_axes,
 )
@@ -76,7 +75,9 @@ VISUAL, TASK, MOTION = (
     CONCEPT_COLORS["task"],
     CONCEPT_COLORS["motion energy"],
 )
-# Synaptic-depression models of panel d: (fraction used, recovery in s).
+# Flash kernel lengths of panel b, from `flash_kernel_grid.py`.
+FLASH_WINDOWS_S = (0.1, 0.15, 0.2, 0.25)
+# Synaptic-depression models of panel c: (fraction used, recovery in s).
 DEPRESSION = {"slow\ndepression": (0.5, 0.2), "fast\ndepression": (0.5, 0.025)}
 CAPTION = """\
 **Optimizing the GLM design matrix.** Each panel tests one choice in the final
@@ -84,8 +85,8 @@ design, with all other regressors as in the final design. D² is the deviance
 explained on trials that were not used for the fit, relative to a model with a
 constant firing rate. In the box plots, each unit is scored with every option,
 and a box shows, over units, the D² with that option minus the D² with the
-reference option of the panel, which is at zero (dashed line). The reference is
-always the option that the model uses (dotted circle). Boxes are the quartiles,
+reference option of the panel, which is the open point at zero (dashed line).
+The reference is always the option that the model uses. Boxes are the quartiles,
 whiskers reach 1.5 times the interquartile range, and outliers are not drawn.
 The mark over a box is a two-sided Wilcoxon signed-rank test of those
 differences against zero (n.s., p ≥ 0.05; \*, p < 0.05; \*\*, p < 0.01;
@@ -106,7 +107,7 @@ that is 1 while the animal is in the center port, which is the reference. The
 short kernels without the port column predict worse; the ±300 ms kernel does
 not predict better ({p_d}). **e**, What the port column describes: observed firing rate (black)
 and the rate that the final design predicts (purple), against time from the
-first flash (median of {sample_units} units). Each rate is divided by the mean
+first flash (mean and SEM over {sample_units} units). Each rate is divided by the mean
 rate of that unit, so 1 is the average rate of the unit. The rate is lower
 while the animal is in the center port (shaded: median time in the port).
 **f**, The lower rate is not because the animal is still: firing rate against
@@ -145,8 +146,7 @@ def _plot_choice(
     """Box plots of each choice's D² minus the D² of one reference choice, per unit.
 
     `scores` maps the label of each choice to the D² of each unit (same unit
-    order). The reference (default: `selected`) is at zero. A dotted circle
-    marks the selected choice. Each other choice has a box of its
+    order). The reference (default: `selected`) is an open point at zero. Each other choice has a box of its
     per-unit differences from the reference (whiskers to 1.5 IQR, no outlier
     points) and the result of a two-sided Wilcoxon signed-rank test of those
     differences against zero. A line connects the medians. Returns the
@@ -186,8 +186,6 @@ def _plot_choice(
             "units": len(change),
             "wilcoxon_p": p_value,
         }
-        if label == selected:
-            mark_selected(axis, position, medians[-1])
         axis.annotate(
             _stars(p_value),
             (position, box["whiskers"][1].get_ydata()[1]),
@@ -200,8 +198,6 @@ def _plot_choice(
         axis.plot(positions, medians, color=color, linewidth=1, zorder=1)
     spot = labels.index(reference)
     axis.scatter(spot, 0, s=26, facecolor="white", edgecolor=color, zorder=3)
-    if selected == reference:
-        mark_selected(axis, spot, 0)
     axis.set_xticks(positions, labels)
     axis.set_xlim(-0.6, len(labels) - 0.4)
     axis.margins(y=0.12)
@@ -215,7 +211,6 @@ def _plot_rates(axis, residual: dict) -> None:
     edges = residual_checks.ONSET_EDGES_S
     x = 1000 * (edges[:-1] + edges[1:]) / 2
     shown = x >= 0
-    median = lambda curve: np.nanmedian(np.asarray(curve), axis=0)[shown]  # noqa: E731
     leave = 1000 * residual["hold_s"][1]
     axis.axvspan(0, leave, color=TASK, alpha=0.15, linewidth=0)
     axis.text(
@@ -226,8 +221,14 @@ def _plot_rates(axis, residual: dict) -> None:
         ha="center",
         transform=axis.get_xaxis_transform(),
     )
-    axis.plot(x[shown], median(residual["curves"]["observed"]), color="black")
-    axis.plot(x[shown], median(residual["curves"]["predicted"]), color=MODEL_COLOR)
+    for key, color in (("observed", "black"), ("predicted", MODEL_COLOR)):
+        curves = np.asarray(residual["curves"][key])[:, shown]
+        mean = np.nanmean(curves, axis=0)
+        sem = np.nanstd(curves, axis=0, ddof=1) / np.sqrt(len(curves))
+        axis.fill_between(
+            x[shown], mean - sem, mean + sem, color=color, alpha=0.25, linewidth=0
+        )
+        axis.plot(x[shown], mean, color=color)
     axis.set_xlim(0, 1000)
     axis.set_ylim(bottom=0)
     top = axis.get_ylim()[1]
@@ -292,7 +293,7 @@ def main() -> None:
     )
     bases, window = dmat.FLASH_BASES, dmat.FLASH_WINDOW_S
     base_counts = sorted({key[0] for key in flash})
-    windows = sorted({key[1] for key in flash})
+    windows = FLASH_WINDOWS_S
     pcs = {
         count: per_unit(units)
         for count, units in _load(
@@ -338,9 +339,11 @@ def main() -> None:
             "length of the flash kernel (ms)",
             selected=f"{1000 * window:.0f}",
         )
-        second = {"none": flash[(bases, window, False)]}
+        second = {
+            "none": flash[(bases, window, False)],
+            "recent\nflash": adaptation[(None, None)],
+        }
         second |= {name: adaptation[pair] for name, pair in DEPRESSION.items()}
-        second["recent\nflash"] = adaptation[(None, None)]
         stats["c adaptation term"] = _plot_choice(
             c, second, VISUAL, "adaptation term", selected="recent\nflash", line=False
         )
