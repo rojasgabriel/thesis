@@ -167,7 +167,21 @@ def run_checks(root: Path, unit_set: str) -> dict:
     records = load_unit_records(
         model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
     )
-    curves = {key: [] for key in ("session", "all", "low", "high", "left", "right")}
+    curves = {
+        key: []
+        for key in (
+            "session",
+            "all",
+            "low",
+            "high",
+            "left",
+            "right",
+            "observed",
+            "predicted",
+        )
+    }
+    # Valid 1-ms bins behind each onset-clock bin, for rates.
+    exposure = _binned(valid_grid.astype(float), *onset, len(ONSET_EDGES_S) - 1).sum(0)
     checks = []
     for record in records:
         spikes = np.asarray(units.loc[record["unit_id"], "spike_times_s"], dtype=float)
@@ -204,6 +218,10 @@ def run_checks(root: Path, unit_set: str) -> dict:
             / np.bincount(decile, trial_m, SESSION_BINS)
         )
         curves["all"].append(_ratio(onset_n, onset_m, slice(None)))
+        # Rates relative to the mean rate of the unit over all valid bins.
+        mean_count = trial_n.sum() / valid.sum()
+        curves["observed"].append(onset_n.sum(0) / exposure / mean_count)
+        curves["predicted"].append(onset_m.sum(0) / exposure / mean_count)
         curves["low"].append(_ratio(onset_n, onset_m, low))
         curves["high"].append(_ratio(onset_n, onset_m, high))
         curves["left"].append(_ratio(exit_n, exit_m, ~right))

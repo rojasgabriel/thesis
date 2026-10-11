@@ -16,7 +16,7 @@ fixed 20-unit sample. The sampling unit is the unit.
 
 - Panel a: mean validation D² over units against the number of bases, one line
   for each window; solid with the second flash term, dashed without it. The
-  filled point is the design in `dmat.py`.
+  dotted circle is the design in `dmat.py`.
 - Panel b: three paired comparisons with the design in `dmat.py`: one fewer
   step of bases, one longer window, and no second flash term. Each point is the
   difference in validation D² of one unit; the black line is the median. The
@@ -52,6 +52,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     REFERENCE_COLOR,
     label_panels,
+    mark_selected,
     save_figure,
 )
 
@@ -148,15 +149,7 @@ def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
                 alpha=shades[window],
                 va="center",
             )
-        axes[0].scatter(
-            current[0], values[current].mean(), color="black", s=60, zorder=3
-        )
-        axes[0].annotate(
-            "design in use",
-            (current[0], values[current].mean()),
-            xytext=(8, -17),
-            textcoords="offset points",
-        )
+        mark_selected(axes[0], current[0], values[current].mean())
         axes[0].set_xticks(BASES)
         axes[0].set_xlim(BASES[0] - 0.5, BASES[-1] + 2.2)
         axes[0].set_xlabel("raised cosines in the flash kernel")

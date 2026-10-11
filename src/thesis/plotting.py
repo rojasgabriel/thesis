@@ -44,6 +44,20 @@ def label_panels(axes, x: float = -0.14, y: float = 1.05) -> None:
         )
 
 
+def mark_selected(axis: Axes, x: float, y: float) -> None:
+    """Put a dotted circle around the value that the model uses."""
+    axis.scatter(
+        x,
+        y,
+        s=170,
+        facecolors="none",
+        edgecolors="black",
+        linestyles=":",
+        linewidths=1.3,
+        zorder=4,
+    )
+
+
 def save_figure(figure, output: Path) -> Path:
     """Save as SVG next to any older PDF or PNG of the same name, and close."""
     output.parent.mkdir(parents=True, exist_ok=True)

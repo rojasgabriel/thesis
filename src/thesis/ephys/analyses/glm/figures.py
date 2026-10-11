@@ -34,6 +34,7 @@ from thesis.plotting import (
     MODEL_COLOR,
     OBSERVED_COLOR,
     label_panels,
+    mark_selected,
     save_figure,
 )
 
@@ -412,20 +413,8 @@ def plot_population_summary(
             markerfacecolor="white",
         )
         selected_position = component_counts.index(selected)
-        axes[0].scatter(
-            selected_position,
-            validation_deviance[selected_position],
-            color="black",
-            s=75,
-            zorder=3,
-        )
-        axes[0].annotate(
-            "in use",
-            (selected_position, validation_deviance[selected_position]),
-            xytext=(-8, -4),
-            textcoords="offset points",
-            ha="right",
-            va="top",
+        mark_selected(
+            axes[0], selected_position, validation_deviance[selected_position]
         )
         axes[0].set_xticks(positions, component_counts)
         axes[0].set_xlabel("candidate motion-energy PCs")
