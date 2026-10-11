@@ -40,12 +40,10 @@ VIDEO_COMPONENT_COUNTS = (10,)
 # It is short so that it holds few flashes, and it has no part before the event.
 WITHDRAWAL_WINDOW_S = 0.1
 WITHDRAWAL_BASES = 4
-# Slow kernel for the time from stimulus onset (the first flash). The residuals
-# of the model without it had a trial-locked time course that did not depend on
-# flash rate or choice; without this kernel, motion energy absorbs part of it.
+# State column: the animal is in the center port. Units fire less there, with
+# the stimulus in view, than at a side port with the same motion energy. Without
+# this column, motion energy absorbs part of that time course.
 IN_PORT = "in_port"
-ONSET_WINDOW_S = 1.5
-ONSET_BASES = 8
 HISTORY_COLUMNS = 10
 # Short-term synaptic-depression parameters for the flash-adaptation covariate:
 # each flash spends fraction ADAPT_U of the available resource, which recovers
@@ -226,11 +224,9 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
     withdrawal = RaisedCosineBasis(
         WITHDRAWAL_BASES, 0, WITHDRAWAL_WINDOW_S + BINWIDTH_S, BINWIDTH_S
     )
-    onset = RaisedCosineBasis(ONSET_BASES, 0, ONSET_WINDOW_S + BINWIDTH_S, BINWIDTH_S)
     return {
         "visual_flash": flash,
         "flash_adaptation": flash,
-        "stimulus_onset": onset,
         "withdrawal": withdrawal,
     }
 
@@ -307,13 +303,6 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             f"centered depression resource, u={ADAPT_U}, "
             f"tau_recover={ADAPT_TAU_RECOVER_S * 1000:.0f} ms",
-        ),
-        (
-            "stimulus_onset",
-            np.asarray(alignments, dtype=float),
-            None,
-            "task",
-            "the first flash of each trial; slow time course, not a cause",
         ),
         (
             "withdrawal",

@@ -53,8 +53,8 @@ from thesis.plotting import (
     save_figure,
 )
 
-U_VALUES = (0.25, 0.5, 0.75)
-TAU_VALUES_S = (0.1, 0.2, 0.4, 0.8)
+U_VALUES = (0.25, 0.5, 0.75, 0.9)
+TAU_VALUES_S = (0.05, 0.1, 0.2, 0.4, 0.8)
 UNIT_SET = "sample"
 INPUTS = ("stimulus_windows_me.npz", "video_me_features.npz", "frame_times.npy")
 
@@ -124,7 +124,8 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
     }
     positions = np.arange(len(TAU_VALUES_S))
     # One concept, the visual response; a darker line uses more of the resource.
-    shades = dict(zip(U_VALUES, (0.45, 0.7, 1.0), strict=True))
+    shades = dict(zip(U_VALUES, np.linspace(0.3, 1.0, len(U_VALUES)), strict=True))
+    dodge = 0.18 * (np.arange(len(U_VALUES)) - (len(U_VALUES) - 1) / 2)
     rng = np.random.default_rng(0)
 
     with plt.rc_context(FIGURE_STYLE):
@@ -140,7 +141,7 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
                 va="center",
                 **style,
             )
-            offset = 0.22 * (index - 1)
+            offset = dodge[index]
             for position, tau in zip(positions, TAU_VALUES_S, strict=True):
                 change = values[(u, tau)] - values[current]
                 if (u, tau) == current:
@@ -172,7 +173,7 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
         axes[0].set_ylabel(r"mean validation deviance explained ($D^2$)")
         axes[1].axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         axes[1].scatter(
-            TAU_VALUES_S.index(current[1]) + 0.22 * (U_VALUES.index(current[0]) - 1),
+            TAU_VALUES_S.index(current[1]) + dodge[U_VALUES.index(current[0])],
             0,
             color="black",
             s=34,

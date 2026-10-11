@@ -48,7 +48,6 @@ TASK_LABELS = {
     "flash_adaptation": "flash: adaptation",
     "flash_first": "first flash",
     "flash_later": "later flash, adapted",
-    "stimulus_onset": "time from stimulus onset",
     "in_port": "in center port",
     "withdrawal": "withdrawal",
 }

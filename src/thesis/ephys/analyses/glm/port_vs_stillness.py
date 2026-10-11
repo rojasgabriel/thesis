@@ -1,7 +1,10 @@
 """Test whether the hold-period suppression in V1 is explained by stillness.
 
 Question: units fire less while the animal holds in the center port. Is that
-because the animal is still, or is it specific to the port?
+because the animal is still, or is it specific to the center port? The side
+ports have the same geometry, so the side port is also the control for "the
+head is in a port". The stimulus plays while the animal is in the center port
+and is off when it enters a side port.
 
 Comparison: raw firing rates, no model fit. Each video frame in the trial
 windows of the V1 GLM gets a state and a motion-energy group. Rates are
@@ -36,8 +39,8 @@ is the unit.
   the rate outside it, over all frames (not matched for motion energy).
 
 Limits: motion energy comes from one camera view of the body and has no eye,
-pupil, or whisker signal. At the side port the stimulus is mostly off and the
-animal gets a reward.
+pupil, or whisker signal. The comparison does not separate the stimulus in
+view from the task state (hold at the center port, reward at the side port).
 
     uv run python -m thesis.ephys.analyses.glm.port_vs_stillness
 """

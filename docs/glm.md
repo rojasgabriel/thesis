@@ -1,8 +1,9 @@
 # V1 GLM
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from six regressors: a common flash kernel, a flash-adaptation term, a slow
-time-from-stimulus-onset kernel, a causal post-withdrawal kernel (0 to 100 ms),
+from six regressors: a common flash kernel, a flash-adaptation term, a state
+column for the time in the center port, a causal post-withdrawal kernel (0 to
+100 ms),
 10 additive camera motion-energy PCs, and a strictly
 past self-history filter for each unit. All terms add in log rate. An earlier
 full design had four more regressors; [Design justification](#design-justification)
@@ -70,8 +71,8 @@ drift, go cue, outcome, or punishment kernel.
 | --- | --- | ---: |
 | Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
 | Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
-| Time from stimulus onset | 8 causal raised cosines, 0–1500 ms after the first flash of the trial | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
+| In center port | 1 from center entry to center exit, else 0; no temporal basis | 1 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
@@ -308,7 +309,7 @@ folds share training trials, so this test is somewhat too easy to pass.
   and PC 1 within ±100 ms, and at most 0.0013 for the residual of the final
   refit with each of PCs 1 to 10.
 
-### Withdrawal and time from stimulus onset
+### Withdrawal and the time in the center port
 
 Tests of 2026-10-10 on the 20-unit sample (medians, 10-fold cross-validated;
 the residual tests are in-sample):
@@ -335,6 +336,22 @@ the residual tests are in-sample):
   of the units, from 100 to 500 ms, with a total ΔD² of about 0.0004. A side
   contrast of the withdrawal kernel (0.0002) and a response-entry kernel were
   not added: the signal is not in 0 to 100 ms and is not locked to entry.
+- The suppression is specific to the center port and is not stillness
+  (`uv run python -m thesis.ephys.analyses.glm.port_vs_stillness`, raw rates,
+  167 units). In the frames with the least motion energy, the rate in the
+  center port is 0.78 of the rate at the side port (lower in 68% of units,
+  p = 3e-7); in the center port the rate does not go up with motion energy; and
+  the units that movement excites are not the suppressed ones (ρ = −0.02). The
+  side ports have the same geometry, but the stimulus plays only while the
+  animal is in the center port. The stimulus in view and the task state are not
+  separated.
+- One in-port state column replaces the 8-column onset kernel. On the 20 units
+  it has a median unique ΔD² of 0.0025 and a negative weight in 17 units
+  (median rate × 0.75). The full D² is 0.0011 lower than with the onset kernel
+  (paired median) and 0.0040 higher than with no slow term; motion energy stays
+  below its trial-specific ΔD² (0.0016 against 0.0025). With both in the model
+  the onset kernel still adds 0.0025, so about 20% of the slow structure follows
+  the stimulus clock; it was left out to keep one column with a tested meaning.
 - Session drift is small (median ΔD² 0.0015, shuffled trial order 0.0009), so
   there is no drift term.
 - Adaptation parameters: a grid of `ADAPT_U` (0.25, 0.5, 0.75) and
