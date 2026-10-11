@@ -33,7 +33,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import sem, ttest_1samp, wilcoxon
+from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
     HISTORY_COLUMNS,
@@ -320,79 +320,6 @@ def _block_task(job: dict) -> dict:
     return record
 
 
-def block_table(samples: dict[str, list[dict]]) -> dict:
-    """Summarize each block within each sample and over all units."""
-    complete = np.concatenate(
-        [
-            [record["complete_test_deviance_explained"] for record in records]
-            for records in samples.values()
-        ]
-    )
-    table = {
-        "samples": list(samples),
-        "units": int(len(complete)),
-        "complete_d2_median": float(np.median(complete)),
-        "reliable_alpha": RELIABLE_ALPHA,
-        "blocks": {},
-    }
-    for group in DETAILED_GROUPS:
-        per_sample = []
-        for records in samples.values():
-            entries = [record["groups"][group] for record in records]
-            unique = np.asarray([entry[UNIQUE] for entry in entries])
-            # Does this unit gain or lose? Test its fold values against zero,
-            # one-sided in each direction.
-            gain_p, loss_p = (
-                np.asarray(
-                    [
-                        ttest_1samp(
-                            entry["folds"]["unique"], 0, alternative=side
-                        ).pvalue
-                        for entry in entries
-                    ]
-                )
-                for side in ("greater", "less")
-            )
-            per_sample.append(
-                {
-                    "columns": int(entries[0]["columns"]),
-                    "unique": unique,
-                    "maximal": np.asarray([entry[MAXIMAL] for entry in entries]),
-                    "reliable_fraction": float(np.mean(gain_p < RELIABLE_ALPHA)),
-                    "gain": gain_p < RELIABLE_ALPHA,
-                    "loss": loss_p < RELIABLE_ALPHA,
-                    "wilcoxon_p": float(wilcoxon(unique, alternative="greater").pvalue),
-                }
-            )
-        pooled_unique = np.concatenate([item["unique"] for item in per_sample])
-        share = float(np.median(pooled_unique)) / table["complete_d2_median"]
-        reliable = [item["reliable_fraction"] for item in per_sample]
-        table["blocks"][group] = {
-            "columns": [item["columns"] for item in per_sample],
-            "unique_median_by_sample": [
-                float(np.median(item["unique"])) for item in per_sample
-            ],
-            "maximal_median_by_sample": [
-                float(np.median(item["maximal"])) for item in per_sample
-            ],
-            "reliable_fraction_by_sample": reliable,
-            "gain_fraction": float(
-                np.mean(np.concatenate([item["gain"] for item in per_sample]))
-            ),
-            "loss_fraction": float(
-                np.mean(np.concatenate([item["loss"] for item in per_sample]))
-            ),
-            "wilcoxon_p_by_sample": [item["wilcoxon_p"] for item in per_sample],
-            "unique_median": float(np.median(pooled_unique)),
-            "unique_q25_q75": np.quantile(pooled_unique, [0.25, 0.75]).tolist(),
-            "maximal_median": float(
-                np.median(np.concatenate([item["maximal"] for item in per_sample]))
-            ),
-            "share_of_complete_d2": share,
-        }
-    return table
-
-
 def run_unique(
     windows: Path,
     design_path: Path,
@@ -477,16 +404,10 @@ def run_unique(
     )
 
     summary = _write_summary(records, output_dir)
-    from thesis.ephys.analyses.glm.figures import (
-        plot_deviance_explained,
-        plot_example_unit,
-    )
+    from thesis.ephys.analyses.glm.figures import plot_example_unit
     from thesis.ephys.analyses.glm.results import example_unit_id
 
-    figure_path = plot_deviance_explained(
-        {unit_set: records}, fit_dir / "deviance_explained"
-    )
-    print(json.dumps({**summary, "figure": str(figure_path)}, indent=2))
+    print(json.dumps(summary, indent=2))
     final_records = load_unit_records(checkpoints, "unit_*_final.json")
     plot_example_unit(
         windows, design_path, fit_dir, example_unit_id(records, final_records)

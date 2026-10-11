@@ -1,7 +1,7 @@
-"""Supplementary figure: one flash expands into 6 basis columns.
+"""Supplementary figure: one flash expands into the columns of its basis.
 
 Clarifies that the diagonal "gradient" in the flash design block is the basis
-tiling time, not model weight: each of the 6 columns is one raised-cosine bump
+tiling time, not model weight: each column is one raised-cosine bump
 peaking at a later lag. Design values are fixed inputs; the model's temporal
 weighting appears only after fitting, in the reconstructed kernel.
 
@@ -22,7 +22,7 @@ from thesis.plotting import FIGURE_STYLE
 
 
 def main() -> Path:
-    flash = task_temporal_bases()["visual_flash"]  # (151, 6)
+    flash = task_temporal_bases()["visual_flash"]  # (time bins, bases)
     times_ms = flash.basis_time * 1000
     basis = flash.basis
 
@@ -46,7 +46,8 @@ def main() -> Path:
         curves.set_xlabel("design value (basis height)")
         curves.set_ylabel("time from flash (ms)")
         curves.set_title(
-            "the 6 basis functions\n(each peaks at a different lag)", fontsize=9
+            f"the {basis.shape[1]} basis functions\n(each peaks at a different lag)",
+            fontsize=9,
         )
         curves.set_xlim(0, 1.12)
 
@@ -56,12 +57,14 @@ def main() -> Path:
             cmap="RdBu_r",
             vmin=-1,
             vmax=1,
-            extent=(0.5, 6.5, 150, 0),
+            extent=(0.5, basis.shape[1] + 0.5, 150, 0),
             interpolation="nearest",
         )
-        block.set_xticks(range(1, 7))
+        block.set_xticks(range(1, basis.shape[1] + 1))
         block.set_xlabel("column (basis index)")
-        block.set_title("the same thing as a\n6-column regressor", fontsize=9)
+        block.set_title(
+            f"the same thing as a\n{basis.shape[1]}-column regressor", fontsize=9
+        )
         bar = fig.colorbar(image, ax=block, fraction=0.06, pad=0.04)
         bar.set_label("design value (an input, not a fitted weight)", fontsize=8)
         for ax, letter in ((curves, "a"), (block, "b")):

@@ -134,11 +134,9 @@ change only the data source and the output directory. The unit-212 exclusion
 change it before you fit another session. `prepare` also needs exactly one local cam0 back-view
 (`BackStereoView`) video. `fit` writes
 named summaries under `all_fit_me/`. Restartable per-unit records stay under
-`all_fit_me/checkpoints/`. The same command writes the population summary
-(`summary.svg`) in `all_fit_me/`. Its panel d plots D² against bits/spike with
-the units grouped by firing rate. `unique` writes the
-kernel, model-design, and held-out prediction SVGs there, because these three
-figures show the example unit and its selection needs the `unique` results.
+`all_fit_me/checkpoints/`. `unique` writes the
+held-out prediction SVG there, because it shows the example unit and its
+selection needs the `unique` results.
 The example unit is unit 197 when it was fit (`EXAMPLE_UNIT_ID` in
 `results.py`; 55 spikes/s and a clear flash response in GRB006
 `20240821_121447`). For a fit without it, the example is the unit whose visual
@@ -209,15 +207,10 @@ across folds with its SEM. Following
 uv run glm unique --units all
 ```
 
-The same command writes `deviance_explained.svg` and the three example-unit
-figures in the selected fit directory (`all_fit_me/` or `sample_fit_me/`).
-`deviance_explained.svg` has five panels: (a) full-model D², (b) maximal and
-(c) unique ΔD² for each regressor, as box plots without unit points or outlier
-markers; (d) the median unique ΔD² of each regressor against its column count, on
-logarithmic axes; (e) the fraction of units for which the regressor gives unique
-ΔD² > 0 (one-sided t-test of the fold values against zero, p < 0.05), with a
-dotted line at the chance level of 0.05. Panel e shows, for each regressor, the
-fraction of units that gain, that lose, and that have no reliable change.
+The same command writes `figure_data.npz` and `predicted_spike_trains.svg`
+for the example unit in the selected fit directory (`all_fit_me/` or
+`sample_fit_me/`). `main_figure.py` draws the kernels, the example trial, the
+unique and maximal ΔD², and the population summary from these files.
 
 ## Kernel comparison
 
@@ -502,7 +495,7 @@ motion-energy PCs. Artifacts are in
   observed rate (52% with the in-port column). Its predicted rate before the
   first flash is too high (46 against 33 spikes/s).
 - Hold kernel: the median gain from 150 to 500 ms is 0.61, and it is below 1 in
-  89% of the units (`hold_gain.svg`).
+  89% of the units.
 
 | Regressor | Columns | Median unique ΔD² | Units with unique ΔD² > 0 |
 | --- | ---: | ---: | ---: |

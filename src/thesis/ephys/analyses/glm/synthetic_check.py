@@ -413,14 +413,10 @@ def main() -> None:
             )
 
     figure_dir = model.fit_dir("all")
-    for name in (
-        "summary",
-        "fitted_kernels",
-        "model_design",
-        "predicted_spike_trains",
-        "deviance_explained",
-    ):
-        check(f"figure {name}.svg written", (figure_dir / f"{name}.svg").exists())
+    check(
+        "figure predicted_spike_trains.svg written",
+        (figure_dir / "predicted_spike_trains.svg").exists(),
+    )
 
     print(
         json.dumps(

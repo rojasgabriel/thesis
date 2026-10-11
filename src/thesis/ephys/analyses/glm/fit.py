@@ -852,6 +852,3 @@ def refit_final(
     collect_records(
         "final full-data fit", _final_task, final_jobs, windows, design, workers
     )
-    from thesis.ephys.analyses.glm.figures import plot_fit
-
-    plot_fit(output_dir)

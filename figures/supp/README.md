@@ -12,5 +12,5 @@ uv run python figures/supp/flash_basis_columns.py
 
 - `regressor_overview` — every regressor group (flash, task events, motion-energy
   PC, spike history) with its temporal basis, window, coding, and alignment.
-- `flash_basis_columns` — one flash expands into 6 basis columns; the diagonal
+- `flash_basis_columns` — one flash expands into its 8 basis columns; the diagonal
   "gradient" is the basis tiling time, not model weight.
