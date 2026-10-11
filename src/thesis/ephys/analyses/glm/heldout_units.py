@@ -65,7 +65,7 @@ def summarize(root: Path) -> dict:
         ],
         "bits/spike": [item["cross_validated_bits_per_spike"] for item in final],
     }
-    if unique:
+    if len(unique) == len(final):  # `glm unique` is complete
         for group in DETAILED_GROUPS:
             measures[f"unique dD2, {group}"] = [
                 unique[int(item["unit_id"])]["groups"][group][UNIQUE] for item in final
