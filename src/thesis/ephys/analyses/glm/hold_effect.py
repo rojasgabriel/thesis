@@ -133,7 +133,11 @@ def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> 
     try:
         if not model.design.exists():
             dmat.prepare_common_design(model.windows, model.video, model.design)
-        if not (directory / "cross_validation_summary.json").exists():
+        # Each stage keeps its finished units, so a stopped fit goes on.
+        checkpoints = directory / "checkpoints"
+        if not list(checkpoints.glob("unit_*_final.json")) or len(
+            list(checkpoints.glob("unit_*_final.json"))
+        ) < len(list(checkpoints.glob("unit_*_validation.json"))):
             fit_models(model.windows, model.design, unit_set, directory)
             summary = json.loads((directory / "validation_summary.json").read_text())
             components = int(summary["selected_video_components"])
@@ -451,11 +455,12 @@ def main() -> None:
             if column == 0:
                 axis.set_ylabel("trial, sorted\nby hold length")
                 axis.text(
-                    exits[-1] + 15,
-                    len(exits),
+                    exits[0] - 15,
+                    0,
                     "center exit",
                     color=TASK,
-                    va="top",
+                    ha="right",
+                    va="bottom",
                     fontsize=6.5,
                 )
                 panel_axes.append(axis)
@@ -505,7 +510,7 @@ def main() -> None:
                 axis.tick_params(labelleft=False)
 
             kernel_axis = figure.add_subplot(
-                middle[column], sharey=panel_axes[1] if column else None
+                middle[column], sharey=panel_axes[-1] if column else None
             )
             kernel = hold if name == "flash" else after
             shown = (
