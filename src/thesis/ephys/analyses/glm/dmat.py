@@ -73,6 +73,10 @@ IN_PORT_COLUMN = True
 STATE_FROM_FIRST_FLASH = False
 # Time from that start to the start of the state column.
 STATE_DELAY_S = 0.0
+# Wide bases on the first flash over this window, set to zero from the center
+# exit on: the state can then change over the time in view (0 = off).
+STATE_SLOW_WINDOW_S = 0.0
+STATE_SLOW_BASES = 5
 # State column: the animal is in the center port. Units fire less there, with
 # the stimulus in view, than at a side port with the same motion energy. Without
 # this column, motion energy absorbs part of that time course.
@@ -265,8 +269,13 @@ def task_temporal_bases() -> dict[str, RaisedCosineBasis]:
             FLASH_SLOW_BASES, 0, max(FLASH_SLOW_WINDOW_S, 0.1) + BINWIDTH_S, BINWIDTH_S
         ),
         "flash_recovery": flash,
+        "state_slow": RaisedCosineBasis(
+            STATE_SLOW_BASES, 0, max(STATE_SLOW_WINDOW_S, 0.1) + BINWIDTH_S, BINWIDTH_S
+        ),
         "withdrawal": withdrawal,
     }
+    if not STATE_SLOW_WINDOW_S:
+        del bases["state_slow"]
     if not (FLASH_RECOVERY_TAU_S or FLASH_RECOVERY_LOG_CAP_S):
         del bases["flash_recovery"]
     if not FLASH_SLOW_WINDOW_S:
@@ -376,6 +385,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             f"centered 1 - exp(-gap / {FLASH_RECOVERY_TAU_S} s); first flash of a trial = 1",
         ),
         (
+            "state_slow",
+            np.asarray(alignments, dtype=float),
+            None,
+            "task",
+            "wide bases on the first flash, zero from the center exit on",
+        ),
+        (
             "withdrawal",
             trials["center_exit_s"].to_numpy(dtype=float),
             None,
@@ -415,11 +431,18 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
         if name == "flash_adaptation":
             manifest[-1]["adapt_levels_centered"] = adapt_levels
     design.build_matrix()
-    if not IN_PORT_COLUMN:
-        return design.X, manifest
-    # One state column with no temporal basis: the animal is in the center port.
     centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
     times = np.asarray(alignments, dtype=float)[:, None] + centers
+    before_exit = times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
+    values = np.array(design.X, dtype=float)
+    cursor = 0
+    for item in manifest:  # the slow state bases end at the center exit
+        if item["name"] == "state_slow":
+            values[:, cursor : cursor + item["columns"]] *= before_exit.ravel()[:, None]
+        cursor += item["columns"]
+    if not IN_PORT_COLUMN:
+        return values, manifest
+    # One state column with no temporal basis: the animal is in the center port.
     start = (
         np.asarray(alignments, dtype=float)
         if STATE_FROM_FIRST_FLASH
@@ -437,7 +460,7 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "coding": "1 from center entry to center exit, else 0",
         }
     )
-    return np.column_stack((design.X, in_port.ravel())), manifest
+    return np.column_stack((values, in_port.ravel())), manifest
 
 
 def spike_history_basis() -> RaisedCosineBasis:
