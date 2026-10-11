@@ -1,7 +1,8 @@
 # V1 GLM
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from six regressors: a common flash kernel, a flash-adaptation term, a state
+from six regressors: a common flash kernel, the flash kernel of a flash that
+follows another within 50 ms (the recent-flash term), a state
 column for the time in the center port, a causal post-withdrawal kernel (0 to
 100 ms),
 10 additive camera motion-energy PCs, and a strictly
@@ -69,8 +70,8 @@ drift, go cue, outcome, or punishment kernel.
 
 | Group | Representation | Columns |
 | --- | --- | ---: |
-| Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
-| Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
+| Common flash | Every modeled flash; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
+| Recent flash | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | In center port | 1 from center entry to center exit, else 0; no temporal basis | 1 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
@@ -358,11 +359,18 @@ the residual tests are in-sample):
   its fit directory. Use `--root` to run it on another design.
 - Session drift is small (median ΔD² 0.0015, shuffled trial order 0.0009), so
   there is no drift term.
-- Adaptation parameters: a grid of `ADAPT_U` (0.25, 0.5, 0.75) and
-  `ADAPT_TAU_RECOVER_S` (0.1 to 0.8 s) changes the mean validation D² by 3% at
-  most (0.0756 to 0.0779). The values stay at 0.5 and 0.2 s.
-  `uv run python -m thesis.ephys.analyses.glm.adaptation_grid` runs the grid on
-  the 20-unit sample and writes `adaptation_grid/adaptation_grid.svg`.
+- Flash kernel (`flash_kernel_grid`, 20 units, validation D²): 8 bases against
+  6 gives +1.6% (16 of 20 units, p = 0.0004); 10 against 8 gives nothing; a
+  250 ms window against 150 ms gives +0.8% (9 of 20, p = 0.84). The recent-flash
+  term adds 5.4% (16 of 20, p = 0.008), also with a 250 or 350 ms kernel.
+- Recent-flash term (`adaptation_grid`): a synaptic-depression resource in its
+  place predicts worse with a slow recovery, and its validation D² goes up to
+  the level of the recent-flash term as the recovery gets faster than the
+  shortest flash interval (40 ms). The best depression pair is +0.2% (10 of 20
+  units, p = 0.60). So the data give no support for a slow depletion over the
+  train, and the model uses the simpler term.
+- `uv run python -m thesis.ephys.analyses.glm.design_optimization` draws these
+  tests in one figure (`design_optimization.svg`) and writes its caption.
 - The suppression follows the time in the port, not the clock (raw rates, all
   units). In the 40 completed trials with a withdrawal 150 ms or more after the
   go cue, the rate from 50 to 150 ms after the cue is the hold rate (median

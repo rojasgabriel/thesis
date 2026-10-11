@@ -149,8 +149,11 @@ def unit_rates(frames: dict, units) -> dict[str, np.ndarray]:
     }
 
 
-def plot(data: dict, output: Path) -> tuple[Path, dict]:
-    """Draw the three panels and return the figure path and the statistics."""
+def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]:
+    """Draw the three panels and return the figure path and the statistics.
+
+    With `axes`, draw into them and do not label or save (for a combined figure).
+    """
     rate, error = data["rate"], data["error"]
     energy = data["group_energy"]
     center, side = rate[:, 0, 0], rate[:, 2, 0]
@@ -176,9 +179,11 @@ def plot(data: dict, output: Path) -> tuple[Path, dict]:
     }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1, 3, figsize=(7.4, 2.5), width_ratios=(1.5, 1, 1), layout="constrained"
-        )
+        figure = None
+        if axes is None:
+            figure, axes = plt.subplots(
+                1, 3, figsize=(7.4, 2.5), width_ratios=(1.5, 1, 1), layout="constrained"
+            )
         for index, (name, color) in enumerate(zip(STATES, STATE_COLORS, strict=True)):
             used = data["frames"][index] >= MIN_FRAMES
             low, median, high = np.nanpercentile(
@@ -250,6 +255,8 @@ def plot(data: dict, output: Path) -> tuple[Path, dict]:
             ha="center",
             va="bottom",
         )
+        if figure is None:
+            return None, summary
         label_panels(axes, -0.3, 1.14)
         return save_figure(figure, output), summary
 
@@ -272,6 +279,7 @@ def main() -> None:
         include_metrics=False,
     )
     data = unit_rates(frames, units.iloc[analysis_unit_indices(units, "all")])
+    np.savez(args.root / "port_vs_stillness.npz", **data)
     figure, summary = plot(data, args.root / "port_vs_stillness")
     (args.root / "port_vs_stillness.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps({**summary, "figure": str(figure)}, indent=2))

@@ -17,9 +17,12 @@ fixed 20-unit sample. The sampling unit is the unit.
 - Panel a: mean validation D² over units against the number of bases, one line
   for each window; solid with the second flash term, dashed without it. The
   filled point is the design in `dmat.py`.
-- Panel b: for the designs with `PANEL_B_BASES` bases, the validation D² of
-  each unit minus its value with the design in `dmat.py` (small points) and the
-  median over units (large points).
+- Panel b: three paired comparisons with the design in `dmat.py`: one fewer
+  step of bases, one longer window, and no second flash term. Each point is the
+  difference in validation D² of one unit; the black line is the median. The
+  axis shows `PANEL_B_LIMIT` in each direction. A unit outside that range is
+  drawn as a triangle at the edge; the median and the count above each group
+  use all units.
 
 More bases can only fit the training trials better, so the rule is the smallest
 kernel after which the validation D² is flat, not the maximum.
@@ -54,7 +57,8 @@ from thesis.plotting import (
 
 BASES = (6, 8, 10, 12)
 WINDOWS_S = (0.15, 0.25, 0.35)
-PANEL_B_BASES = 10
+# Panel b shows differences inside this range; see the module docstring.
+PANEL_B_LIMIT = 0.004
 
 
 def run_grid(source: Path, output: Path) -> list[dict]:
@@ -91,8 +95,11 @@ def run_grid(source: Path, output: Path) -> list[dict]:
     return rows
 
 
-def plot_grid(rows: list[dict], output: Path) -> Path:
-    """Plot mean validation D² and each unit's change from the design in use."""
+def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
+    """Plot mean validation D² and three paired comparisons with the design in use.
+
+    With `axes`, draw into them and do not label or save (for a combined figure).
+    """
     scores = {
         (row["bases"], row["window"], row["second"]): row["units"] for row in rows
     }
@@ -107,11 +114,12 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
     rng = np.random.default_rng(0)
 
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1, 2, figsize=(7.4, 3.1), layout="constrained", width_ratios=(1.25, 1)
-        )
-        position = 0
-        ticks = []
+        figure = None
+        if axes is None:
+            figure, axes = plt.subplots(
+                1, 2, figsize=(7.4, 3.1), layout="constrained", width_ratios=(1.25, 1)
+            )
+        ends = {}
         for window in WINDOWS_S:
             for second in (True, False):
                 means = [values[(bases, window, second)].mean() for bases in BASES]
@@ -126,55 +134,98 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
                     alpha=shades[window],
                 )
                 if second:
-                    axes[0].text(
-                        BASES[-1] + 0.3,
-                        means[-1],
-                        f"{1000 * window:.0f} ms",
-                        color=color,
-                        alpha=shades[window],
-                        va="center",
-                    )
-                key = (PANEL_B_BASES, window, second)
-                change = values[key] - values[current]
-                axes[1].scatter(
-                    position + rng.uniform(-0.12, 0.12, len(change)),
-                    change,
-                    s=5,
-                    linewidths=0,
-                    color=color,
-                    alpha=0.5 * shades[window],
-                )
-                axes[1].scatter(
-                    position,
-                    np.median(change),
-                    s=34,
-                    color=color,
-                    alpha=shades[window],
-                    marker="o" if second else "D",
-                    edgecolors="white",
-                    zorder=3,
-                )
-                ticks.append(f"{1000 * window:.0f}\n{'with' if second else 'without'}")
-                position += 1
+                    ends[window] = means[-1]
+        # Label each window at the end of its solid line; keep the labels apart.
+        gap = 0.09 * np.ptp(axes[0].get_ylim())
+        height = -np.inf
+        for window in sorted(ends, key=ends.get):
+            height = max(ends[window], height + gap)
+            axes[0].text(
+                BASES[-1] + 0.3,
+                height,
+                f"{1000 * window:.0f} ms",
+                color=color,
+                alpha=shades[window],
+                va="center",
+            )
         axes[0].scatter(
             current[0], values[current].mean(), color="black", s=60, zorder=3
+        )
+        axes[0].annotate(
+            "design in use",
+            (current[0], values[current].mean()),
+            xytext=(6, -12),
+            textcoords="offset points",
         )
         axes[0].set_xticks(BASES)
         axes[0].set_xlim(BASES[0] - 0.5, BASES[-1] + 2.2)
         axes[0].set_xlabel("raised cosines in the flash kernel")
-        axes[0].set_ylabel(r"mean validation deviance explained ($D^2$)")
+        axes[0].set_ylabel(r"mean validation $D^2$")
         axes[0].text(
-            0.03,
-            0.52,
-            "solid: with the second flash term\ndashed: without it",
+            0,
+            1.02,
+            "solid: with the recent-flash term; dashed: without it",
             transform=axes[0].transAxes,
-            va="center",
+            va="bottom",
+            fontsize=7,
         )
+
+        bases, window, second = current
+        fewer = BASES[max(BASES.index(bases) - 1, 0)]
+        longer = WINDOWS_S[min(WINDOWS_S.index(window) + 1, len(WINDOWS_S) - 1)]
+        comparisons = (
+            (f"{bases} bases\nminus {fewer}", current, (fewer, window, second)),
+            (
+                f"{1000 * longer:.0f} ms\nminus {1000 * window:.0f}",
+                (bases, longer, second),
+                current,
+            ),
+            (
+                "recent-flash term:\nwith minus without",
+                (bases, window, True),
+                (bases, window, False),
+            ),
+        )
+        for position, (_, first, other) in enumerate(comparisons):
+            change = values[first] - values[other]
+            inside = np.abs(change) <= PANEL_B_LIMIT
+            x = position + rng.uniform(-0.15, 0.15, len(change))
+            axes[1].scatter(
+                x[inside], change[inside], s=9, linewidths=0, color=color, alpha=0.6
+            )
+            axes[1].scatter(  # a unit outside the axis range, drawn at its edge
+                x[~inside],
+                np.sign(change[~inside]) * PANEL_B_LIMIT,
+                s=14,
+                marker="^",
+                color=color,
+                alpha=0.6,
+            )
+            axes[1].plot(
+                [position - 0.28, position + 0.28],
+                [np.median(change)] * 2,
+                color="black",
+                linewidth=1.6,
+            )
+            axes[1].text(
+                position,
+                1.01,
+                f"{np.sum(change > 0)} of {len(change)}\nunits higher",
+                transform=axes[1].get_xaxis_transform(),
+                ha="center",
+                va="bottom",
+                fontsize=7,
+            )
         axes[1].axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-        axes[1].set_xticks(range(position), ticks, fontsize=7)
-        axes[1].set_xlabel(f"window (ms), second flash term; {PANEL_B_BASES} bases")
-        axes[1].set_ylabel(r"validation $D^2$ minus the design in use")
-        label_panels(axes, -0.2)
+        axes[1].set_ylim(-1.05 * PANEL_B_LIMIT, 1.05 * PANEL_B_LIMIT)
+        axes[1].set_xlim(-0.6, len(comparisons) - 0.4)
+        axes[1].set_xticks(
+            range(len(comparisons)), [item[0] for item in comparisons], fontsize=7
+        )
+        axes[1].set_ylabel(r"difference in validation $D^2$")
+        if figure is None:
+            return None
+        label_panels(axes, -0.2, 1.12)
         return save_figure(figure, output)
 
 

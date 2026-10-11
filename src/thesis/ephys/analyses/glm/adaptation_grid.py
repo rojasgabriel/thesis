@@ -18,7 +18,7 @@ fixed 20-unit sample (`--units sample`), because the grid needs one design and
 one fit set for each pair. The sampling unit is the unit.
 
 - Panel a: mean validation D² over units against the recovery time constant,
-  one line for each fraction used. The black line is the term in use.
+  one line for each fraction of the resource used per flash. The black line is the term in use.
 - Panel b: for each pair, the validation D² of each unit minus its value with
   the term in use (small points), and the median over units (large points).
 
@@ -151,8 +151,11 @@ def run_grid(source: Path, output: Path) -> list[dict]:
     return rows
 
 
-def plot_grid(rows: list[dict], output: Path) -> Path:
-    """Plot mean validation D² and each unit's change from the term in use."""
+def plot_grid(rows: list[dict], output: Path | None, axes=None) -> Path | None:
+    """Plot mean validation D² and each unit's change from the term in use.
+
+    With `axes`, draw into them and do not label or save (for a combined figure).
+    """
     scores = {(row["u"], row["tau"]): row["units"] for row in rows}
     current = (None, None)
     unit_ids = sorted(scores[current])
@@ -169,7 +172,9 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
     rng = np.random.default_rng(0)
 
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(1, 2, figsize=(7.4, 3.1))
+        figure = None
+        if axes is None:
+            figure, axes = plt.subplots(1, 2, figsize=(7.4, 3.1))
         for index, u in enumerate(U_VALUES):
             style = {"color": CONCEPT_COLORS["visual"], "alpha": shades[u]}
             means = [values[(u, tau)].mean() for tau in TAU_VALUES_S]
@@ -177,7 +182,7 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
             axes[0].text(
                 positions[-1] + 0.25,
                 means[-1],
-                f"{u:.0%} used per flash",
+                f"{u:.0%} used",
                 va="center",
                 **style,
             )
@@ -202,19 +207,21 @@ def plot_grid(rows: list[dict], output: Path) -> Path:
                 )
         axes[0].axhline(values[current].mean(), color="black", linewidth=1.2)
         axes[0].text(
-            positions[-1] + 1.9,
+            positions[-1] + 1.6,
             values[current].mean(),
             "term in use:\nflash in the last 50 ms",
             ha="right",
             va="bottom",
         )
-        axes[0].set_xlim(-0.3, positions[-1] + 1.9)
-        axes[0].set_ylabel(r"mean validation deviance explained ($D^2$)")
+        axes[0].set_xlim(-0.3, positions[-1] + 1.6)
+        axes[0].set_ylabel(r"mean validation $D^2$")
         axes[1].axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         axes[1].set_ylabel(r"validation $D^2$ minus the term in use")
         for axis in axes:
             axis.set_xticks(positions, [f"{1000 * tau:.0f}" for tau in TAU_VALUES_S])
             axis.set_xlabel("recovery time constant (ms)")
+        if figure is None:
+            return None
         label_panels(axes, -0.2)
         figure.tight_layout(w_pad=2.0)
         return save_figure(figure, output)

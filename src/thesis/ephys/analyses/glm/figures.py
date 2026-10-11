@@ -419,6 +419,14 @@ def plot_population_summary(
             s=75,
             zorder=3,
         )
+        axes[0].annotate(
+            "in use",
+            (selected_position, validation_deviance[selected_position]),
+            xytext=(-8, -4),
+            textcoords="offset points",
+            ha="right",
+            va="top",
+        )
         axes[0].set_xticks(positions, component_counts)
         axes[0].set_xlabel("candidate motion-energy PCs")
         axes[0].set_ylabel(r"mean validation deviance explained ($D^2$)")

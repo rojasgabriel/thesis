@@ -262,8 +262,11 @@ def _band(axis, x, values, color, label, label_at=-1, dy=0.0) -> None:
         )
 
 
-def plot(data: dict, output: Path) -> tuple[Path, dict]:
-    """Draw the four panels; return the figure path and the summary statistics."""
+def plot(data: dict, output: Path | None, axes=None) -> tuple[Path | None, dict]:
+    """Draw the four panels; return the figure path and the summary statistics.
+
+    With `axes`, draw into them and do not label or save (for a combined figure).
+    """
     curves, checks = data["curves"], data["checks"]
     names = [key for key in checks[0] if key != "unit_id" and "shuffle" not in key]
     summary = {"units": len(checks)}
@@ -281,8 +284,10 @@ def plot(data: dict, output: Path) -> tuple[Path, dict]:
     rng = np.random.default_rng(0)
 
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.4), layout="constrained")
-        axes = axes.ravel()
+        figure = None
+        if axes is None:
+            figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.4), layout="constrained")
+            axes = axes.ravel()
         _band(axes[0], np.arange(1, SESSION_BINS + 1), curves["session"], "black", "")
         axes[0].set_xlabel("trial number (decile of the session)")
         x = centers(ONSET_EDGES_S)
@@ -335,7 +340,12 @@ def plot(data: dict, output: Path) -> tuple[Path, dict]:
         axes[3].set_ylim(bottom=FLOOR)
         axes[3].set_xticks(
             range(len(names)),
-            [name.replace(", ", ",\n").replace(" ", "\n", 1) for name in names],
+            [
+                name.replace("withdrawal", "exit")
+                .replace(", ", ",\n")
+                .replace(" ", "\n", 1)
+                for name in names
+            ],
             fontsize=7,
         )
         axes[3].set_ylabel(r"$\Delta D^2$ of the missing term (in-sample)")
@@ -348,6 +358,8 @@ def plot(data: dict, output: Path) -> tuple[Path, dict]:
             transform=axes[3].transAxes,
             va="bottom",
         )
+        if figure is None:
+            return None, summary
         label_panels(axes, -0.16)
         return save_figure(figure, output), summary
 
@@ -360,8 +372,11 @@ def main() -> None:
     fit_dir = cli.PoissonGLM(root=args.root).fit_dir(args.units)
     data = run_checks(args.root, args.units)
     figure, summary = plot(data, fit_dir / "residual_checks")
+    curves = {key: value.tolist() for key, value in data["curves"].items()}
     (fit_dir / "residual_checks.json").write_text(
-        json.dumps({"summary": summary, "units": data["checks"]}, indent=1)
+        json.dumps(
+            {"summary": summary, "units": data["checks"], "curves": curves}, indent=1
+        )
     )
     print(json.dumps({**summary, "figure": str(figure)}, indent=2))
 
