@@ -280,9 +280,9 @@ def main() -> None:
             return [figure.add_subplot(cell) for cell in grid]
 
         # One row for each group of regressors: its bases, then its tests.
-        flash_basis, a, b, c = row(0.96, 0.77, (1.1, 1, 0.8, 1.5), wspace=0.75)
+        flash_basis, a, b, c = row(0.96, 0.77, (0.8, 0.95, 0.9, 1.7), wspace=0.9)
         hold_basis, d, exit_basis, e = row(
-            0.635, 0.445, (1.1, 1.9, 0.8, 1.1), wspace=0.6
+            0.635, 0.445, (0.8, 2.3, 0.6, 1.25), wspace=0.72
         )
         f, g, history_basis = row(0.295, 0.105, (1.6, 1, 1.0), wspace=0.5)
         task_bases = dmat.task_temporal_bases()
@@ -323,14 +323,14 @@ def main() -> None:
             a,
             {count: flash[(count, window, True)] for count in base_counts},
             VISUAL,
-            "raised cosines in the flash kernel",
+            "bases in the flash kernel",
             selected=bases,
         )
         stats["flash window"] = _plot_choice(
             b,
             {f"{1000 * value:.0f}": flash[(bases, value, True)] for value in windows},
             VISUAL,
-            "length of the flash kernel (ms)",
+            "flash kernel length (ms)",
             selected=f"{1000 * window:.0f}",
         )
         second = {
@@ -341,7 +341,8 @@ def main() -> None:
         stats["adaptation term"] = _plot_choice(
             c, second, VISUAL, "adaptation term", selected="recent\nflash", line=False
         )
-        c.tick_params(axis="x", labelsize=6.5)
+        c.tick_params(axis="x", labelsize=6)
+        b.tick_params(axis="x", labelsize=6.5)
         stats["stimulus during hold"] = _plot_choice(
             d,
             hold,
@@ -350,7 +351,7 @@ def main() -> None:
             selected=hold_grid.IN_USE,
             line=False,
         )
-        d.tick_params(axis="x", labelsize=7)
+        d.tick_params(axis="x", labelsize=6)
         stats["withdrawal"] = _plot_choice(
             e,
             kernel,
@@ -359,7 +360,7 @@ def main() -> None:
             selected=withdrawal_grid.IN_USE,
             line=False,
         )
-        e.tick_params(axis="x", labelsize=7)
+        e.tick_params(axis="x", labelsize=6)
         stats["motion-energy PCs"] = _plot_choice(
             f,
             pcs,
