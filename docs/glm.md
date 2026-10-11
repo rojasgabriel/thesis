@@ -408,6 +408,14 @@ exit (`hold` in `dmat.py`).
 - The window (950 ms) must be longer than the longest hold, because no step
   goes with the kernel; `build_task_design` stops if it is not (longest hold
   here: 941 ms). After about 650 ms fewer than 10% of the trials give data.
+- The suppression ends at the center exit, so it is not adaptation to the
+  flashes alone (20 units, tests removed from the code). A kernel that goes on
+  to the response entry predicts worse (−1.6%, better in 4 of 20 units,
+  p = 0.008). With a column that is 1 from the center exit to the response
+  entry, the gain relative to the time before the first flash is 0.70 in the
+  hold (150 to 500 ms) and 1.17 after the exit (higher after the exit in 18 of
+  20 units, p = 0.001); that column does not reliably improve D² (+1.4%,
+  p = 0.23) and is not in the model.
 - The kernel multiplies the rate (it adds to the log rate). It has no
   interaction with the flash kernel. In raw rates, the ratio of the flash
   response to the rate before the flash is the same in the hold and after the
