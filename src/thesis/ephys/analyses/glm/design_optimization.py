@@ -107,8 +107,9 @@ that is 1 while the animal is in the center port, which is the reference. The
 short kernels without the port column predict worse; the ±300 ms kernel does
 not predict better ({p_d}). **e**, What the port column describes: observed firing rate (black)
 and the rate that the final design predicts (purple), against time from the
-first flash (mean and SEM over {sample_units} units). Each rate is divided by the mean
-rate of that unit, so 1 is the average rate of the unit. The rate is lower
+first flash (mean and SEM over {sample_units} units). The normalized firing rate
+is the rate divided by the mean rate of that unit, so 1 is the average rate of
+the unit. The rate is lower
 while the animal is in the center port (shaded: median time in the port).
 **f**, The lower rate is not because the animal is still: firing rate against
 the motion energy of the video frame, in five groups of 20 percentiles, in the
@@ -235,7 +236,7 @@ def _plot_rates(axis, residual: dict) -> None:
     axis.text(1000, 0.3 * top, "observed", color="black", ha="right", va="top")
     axis.text(1000, 0.18 * top, "predicted", color=MODEL_COLOR, ha="right", va="top")
     axis.set_xlabel("time from first flash (ms)")
-    axis.set_ylabel("rate / mean rate of the unit")
+    axis.set_ylabel("normalized firing rate")
 
 
 def _motion_control_scores(records: list[dict]) -> dict:
@@ -362,7 +363,7 @@ def main() -> None:
         d.tick_params(axis="x", labelsize=7)
         _plot_rates(e, residual)
         port_vs_stillness.plot_rates(f, port, states=(0, 2))
-        f.set_ylabel("rate / mean rate of the unit")
+        f.set_ylabel("normalized firing rate")
         f.set_xlabel("motion energy (percentile)")
         stats["g motion-energy PCs"] = _plot_choice(
             g,

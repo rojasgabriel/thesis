@@ -207,7 +207,7 @@ def plot_rates(axis, data: dict, states=(0, 1, 2)) -> None:
     axis.set_xlim(-0.3, GROUPS - 0.8)
     axis.set_ylim(bottom=0)
     axis.set_xlabel("motion energy of the frame (percentile)")
-    axis.set_ylabel("rate / mean rate of the unit")
+    axis.set_ylabel("normalized firing rate")
 
 
 def main() -> None:
