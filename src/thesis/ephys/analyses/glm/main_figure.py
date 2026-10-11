@@ -31,7 +31,7 @@ default) of one session, after `glm fit` and `glm unique`.
   (filled; the D² that the model loses when that regressor is shuffled in time
   within each trial) and the maximal ΔD² (open; the D² of that regressor alone
   minus the D² with every regressor shuffled); median and interquartile range
-  over units. The axis is logarithmic and starts at `FLOOR`; a smaller value is
+  over units. The top row is the D² of the full model. The axis is logarithmic and starts at `FLOOR`; a smaller value is
   drawn at the floor. The number at the right is the fraction of units whose
   unique ΔD² is above zero (one-sided t-test of the fold values,
   p < `RELIABLE_ALPHA`; a regressor with no effect gives about 5%).
@@ -258,17 +258,25 @@ def _plot_unique(axis, records: list[dict]) -> None:
             va="center",
             transform=axis.get_yaxis_transform(),
         )
+    # The D² of the full model, on the same axis, above the regressors.
+    full = np.asarray([item["complete_test_deviance_explained"] for item in records])
+    low, median, high = np.percentile(full, [25, 50, 75])
+    axis.plot([low, high], [len(order)] * 2, color="black", linewidth=1.2)
+    axis.scatter(median, len(order), s=22, zorder=3, color="black")
     axis.text(
         1.04,
-        len(order) - 0.35,
+        len(order) + 0.65,
         "units with\nunique " + r"$\Delta D^2$ > 0",
         transform=axis.get_yaxis_transform(),
         fontsize=6.5,
     )
     axis.set_xscale("log")
-    axis.set_xlim(FLOOR, 1e-1)
-    axis.set_yticks(range(len(order)), [REGRESSORS[name][0] for name in order])
-    for tick, name in zip(axis.get_yticklabels(), order, strict=True):
+    axis.set_xlim(FLOOR, 3e-1)
+    axis.set_yticks(
+        range(len(order) + 1),
+        [*(REGRESSORS[name][0] for name in order), r"full model ($D^2$)"],
+    )
+    for tick, name in zip(axis.get_yticklabels(), order, strict=False):
         tick.set_color(REGRESSORS[name][1])
     axis.set_xlabel(r"$\Delta D^2$" + "\n(filled: unique; open: maximal)")
 
