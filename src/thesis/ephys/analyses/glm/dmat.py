@@ -106,7 +106,7 @@ FLASH_SLOT_S = 0.04
 # with `DRIFT_KNOTS` knots, for `drift_grid.py`.
 SESSION_DRIFT = False
 DRIFT = "session_drift"
-DRIFT_BASES = 8
+DRIFT_BASES = 4
 DRIFT_SPLINE = False
 DRIFT_KNOTS = 6
 # Camera views of cam0 that the motion energy can come from: the back view of

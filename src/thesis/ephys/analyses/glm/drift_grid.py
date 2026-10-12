@@ -34,7 +34,7 @@ from thesis.ephys.analyses.glm.adaptation_grid import score_design
 
 DESIGNS = {
     "none": {},
-    "4": {"SESSION_DRIFT": True, "DRIFT_BASES": 4},
+    "4": {"SESSION_DRIFT": True, "DRIFT_BASES": 4},  # the form in `dmat.py`
     "8": {"SESSION_DRIFT": True, "DRIFT_BASES": 8},
     "12": {"SESSION_DRIFT": True, "DRIFT_BASES": 12},
     "spline": {"SESSION_DRIFT": True, "DRIFT_SPLINE": True},

@@ -536,6 +536,27 @@ response to the right port and −1 for the left port from the center exit on
   term and the flash × fixation term have a case to be in the model. Not
   decided.
 
+### Session drift
+
+Tests of 2026-10-12. A term for a slow change of the rate over the session
+(`SESSION_DRIFT` in `dmat.py`, off in the model): smooth bumps over the time
+of the trial in the session, constant inside a trial. It is not a variable of
+the task; its use is to keep a slow change out of the other kernels. The
+within-trial shuffle of the unique-deviance step cannot test it, so
+`term_test.py` compares the design with and without it on the same folds.
+
+- All 167 units (`term_test_session_drift.json`, cubic spline with 7 columns):
+  cross-validated D² +0.0002 in the median (0.2% of the model) and +0.0009 in
+  the mean (1.2%), Wilcoxon p = 0.0009. 13% of the units predict reliably
+  better with the term and 5% worse; validation D² is not better (84 of 167
+  units, p = 0.33). The gain comes from few units: 11 gain more than 0.005.
+- Form (`drift_grid.py`, 20 selection units): 4, 8, and 12 raised cosines and
+  the cubic spline do not differ reliably (8 against 4, p = 0.96; 12 against
+  8, p = 0.78; spline against 8, p = 0.19). So the form is the simplest one:
+  4 raised cosines (3 columns; the last one is left out because the model has
+  an intercept). Raised cosines, and not the spline, so that the model has one
+  kind of basis.
+
 ### What causes the fixation effect
 
 Tests of 2026-10-11 with no model (`matched_flashes.py`, 167 units, results in
