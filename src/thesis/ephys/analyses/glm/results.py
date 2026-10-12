@@ -25,6 +25,7 @@ from thesis.ephys.analyses.glm.dmat import (
     _valid_bin_mask,
     build_unit_history,
     flash_events,
+    flash_recent,
     spike_history_basis,
     task_temporal_bases,
     training_zscore,
@@ -163,6 +164,81 @@ def flash_condition_display(
         display[name] = (times, values)
     remaining = [name for name in task_names if name not in flash_blocks]
     return display, [*FLASH_CONDITIONS, *remaining]
+
+
+# Flashes that the main figure compares, by the period of the trial.
+FLASH_CONTEXTS = ("first", "last_in_fixation", "first_after_exit")
+MIN_CONTEXT_FRACTION = 0.5
+
+
+def flash_context_kernels(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    adapt_levels: dict[str, float],
+    trials,
+) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, dict]]:
+    """Return what the model adds to the log rate after a flash, by trial period.
+
+    Three flashes of each trial: the first flash, the last flash before the
+    center exit (not the first flash), and the first flash after the center
+    exit (before the response entry). The value is the flash kernel of that
+    flash (common kernel plus its adaptation level) plus the fixation and
+    withdrawal kernels at that time, as a mean over trials. Other flashes are
+    not in the sum. Zero is the time with no flash and no task term (after the
+    withdrawal kernel). A lag is kept while `MIN_CONTEXT_FRACTION` of the
+    trials have not reached the response port.
+    """
+    lags, common = kernels[FLASH_COMMON]
+    adapt = kernels[FLASH_ADAPT][1]
+    hold_times, hold_values = kernels[HOLD]
+    exit_times, exit_values = kernels["withdrawal"]
+    rows = {name: [] for name in FLASH_CONTEXTS}
+    recent = {name: [] for name in FLASH_CONTEXTS}
+    for flashes, entry, leave, response in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["center_exit_s"],
+        trials["response_port_entry_s"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        flashes = flashes[(flashes >= entry) & (flashes <= response)]
+        follows = flash_recent(flashes)
+        in_fixation = np.flatnonzero(flashes < leave)
+        after_exit = np.flatnonzero(flashes >= leave)
+        chosen = {
+            "first": 0,
+            "last_in_fixation": in_fixation[-1] if len(in_fixation) > 1 else None,
+            "first_after_exit": after_exit[0] if len(after_exit) else None,
+        }
+        for name, index in chosen.items():
+            if index is None:
+                continue
+            level = adapt_levels["repeat" if follows[index] else "isolated"]
+            times = 1000 * (flashes[index] - flashes[0]) + lags  # from first flash
+            from_exit = times - 1000 * (leave - flashes[0])
+            values = (
+                common
+                + level * adapt
+                + np.where(
+                    from_exit < 0,
+                    np.interp(times, hold_times, hold_values, left=0, right=0),
+                    0,
+                )
+                + np.interp(from_exit, exit_times, exit_values, left=0, right=0)
+            )
+            values[times >= 1000 * (response - flashes[0])] = np.nan
+            rows[name].append(values)
+            recent[name].append(follows[index])
+    curves, counts = {}, {}
+    for name in FLASH_CONTEXTS:
+        stack = np.asarray(rows[name])
+        enough = np.isfinite(stack).mean(0) >= MIN_CONTEXT_FRACTION
+        curves[name] = np.where(enough, np.nanmean(stack, 0), np.nan)
+        counts[name] = {
+            "trials": len(stack),
+            "fraction_after_a_flash": float(np.mean(recent[name])),
+        }
+    return lags, curves, counts
 
 
 def _select_count_typical_trial(observed: np.ndarray) -> int:
@@ -400,6 +476,12 @@ def write_figure_data(
         arrays[f"contrib__{name}"] = values
     for name, values in events.items():
         arrays[f"event__{name}"] = values
+    context_lags, context_curves, context_counts = flash_context_kernels(
+        kernels, adapt_levels, trials
+    )
+    arrays["context_lags"] = context_lags
+    for name, values in context_curves.items():
+        arrays[f"context__{name}"] = values
     kernel_keys = list(display_kernels)
     for name, (kernel_times, kernel_values) in display_kernels.items():
         arrays[f"kern_t__{name}"] = kernel_times
@@ -419,6 +501,7 @@ def write_figure_data(
         "model_design_valid_bins": int(displayed_rows.sum()),
         "display_task_names": list(display_task_names),
         "kernel_keys": kernel_keys,
+        "flash_contexts": context_counts,
         "task_manifest": design_metadata["task_manifest"],
     }
 
