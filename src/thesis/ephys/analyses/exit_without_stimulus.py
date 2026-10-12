@@ -25,8 +25,17 @@ model. The comparison is paired over units.
   units share the trials, so the tests do not show that a result holds for
   other trials.
 
-The script writes `exit_without_stimulus.json` in
-`figures/exit_without_stimulus/<subject>_<session>/`.
+- Panel a (observation): the rate against time from the center exit, in
+  completed trials (the stimulus goes on) and in early withdrawals (the
+  stimulus stops). Mean and SEM over units.
+- Panel b (the paired comparison): the rate of each unit after the exit
+  (`AFTER_MS`) in completed trials against early withdrawals. Error bars are
+  the SD over `BOOTSTRAPS` resamples of the trials, in both directions. A unit
+  with a rate of zero in a condition is not on the logarithmic axes; the
+  number of those units is in the output.
+
+The script writes `exit_without_stimulus.svg` and `exit_without_stimulus.json`
+in `figures/exit_without_stimulus/<subject>_<session>/`.
 
     uv run python -m thesis.ephys.analyses.exit_without_stimulus
 """
@@ -37,16 +46,35 @@ import argparse
 import json
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import wilcoxon
+from scipy.stats import sem, wilcoxon
 
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
+from thesis.plotting import (
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    REFERENCE_COLOR,
+    label_panels,
+    save_figure,
+)
 
 BIN_S = 0.05
 WINDOW_S = (-0.3, 0.5)
 BEFORE_MS = (-200, 0)
 AFTER_MS = (100, 400)
+BOOTSTRAPS = 200
+SEED = 0
+# One color for one concept: blue while the stimulus is on.
+COLORS = {"completed": CONCEPT_COLORS["visual"], "early withdrawal": "0.35"}
+LABELS = {
+    "completed": "completed trial:\nthe stimulus goes on",
+    "early withdrawal": "early withdrawal:\nthe stimulus stops",
+}
 
 
 def _finite(values) -> np.ndarray:
@@ -110,6 +138,9 @@ def main() -> None:
     centers = 1000 * (edges[:-1] + edges[1:]) / 2
     first_flashes = np.concatenate([values[:, 0] for values in events.values()])
     rates = {name: [] for name in events}
+    spread = {name: [] for name in events}
+    rng = np.random.default_rng(SEED)
+    window = np.asarray(AFTER_MS) / 1000
     for spikes in units["spike_times_s"]:
         spikes = np.asarray(spikes, dtype=float)
         scale = _rate(spikes, first_flashes, edges).mean()
@@ -117,7 +148,14 @@ def main() -> None:
             continue
         for name, values in events.items():
             rates[name].append(_rate(spikes, values[:, 1], edges) / scale)
+            # SD of the rate after the exit over resamples of the trials.
+            counts = np.diff(
+                np.searchsorted(spikes, values[:, 1][:, None] + window), axis=1
+            )[:, 0]
+            draws = rng.integers(len(counts), size=(BOOTSTRAPS, len(counts)))
+            spread[name].append(counts[draws].mean(1).std() / np.ptp(window) / scale)
     rates = {name: np.asarray(values) for name, values in rates.items()}
+    spread = {name: np.asarray(values) for name, values in spread.items()}
     before = (centers >= BEFORE_MS[0]) & (centers < BEFORE_MS[1])
     after = (centers >= AFTER_MS[0]) & (centers < AFTER_MS[1])
     level = {
@@ -145,8 +183,74 @@ def main() -> None:
         stats[f"early withdrawal / completed, {period} exit"] = _paired(
             level["completed"][index], level["early withdrawal"][index]
         )
-    output = args.out / f"{args.subject}_{args.session}" / "exit_without_stimulus.json"
-    output.parent.mkdir(parents=True, exist_ok=True)
+    x, y = level["completed"][1], level["early withdrawal"][1]
+    shown = (x > 0) & (y > 0)
+    stats["units_not_on_the_axes_of_panel_b"] = int((~shown).sum())
+    folder = args.out / f"{args.subject}_{args.session}"
+    with plt.rc_context(FIGURE_STYLE):
+        figure, (trace, paired) = plt.subplots(
+            1, 2, figsize=(6.6, 2.7), gridspec_kw={"width_ratios": (1.5, 1)}
+        )
+        for name, values in rates.items():
+            mean, error = values.mean(0), sem(values, axis=0)
+            trace.plot(centers, mean, color=COLORS[name])
+            trace.fill_between(
+                centers,
+                mean - error,
+                mean + error,
+                color=COLORS[name],
+                alpha=0.25,
+                lw=0,
+            )
+        trace.text(
+            0.02,
+            0.98,
+            LABELS["completed"],
+            color=COLORS["completed"],
+            transform=trace.transAxes,
+            va="top",
+        )
+        trace.text(
+            0.02,
+            0.72,
+            LABELS["early withdrawal"],
+            color=COLORS["early withdrawal"],
+            transform=trace.transAxes,
+            va="top",
+        )
+        trace.axvline(0, color=REFERENCE_COLOR, linewidth=0.8)
+        trace.set_ylim(bottom=0)
+        trace.set_xlabel("time from center exit (ms)")
+        trace.set_ylabel("normalized firing rate")
+        paired.errorbar(
+            x[shown],
+            y[shown],
+            xerr=spread["completed"][shown],
+            yerr=spread["early withdrawal"][shown],
+            fmt="o",
+            color="black",
+            markersize=2.5,
+            elinewidth=0.5,
+            alpha=0.6,
+        )
+        limits = (
+            0.7 * min(x[shown].min(), y[shown].min()),
+            1.4 * max(x[shown].max(), y[shown].max()),
+        )
+        paired.plot(
+            limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
+        )
+        paired.set_xscale("log")
+        paired.set_yscale("log")
+        paired.set_xlim(limits)
+        paired.set_ylim(limits)
+        paired.set_aspect("equal")
+        paired.set_xlabel("rate after exit,\nthe stimulus goes on")
+        paired.set_ylabel("rate after exit,\nthe stimulus stops")
+        figure.tight_layout()
+        label_panels((trace, paired), x=-0.22)
+        print(save_figure(figure, folder / "exit_without_stimulus"))
+    output = folder / "exit_without_stimulus.json"
     output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
     print(output)

@@ -545,7 +545,8 @@ holds for other trials.
   of the units have a response more than 1.5 times larger for one side (35 to
   the left, 41 to the right). So the side matters for single units, but not in
   the direction that the position of the source predicts for left V1.
-- The exit with no stimulus (`exit_without_stimulus.py`, GRB064
+- The exit with no stimulus (`exit_without_stimulus.py` and its figure
+  `exit_without_stimulus.svg`, GRB064
   20260916_132939, 78 units, no model). In an early-withdrawal trial the animal
   leaves the center port before the go cue and the flashes stop at the exit
   (78 trials, exit 403 ms after the first flash; 169 completed trials, exit at

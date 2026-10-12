@@ -2,19 +2,19 @@
 
 Question: V1 units fire less from about 80 ms after the first flash until the
 animal leaves the center port. Does that follow the stimulus (adaptation to the
-flashes) or the hold? The flashes go on from the first flash to the response
-entry, so the time after the center exit has the stimulus without the hold.
+flashes) or the fixation (the time in the center port)? The flashes go on from the first flash to the response
+entry, so the time after the center exit has the stimulus without the fixation.
 
-Comparison: the hold (first flash to center exit) against the time from the
+Comparison: the fixation (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods.
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
-  with the trials sorted by the length of the hold. The vertical line is the
+  with the trials sorted by the length of the fixation. The vertical line is the
   event at time 0. Top: the unit with
-  the lowest hold level among the units with a rate in `SUPPRESSED_RATES`.
-  Bottom: the unit with the highest hold level among the units that fire at
+  the lowest fixation level among the units with a rate in `SUPPRESSED_RATES`.
+  Bottom: the unit with the highest fixation level among the units that fire at
   `EXAMPLE_MIN_RATE` or more.
 - Panel b (observation): raw firing rate, no model, against time from the first
   flash and from the center exit. The rate of a unit is divided by its mean
@@ -28,15 +28,15 @@ comparison is paired: each unit has a value in both periods.
   Both kernels are relative to the time before the first flash. Thin lines are
   units; the thick line and band are the median and the interquartile range.
 - Panel d (the paired comparison): each unit's mean kernel value over
-  `LEVEL_MS` of the hold against its mean over the same time after the center
+  `LEVEL_MS` of the fixation against its mean over the same time after the center
   exit. Error bars are the SD over the 10 cross-validation folds, in both
   directions. Two-sided Wilcoxon signed-rank test of the two values. Points
   outside `LEVEL_LIMITS` are not drawn; they are in the statistics, and their
   number is in `hold_effect_stats.json`.
-- Panel e (control for the order of fitting): does the hold kernel take
-  variance from the other terms? Each unit's hold level in the main model (all
+- Panel e (control for the order of fitting): does the fixation kernel take
+  variance from the other terms? Each unit's fixation level in the main model (all
   terms fit together) against its level in a two-step fit: the design with no
-  hold kernel first, then the hold kernel alone on top of that fixed
+  fixation kernel first, then the fixation kernel alone on top of that fixed
   prediction (`two_step_levels`). The two-step value is a lower bound. Both are
   in-sample.
 - Panel f (control for stillness): raw rate against motion energy in the
@@ -56,7 +56,7 @@ comparison is paired: each unit has a value in both periods.
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
 
-The descriptive model and the design with no hold kernel are fit here (`glm
+The descriptive model and the design with no fixation kernel are fit here (`glm
 fit` stages, with cross-validation) in the directories with the suffixes
 `ROOT_SUFFIX` and `NO_HOLD_SUFFIX` next to the session directory. It
 is not the model of the main figure: the longer kernel after the exit does not
