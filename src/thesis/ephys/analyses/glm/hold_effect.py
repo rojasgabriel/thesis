@@ -9,10 +9,12 @@ Comparison: the hold (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods.
 
-- Panel a (examples): spikes of two units against time from the first flash,
-  with the trials sorted by the length of the hold. Left: the unit with the
-  lowest hold level among the units with a rate in `SUPPRESSED_RATES`. Right:
-  the unit with the highest hold level among the units that fire at
+- Panel a (examples): spikes of two units against time from the first flash
+  (left) and from the center exit (right), on the time axes of panels b and c,
+  with the trials sorted by the length of the hold. The vertical line is the
+  event at time 0. Top: the unit with
+  the lowest hold level among the units with a rate in `SUPPRESSED_RATES`.
+  Bottom: the unit with the highest hold level among the units that fire at
   `EXAMPLE_MIN_RATE` or more.
 - Panel b (observation): raw firing rate, no model, against time from the first
   flash and from the center exit. The rate of a unit is divided by its mean
@@ -99,7 +101,6 @@ EXAMPLE_MIN_RATE = 2.0
 # The suppressed example unit must have a rate in this range (spikes/s): enough
 # spikes to see the hold, few enough to see single spikes.
 SUPPRESSED_RATES = (5.0, 20.0)
-EXAMPLE_WINDOW_MS = (-100, 900)
 AFTER = "after_exit"
 AFTER_WINDOW_S = 0.6
 AFTER_BASES = 8
@@ -356,9 +357,6 @@ def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
     )
     units = units.iloc[analysis_unit_indices(units, unit_set)]
     rates = {name: [] for name in windows}
-    shown = (relative >= EXAMPLE_WINDOW_MS[0] / 1000) & (
-        relative < EXAMPLE_WINDOW_MS[1] / 1000
-    )
     order = np.argsort(leave)
     rasters = {}
     for _, unit in units.iterrows():
@@ -368,8 +366,13 @@ def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
         if mean_count <= 0:
             continue
         if int(unit["unit_id"]) in examples:
-            rows, bins = np.nonzero(counts[order][:, shown] > 0)
-            rasters[int(unit["unit_id"])] = (1000 * relative[shown][bins], rows)
+            # Spike times of each trial from the first flash and from the exit.
+            rows, bins = np.nonzero(counts[order] > 0)
+            spike_ms = 1000 * relative[bins]
+            rasters[int(unit["unit_id"])] = {
+                "flash": (spike_ms, rows),
+                "exit": (spike_ms - 1000 * leave[order][rows], rows),
+            }
         for name, (rows, columns, used, _) in windows.items():
             shape = (grid[0], -1, step)
             spikes_in = (counts[rows, columns] * used).reshape(shape).sum((0, 2))
@@ -425,53 +428,72 @@ def main() -> None:
     before = float(rates["flash"][1][:, rates["flash"][0] < 0].mean())
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 9.2))
+        figure = plt.figure(figsize=(7.4, 10.4))
         examples = figure.add_gridspec(
-            1, 2, left=0.11, right=0.97, top=0.975, bottom=0.87
+            2, 2, left=0.11, right=0.97, top=0.975, bottom=0.8, hspace=0.25
         )
         top = figure.add_gridspec(
-            2, 2, left=0.11, right=0.97, top=0.795, bottom=0.615, height_ratios=(1, 4)
+            2, 2, left=0.11, right=0.97, top=0.745, bottom=0.575, height_ratios=(1, 4)
         )
         middle = figure.add_gridspec(
-            1, 2, left=0.11, right=0.97, top=0.53, bottom=0.375
+            1, 2, left=0.11, right=0.97, top=0.495, bottom=0.35
         )
         bottom = figure.add_gridspec(
-            1, 3, left=0.11, right=0.88, top=0.275, bottom=0.06, wspace=0.75
+            1, 3, left=0.11, right=0.88, top=0.255, bottom=0.055, wspace=0.75
         )
         panel_axes = []
+        # Panel a has the time axes of panels b and c: from the first flash
+        # (left) and from the center exit (right).
         exits = rates["sorted_exit_ms"]
-        for column, (unit_id, label) in enumerate(
+        trial_rows = np.arange(len(exits))
+        for row, (unit_id, label) in enumerate(
             ((suppressed, "suppressed"), (excited, "excited"))
         ):
-            axis = figure.add_subplot(examples[column])
-            spike_ms, rows = rates["rasters"][unit_id]
-            axis.plot(spike_ms, rows, "|", color=OBSERVED_COLOR, markersize=1.5)
-            axis.plot(exits, np.arange(len(exits)), color=TASK, linewidth=1)
-            axis.set_xlim(*EXAMPLE_WINDOW_MS)
-            axis.set_xlabel("time from first flash (ms)")
-            axis.text(
-                0.99,
-                1.02,
-                f"unit {unit_id}, {label}",
-                transform=axis.transAxes,
-                ha="right",
-                va="bottom",
-                fontsize=6.5,
-            )
-            if column == 0:
-                axis.set_ylabel("trial, sorted\nby hold length")
-                axis.text(
-                    exits[0] - 15,
-                    0,
-                    "center exit",
-                    color=TASK,
-                    ha="right",
-                    va="bottom",
-                    fontsize=6.5,
+            for column, (name, limits) in enumerate(
+                (("flash", FLASH_WINDOW_MS), ("exit", EXIT_WINDOW_MS))
+            ):
+                axis = figure.add_subplot(examples[row, column])
+                spike_ms, rows = rates["rasters"][unit_id][name]
+                keep = (spike_ms >= limits[0]) & (spike_ms < limits[1])
+                axis.plot(
+                    spike_ms[keep],
+                    rows[keep],
+                    "|",
+                    color=OBSERVED_COLOR,
+                    markersize=1.5,
                 )
-                panel_axes.append(axis)
-            else:
-                axis.tick_params(labelleft=False)
+                # The event at time 0, and in the left column the exit of each trial.
+                event = VISUAL if name == "flash" else TASK
+                axis.axvline(0, color=event, linewidth=0.8)
+                if name == "flash":
+                    axis.plot(exits, trial_rows, color=TASK, linewidth=1)
+                axis.set_xlim(*limits)
+                axis.tick_params(labelbottom=False)
+                if column == 0:
+                    axis.set_ylabel("trial, sorted\nby hold length")
+                    axis.text(
+                        0.01,
+                        1.02,
+                        f"unit {unit_id}, {label}",
+                        transform=axis.transAxes,
+                        va="bottom",
+                        fontsize=6.5,
+                    )
+                else:
+                    axis.tick_params(labelleft=False)
+                if row == 0:
+                    axis.text(
+                        0.99,
+                        1.02,
+                        "first flash" if name == "flash" else "center exit",
+                        color=event,
+                        transform=axis.transAxes,
+                        ha="right",
+                        va="bottom",
+                        fontsize=6.5,
+                    )
+                if row == 0 and column == 0:
+                    panel_axes.append(axis)
         shared = None
         for column, (name, xlabel) in enumerate(
             (("flash", "time from first flash (ms)"), ("exit", "time from center exit"))
