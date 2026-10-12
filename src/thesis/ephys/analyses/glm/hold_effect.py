@@ -10,9 +10,10 @@ center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods.
 
 - Panel a (examples): spikes of two units against time from the first flash,
-  with the trials sorted by the length of the hold. Left: the example unit of
-  the main figure. Right: the unit with the highest hold level among the units
-  that fire at `EXAMPLE_MIN_RATE` or more.
+  with the trials sorted by the length of the hold. Left: the unit with the
+  lowest hold level among the units with a rate in `SUPPRESSED_RATES`. Right:
+  the unit with the highest hold level among the units that fire at
+  `EXAMPLE_MIN_RATE` or more.
 - Panel b (observation): raw firing rate, no model, against time from the first
   flash and from the center exit. The rate of a unit is divided by its mean
   rate over the valid bins; the line is the mean over units and the band is its
@@ -81,7 +82,6 @@ from thesis.ephys.analyses.glm.fit import (
     load_unit_records,
     refit_final,
 )
-from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -96,6 +96,9 @@ ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
 # The excited example unit must fire at this rate or more (spikes/s).
 EXAMPLE_MIN_RATE = 2.0
+# The suppressed example unit must have a rate in this range (spikes/s): enough
+# spikes to see the hold, few enough to see single spikes.
+SUPPRESSED_RATES = (5.0, 20.0)
 EXAMPLE_WINDOW_MS = (-100, 900)
 AFTER = "after_exit"
 AFTER_WINDOW_S = 0.6
@@ -408,15 +411,14 @@ def main() -> None:
         stillness = {key: data[key] for key in data.files}
     kernels = kernel_values(fit_descriptive(args.root, args.units), args.units)
     steps = two_step_levels(args.root, args.units)
-    # Example units: the example of the main figure (the most suppressed unit
-    # if it was not fit), and the most excited unit that fires enough.
+    # Example units: the most suppressed and the most excited unit, each among
+    # the units with a rate that makes its raster readable.
     ids, joint = steps["unit_ids"], steps["joint"]
     active = steps["rate"] >= EXAMPLE_MIN_RATE
-    suppressed = (
-        EXAMPLE_UNIT_ID
-        if EXAMPLE_UNIT_ID in ids
-        else int(ids[active][np.argmin(joint[active])])
+    readable = (steps["rate"] >= SUPPRESSED_RATES[0]) & (
+        steps["rate"] <= SUPPRESSED_RATES[1]
     )
+    suppressed = int(ids[readable][np.argmin(joint[readable])])
     excited = int(ids[active][np.argmax(joint[active])])
     rates = raw_rates(args.root, args.units, (suppressed, excited))
     hold, after = kernels[dmat.HOLD], kernels[AFTER]
