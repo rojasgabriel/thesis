@@ -99,11 +99,15 @@ ENTRY_BASES = 4
 FLASH_RECOVERY_TERM = False
 FLASH_RECOVERY = "flash_recovery"
 FLASH_SLOT_S = 0.04
-# A slow change of the rate over the session: a cubic spline of the time of the
-# trial in the session (`DRIFT_KNOTS` knots), constant inside a trial. The
-# within-trial shuffle of `unique_dev.py` cannot test it; `term_test.py` does.
+# A slow change of the rate over the session: raised cosines over the time of
+# the trial in the session, constant inside a trial (`session_drift_columns`).
+# The within-trial shuffle of `unique_dev.py` cannot test it; `term_test.py`
+# does. `DRIFT_SPLINE` gives the first form that was tested, a cubic spline
+# with `DRIFT_KNOTS` knots, for `drift_grid.py`.
 SESSION_DRIFT = False
 DRIFT = "session_drift"
+DRIFT_BASES = 8
+DRIFT_SPLINE = False
 DRIFT_KNOTS = 6
 # Camera views of cam0 that the motion energy can come from: the back view of
 # GRB006, and the bottom view from GRB064 on. The view differs between these
@@ -433,6 +437,27 @@ def flash_recovery(trials) -> np.ndarray:
     return np.where(first, 0.0, values - values[~first].mean())
 
 
+def session_drift_columns(trial_times: np.ndarray) -> np.ndarray:
+    """Return the drift columns of each trial: smooth bumps over the session.
+
+    `DRIFT_BASES` raised cosines with even spacing from the first to the last
+    trial, each two spacings wide, so they add up to 1 at every time. The last
+    one is left out, because the model has an intercept. So there are
+    `DRIFT_BASES` - 1 columns.
+    """
+    if DRIFT_SPLINE:
+        from sklearn.preprocessing import SplineTransformer
+
+        return SplineTransformer(
+            n_knots=DRIFT_KNOTS, degree=3, include_bias=False
+        ).fit_transform(trial_times[:, None])
+    position = (trial_times - trial_times.min()) / np.ptp(trial_times)
+    centers = np.linspace(0, 1, DRIFT_BASES)
+    distance = (position[:, None] - centers) / (centers[1] - centers[0])
+    bumps = np.where(np.abs(distance) < 1, 0.5 * (1 + np.cos(np.pi * distance)), 0.0)
+    return bumps[:, :-1]
+
+
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
     """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
@@ -578,11 +603,7 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             }
         )
     if SESSION_DRIFT:
-        from sklearn.preprocessing import SplineTransformer
-
-        drift = SplineTransformer(
-            n_knots=DRIFT_KNOTS, degree=3, include_bias=False
-        ).fit_transform(np.asarray(alignments, dtype=float)[:, None])
+        drift = session_drift_columns(np.asarray(alignments, dtype=float))
         values = np.column_stack((values, np.repeat(drift, times.shape[1], axis=0)))
         manifest.append(
             {
@@ -590,7 +611,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "group": "task",
                 "events": len(alignments),
                 "columns": drift.shape[1],
-                "coding": "cubic spline of the time of the trial in the session",
+                "coding": "raised cosines (or a cubic spline) of the time of the "
+                "trial in the session",
             }
         )
     if not IN_PORT_COLUMN:
