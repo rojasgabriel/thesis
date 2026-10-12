@@ -99,6 +99,12 @@ ENTRY_BASES = 4
 FLASH_RECOVERY_TERM = False
 FLASH_RECOVERY = "flash_recovery"
 FLASH_SLOT_S = 0.04
+# A slow change of the rate over the session: a cubic spline of the time of the
+# trial in the session (`DRIFT_KNOTS` knots), constant inside a trial. The
+# within-trial shuffle of `unique_dev.py` cannot test it; `term_test.py` does.
+SESSION_DRIFT = False
+DRIFT = "session_drift"
+DRIFT_KNOTS = 6
 # Camera views of cam0 that the motion energy can come from: the back view of
 # GRB006, and the bottom view from GRB064 on. The view differs between these
 # animals, so their motion-energy PCs are not the same measure.
@@ -569,6 +575,22 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "events": len(alignments),
                 "columns": 1,
                 "coding": "+1 (right) or -1 (left) from the center exit on, else 0",
+            }
+        )
+    if SESSION_DRIFT:
+        from sklearn.preprocessing import SplineTransformer
+
+        drift = SplineTransformer(
+            n_knots=DRIFT_KNOTS, degree=3, include_bias=False
+        ).fit_transform(np.asarray(alignments, dtype=float)[:, None])
+        values = np.column_stack((values, np.repeat(drift, times.shape[1], axis=0)))
+        manifest.append(
+            {
+                "name": DRIFT,
+                "group": "task",
+                "events": len(alignments),
+                "columns": drift.shape[1],
+                "coding": "cubic spline of the time of the trial in the session",
             }
         )
     if not IN_PORT_COLUMN:
