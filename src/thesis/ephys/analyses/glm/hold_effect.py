@@ -19,7 +19,7 @@ comparison is paired: each unit has a value in both periods.
 - Panel b (observation): raw firing rate, no model, against time from the first
   flash and from the center exit. The rate of a unit is divided by its mean
   rate over the valid bins; the line is the mean over units and the band is its
-  SEM. The dashed line is the rate in the 100 ms before the first flash. The
+  SEM. The
   top row is the fraction of trials with a flash in each 40 ms.
 - Panel c (characterization): the kernels of a descriptive model, as a change
   in log rate. The model is the design of `dmat.py` with one change: the
@@ -511,7 +511,6 @@ def main() -> None:
                 centers, mean - error, mean + error, color=OBSERVED_COLOR, alpha=0.25
             )
             axis.plot(centers, mean, color=OBSERVED_COLOR)
-            axis.axhline(before, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
             axis.set_xlabel(xlabel + (" (ms)" if name == "exit" else ""))
             if column == 0:
                 flash_axis.text(
@@ -523,15 +522,6 @@ def main() -> None:
                     fontsize=6.5,
                 )
                 axis.set_ylabel("normalized firing rate")
-                axis.text(
-                    0.98,
-                    before,
-                    "before the first flash",
-                    transform=axis.get_yaxis_transform(),
-                    ha="right",
-                    va="bottom",
-                    fontsize=6.5,
-                )
                 panel_axes.append(flash_axis)
             else:
                 flash_axis.tick_params(labelleft=False)
