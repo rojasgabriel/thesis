@@ -144,7 +144,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
         "maximal_test_deviance_explained_sem",
     )
     rows = []
-    for group in GROUP_ORDER:
+    for group in records[0]["groups"]:  # the groups of the fitted design
         values = np.asarray(
             [
                 record["groups"][group]["unique_test_deviance_explained"]
@@ -254,7 +254,7 @@ def _block_task(job: dict) -> dict:
             put(groups["video"], None)
 
         # These detailed blocks are non-overlapping and cover the full model.
-        blocks = [groups[name] for name in DETAILED_GROUPS]
+        blocks = [groups[name] for name in order if name != "task"]
         for columns in blocks:
             put(columns, within)
         reference = score("all regressor groups shuffled")
@@ -375,7 +375,8 @@ def run_unique(
             "video_components": video_components,
             "common_columns": common_columns,
             "groups": groups,
-            "group_order": GROUP_ORDER,
+            # The broad groups, then every regressor of this design.
+            "group_order": tuple(dict.fromkeys((*BROAD_GROUPS, *groups))),
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(
                 checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"

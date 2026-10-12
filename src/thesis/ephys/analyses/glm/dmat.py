@@ -85,6 +85,19 @@ IN_PORT = "in_port"
 # center exit. Not in the model.
 SIDE_COLUMN = False
 SIDE = "side_after_exit"
+# Candidate terms, tested on all units with the unique-deviance step
+# (`candidate_terms.py`). Not in the model.
+# A kernel on the center entry (some units respond to the entry).
+ENTRY_KERNEL = False
+ENTRY = "center_entry"
+ENTRY_WINDOW_S = 0.2
+ENTRY_BASES = 4
+# A flash kernel scaled by the log of the gap from the flash before: the
+# response to a flash after a long gap differs from the response in a dense
+# train by more than the fast-adaptation term (a flash within 50 ms) holds.
+FLASH_RECOVERY_TERM = False
+FLASH_RECOVERY = "flash_recovery"
+FLASH_SLOT_S = 0.04
 # Camera views of cam0 that the motion energy can come from: the back view of
 # GRB006, and the bottom view from GRB064 on. The view differs between these
 # animals, so their motion-energy PCs are not the same measure.
@@ -307,6 +320,10 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         "flash_adaptation": flash,
         "flash_first": flash,
         FLASH_AFTER_EXIT: flash,
+        FLASH_RECOVERY: flash,
+        ENTRY: RaisedCosineBasis(
+            ENTRY_BASES, 0, ENTRY_WINDOW_S + BINWIDTH_S, BINWIDTH_S
+        ),
         "hold": StretchedCosineBasis(
             HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
         )
@@ -322,6 +339,10 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases["flash_first"]
     if not FLASH_AFTER_EXIT_TERM:
         del bases[FLASH_AFTER_EXIT]
+    if not FLASH_RECOVERY_TERM:
+        del bases[FLASH_RECOVERY]
+    if not ENTRY_KERNEL:
+        del bases[ENTRY]
     if not WITHDRAWAL_KERNEL:
         del bases["withdrawal"]
     return bases
@@ -381,6 +402,30 @@ def flash_after_exit(trials) -> np.ndarray:
     return np.where(first, 0.0, after - after[~first].mean())
 
 
+def flash_recovery(trials) -> np.ndarray:
+    """Return the centered log gap of each modeled flash, in the order of `flash_events`.
+
+    log(gap / `FLASH_SLOT_S`) from the flash before (0 for the shortest gap),
+    minus the mean over those flashes. The first flash of a trial gets 0 (no
+    contrast): it has no flash before it, and the first bases of the hold
+    kernel already hold its response.
+    """
+    values, first = [], []
+    for flashes, center_entry, response_entry in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["response_port_entry_s"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
+        gaps = np.diff(modeled, prepend=modeled[0] - FLASH_SLOT_S)
+        values.append(np.log(np.maximum(gaps, FLASH_SLOT_S) / FLASH_SLOT_S))
+        first.append(np.arange(len(modeled)) == 0)
+    values, first = np.concatenate(values), np.concatenate(first)
+    return np.where(first, 0.0, values - values[~first].mean())
+
+
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
     """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
@@ -425,6 +470,20 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             "centered; 1 for a flash after the center exit, 0 in the fixation; "
             "the first flash is 0",
+        ),
+        (
+            FLASH_RECOVERY,
+            flashes,
+            flash_recovery(trials),
+            "sensory",
+            "centered log of the gap from the flash before; the first flash is 0",
+        ),
+        (
+            ENTRY,
+            trials["center_entry_s"].to_numpy(dtype=float),
+            None,
+            "task",
+            "the center entry before the first flash",
         ),
         (
             "hold",
