@@ -14,12 +14,10 @@ default) of one session, after `glm fit` and `glm unique`.
   energy in one row, spike history in its own row, in their colors); and the
   observed spikes.
 - Panel b (what the model learns): the kernels of the example unit from the
-  final refit, as a change in log rate. Flash response of the model in three periods:
-  the first flash, the last flash before the center exit, and the first flash
-  after the center exit (`results.flash_context_kernels`: the flash kernel of
-  that flash, with its adaptation level, plus the fixation and withdrawal
-  kernels at that time; mean over all trials that have such a flash; other
-  flashes are not in the sum); the stimulus-during-fixation kernel; withdrawal kernel; spike-history kernel.
+  final refit, as a change in log rate. Flash kernel for a flash with no flash
+  in the last 50 ms (visual flash) and for a flash that follows one (with fast
+  adaptation); the stimulus-during-fixation
+  kernel; withdrawal kernel; spike-history kernel.
 - Panel c (prediction): observed and predicted firing rate of the example unit
   over the held-out test trials, in `RATE_BIN_MS` bins. The prediction of a
   trial comes from the cross-validation fold that did not train on it. A time
@@ -145,14 +143,12 @@ def _plot_trial(axes, data) -> None:
 
 def _plot_kernels(axes, data) -> None:
     flash, hold, withdrawal, history = axes
-    # What the model adds after a flash in three periods of the trial.
     for key, label, style, height in (
-        ("first", "first flash", "-", 1.24),
-        ("last_in_fixation", "last flash in fixation (dashed)", "--", 1.12),
-        ("first_after_exit", "first flash after withdrawal (dotted)", ":", 1.0),
+        ("flash_isolated", "visual flash", "-", 1.12),
+        ("flash_repeat", "with fast adaptation (dashed)", "--", 1.0),
     ):
         flash.plot(
-            data["context_lags"], data[f"context__{key}"], color=VISUAL, ls=style
+            data[f"kern_t__{key}"], data[f"kern_v__{key}"], color=VISUAL, ls=style
         )
         flash.text(
             0, height, label, color=VISUAL, fontsize=6.5, transform=flash.transAxes

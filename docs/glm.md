@@ -581,17 +581,6 @@ design), `_log10_fit` (10 bases, 50 ms stretch, no initiation column), and
 | Checking the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
 | Flash against motion energy | `kernel_comparison.py` | weights of the two terms over units; descriptive |
 
-The flash panel of the main figure (b) shows what the model adds to the log
-rate after a flash in three periods of the trial: the first flash, the last
-flash before the center exit, and the first flash after the center exit
-(`results.flash_context_kernels`). Each curve is the flash kernel of that flash
-with its adaptation level, plus the fixation and withdrawal kernels at that
-time, as a mean over trials (unit 197: 294, 294, and 286 trials; 0%, 49%, and
-26% of these flashes follow another within 50 ms). Other flashes are not in the
-sum. Zero is the time with no flash and no task term. The model has one flash
-kernel, so the curves differ only by the adaptation level and by the fixation
-and withdrawal kernels.
-
 `glm fit` writes no figure. `glm unique` writes `figure_data.npz` for the
 example unit.
 
