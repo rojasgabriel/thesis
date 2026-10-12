@@ -11,8 +11,8 @@ each unit has a value at each gap.
 - Flashes: every flash that is not the first of its trial and whose whole
   window (`WINDOW_MS`) ends before the center exit. So all flashes are in the
   fixation, and the period of the trial is not a factor. The flashes are put
-  in the gap groups of `GAP_EDGES_MS`; the gap of a group is the median gap
-  of its flashes.
+  in the three gap groups of `GAP_GROUPS` (40 ms; 80 and 120 ms, called
+  100 ms; 200 ms or more, called 250 ms).
 - Observed response: the mean spike count around the flashes of a group, as a
   rate, smoothed (Gaussian, `SMOOTH_MS`). Its peak is the maximum from
   `PEAK_MS`; the latency is the time of that maximum. The maximum of a noisy
@@ -20,8 +20,9 @@ each unit has a value at each gap.
   group come from the same number of flashes: `SUBSAMPLES` random subsets with
   the size of the smallest group, and the mean over the subsets.
 - Model response: the flash kernel of the unit at the gap of the group
-  (`results.flash_kernel_at`: the common flash kernel plus the kernels of fast
-  adaptation and flash recovery at that gap, for a flash in the fixation),
+  (`results.flash_kernel_at`, at 40, 100, and 250 ms: the common flash kernel
+  plus the kernels of fast adaptation and flash recovery at that gap, for a
+  flash in the fixation),
   from the final refit. Its peak and latency are found in the same way.
 - Size: the peak relative to the shortest gap, as a change in log (observed:
   the log of the peak rate over the peak rate at the shortest gap; model: the
@@ -80,7 +81,10 @@ from thesis.plotting import (
     save_figure,
 )
 
-GAP_EDGES_MS = (0, 60, 100, 140, 220, np.inf)
+# The gap of each group (the gap of the model kernel) and the gaps of the
+# flashes in it. Gaps are multiples of 40 ms: the groups are 40 ms, 80 and
+# 120 ms, and 200 ms or more. Flashes with a gap of 160 ms are in no group.
+GAP_GROUPS = {40: (0, 60), 100: (60, 140), 250: (190, np.inf)}
 SUBSAMPLES = 50
 SEED = 0
 BASELINE_MS = (-20, 20)
@@ -140,9 +144,12 @@ def main() -> None:
     prepared = dmat._load_windows(model.windows)
     trials = dmat._load_selected_trials(prepared)
     times, gaps = fixation_flashes(trials)
-    group = np.digitize(gaps, GAP_EDGES_MS) - 1
-    groups = len(GAP_EDGES_MS) - 1
-    group_gap = np.asarray([np.median(gaps[group == g]) for g in range(groups)])
+    groups = len(GAP_GROUPS)
+    group = np.full(len(gaps), -1)
+    for index, (low, high) in enumerate(GAP_GROUPS.values()):
+        group[(gaps >= low) & (gaps < high)] = index
+    times, gaps, group = times[group >= 0], gaps[group >= 0], group[group >= 0]
+    group_gap = np.asarray(list(GAP_GROUPS), dtype=float)
     lags = np.arange(*WINDOW_MS)
 
     units = fetch_unit_table(
@@ -249,6 +256,9 @@ def main() -> None:
         "flashes_in_each_gap_group": np.bincount(group, minlength=groups).tolist(),
         "flashes_in_each_subset": size,
         "gap_of_each_group_ms": group_gap.tolist(),
+        "median_gap_of_the_flashes_in_each_group_ms": [
+            float(np.median(gaps[group == g])) for g in range(groups)
+        ],
         "flash_terms_of_the_model": flash_terms,
         "observed size (log of the peak over the peak at the shortest gap)": _summary(
             observed_size
@@ -270,11 +280,11 @@ def main() -> None:
             model_axis.plot(
                 kernel_lags, np.median(modeled[:, g], 0), color=VISUAL, alpha=shade
             )
-        for g in (0, groups - 1):  # the lightest and the darkest line
+        for g in range(groups):
             data_axis.text(
-                0.03 + 0.5 * (g > 0),
+                0.03 + 0.33 * g,
                 1.02,
-                f"{group_gap[g]:.0f} ms gap",
+                f"{group_gap[g]:.0f} ms",
                 color=VISUAL,
                 alpha=shades[g],
                 transform=data_axis.transAxes,
@@ -324,7 +334,7 @@ def main() -> None:
                         va="top",
                     )
             axis.set_xscale("log")
-            axis.set_xticks([40, 100, 400], ["40", "100", "400"])
+            axis.set_xticks(group_gap, [f"{gap:.0f}" for gap in group_gap])
             axis.minorticks_off()
             axis.set_xlabel("gap from the flash\nbefore (ms)")
             axis.set_ylabel(label)

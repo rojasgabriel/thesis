@@ -173,8 +173,8 @@ def flash_condition_display(
 
 # Flash kernels of the kernel figure: the gap from the flash before (ms), for a
 # flash in the fixation, and the two periods for a flash at `PERIOD_GAP_MS`.
-FLASH_GAPS_MS = (40, 120, 400)
-PERIOD_GAP_MS = 120
+FLASH_GAPS_MS = (40, 100, 250)
+PERIOD_GAP_MS = 100
 
 
 def flash_condition_kernels(
