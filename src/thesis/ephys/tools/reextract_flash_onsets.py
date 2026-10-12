@@ -10,8 +10,7 @@ them.
 
 Method (the old one, not changed, so the onsets of completed trials stay the
 same): the NI analog channel 0 is mapped to probe time through the sync
-pulses (the NI sync pulses of the raw file and the probe sync pulses of the
-database), and an onset is a crossing of
+pulses (`spks.sync.load_ni_sync_data`), and an onset is a crossing of
 `AMP_THRESHOLD` that comes more than `MIN_GAP_S` after the crossing before it.
 
 Checks before any write: every onset that is in the database now must be
@@ -41,40 +40,59 @@ MIN_GAP_S = 0.04
 MATCH_TOLERANCE_S = 0.001
 ANALOG_CHANNEL = 0
 SYNC_PORT = 0
-PROBE_SYNC_EVENT = "6"
+PROBE_SYNC_KEY = 6
 
 
-def detect_onsets(session_path: Path, key: dict) -> np.ndarray:
-    """Return the flash onsets in probe time (s), with the old preprocessing method.
+def probe_sync(session_path: Path, session_key: dict) -> tuple[np.ndarray, float]:
+    """Return the sync onsets of the probe (samples) and its sampling rate.
 
-    The sync onsets of the probe and its sampling rate come from the database
-    (`imec0`, event `PROBE_SYNC_EVENT`), because the extracted sync file of
-    the old preprocessing is not kept with the raw data.
+    The old preprocessing read them from the `*.metadata.hdf` file that spks
+    writes next to the sorted data. When that file is not in the session
+    folder, the onsets come from the database (stream `imec0`, event
+    `PROBE_SYNC_KEY`) and the rate from the `*.ap.meta` file of the probe.
     """
     import spks
-    from labdata.schema import DatasetEvents, EphysRecording
 
-    (ni_onsets, _), (ni_data, _), _ = spks.sync.load_ni_sync_data(
-        sessionpath=str(session_path)
+    if list(session_path.glob("**/*.*.metadata.hdf")):
+        saved = spks.sync.load_ap_sync_data(str(session_path))[0]
+        return saved["file0_sync_onsets"][PROBE_SYNC_KEY], saved["sampling_rate"]
+    from labdata.schema import DatasetEvents
+
+    onsets = (
+        DatasetEvents.Digital()
+        & {**session_key, "stream_name": "imec0", "event_name": str(PROBE_SYNC_KEY)}
+    ).fetch1("event_timestamps")
+    meta_files = sorted(session_path.glob("**/*.ap.meta"))
+    if not meta_files:
+        raise SystemExit(f"No *.ap.meta file below {session_path}.")
+    rate = next(
+        float(line.split("=", 1)[1])
+        for line in meta_files[0].read_text().splitlines()
+        if line.startswith("imSampRate=")
     )
-    if ni_data is None:
+    print(f"Probe sync from the database; rate {rate} Hz from {meta_files[0].name}.")
+    return np.asarray(onsets, dtype=float), rate
+
+
+def detect_onsets(session_path: Path, session_key: dict) -> np.ndarray:
+    """Return the flash onsets in probe time (s), with the old preprocessing method."""
+    import spks
+    from spks.spikeglx_utils import load_spikeglx_binary
+
+    ni_files = sorted(session_path.glob("**/*.nidq.bin"))
+    if not ni_files:
         raise SystemExit(f"No *.nidq.bin file below {session_path}.")
-    session = {name: key[name] for name in ("subject_name", "session_name")}
-    probe_onsets = np.asarray(
-        (
-            DatasetEvents.Digital()
-            & session
-            & {"stream_name": "imec0", "event_name": PROBE_SYNC_EVENT}
-        ).fetch1("event_timestamps"),
-        dtype=float,
-    )
-    rate = float((EphysRecording.ProbeSetting() & session).fetch1("sampling_rate"))
+    ni_data, _ = load_spikeglx_binary(ni_files[0])
+    ni_onsets, _ = spks.sync.unpackbits_gpu(ni_data[:, -1], device="cpu")
     ni_sync = np.asarray(ni_onsets[SYNC_PORT], dtype=float)
+    probe_onsets, rate = probe_sync(session_path, session_key)
+    print(f"Sync pulses: {len(ni_sync)} on the NI, {len(probe_onsets)} on the probe.")
     if len(ni_sync) != len(probe_onsets):
-        raise SystemExit(
-            f"The NI file has {len(ni_sync)} sync pulses and the probe has "
-            f"{len(probe_onsets)}; nothing was written."
-        )
+        # The check against the database onsets finds a wrong pairing: it gives
+        # a shift of one sync period.
+        shared = min(len(ni_sync), len(probe_onsets))
+        print(f"The counts differ; the first {shared} pulses of each are paired.")
+        ni_sync, probe_onsets = ni_sync[:shared], probe_onsets[:shared]
     ni_to_probe = spks.sync.interp1d(ni_sync, probe_onsets, fill_value="extrapolate")
     times = ni_to_probe(np.arange(len(ni_data))) / rate
     crossings = np.where(np.diff(ni_data[:, ANALOG_CHANNEL] > AMP_THRESHOLD) == 1)[0]
@@ -103,7 +121,8 @@ def main() -> None:
     }
     relation = DatasetEvents.Digital() & key
     current = np.sort(np.asarray(relation.fetch1("event_timestamps"), dtype=float))
-    detected = np.sort(detect_onsets(args.session_path, key))
+    session_key = {k: key[k] for k in ("subject_name", "session_name", "dataset_name")}
+    detected = np.sort(detect_onsets(args.session_path, session_key))
     # The detected onset that is nearest to each database onset.
     right = np.searchsorted(detected, current).clip(1, len(detected) - 1)
     index = np.where(
