@@ -460,6 +460,32 @@ exit (`hold` in `dmat.py`).
     p > 0.3) and a recovery term (+0.3 to +0.6%, p = 0.2) do not predict
     reliably better, and with the 300 ms kernel the dip stays.
 
+### Flash × fixation interaction
+
+Test of 2026-10-11 (`flash_fixation_test.py`, 20 selection units, results in
+`flash_fixation_test.json`). The fixation kernel adds one value to the log
+rate, so it lowers the baseline and the flash response by the same factor. The
+test adds a second flash kernel for a flash after the center exit against a
+flash in the fixation (`FLASH_AFTER_EXIT_TERM` in `dmat.py`, off in the model).
+The first flash of a trial is not in the contrast.
+
+- The term does not predict better: median validation D² +0.0003 (+0.3%),
+  better in 11 of 20 units, Wilcoxon p = 1.0. It is not in the model.
+- The kernel has no common sign. Its mean from 30 to 120 ms (Δ log rate, after
+  the exit minus in the fixation) has a median of +0.01, above zero in 11 of 20
+  units (p = 0.23).
+- So over units the fixation changes the baseline and the flash response by
+  the same factor: a gain change of the unit. This does not mean that the
+  fixation has no effect on the visual response; that effect is the fixation
+  kernel. It gives no support for an effect that is specific to the flash
+  response, such as slow adaptation, in addition to the gain change.
+- Single units differ: the value is from −0.22 to +0.41, and 14 of 20 units are
+  more than 2 SD (over the 10 folds) from zero, 8 above and 6 below. The folds
+  share training trials, so this SD is too small, and these units do not
+  predict better with the term. Not tested on all units.
+- The old design had this contrast with no fixation kernel (unique ΔD² 0.0009,
+  46% of units, not kept). It is still not necessary with the fixation kernel.
+
 ### Fixation kernel: spacing, resolution, and the initiation column
 
 Tests of 2026-10-11. They changed the fixation kernel from 10 bases with a 50 ms

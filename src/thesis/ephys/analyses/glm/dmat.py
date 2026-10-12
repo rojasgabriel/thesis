@@ -81,6 +81,10 @@ IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
 FIRST_FLASH_TERM = False
 IN_PORT = "in_port"
+# Test of `flash_fixation_test.py`: a second flash kernel for a flash after the
+# center exit against a flash in the fixation. Not in the model.
+FLASH_AFTER_EXIT_TERM = False
+FLASH_AFTER_EXIT = "flash_after_exit"
 HOLD = "hold"
 HISTORY_COLUMNS = 10
 
@@ -287,6 +291,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         "visual_flash": flash,
         "flash_adaptation": flash,
         "flash_first": flash,
+        FLASH_AFTER_EXIT: flash,
         "hold": StretchedCosineBasis(
             HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
         )
@@ -300,6 +305,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases["flash_adaptation"]
     if not FIRST_FLASH_TERM:
         del bases["flash_first"]
+    if not FLASH_AFTER_EXIT_TERM:
+        del bases[FLASH_AFTER_EXIT]
     if not WITHDRAWAL_KERNEL:
         del bases["withdrawal"]
     return bases
@@ -331,6 +338,32 @@ def flash_events(trials) -> tuple[np.ndarray, np.ndarray]:
         times.append(modeled)
         resource_values.append(flash_recent(modeled))
     return np.concatenate(times), np.concatenate(resource_values)
+
+
+def flash_after_exit(trials) -> np.ndarray:
+    """Return the centered period of each modeled flash, in the order of `flash_events`.
+
+    1 for a flash at or after the center exit and 0 for a flash in the fixation,
+    minus the mean over those flashes. The first flash of a trial gets 0 (no
+    contrast): it is always in the fixation, and the first bases of the hold
+    kernel already hold its response. The period is that of the flash time; the
+    kernel of a flash just before the exit goes on after it.
+    """
+    after, first = [], []
+    for flashes, center_entry, center_exit, response_entry in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["center_exit_s"],
+        trials["response_port_entry_s"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
+        after.append(modeled >= center_exit)
+        first.append(np.arange(len(modeled)) == 0)
+    after = np.concatenate(after).astype(float)
+    first = np.concatenate(first)
+    return np.where(first, 0.0, after - after[~first].mean())
 
 
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
@@ -369,6 +402,14 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             None,
             "sensory",
             "the first flash of each trial, in addition to the common kernel",
+        ),
+        (
+            FLASH_AFTER_EXIT,
+            flashes,
+            flash_after_exit(trials),
+            "sensory",
+            "centered; 1 for a flash after the center exit, 0 in the fixation; "
+            "the first flash is 0",
         ),
         (
             "hold",
