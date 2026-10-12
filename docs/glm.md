@@ -3,8 +3,8 @@
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
 from seven regressors: a common flash kernel, the flash kernel of a flash that
 follows another within 50 ms (the recent-flash term), a column for the
-fixation before the stimulus (center entry to first flash), a kernel for the
-stimulus during the hold (first flash to center exit), a causal
+initiation (center entry to first flash), a kernel for the
+stimulus during the fixation (first flash to center exit), a causal
 post-withdrawal kernel (0 to 100 ms), 10 additive camera motion-energy PCs, and a strictly
 past self-history filter for each unit. All terms add in log rate. An earlier
 full design had four more regressors; [Design justification](#design-justification)
@@ -39,7 +39,7 @@ at a time.
   rate N has N flashes: one always in the first bin, and N − 1 in random bins
   of the other 24. So only the first flash is at a fixed time; in an average
   over trials the responses to later flashes are spread evenly (11.9 flashes/s
-  in the hold, 11.0 after the exit). The train stops early only at the
+  in the fixation, 11.0 after the exit). The train stops early only at the
   response entry (`extraStimDur` = 0). The first flash comes 10 to 100 ms
   after the center poke (`preStimDelay` in `Experiments/VisualTask.mat`, plus
   the output latency; 24 to 114 ms in the data). The go cue plays when the
@@ -85,8 +85,8 @@ drift, go cue, outcome, or punishment kernel.
 | Common flash | Every modeled flash; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
 | Fast adaptation (recent flash) | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
-| Fixation before stimulus | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
-| Stimulus during hold | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
+| Initiation | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
+| Stimulus during fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
@@ -250,7 +250,7 @@ Run this after you change the design, fit, or unique-deviance code:
 uv run python -m thesis.ephys.analyses.glm.synthetic_check
 ```
 
-It needs no database. It plants known flash, adaptation, hold, withdrawal,
+It needs no database. It plants known flash, adaptation, fixation, withdrawal,
 motion-energy, and history effects in 80 simulated trials. Then it runs
 `prepare`, `fit`, and `unique` on them and checks that the effects come back. It
 compares 2 and 5 motion-energy PCs instead of 10–200 and takes about 1 minute.
@@ -379,13 +379,13 @@ the residual tests are in-sample):
   tests in one figure (`design_optimization.svg`) and writes its caption.
 - The suppression follows the time in the port, not the clock (raw rates, all
   units). In the 40 completed trials with a withdrawal 150 ms or more after the
-  go cue, the rate from 50 to 150 ms after the cue is the hold rate (median
+  go cue, the rate from 50 to 150 ms after the cue is the fixation rate (median
   ratio 1.00), and 0.55 of the rate of the 103 fast trials in the same window.
-  In the 9 early-withdrawal trials with a hold of 150 to 280 ms, the rate after
+  In the 9 early-withdrawal trials with a fixation of 150 to 280 ms, the rate after
   the exit is 1.87 times the rate of completed trials at the same time from
   onset. So the go cue does not end the suppression; the exit does.
 
-### Stimulus during hold
+### Stimulus during fixation
 
 Tests of 2026-10-10 and 2026-10-11 on the 20-unit sample, with the first form
 of the kernel (10 bases, 50 ms stretch); the next section has the final form. The in-port column
@@ -399,7 +399,7 @@ exit (`hold` in `dmat.py`).
   so it follows the first flash, not the entry. It ends at the center exit,
   while the flashes go on (the train is 1 s long and stops early only at the
   response entry). So the term is on only while
-  the stimulus is on and the animal holds: "stimulus during hold".
+  the stimulus is on and the animal holds: "stimulus during fixation".
 - Form (`hold_grid`, validation D², against the kernel in use): no term
   −0.0065 (median; p = 4e-5), step from center entry −0.0021 (p = 0.0006), step
   from the first flash −0.0010 (p = 0.0004). A step from the first flash with a
@@ -411,33 +411,33 @@ exit (`hold` in `dmat.py`).
   It reaches 88% of the first-flash peak.
 - Other forms that were tested and removed from the code: a step with a delay
   of 50 to 150 ms (best at 80 ms, +2.9% against the in-port column, but with no
-  meaning of its own); a flash kernel of 300 to 800 ms with no hold term (2 to
+  meaning of its own); a flash kernel of 300 to 800 ms with no fixation term (2 to
   5% worse); a flash-recovery term, 1 − exp(−gap / τ) or log(gap), with or
   without the recent-flash term (0 to +0.5% alone).
-- The window (950 ms) must be longer than the longest hold, because no step
-  goes with the kernel; `build_task_design` stops if it is not (longest hold
+- The window (950 ms) must be longer than the longest fixation, because no step
+  goes with the kernel; `build_task_design` stops if it is not (longest fixation
   here: 941 ms). After about 650 ms fewer than 10% of the trials give data.
 - The suppression ends at the center exit, so it is not adaptation to the
   flashes alone (20 units, tests removed from the code). A kernel that goes on
   to the response entry predicts worse (−1.6%, better in 4 of 20 units,
   p = 0.008). With a column that is 1 from the center exit to the response
   entry, the gain relative to the time before the first flash is 0.70 in the
-  hold (150 to 500 ms) and 1.17 after the exit (higher after the exit in 18 of
+  fixation (150 to 500 ms) and 1.17 after the exit (higher after the exit in 18 of
   20 units, p = 0.001); that column does not reliably improve D² (+1.4%,
   p = 0.23) and is not in the model.
 - `uv run python -m thesis.ephys.analyses.glm.hold_effect --units all` draws
   the results figure for this effect (`hold_effect.svg`) on all 167 units. It
   fits a descriptive model with a kernel from the center exit to the response
   entry in place of the withdrawal kernel. The raw rate is 0.64 of the unit
-  mean in the last 200 ms of the hold and 1.44 from 100 to 400 ms after the
-  exit (1.11 before the first flash). The model gain is 0.73 in the hold (below
+  mean in the last 200 ms of the fixation and 1.44 from 100 to 400 ms after the
+  exit (1.11 before the first flash). The model gain is 0.73 in the fixation (below
   1 in 90% of the units) and 1.20 after the exit (below 1 in 19%); it is higher
   after the exit in 144 of 167 units (p = 5e-22). On the 20 units, that longer
   kernel does not predict reliably better than the 0 to 100 ms withdrawal
   kernel (+1.0%, p = 0.20), so the main design keeps the withdrawal kernel.
 - The kernel multiplies the rate (it adds to the log rate). It has no
   interaction with the flash kernel. In raw rates, the ratio of the flash
-  response to the rate before the flash is the same in the hold and after the
+  response to the rate before the flash is the same in the fixation and after the
   exit (1.27 and 1.26 for flashes 40 ms after another; 2.4 and 2.2 after a gap
   of 240 ms or more; population means, 20 units).
 - Two residuals of this design, both left out of the model:
@@ -446,7 +446,7 @@ exit (`hold` in `dmat.py`).
     (observed 1.23 to 1.31, model 1.03 to 1.09). It is large in 7 of 20 units
     and not reliable over units (median observed / model 1.04, p = 0.28). A
     causal entry kernel (0 to 100 ms) gives +0.5% (p = 0.81). The first 40 ms
-    of the hold kernel take part of it. No sound plays at the center poke (the
+    of the fixation kernel take part of it. No sound plays at the center poke (the
     go cue, when the wait time is reached, is the only task sound of a
     completed trial), so touch and the head movement into the port are the
     candidates.
@@ -460,14 +460,14 @@ exit (`hold` in `dmat.py`).
     p > 0.3) and a recovery term (+0.3 to +0.6%, p = 0.2) do not predict
     reliably better, and with the 300 ms kernel the dip stays.
 
-### Hold kernel: spacing, resolution, and the fixation column
+### Fixation kernel: spacing, resolution, and the initiation column
 
-Tests of 2026-10-11. They changed the hold kernel from 10 bases with a 50 ms
-stretch to 12 bases with a 25 ms stretch, and added the fixation column.
+Tests of 2026-10-11. They changed the fixation kernel from 10 bases with a 50 ms
+stretch to 12 bases with a 25 ms stretch, and added the initiation column.
 
 - Log against linear spacing. The reason for log spacing is in the task, not
   in the fit: the rate changes in the first 100 ms and is almost flat after
-  that; every trial has the first 490 ms of the hold but only 5% have 708 ms;
+  that; every trial has the first 490 ms of the fixation but only 5% have 708 ms;
   and the kernel is locked to the first flash, so only early times are aligned
   over trials. A full fit with 10 linear bases had the same population D²
   (0.070 against 0.071), but for unit 197 it reached about 60% of the
@@ -485,7 +485,7 @@ stretch to 12 bases with a 25 ms stretch, and added the fixation column.
   with a 25 ms stretch, and a separate first-flash kernel all reached about
   80% in 10-ms bins. 12 bases with a 25 ms stretch (bases at 0, 10, 24, 43,
   70, 107, 159 ms, then wider) adds the fewest columns.
-- Fixation column: 1 from the center entry to the first flash, where no other
+- Initiation column: 1 from the center entry to the first flash, where no other
   term is on. It makes the rate in that time correct for single units (more
   than 10% off in 15 of 20 units without it, in 3 of 20 with it). Alone it does
   not improve validation D² reliably (+1.0%, p = 0.25), its weight has no
@@ -524,34 +524,37 @@ uv run python -m thesis.ephys.analyses.glm.design_optimization --units sample
 ```
 
 The first five modules fit and score designs and make no figure. Results of
-2026-10-11, with the hold kernel in the design:
+2026-10-11, with the fixation kernel in the design:
 
 - Flash kernel: 6 bases are worse than 8 (p = 0.0005); 10 and 12 are not
   better (p = 0.73 and 0.14). 100 ms is worse than 150 ms (p = 0.017); 200 and
   250 ms are not better (p = 0.37 and 0.81).
 - Recent-flash term: the model without the term is not reliably worse (median
   −0.0009, lower in 13 of 20 units, p = 0.11). This result moved with the form
-  of the hold kernel (p = 0.008 with the in-port column, 0.07, 0.048, and 0.11
+  of the fixation kernel (p = 0.008 with the in-port column, 0.07, 0.048, and 0.11
   with three forms of the kernel), so it is at the limit. The term stays in
   the design, as an exception to the rule of the simpler option, for two
   reasons. On all units its unique ΔD² is reliable in 60% of the units, the
   same level as the withdrawal kernel. And with an explicit adaptation term in
-  the model, the hold kernel is still necessary, which is the evidence that the
-  hold effect is more than adaptation.
+  the model, the fixation kernel is still necessary, which is the evidence that the
+  fixation effect is more than adaptation.
 - Names: the recent-flash term is "fast adaptation" in the figures, because it
-  is active only for a flash within 50 ms of another. The hold kernel keeps the
-  name "stimulus during hold", which says when it is active and not what
-  causes it. Slow adaptation, if present, is inside the hold kernel and cannot
-  be separated from a state effect there: the two go together from the first
-  flash to the center exit. The hold term is not named for adaptation because
-  the effect ends at the center exit while the flashes continue, does not
-  depend on the flash rate of the trial, and lowers the baseline and the flash
-  response by the same factor.
-- Stimulus during hold: no term, a step from the center entry, and a step from
+  is active only for a flash within 50 ms of another. The time from the center
+  entry to the first flash is the "initiation", and the time from the first
+  flash to the center exit is the "fixation"; its kernel is "stimulus during
+  fixation", which says when it is active and not what causes it. The keys in
+  the code and in the saved fits did not change: `fixation` is the initiation
+  column and `hold` is the fixation kernel. Slow adaptation, if present, is
+  inside the fixation kernel and cannot be separated from a state effect there:
+  the two go together from the first flash to the center exit. The term is not
+  named for adaptation because the effect ends at the center exit while the
+  flashes continue, does not depend on the flash rate of the trial, and lowers
+  the baseline and the flash response by the same factor.
+- Stimulus during fixation: no term, a step from the center entry, and a step from
   the first flash are worse than the kernel (p = 2e-5, 0.002, 0.001). The step
   with a first-flash kernel is equal (p = 0.67); the linear kernel is worse
   (p = 0.017); the coarse kernel (10 bases, 50 ms stretch) and the design
-  without the fixation column are not reliably worse alone (p = 0.16, 0.43).
+  without the initiation column are not reliably worse alone (p = 0.16, 0.43).
 - Withdrawal: no kernel is worse than the 0 to 100 ms kernel (p = 0.002); the
   ±100 and ±300 ms kernels are not better (p = 0.28 and 0.47).
 - Motion-energy PCs: no motion energy is worse than 10 PCs (p = 0.006); 25 and
@@ -565,7 +568,7 @@ scripts. Their per-unit scores are in `flash_lobe_test/` in the session
 directory (not tracked by git); they cannot be run again from the repository.
 
 Earlier fits are kept next to the session directory: `_in_port_step` (the step
-design), `_log10_fit` (10 bases, 50 ms stretch, no fixation column), and
+design), `_log10_fit` (10 bases, 50 ms stretch, no initiation column), and
 `_linear_hold_fit` (10 linear bases).
 
 ### Figures
@@ -573,7 +576,7 @@ design), `_log10_fit` (10 bases, 50 ms stretch, no fixation column), and
 | Figure | Module | Content |
 | --- | --- | --- |
 | Main | `main_figure.py` | one trial, the kernels, prediction, and what explains the spikes |
-| Hold effect | `hold_effect.py` | two example units, the suppression during the hold, its end at the exit, and its controls |
+| Fixation effect | `hold_effect.py` | two example units, the suppression during the fixation, its end at the exit, and its controls |
 | Building the model (supplement) | `design_optimization.py` | the bases and the tests of each design choice |
 | Checking the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
 | Flash against motion energy | `kernel_comparison.py` | weights of the two terms over units; descriptive |
@@ -588,7 +591,7 @@ motion-energy PCs. Artifacts are in
 `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
 
 - Full model: median cross-validated D² 0.072, median 0.54 bits/spike.
-- Against the design with 10 hold bases and no fixation column, D² is 0.0004
+- Against the design with 10 fixation bases and no initiation column, D² is 0.0004
   higher per unit (paired median; higher in 118 of 167 units, p = 3e-8).
 - Example unit 197: the model reaches the first-flash peak on held-out trials
   (about 105 against 105 spikes/s in 20-ms bins; 52% with the in-port column).
@@ -598,12 +601,12 @@ motion-energy PCs. Artifacts are in
 | Regressor | Columns | Median unique ΔD² | Units with unique ΔD² > 0 |
 | --- | ---: | ---: | ---: |
 | Spike history | 10 | 0.0271 | 92% |
-| Stimulus during hold | 12 | 0.0063 | 87% |
+| Stimulus during fixation | 12 | 0.0063 | 87% |
 | Visual flash | 8 | 0.0050 | 83% |
 | Motion energy | 10 | 0.0021 | 64% |
 | Withdrawal | 4 | 0.0014 | 62% |
 | Fast adaptation (recent flash) | 8 | 0.0016 | 60% |
-| Fixation before stimulus | 1 | 0.0001 | 23% |
+| Initiation | 1 | 0.0001 | 23% |
 
 - Motion energy is trial-specific: with the regressor taken from another trial,
   the median loss is 0.0021, the same as with the shuffle within a trial.
@@ -624,19 +627,19 @@ motion-energy PCs. Artifacts are in
   0.90 from the 5th to the 50th percentile (above 1 in 19 to 35% of units),
   1.04 to 1.14 from the 80th to the 95th (above 1 in 66 to 81%), and 0.99 in
   the highest 5%. The model predicts too much at low and middle rates and too
-  little at high rates. The finer hold kernel did not change this, and the
+  little at high rates. The finer fixation kernel did not change this, and the
   cause is not known (see the tests of a gain and of the output function
   above, which were run on the earlier fit).
-- The low rate in the hold is not the average of scattered flash responses.
+- The low rate in the fixation is not the average of scattered flash responses.
   The flash terms of the model, averaged over trials, give 1.16 of the rate
-  before the first flash in the hold and 1.16 after the exit; the observed
-  rate is 0.56 and 1.25 (below the flash terms in the hold in 150 of 167
+  before the first flash in the fixation and 1.16 after the exit; the observed
+  rate is 0.56 and 1.25 (below the flash terms in the fixation in 150 of 167
   units, p = 6e-23).
-- Hold effect (`hold_effect.svg`, descriptive model with a kernel after the
-  center exit): Δ log rate −0.31 in the hold and +0.19 after the exit, higher
+- Fixation effect (`hold_effect.svg`, descriptive model with a kernel after the
+  center exit): Δ log rate −0.31 in the fixation and +0.19 after the exit, higher
   after the exit in 144 of 167 units. Two-step control: −0.48 with all terms
-  fit together, −0.33 with the hold kernel fit last (below 0 in 90% of units).
-  Example units: 36 (the lowest hold level among units with 5 to 20 spikes/s)
-  and 576 (the highest hold level among units with 2 spikes/s or more).
+  fit together, −0.33 with the fixation kernel fit last (below 0 in 90% of units).
+  Example units: 36 (the lowest fixation level among units with 5 to 20 spikes/s)
+  and 576 (the highest fixation level among units with 2 spikes/s or more).
 - `uv run python -m thesis.ephys.analyses.glm.main_figure` draws the main
   figure (`main_figure.svg`) for the example unit and all units.

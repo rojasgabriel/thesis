@@ -66,9 +66,12 @@ HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
 HOLD_BASES = 12
 HOLD_LOG_STRETCH_S = 0.025
-# Fixation before the stimulus: one column that is 1 from the center entry to
-# the first flash, where no other term is on. Its weight has no common sign
-# over units; it sets the rate of each unit in that time.
+# Initiation: one column that is 1 from the center entry to the first flash,
+# where no other term is on. Its weight has no common sign over units; it sets
+# the rate of each unit in that time.
+# Names: the figures and the docs call this column "initiation" and the hold
+# kernel "stimulus during fixation". The keys ("fixation", "hold") stay, because
+# the saved fits use them.
 FIXATION_COLUMN = True
 FIXATION = "fixation"
 # Earlier forms of that term, for `hold_grid.py`: one column that is 1 from

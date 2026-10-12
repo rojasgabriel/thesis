@@ -296,7 +296,7 @@ def main() -> None:
         parts.set_xticks(
             range(len(names)),
             [REGRESSORS[name][0].replace(" ", "\n") for name in names],
-            fontsize=5.5,
+            fontsize=5,
         )
         for tick, name in zip(parts.get_xticklabels(), names, strict=True):
             tick.set_color(REGRESSORS[name][1])
@@ -389,7 +389,10 @@ def main() -> None:
                 times[keep], np.asarray(kernel["recovered"])[keep], color=MODEL_COLOR
             )
             axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            axis.set_xlabel(f"{name}:\ntime from event (ms)")
+            label = name.replace(
+                "during hold", "during fixation"
+            )  # key of the saved file
+            axis.set_xlabel(f"{label}:\ntime from event (ms)")
             if column == 0:
                 axis.set_ylabel(r"$\Delta$ log rate")
             if column == 1:  # the curves are low here, so the labels are clear of them

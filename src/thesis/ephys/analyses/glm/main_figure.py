@@ -7,15 +7,15 @@ Comparison: no new fits. The script reads one fit set (`--units`, `all` by
 default) of one session, after `glm fit` and `glm unique`.
 
 - Panel a (the task and the model): one held-out trial of the example unit,
-  against time from the first flash. Flashes, the hold (first flash to center
-  exit; the fixation before the stimulus is the lighter part), and the
-  withdrawal; the first motion-energy PC; the term that each group of
+  against time from the first flash. Flashes, the fixation (first flash to center
+  exit; the initiation, from the center entry to the first flash, is the
+  lighter part), and the withdrawal; the first motion-energy PC; the term that each group of
   regressors adds to the log rate in the final refit (visual, task, and motion
   energy in one row, spike history in its own row, in their colors); and the
   observed spikes.
 - Panel b (what the model learns): the kernels of the example unit from the
   final refit, as a change in log rate. Flash kernel for a flash with no flash
-  in the last 50 ms and for a flash that follows one; the stimulus-during-hold
+  in the last 50 ms and for a flash that follows one; the stimulus-during-fixation
   kernel; withdrawal kernel; spike-history kernel.
 - Panel c (prediction): observed and predicted firing rate of the example unit
   over the held-out test trials, in `RATE_BIN_MS` bins. The prediction of a
@@ -84,8 +84,8 @@ REGRESSORS = {
     "history": ("spike history", HISTORY),
     "visual_flash": ("visual flash", VISUAL),
     "flash_adaptation": ("fast adaptation", VISUAL),
-    "fixation": ("fixation before stimulus", TASK),
-    "hold": ("stimulus during hold", TASK),
+    "fixation": ("initiation", TASK),
+    "hold": ("stimulus during fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
     "video": ("motion energy", MOTION),
 }
@@ -100,7 +100,7 @@ def _plot_trial(axes, data) -> None:
     events.axvspan(
         max(entry, left), leave, ymin=0.38, ymax=0.62, color=TASK, alpha=0.4, lw=0
     )
-    # The fixation before the stimulus, lighter, in the same row.
+    # The initiation (center entry to first flash), lighter, in the same row.
     start = 1000 * data["event__fixation"][0]
     events.axvspan(
         max(start, left), entry, ymin=0.38, ymax=0.62, color=TASK, alpha=0.18, lw=0
@@ -108,7 +108,7 @@ def _plot_trial(axes, data) -> None:
     events.vlines(1000 * data["event__visual_flash"], 2.6, 3.4, color=VISUAL, lw=1)
     events.vlines(1000 * data["event__withdrawal"], 0.6, 1.4, color=TASK, lw=1.2)
     events.set_ylim(0.3, 3.7)
-    events.set_yticks([3, 2, 1], ["flashes", "fixation, hold", "withdrawal"])
+    events.set_yticks([3, 2, 1], ["flashes", "initiation, fixation", "withdrawal"])
     for tick, color in zip(events.get_yticklabels(), (VISUAL, TASK, TASK), strict=True):
         tick.set_color(color)
     shown = (1000 * data["motion_times"] >= left) & (
@@ -156,7 +156,7 @@ def _plot_kernels(axes, data) -> None:
     withdrawal.plot(data["kern_t__withdrawal"], data["kern_v__withdrawal"], color=TASK)
     withdrawal.set_xlabel("time from withdrawal (ms)")
     hold.plot(data["kern_t__hold"], data["kern_v__hold"], color=TASK)
-    hold.set_xlabel("time in hold,\nfrom first flash (ms)")
+    hold.set_xlabel("time in fixation,\nfrom first flash (ms)")
     history.plot(data["kern_t__history"], data["kern_v__history"], color=HISTORY)
     history.set_xlabel("time since spike (ms)")
     for axis in axes:

@@ -97,7 +97,7 @@ follows another flash. No such term, a synaptic-depression resource that
 recovers slowly (slow resource, 200 ms) or fast (fast resource, 25 ms), and a term that is 1 for a flash that
 follows another within 50 ms (recent flash) ({p_c}).
 **e–h, Task.** **e**, The raised cosines of the kernel for the stimulus during
-the hold: the time from the first flash to the withdrawal from the center port,
+fixation: the time from the first flash to the withdrawal from the center port,
 where the firing rate is lower while the flashes go on. **f**, The form of that
 term. No term; a column that is 1 from the center entry to the withdrawal
 (step, entry) or from the first flash to the withdrawal (step, flash); that
@@ -243,7 +243,8 @@ def main() -> None:
         ).items()
     }
     hold = {
-        name: per_unit(units)
+        # The saved name of the design has the regressor key; the label has its name.
+        name.replace("no\nfixation", "no\ninitiation"): per_unit(units)
         for name, units in _load(
             root / "hold_grid" / "hold_grid.json", f"{module}.hold_grid"
         ).items()
@@ -347,11 +348,11 @@ def main() -> None:
             d,
             hold,
             TASK,
-            "term for the stimulus during hold",
+            "term for the stimulus during fixation",
             selected=hold_grid.IN_USE,
             line=False,
         )
-        d.tick_params(axis="x", labelsize=5.5)
+        d.tick_params(axis="x", labelsize=5)
         stats["withdrawal"] = _plot_choice(
             e,
             kernel,

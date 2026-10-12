@@ -470,7 +470,7 @@ def main() -> None:
                 axis.set_xlim(*limits)
                 axis.tick_params(labelbottom=False)
                 if column == 0:
-                    axis.set_ylabel("trial, sorted\nby hold length")
+                    axis.set_ylabel("trial, sorted\nby fixation length")
                     axis.text(
                         0.01,
                         1.02,
@@ -601,7 +601,7 @@ def main() -> None:
         paired.set_ylim(limits)
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
         paired.set_xlabel(
-            r"$\Delta$ log rate in the hold," + f"\n{window} from first flash"
+            r"$\Delta$ log rate in fixation," + f"\n{window} from first flash"
         )
         paired.set_ylabel(r"$\Delta$ log rate after exit," + f"\n{window} from exit")
         order_axis = figure.add_subplot(bottom[1])
@@ -621,10 +621,10 @@ def main() -> None:
         order_axis.set_xlim(limits)
         order_axis.set_ylim(limits)
         order_axis.set_xlabel(
-            r"$\Delta$ log rate in the hold," + "\nall terms fit together"
+            r"$\Delta$ log rate in fixation," + "\nall terms fit together"
         )
         order_axis.set_ylabel(
-            r"$\Delta$ log rate in the hold," + "\nhold kernel fit last"
+            r"$\Delta$ log rate in fixation," + "\nfixation kernel fit last"
         )
         stillness_axis = figure.add_subplot(bottom[2])
         port_vs_stillness.plot_rates(stillness_axis, stillness, states=(0, 2))
