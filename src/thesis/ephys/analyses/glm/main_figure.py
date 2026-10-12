@@ -84,14 +84,20 @@ MIN_TRIAL_FRACTION = 0.5
 VISUAL, TASK, MOTION, HISTORY = (
     CONCEPT_COLORS[name] for name in ("visual", "task", "motion energy", "history")
 )
+DRIFT_COLOR = "0.4"  # not a variable of the task
 REGRESSORS = {
     "history": ("spike history", HISTORY),
     "visual_flash": ("visual flash", VISUAL),
     "flash_adaptation": ("fast adaptation", VISUAL),
+    "flash_recovery": ("flash recovery", VISUAL),
+    "flash_after_exit": ("flash × fixation", VISUAL),
+    "center_entry": ("center entry", TASK),
     "fixation": ("initiation", TASK),
     "hold": ("stimulus during fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
+    "side_after_exit": ("side after exit", TASK),
     "video": ("motion energy", MOTION),
+    "session_drift": ("session drift", DRIFT_COLOR),
 }
 
 CAPTION = """\

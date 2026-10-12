@@ -36,6 +36,7 @@ import numpy as np
 from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
+    DRIFT,
     HISTORY_COLUMNS,
     _design_with_history,
     _load_windows,
@@ -254,25 +255,30 @@ def _block_task(job: dict) -> dict:
             put(groups["video"], None)
 
         # These detailed blocks are non-overlapping and cover the full model.
-        blocks = [groups[name] for name in order if name != "task"]
-        for columns in blocks:
-            put(columns, within)
+        blocks = [name for name in order if name != "task"]
+
+        def shuffle_of(name):
+            # Session drift is constant inside a trial: shuffle it over trials.
+            return between if name == DRIFT else within
+
+        for name in blocks:
+            put(groups[name], shuffle_of(name))
         reference = score("all regressor groups shuffled")
-        for columns in blocks:
-            put(columns, None)
+        for name in blocks:
+            put(groups[name], None)
 
         for group in order:
             columns = groups[group]
-            put(columns, within)
+            put(columns, shuffle_of(group))
             removed = score(f"{group} shuffled")
             put(columns, None)
 
-            for other in blocks:
-                put(other, within)
+            for name in blocks:
+                put(groups[name], shuffle_of(name))
             put(columns, None)
             alone = score(f"only {group} unshuffled")
-            for other in blocks:
-                put(other, None)
+            for name in blocks:
+                put(groups[name], None)
 
             per_fold[group]["unique"].append(complete - removed)
             per_fold[group]["maximal"].append(alone - reference)

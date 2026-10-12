@@ -82,29 +82,29 @@ IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
 FIRST_FLASH_TERM = False
 IN_PORT = "in_port"
-# Test of `side_term_test.py`: one column for the side of the response after the
-# center exit. Not in the model.
-SIDE_COLUMN = False
+# One column for the side of the response after the center exit. In the model
+# from 2026-10-12 (`side_term_test.py`, `candidate_terms.py`).
+SIDE_COLUMN = True
 SIDE = "side_after_exit"
-# Candidate terms, tested on all units with the unique-deviance step
-# (`candidate_terms.py`). Not in the model.
+# Terms that were tested on all units with the unique-deviance step
+# (`candidate_terms.py`). In the model from 2026-10-12.
 # A kernel on the center entry (some units respond to the entry).
-ENTRY_KERNEL = False
+ENTRY_KERNEL = True
 ENTRY = "center_entry"
 ENTRY_WINDOW_S = 0.2
 ENTRY_BASES = 4
 # A flash kernel scaled by the log of the gap from the flash before: the
 # response to a flash after a long gap differs from the response in a dense
 # train by more than the fast-adaptation term (a flash within 50 ms) holds.
-FLASH_RECOVERY_TERM = False
+FLASH_RECOVERY_TERM = True
 FLASH_RECOVERY = "flash_recovery"
 FLASH_SLOT_S = 0.04
 # A slow change of the rate over the session: raised cosines over the time of
 # the trial in the session, constant inside a trial (`session_drift_columns`).
-# The within-trial shuffle of `unique_dev.py` cannot test it; `term_test.py`
-# does. `DRIFT_SPLINE` gives the first form that was tested, a cubic spline
+# In the model from 2026-10-12. `unique_dev.py` shuffles it over trials, not
+# inside a trial (`term_test.py` made the first test). `DRIFT_SPLINE` gives the first form that was tested, a cubic spline
 # with `DRIFT_KNOTS` knots, for `drift_grid.py`.
-SESSION_DRIFT = False
+SESSION_DRIFT = True
 DRIFT = "session_drift"
 DRIFT_BASES = 4
 DRIFT_SPLINE = False
@@ -113,9 +113,10 @@ DRIFT_KNOTS = 6
 # GRB006, and the bottom view from GRB064 on. The view differs between these
 # animals, so their motion-energy PCs are not the same measure.
 VIDEO_VIEWS = ("BackStereoView", "BottomView")
-# Test of `flash_fixation_test.py`: a second flash kernel for a flash after the
-# center exit against a flash in the fixation. Not in the model.
-FLASH_AFTER_EXIT_TERM = False
+# A second flash kernel for a flash after the center exit against a flash in
+# the fixation. In the model from 2026-10-12 (`flash_fixation_test.py`,
+# `candidate_terms.py`).
+FLASH_AFTER_EXIT_TERM = True
 FLASH_AFTER_EXIT = "flash_after_exit"
 HOLD = "hold"
 HISTORY_COLUMNS = 10
@@ -843,18 +844,26 @@ def _common_design_is_current(output: Path) -> bool:
         return False
     bases = task_temporal_bases()
     manifest = metadata.get("task_manifest", [])
+    # The columns with no temporal basis, in the order of `build_task_design`.
+    drift_columns = 7 if DRIFT_SPLINE else DRIFT_BASES - 1
+    state = [
+        (name, columns)
+        for name, columns, used in (
+            (FIXATION, 1, FIXATION_COLUMN),
+            (SIDE, 1, SIDE_COLUMN),
+            (DRIFT, drift_columns, SESSION_DRIFT),
+            (IN_PORT, 1, IN_PORT_COLUMN),
+        )
+        if used
+    ]
     return (
         metadata.get("video_columns_per_component") == 1
         and [item.get("name") for item in manifest]
-        == [
-            *bases,
-            *([FIXATION] if FIXATION_COLUMN else []),
-            *([IN_PORT] if IN_PORT_COLUMN else []),
-        ]
+        == [*bases, *(name for name, _ in state)]
         and [item.get("columns") for item in manifest]
         == [
             *(basis.basis.shape[1] for basis in bases.values()),
-            *([1] * (FIXATION_COLUMN + IN_PORT_COLUMN)),
+            *(columns for _, columns in state),
         ]
         and metadata.get("recent_flash_s") == RECENT_FLASH_S
     )
