@@ -531,6 +531,39 @@ that it is worth its columns; that is a choice of parsimony. The tests are in
 regressors of a design, by the shuffle of each), and `main_figure_stats.json`
 (the regressors of the model; all seven pass both tests).
 
+### Candidate terms, all together
+
+Test of 2026-10-12 (`candidate_terms.py`, all 167 units, results in
+`candidate_terms.json`). One design: the 7 regressors of the model plus four
+candidates (side after the exit, flash × fixation, flash recovery, and a
+center-entry kernel), with the unique-deviance step. So each regressor is
+tested with all the others in the design. Holm correction for 11 regressors;
+the smallest count above chance is 17 units.
+
+| Regressor | Columns | Units that need it | Held-out units | Units worse | Median unique ΔD² |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Spike history | 10 | 90% | 90% | 2.4% | 0.0257 |
+| Visual flash | 8 | 78% | 77% | 0.0% | 0.0037 |
+| Stimulus during fixation | 12 | 71% | 72% | 0.0% | 0.0027 |
+| Motion energy | 10 | 56% | 58% | 0.0% | 0.0015 |
+| Withdrawal | 4 | 54% | 54% | 0.0% | 0.0008 |
+| Flash × fixation (candidate) | 8 | 41% | 44% | 0.0% | 0.0009 |
+| Fast adaptation | 8 | 40% | 37% | 1.2% | 0.0005 |
+| Flash recovery (candidate) | 8 | 38% | 39% | 0.6% | 0.0006 |
+| Side after the exit (candidate) | 1 | 32% | 33% | 1.8% | 0.0003 |
+| Initiation | 1 | 13% | 12% | 1.8% | 0.0001 |
+| Center entry (candidate) | 4 | 11% | 12% | 0.6% | 0.0001 |
+
+- Every regressor passes both tests of the rule (largest Holm p: 0.0007, for
+  the unit count of the center-entry kernel, 19 of 167 units).
+- The median cross-validated D² goes from 0.0716 to 0.0744 (+3.9%).
+- The regressors of the model are needed by fewer units than before (fast
+  adaptation 60% to 40%, fixation kernel 87% to 71%, initiation 23% to 13%),
+  because the candidates explain a part of what they explained. The unique
+  ΔD² of a regressor is what no other regressor can explain.
+- The flash × fixation term is needed by more units here (41%) than in its
+  own test (28%).
+
 ### Side of the response after the exit
 
 Test of 2026-10-12 (`side_term_test.py`, 20 selection units, results in
