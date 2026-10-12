@@ -10,10 +10,12 @@ regressor is shuffled in time within each trial, on held-out trials. So each
 term is tested with all the other terms in the model, and every unit is its
 own control.
 
-- Reported for each regressor: the median unique ΔD² over units and the
-  fraction of units with a unique ΔD² above zero (one-sided t-test over the 10
-  folds, p < `RELIABLE_ALPHA`; a term with no effect gives about 5%), for all
-  units and for the units outside the 20 selection units.
+- For each regressor: the two tests of `inclusion.py` on its unique ΔD² in the
+  folds of each unit (is the D² higher with the regressor, and do more units
+  reliably need it than chance gives), with a Holm correction over all the
+  regressors of the design, and the fraction of units that are reliably worse
+  with it. The fraction of units that need it is also given for the units
+  outside the 20 selection units.
 - The shuffle is within a trial, so it cannot test a term that is constant in
   a trial (session drift is not a candidate for this reason).
 
@@ -33,12 +35,11 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import ttest_1samp
 
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.hold_effect import _fit_variant
-from thesis.ephys.analyses.glm.unique_dev import RELIABLE_ALPHA, UNIQUE
+from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 
 ROOT_SUFFIX = "_candidates"
 CANDIDATES = {
@@ -79,24 +80,25 @@ def main() -> None:
     }
     held_out = np.asarray([int(item["unit_id"]) not in selection for item in records])
     stats = {"units": len(records), "held_out_units": int(held_out.sum())}
-    for name in records[0]["groups"]:
-        values = np.asarray([item["groups"][name][UNIQUE] for item in records])
-        reliable = np.asarray(
-            [
-                ttest_1samp(
-                    item["groups"][name]["folds"]["unique"], 0, alternative="greater"
-                ).pvalue
-                < RELIABLE_ALPHA
-                for item in records
-            ]
-        )
+    # Every regressor of the design (the broad group "task" is their sum).
+    names = [name for name in records[0]["groups"] if name != "task"]
+    fold_gains = {
+        name: [np.asarray(item["groups"][name]["folds"]["unique"]) for item in records]
+        for name in names
+    }
+    tests = decide({name: regressor_tests(fold_gains[name]) for name in names})
+    for name in names:
+        outside = [g for g, keep in zip(fold_gains[name], held_out) if keep]
         stats[name] = {
             "candidate": name in CANDIDATES.values(),
-            "median_unique_d2": float(np.median(values)),
-            "mean_unique_d2": float(values.mean()),
-            "fraction_units_reliable": float(reliable.mean()),
-            "fraction_held_out_units_reliable": float(reliable[held_out].mean()),
+            **tests[name],
+            "fraction_held_out_units_that_need_it": regressor_tests(outside)[
+                "fraction_units_that_need_it"
+            ],
         }
+    stats["units_above_chance_for_this_number_of_regressors"] = minimum_units(
+        len(records), len(names)
+    )
     full = np.asarray([item["complete_test_deviance_explained"] for item in records])
     stats["median_d2_of_the_design_with_all_candidates"] = float(np.median(full))
     output = args.root / "candidate_terms.json"

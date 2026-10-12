@@ -12,11 +12,12 @@ step cannot test.
 
 - Validation D² with and without the term (two-sided Wilcoxon signed-rank
   test over units).
-- Cross-validated D² over the same 10 folds: the median and mean gain, and the
-  fraction of units that predict reliably better or worse with the term
-  (paired t-test over folds, one-sided, p < `RELIABLE_ALPHA`; a term with no
-  effect gives about 5%). The same for the units outside the 20 selection
-  units.
+- The two tests of `inclusion.py` on the cross-validated D² over the same 10
+  folds: is the D² higher with the term (Wilcoxon over units), and do more
+  units reliably need it than chance gives (binomial test). The fraction of
+  units that are reliably worse with the term is given as the measured chance
+  level. The same for the units outside the 20 selection units. The p values
+  have no correction here; a set of terms is corrected where they are compared.
 
 Units (`--units`, all by default: the importance of a regressor is tested on
 all units), trials, alignment (first flash), baseline, and exclusions are those
@@ -35,7 +36,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import ttest_rel, wilcoxon
+from scipy.stats import wilcoxon
 
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
@@ -44,7 +45,7 @@ from thesis.ephys.analyses.glm.flash_fixation_test import (
     _validation_scores,
 )
 from thesis.ephys.analyses.glm.hold_effect import _fit_variant
-from thesis.ephys.analyses.glm.unique_dev import RELIABLE_ALPHA
+from thesis.ephys.analyses.glm.inclusion import minimum_units, regressor_tests
 
 
 def main() -> None:
@@ -64,11 +65,7 @@ def main() -> None:
         raise ValueError("The two designs were not fit on the same units.")
     gain = np.asarray([scores[1][unit] - scores[0][unit] for unit in unit_ids])
     paired = [u for u in unit_ids if len(folds[0][u]) == len(folds[1][u])]
-    fold_gain = np.asarray([(folds[1][u] - folds[0][u]).mean() for u in paired])
-    fold_p = np.asarray([ttest_rel(folds[1][u], folds[0][u]).pvalue for u in paired])
-    better = (fold_p / 2 < RELIABLE_ALPHA) & (fold_gain > 0)
-    worse = (fold_p / 2 < RELIABLE_ALPHA) & (fold_gain < 0)
-    in_use = np.asarray([folds[0][u].mean() for u in paired])
+    fold_gains = [folds[1][u] - folds[0][u] for u in paired]
     selection = {
         int(item["unit_id"])
         for item in load_unit_records(
@@ -76,7 +73,8 @@ def main() -> None:
             "unit_*_final.json",
         )
     }
-    held_out = np.asarray([unit not in selection for unit in paired])
+    held_out = [gain for unit, gain in zip(paired, fold_gains) if unit not in selection]
+    in_use = np.median([folds[0][u].mean() for u in paired])
     stats = {
         "switch": args.switch,
         "units": len(unit_ids),
@@ -85,30 +83,20 @@ def main() -> None:
             "units_better": int(np.sum(gain > 0)),
             "wilcoxon_p": float(wilcoxon(gain).pvalue),
         },
-        "cross_validated_d2_gain": {
-            "units_with_the_same_folds": len(paired),
-            "median": float(np.median(fold_gain)),
-            "mean": float(fold_gain.mean()),
-            "median_relative_to_in_use": float(
-                np.median(fold_gain) / np.median(in_use)
-            ),
-            "mean_relative_to_in_use": float(fold_gain.mean() / in_use.mean()),
-            "wilcoxon_p": float(wilcoxon(fold_gain).pvalue),
-            "fraction_units_better_with_term": float(better.mean()),
-            "fraction_units_worse_with_term": float(worse.mean()),
-        },
-        "held_out_units": {
-            "units": int(held_out.sum()),
-            "median_gain": float(np.median(fold_gain[held_out])),
-            "wilcoxon_p": float(wilcoxon(fold_gain[held_out]).pvalue),
-            "fraction_units_better_with_term": float(better[held_out].mean()),
-        },
+        # The two tests of `inclusion.py`, with no correction: one regressor.
+        "inclusion_tests": regressor_tests(fold_gains),
+        "inclusion_tests_held_out_units": regressor_tests(held_out),
+        "units_above_chance_for_one_and_for_12_regressors": [
+            minimum_units(len(paired)),
+            minimum_units(len(paired), 12),
+        ],
+        "median_d2_in_use": float(in_use),
         "unit_ids": paired,
-        "cross_validated_d2_gain_by_unit": fold_gain.tolist(),
+        "cross_validated_d2_gain_by_unit": [float(g.mean()) for g in fold_gains],
     }
     output = args.root / f"term_test_{args.switch.lower()}.json"
     output.write_text(json.dumps(stats, indent=1))
-    print(json.dumps({k: stats[k] for k in list(stats)[:5]}, indent=1))
+    print(json.dumps({k: stats[k] for k in list(stats)[:7]}, indent=1))
     print(output)
 
 

@@ -500,6 +500,37 @@ fixation).
 - The old design had this contrast with no fixation kernel (unique ΔD² 0.0009,
   46% of units, not kept).
 
+### The rule for a regressor
+
+From 2026-10-12 (`inclusion.py`). The importance of a regressor is tested on
+all units and on held-out trials, because 20 units are too few (the side term
+and the flash × fixation term were not reliable on 20 units and are reliable
+on 167). The form of a term (bases, window, spacing) is still chosen on the 20
+selection units. A regressor is in the model when it passes two tests, each
+with a Holm correction for the number of regressors that are tested together:
+
+1. Gain: the cross-validated D² is higher with the regressor than without it
+   (or with it shuffled). The gain of a unit is the mean over its folds.
+   One-sided Wilcoxon signed-rank test over units.
+2. Units: more units reliably need the regressor than chance gives. A unit
+   needs it when its fold gains are above zero (one-sided t-test over folds,
+   p < 0.05), so a regressor with no effect gives 5% of the units. One-sided
+   binomial test of the count against 5%. For 167 units this is 14 units
+   (8.4%) for one regressor and 17 to 18 units (about 11%) with the correction
+   for 7 to 12 regressors.
+
+The fraction of units that are reliably worse with a regressor is reported as
+the measured rate of false positives of the unit test: a real regressor cannot
+make a unit predict worse except by noise. In the current model it is 0 to 3%
+for every regressor, so 5% is a fair chance level. Limits: the folds of a unit
+share training trials, and the units share the trials.
+
+The tests say that a regressor is real for the population. They do not say
+that it is worth its columns; that is a choice of parsimony. The tests are in
+`term_test.py` (one switch, the same folds), `candidate_terms.py` (all
+regressors of a design, by the shuffle of each), and `main_figure_stats.json`
+(the regressors of the model; all seven pass both tests).
+
 ### Side of the response after the exit
 
 Test of 2026-10-12 (`side_term_test.py`, 20 selection units, results in

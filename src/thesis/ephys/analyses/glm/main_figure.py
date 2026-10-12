@@ -36,7 +36,9 @@ default) of one session, after `glm fit` and `glm unique`.
   over units. The top row is the D² of the full model. The axis is logarithmic and starts at `FLOOR`; a smaller value is
   drawn at the floor. The number at the right is the fraction of units whose
   unique ΔD² is above zero (one-sided t-test of the fold values,
-  p < `RELIABLE_ALPHA`; a regressor with no effect gives about 5%).
+  p < `RELIABLE_ALPHA`; a regressor with no effect gives about 5%). The two
+  tests of `inclusion.py` for each regressor go to `main_figure_stats.json`; a
+  regressor that does not pass both has "n.s." after its number.
 
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
@@ -57,7 +59,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import ttest_1samp
 
 from thesis.ephys.analyses.glm import cli
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S
@@ -66,6 +67,7 @@ from thesis.ephys.analyses.glm.figures import (
     training_rate_and_deviance,
 )
 from thesis.ephys.analyses.glm.fit import load_unit_records
+from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.analyses.glm.unique_dev import MAXIMAL, RELIABLE_ALPHA, UNIQUE
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -128,7 +130,12 @@ lines the interquartile range over units; the top row is the D² of the full
 model. The axis is logarithmic and starts at {floor:g}; a smaller value is
 drawn there. The number at the right is the fraction of units with a unique ΔD²
 above zero (one-sided t-test over the 10 folds, p < {alpha}; a regressor with
-no effect gives about {alpha:.0%}).
+no effect gives about {alpha:.0%}). A regressor is in the model when it passes
+two tests over all units, each with a Holm correction for the {regressors}
+regressors: the unique ΔD² is above zero (one-sided Wilcoxon signed-rank test
+over units), and more units need the regressor than chance gives (one-sided
+binomial test against {alpha:.0%}; {minimum} units or more of {units}).
+{verdict}
 """
 
 
@@ -266,18 +273,23 @@ def _plot_population(axis, bits, deviance, rate) -> None:
         inset.axis("off")
 
 
-def _reliable_fraction(records: list[dict], group: str) -> float:
-    """Fraction of units with a unique ΔD² above zero (one-sided t-test over folds)."""
-    p_values = [
-        ttest_1samp(
-            item["groups"][group]["folds"]["unique"], 0, alternative="greater"
-        ).pvalue
-        for item in records
-    ]
-    return float(np.mean(np.asarray(p_values) < RELIABLE_ALPHA))
+def inclusion_tests(records: list[dict]) -> dict[str, dict]:
+    """Return the two tests of `inclusion.py` for each regressor of the figure."""
+    return decide(
+        {
+            name: regressor_tests(
+                [
+                    np.asarray(item["groups"][name]["folds"]["unique"])
+                    for item in records
+                ]
+            )
+            for name in REGRESSORS
+            if name in records[0]["groups"]
+        }
+    )
 
 
-def _plot_unique(axis, records: list[dict]) -> None:
+def _plot_unique(axis, records: list[dict], tests: dict[str, dict]) -> None:
     """Unique (filled) and maximal (open) ΔD² of each regressor, over units."""
     values = lambda name, key: np.asarray(  # noqa: E731
         [item["groups"][name][key] for item in records]
@@ -301,7 +313,8 @@ def _plot_unique(axis, records: list[dict]) -> None:
         axis.text(
             1.04,
             position,
-            f"{_reliable_fraction(records, name):.0%}",
+            f"{tests[name]['fraction_units_that_need_it']:.0%}"
+            + ("" if tests[name]["passes_both_tests"] else " n.s."),
             color=color,
             va="center",
             transform=axis.get_yaxis_transform(),
@@ -385,7 +398,8 @@ def main() -> None:
         _plot_kernels(kernel_axes, data)
         _plot_prediction(prediction, data)
         _plot_population(population, bits, deviance, rate)
-        _plot_unique(unique_axis, records)
+        tests = inclusion_tests(records)
+        _plot_unique(unique_axis, records, tests)
         for axis in (*trial_axes, *kernel_axes, unique_axis):
             separate_axes(axis)
         for axis in trial_axes[:4]:
@@ -399,6 +413,21 @@ def main() -> None:
             top_edge = axis.get_position().y1 + (0.05 if axis is population else 0.02)
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
         output = save_figure(figure, fit_dir / "main_figure")
+    output.with_name("main_figure_stats.json").write_text(
+        json.dumps(
+            {
+                "units": len(records),
+                "units_above_chance_for_these_regressors": minimum_units(
+                    len(records), len(tests)
+                ),
+                "inclusion_tests": tests,
+            },
+            indent=1,
+        )
+    )
+    failed = [
+        REGRESSORS[name][0] for name in tests if not tests[name]["passes_both_tests"]
+    ]
     scalars = json.loads((fit_dir / "figure_data.json").read_text())
     output.with_name("main_figure_caption.md").write_text(
         CAPTION.format(
@@ -411,6 +440,13 @@ def main() -> None:
             bits=np.median(bits),
             floor=FLOOR,
             alpha=RELIABLE_ALPHA,
+            regressors=len(tests),
+            minimum=minimum_units(len(records), len(tests)),
+            verdict=(
+                "Every regressor passes both tests."
+                if not failed
+                else "Not passing both tests (n.s.): " + ", ".join(failed) + "."
+            ),
         )
     )
     print(output)
