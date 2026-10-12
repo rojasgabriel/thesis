@@ -192,31 +192,50 @@ def flash_condition_kernels(
     of that flash. The first flash of a trial is not one of these: its
     response is in the fixation kernel.
     """
+    levels = flash_kernel_levels(trials)
+    out = {
+        f"gap_{gap}": flash_kernel_at(kernels, adapt_levels, levels, gap, False)
+        for gap in FLASH_GAPS_MS
+    }
+    out["fixation"] = flash_kernel_at(
+        kernels, adapt_levels, levels, PERIOD_GAP_MS, False
+    )
+    out["after_exit"] = flash_kernel_at(
+        kernels, adapt_levels, levels, PERIOD_GAP_MS, True
+    )
+    return out
+
+
+def flash_kernel_levels(trials) -> tuple[float, float]:
+    """Return the centered values of a flash at the shortest gap and in the fixation.
+
+    These are the lowest centered values of the flash-recovery and the
+    flash × fixation regressors.
+    """
+    return float(flash_recovery(trials).min()), float(flash_after_exit(trials).min())
+
+
+def flash_kernel_at(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    adapt_levels: dict[str, float],
+    levels: tuple[float, float],
+    gap_ms: float,
+    after_exit: bool,
+) -> np.ndarray:
+    """Return the flash kernel of the model for a flash at one gap and period."""
     common = kernels[FLASH_COMMON][1]
     zero = np.zeros_like(common)
-    adapt = kernels[FLASH_ADAPT][1] if FLASH_ADAPT in kernels else zero
-    recovery = kernels[FLASH_RECOVERY][1] if FLASH_RECOVERY in kernels else zero
-    after_exit = kernels[FLASH_AFTER_EXIT][1] if FLASH_AFTER_EXIT in kernels else zero
-    # The centers: a flash at the shortest gap, and one in the fixation, have
-    # the lowest centered values.
-    shortest_gap = flash_recovery(trials).min()
-    in_fixation = flash_after_exit(trials).min()
-
-    def kernel(gap_ms: float, after: bool) -> np.ndarray:
-        gap_s = gap_ms / 1000
-        level = adapt_levels["repeat" if gap_s <= RECENT_FLASH_S else "isolated"]
-        return (
-            common
-            + level * adapt
-            + (shortest_gap + np.log(max(gap_s, FLASH_SLOT_S) / FLASH_SLOT_S))
-            * recovery
-            + (in_fixation + after) * after_exit
-        )
-
-    out = {f"gap_{gap}": kernel(gap, False) for gap in FLASH_GAPS_MS}
-    out["fixation"] = kernel(PERIOD_GAP_MS, False)
-    out["after_exit"] = kernel(PERIOD_GAP_MS, True)
-    return out
+    term = lambda name: kernels[name][1] if name in kernels else zero  # noqa: E731
+    shortest_gap, in_fixation = levels
+    gap_s = gap_ms / 1000
+    adapt = adapt_levels["repeat" if gap_s <= RECENT_FLASH_S else "isolated"]
+    recovery = shortest_gap + np.log(max(gap_s, FLASH_SLOT_S) / FLASH_SLOT_S)
+    return (
+        common
+        + adapt * term(FLASH_ADAPT)
+        + recovery * term(FLASH_RECOVERY)
+        + (in_fixation + after_exit) * term(FLASH_AFTER_EXIT)
+    )
 
 
 def _select_count_typical_trial(observed: np.ndarray) -> int:
