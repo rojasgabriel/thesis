@@ -515,8 +515,25 @@ response to the right port and −1 for the left port from the center exit on
   term and 5% worse (cross-validated D² +0.0005, p = 0.09).
 - The weights are not small: the median size is 0.28 in log rate (right
   against left, a factor of 1.3), with no common sign (11 of 20 above zero).
-- Not tested on all units. The flash × fixation term gave the same picture on
-  20 units (not reliable) and was reliable on 167.
+- All 167 units: the term predicts reliably better. Cross-validated D²
+  +0.0005 in the median (0.6% of the D² of the model) and +0.0013 in the mean
+  (1.8%); Wilcoxon p = 4e-14; validation D² better in 115 of 167 units
+  (p = 1e-7). With the same 10 folds, 31% of the units predict reliably better
+  with the term and 0.6% worse. The 147 held-out units alone give the same
+  result (31%, p = 1e-13).
+- On all units the weight has a common sign: the rate is higher for a response
+  to the right in 120 of 167 units (median +0.16 in log rate). The 52 units
+  that need the term have a median size of 0.49 (a factor of 1.6); 38 prefer
+  the right and 14 the left.
+- 16 units need this term and the flash × fixation term; 82 of 167 units need
+  one or the other.
+- Rule from 2026-10-12 (Gabriel): the importance of a regressor is tested on
+  all units, because 20 units are too few (this term and the flash × fixation
+  term were not reliable on 20 units and are reliable on 167). The form of a
+  term (bases, window, spacing) is still chosen on the 20 selection units. By
+  this rule the fast-adaptation term is no exception (60% of units), and this
+  term and the flash × fixation term have a case to be in the model. Not
+  decided.
 
 ### What causes the fixation effect
 
