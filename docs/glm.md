@@ -547,6 +547,10 @@ The first five modules fit and score designs and make no figure. Results of
 The figure has one row for each group of regressors: the raised cosines of its
 kernel, drawn from `dmat.py`, then the tests of its choices.
 
+Tests that this file marks as removed from the code were run with scratch
+scripts. Their per-unit scores are in `flash_lobe_test/` in the session
+directory (not tracked by git); they cannot be run again from the repository.
+
 Earlier fits are kept next to the session directory: `_in_port_step` (the step
 design), `_log10_fit` (10 bases, 50 ms stretch, no fixation column), and
 `_linear_hold_fit` (10 linear bases).
@@ -590,7 +594,8 @@ motion-energy PCs. Artifacts are in
 
 - Motion energy is trial-specific: with the regressor taken from another trial,
   the median loss is 0.0021, the same as with the shuffle within a trial.
-- Held-out units (`heldout_units.py`, panels d and e of `model_checks.svg`):
+- Held-out units (panels d and e of `model_checks.svg`, values in
+  `model_checks_stats.json`):
   the 147 units that took no part in the design choices do not differ from the
   20 selection units in D² (p = 0.43) or in any unique ΔD² (p from 0.18 to
   0.86).
