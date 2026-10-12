@@ -1,6 +1,6 @@
 """Draw the checks of the V1 GLM in one supplementary figure.
 
-Question: can the fitted model be trusted? Four checks, with no new fit.
+Question: can the fitted model be trusted? Five checks, with no new fit.
 
 - Panels a to c (single trials): observed spikes of the example unit on the
   held-out test trials, spikes drawn from the predicted rate of the same
@@ -17,7 +17,14 @@ Question: can the fitted model be trusted? Four checks, with no new fit.
   shuffled labels (`residual_checks.py`). The comparison is paired over units;
   the mark is a two-sided Wilcoxon signed-rank test.
 
-- Panels g to i (recovery of planted kernels): `synthetic_check.py` simulates
+- Panel g (calibration): is the predicted rate correct where it is low and
+  where it is high? For each unit, the held-out 1-ms bins are sorted by the
+  rate that the model predicts and cut in `CALIBRATION_GROUPS` groups of equal
+  size; the panel shows the observed rate over the predicted rate in each
+  group (median and interquartile range over units). Each bin is predicted by
+  the cross-validation fold that did not train on its trial. The values are
+  saved in `calibration.npz` in the fit directory and not computed again.
+- Panels h to j (recovery of planted kernels): `synthetic_check.py` simulates
   units with known kernels and runs the real pipeline on them. The panels show
   the planted and the recovered kernel of the unit that has every effect, for
   the visual flash, the stimulus during hold, and the withdrawal. The hold
@@ -49,12 +56,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import mannwhitneyu, wilcoxon
 
-from thesis.ephys.analyses.glm import cli
+from thesis.ephys.analyses.glm import cli, dmat, fit
 from thesis.ephys.analyses.glm.design_optimization import _stars
 from thesis.ephys.analyses.glm.figures import draw_prediction
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS
 from thesis.ephys.analyses.glm.unique_dev import UNIQUE
+from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
@@ -68,6 +76,7 @@ PREDICTION_SEED = 2008
 HELD_OUT_COLOR = "0.55"
 # Synthetic unit with every effect, and how far each kernel is drawn (ms).
 SYNTHETIC_UNIT = 197
+CALIBRATION_GROUPS = 20
 SYNTHETIC_KERNELS = {
     "visual flash": 150,
     "stimulus during hold": 350,
@@ -115,6 +124,56 @@ def _mark(axis, position: float, p_value: float) -> None:
     )
 
 
+def calibration(model: cli.PoissonGLM) -> np.ndarray:
+    """Return observed / predicted rate by group of predicted rate (units x groups)."""
+    cache = model.fit_dir("all") / "calibration.npz"
+    if cache.exists():
+        with np.load(cache, allow_pickle=False) as data:
+            return data["ratio"]
+    prepared = dmat._load_windows(model.windows)
+    alignments = prepared["alignments"]
+    valid = dmat._valid_bin_mask(prepared)
+    metadata = json.loads(model.design.with_suffix(".json").read_text())
+    common = np.load(model.design, mmap_mode="r", allow_pickle=False)
+    partitions = fit.cross_validation_partitions(
+        len(alignments), len(valid) // len(alignments), valid
+    )
+    units = fetch_unit_table(
+        prepared["metadata"]["subject_name"],
+        prepared["metadata"]["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    ).set_index("unit_id")
+    ratios = []
+    for record in load_unit_records(
+        model.fit_dir("all") / "checkpoints", "unit_*_folds.json"
+    ):
+        spikes = np.asarray(units.loc[record["unit_id"], "spike_times_s"], dtype=float)
+        counts = fit.build_unit_counts(alignments, spikes)
+        history = dmat.build_unit_history(alignments, spikes)
+        width = int(metadata["base_columns"]) + int(record["components"])
+        # A fold with no test spikes was not scored and has no saved model.
+        scored = [part for part in partitions if counts[part["test"]].sum() > 0]
+        observed, predicted = [], []
+        for part, fold in zip(scored, record["folds"], strict=True):
+            scaled, _, _ = dmat.training_zscore(history, part["fit"])
+            design = dmat._design_with_history(common, scaled, width, part["test"])
+            predicted.append(
+                np.exp(fold["intercept"] + design @ np.asarray(fold["coefficients"]))
+            )
+            observed.append(counts[part["test"]])
+        observed, predicted = np.concatenate(observed), np.concatenate(predicted)
+        groups = np.array_split(np.argsort(predicted), CALIBRATION_GROUPS)
+        ratios.append(
+            [observed[group].mean() / predicted[group].mean() for group in groups]
+        )
+        print(f"Calibration of unit {record['unit_id']}.", flush=True)
+    ratio = np.asarray(ratios)
+    np.savez(cache, ratio=ratio)
+    return ratio
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
@@ -160,6 +219,7 @@ def main() -> None:
         conditional[valid]
     )
     stats = {"example_unit_id": int(example), "selection_units": int(chosen.sum())}
+    ratio = calibration(model)
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 9.2))
@@ -295,12 +355,30 @@ def main() -> None:
 
         # Planted and recovered kernels of the synthetic unit with every effect.
         recovery = json.loads(args.synthetic.read_text())[str(SYNTHETIC_UNIT)]
-        planted_grid = figure.add_gridspec(
-            1, 3, left=0.11, right=0.97, top=0.2, bottom=0.06, wspace=0.45
+        bottom = figure.add_gridspec(
+            1, 4, left=0.11, right=0.97, top=0.2, bottom=0.06, wspace=0.55
         )
+        calibration_axis = figure.add_subplot(bottom[0])
+        centers = (np.arange(CALIBRATION_GROUPS) + 0.5) * 100 / CALIBRATION_GROUPS
+        low, median, high = np.nanpercentile(ratio, [25, 50, 75], axis=0)
+        calibration_axis.fill_between(
+            centers, low, high, color=MODEL_COLOR, alpha=0.25, linewidth=0
+        )
+        calibration_axis.plot(centers, median, color=MODEL_COLOR)
+        calibration_axis.axhline(
+            1, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
+        )
+        calibration_axis.set_ylim(0.5, 1.5)
+        calibration_axis.set_xlabel("predicted rate\n(percentile within unit)")
+        calibration_axis.set_ylabel("observed /\npredicted rate")
+        stats["calibration, observed / predicted by group"] = {
+            "group_percentile": centers.tolist(),
+            "median": median.tolist(),
+            "fraction_units_above_1": np.mean(ratio > 1, axis=0).tolist(),
+        }
         planted_axes = []
         for column, (name, limit_ms) in enumerate(SYNTHETIC_KERNELS.items()):
-            axis = figure.add_subplot(planted_grid[column])
+            axis = figure.add_subplot(bottom[column + 1])
             kernel = recovery[name]
             times = np.asarray(kernel["time_ms"])
             keep = times <= limit_ms
@@ -311,34 +389,29 @@ def main() -> None:
                 times[keep], np.asarray(kernel["recovered"])[keep], color=MODEL_COLOR
             )
             axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            axis.set_xlabel(f"{name}: time from event (ms)")
+            axis.set_xlabel(f"{name}:\ntime from event (ms)")
             if column == 0:
                 axis.set_ylabel(r"$\Delta$ log rate")
-                axis.text(
-                    0.98,
-                    0.95,
-                    "planted",
-                    color=OBSERVED_COLOR,
-                    transform=axis.transAxes,
-                    ha="right",
-                    va="top",
-                )
-                axis.text(
-                    0.98,
-                    0.84,
-                    "recovered",
-                    color=MODEL_COLOR,
-                    transform=axis.transAxes,
-                    ha="right",
-                    va="top",
-                )
+            if column == 1:  # the curves are low here, so the labels are clear of them
+                for row, (label, color) in enumerate(
+                    (("planted", OBSERVED_COLOR), ("recovered", MODEL_COLOR))
+                ):
+                    axis.text(
+                        0.98,
+                        0.95 - 0.11 * row,
+                        label,
+                        color=color,
+                        transform=axis.transAxes,
+                        ha="right",
+                        va="top",
+                    )
             planted_axes.append(axis)
-        panels = (*trial_axes, full, parts, left_out, *planted_axes)
+        panels = (*trial_axes, full, parts, left_out, calibration_axis, *planted_axes)
         for axis in panels[3:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefghi", panels, strict=True):
+        for letter, axis in zip("abcdefghij", panels, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,
