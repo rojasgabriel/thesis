@@ -14,10 +14,14 @@ default) of one session, after `glm fit` and `glm unique`.
   energy in one row, spike history in its own row, in their colors); and the
   observed spikes.
 - Panel b (what the model learns): the kernels of the example unit from the
-  final refit, as a change in log rate. Flash kernel for a flash with no flash
-  in the last 50 ms (visual flash) and for a flash that follows one (with fast
-  adaptation); the stimulus-during-fixation
-  kernel; withdrawal kernel; spike-history kernel.
+  final refit, as a change in log rate. Top: the flash kernel for a flash in
+  the fixation at three gaps from the flash before, and for a flash in the
+  fixation and after the center exit at one gap
+  (`results.flash_condition_kernels`: the common flash kernel plus the kernels
+  of fast adaptation, flash recovery, and flash × fixation at the values of
+  that flash); the stimulus-during-fixation kernel. Bottom: the center-entry
+  kernel, the withdrawal kernel, and the spike-history kernel. The side column
+  and the session drift have no kernel over time and are not drawn.
 - Panel c (prediction): observed and predicted firing rate of the example unit
   over the held-out test trials, in `RATE_BIN_MS` bins. The prediction of a
   trial comes from the cross-validation fold that did not train on it. A time
@@ -68,6 +72,7 @@ from thesis.ephys.analyses.glm.figures import (
 )
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
+from thesis.ephys.analyses.glm.results import FLASH_GAPS_MS
 from thesis.ephys.analyses.glm.unique_dev import MAXIMAL, RELIABLE_ALPHA, UNIQUE
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -195,26 +200,43 @@ def _plot_trial(axes, data) -> None:
 
 
 def _plot_kernels(axes, data) -> None:
-    flash, hold, withdrawal, history = axes
-    for key, label, style, height in (
-        ("flash_isolated", "visual flash", "-", 1.12),
-        ("flash_repeat", "with fast adaptation (dashed)", "--", 1.0),
+    by_gap, by_period, hold, entry, withdrawal, history = axes
+    lags = data["flash_lags"]
+    # The flash kernel by the gap from the flash before: darker for a longer gap.
+    for gap, shade, height in zip(
+        FLASH_GAPS_MS, (0.4, 0.7, 1.0), (1.0, 1.13, 1.26), strict=True
     ):
-        flash.plot(
-            data[f"kern_t__{key}"], data[f"kern_v__{key}"], color=VISUAL, ls=style
+        by_gap.plot(lags, data[f"flashcond__gap_{gap}"], color=VISUAL, alpha=shade)
+        by_gap.text(
+            0,
+            height,
+            f"{gap} ms gap",
+            color=VISUAL,
+            alpha=shade,
+            fontsize=6.5,
+            transform=by_gap.transAxes,
         )
-        flash.text(
-            0, height, label, color=VISUAL, fontsize=6.5, transform=flash.transAxes
+    by_gap.set_xlabel("time from\nflash (ms)")
+    for key, label, style, height in (
+        ("fixation", "in fixation", "-", 1.13),
+        ("after_exit", "after exit (dashed)", "--", 1.0),
+    ):
+        by_period.plot(lags, data[f"flashcond__{key}"], color=VISUAL, ls=style)
+        by_period.text(
+            0, height, label, color=VISUAL, fontsize=6.5, transform=by_period.transAxes
         )
-    flash.set_xlabel("time from flash (ms)")
-    withdrawal.plot(data["kern_t__withdrawal"], data["kern_v__withdrawal"], color=TASK)
-    withdrawal.set_xlabel("time from withdrawal (ms)")
+    by_period.set_xlabel("time from\nflash (ms)")
     hold.plot(data["kern_t__hold"], data["kern_v__hold"], color=TASK)
     hold.set_xlabel("time in fixation,\nfrom first flash (ms)")
+    entry.plot(data["kern_t__center_entry"], data["kern_v__center_entry"], color=TASK)
+    entry.set_xlabel("time from\ncenter entry (ms)")
+    withdrawal.plot(data["kern_t__withdrawal"], data["kern_v__withdrawal"], color=TASK)
+    withdrawal.set_xlabel("time from\nwithdrawal (ms)")
     history.plot(data["kern_t__history"], data["kern_v__history"], color=HISTORY)
-    history.set_xlabel("time since spike (ms)")
+    history.set_xlabel("time since\nspike (ms)")
     for axis in axes:
         axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+    for axis in (by_gap, entry):  # one y label for each row
         axis.set_ylabel(r"$\Delta$ log rate")
 
 
@@ -300,7 +322,7 @@ def _plot_unique(axis, records: list[dict], tests: dict[str, dict]) -> None:
     values = lambda name, key: np.asarray(  # noqa: E731
         [item["groups"][name][key] for item in records]
     )
-    order = sorted(REGRESSORS, key=lambda name: np.median(values(name, UNIQUE)))
+    order = sorted(tests, key=lambda name: np.median(values(name, UNIQUE)))
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
         for key, offset, face in ((MAXIMAL, 0.17, "white"), (UNIQUE, -0.17, color)):
@@ -367,12 +389,12 @@ def main() -> None:
         top = figure.add_gridspec(
             1,
             2,
-            left=0.16,
-            right=0.93,
+            left=0.14,
+            right=0.985,
             top=0.96,
             bottom=0.615,
-            wspace=0.42,
-            width_ratios=(1, 1.15),
+            wspace=0.3,
+            width_ratios=(1, 1.5),
         )
         trial = top[0].subgridspec(
             5, 1, height_ratios=(1.1, 0.8, 1.1, 0.8, 0.45), hspace=0.18
@@ -380,7 +402,7 @@ def main() -> None:
         trial_axes = [figure.add_subplot(cell) for cell in trial]
         kernel_axes = [
             figure.add_subplot(cell)
-            for cell in top[1].subgridspec(2, 2, hspace=0.75, wspace=0.6)
+            for cell in top[1].subgridspec(2, 3, hspace=0.85, wspace=0.55)
         ]
         (prediction,) = (
             figure.add_subplot(cell)

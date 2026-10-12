@@ -18,13 +18,19 @@ import numpy as np
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
     FIXATION,
+    FLASH_AFTER_EXIT,
+    FLASH_RECOVERY,
+    FLASH_SLOT_S,
     HISTORY_COLUMNS,
     HOLD,
+    RECENT_FLASH_S,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
     build_unit_history,
+    flash_after_exit,
     flash_events,
+    flash_recovery,
     spike_history_basis,
     task_temporal_bases,
     training_zscore,
@@ -163,6 +169,54 @@ def flash_condition_display(
         display[name] = (times, values)
     remaining = [name for name in task_names if name not in flash_blocks]
     return display, [*FLASH_CONDITIONS, *remaining]
+
+
+# Flash kernels of the kernel figure: the gap from the flash before (ms), for a
+# flash in the fixation, and the two periods for a flash at `PERIOD_GAP_MS`.
+FLASH_GAPS_MS = (40, 120, 400)
+PERIOD_GAP_MS = 120
+
+
+def flash_condition_kernels(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    adapt_levels: dict[str, float],
+    trials,
+) -> dict[str, np.ndarray]:
+    """Return the flash kernel of the model for some flashes (Δ log rate).
+
+    The model has one common flash kernel and three kernels that change it:
+    fast adaptation (a flash within `RECENT_FLASH_S` of another), flash
+    recovery (the log of the gap from the flash before), and flash × fixation
+    (a flash after the center exit against one in the fixation). Each is
+    scaled by a centered value. The kernel of a flash is the sum at the values
+    of that flash. The first flash of a trial is not one of these: its
+    response is in the fixation kernel.
+    """
+    common = kernels[FLASH_COMMON][1]
+    zero = np.zeros_like(common)
+    adapt = kernels[FLASH_ADAPT][1] if FLASH_ADAPT in kernels else zero
+    recovery = kernels[FLASH_RECOVERY][1] if FLASH_RECOVERY in kernels else zero
+    after_exit = kernels[FLASH_AFTER_EXIT][1] if FLASH_AFTER_EXIT in kernels else zero
+    # The centers: a flash at the shortest gap, and one in the fixation, have
+    # the lowest centered values.
+    shortest_gap = flash_recovery(trials).min()
+    in_fixation = flash_after_exit(trials).min()
+
+    def kernel(gap_ms: float, after: bool) -> np.ndarray:
+        gap_s = gap_ms / 1000
+        level = adapt_levels["repeat" if gap_s <= RECENT_FLASH_S else "isolated"]
+        return (
+            common
+            + level * adapt
+            + (shortest_gap + np.log(max(gap_s, FLASH_SLOT_S) / FLASH_SLOT_S))
+            * recovery
+            + (in_fixation + after) * after_exit
+        )
+
+    out = {f"gap_{gap}": kernel(gap, False) for gap in FLASH_GAPS_MS}
+    out["fixation"] = kernel(PERIOD_GAP_MS, False)
+    out["after_exit"] = kernel(PERIOD_GAP_MS, True)
+    return out
 
 
 def _select_count_typical_trial(observed: np.ndarray) -> int:
@@ -400,6 +454,9 @@ def write_figure_data(
         arrays[f"contrib__{name}"] = values
     for name, values in events.items():
         arrays[f"event__{name}"] = values
+    arrays["flash_lags"] = kernels[FLASH_COMMON][0]
+    for name, values in flash_condition_kernels(kernels, adapt_levels, trials).items():
+        arrays[f"flashcond__{name}"] = values
     kernel_keys = list(display_kernels)
     for name, (kernel_times, kernel_values) in display_kernels.items():
         arrays[f"kern_t__{name}"] = kernel_times
