@@ -157,6 +157,37 @@ def main() -> None:
         f"{len(np.unique(new_rows[early[new_rows]]))} of {int(early.sum())}"
     )
 
+    # How the two sets of onsets differ, when the completed trials have the same
+    # number in both: paired in order, as detected minus database.
+    in_completed = np.sort(detected[inside][~early[row[inside]]])
+    if len(in_completed) == len(current):
+        shift = 1000 * (in_completed - current)
+        slope, offset = np.polyfit(current, shift, 1)
+        left_over = shift - (offset + slope * current)
+        print(
+            "Detected minus database, onsets of completed trials paired in order (ms):"
+        )
+        print(
+            "  at 0, 10, ..., 100% of the session: "
+            + ", ".join(
+                f"{value:.2f}" for value in np.percentile(shift, range(0, 101, 10))
+            )
+        )
+        print(
+            "  in time order, every 10% of the onsets: "
+            + ", ".join(f"{value:.2f}" for value in shift[:: max(len(shift) // 10, 1)])
+        )
+        print(
+            f"  line fit: {offset:.3f} ms at time 0, {slope * 1000:.3f} ms per 1000 s "
+            f"({slope * 1000:.2f} parts per million); what is left has SD "
+            f"{left_over.std():.3f} ms, largest {np.abs(left_over).max():.3f} ms"
+        )
+    else:
+        print(
+            f"Completed trials: {len(in_completed)} detected onsets against "
+            f"{len(current)} in the database; not paired."
+        )
+
     if not args.apply:
         print("No write. Use --apply to replace the database row.")
         return
