@@ -108,7 +108,7 @@ def _plot_trial(axes, data) -> None:
     events.vlines(1000 * data["event__visual_flash"], 2.6, 3.4, color=VISUAL, lw=1)
     events.vlines(1000 * data["event__withdrawal"], 0.6, 1.4, color=TASK, lw=1.2)
     events.set_ylim(0.3, 3.7)
-    events.set_yticks([3, 2, 1], ["flashes", "hold", "withdrawal"])
+    events.set_yticks([3, 2, 1], ["flashes", "fixation, hold", "withdrawal"])
     for tick, color in zip(events.get_yticklabels(), (VISUAL, TASK, TASK), strict=True):
         tick.set_color(color)
     shown = (1000 * data["motion_times"] >= left) & (

@@ -78,8 +78,8 @@ CHECKS = {
     "session drift": "session\ndrift",
     "time in trial": "time in\ntrial",
     "flash rate": "flash\nrate",
-    "side, before withdrawal": "side, before\nwithdrawal",
-    "side, after withdrawal": "side, after\nwithdrawal",
+    "side, before withdrawal": "side,\nbefore\nwithdrawal",
+    "side, after withdrawal": "side,\nafter\nwithdrawal",
 }
 
 
@@ -176,7 +176,7 @@ def main() -> None:
         right = figure.add_gridspec(
             3,
             1,
-            left=0.64,
+            left=0.62,
             right=0.97,
             top=0.96,
             bottom=0.32,
@@ -236,7 +236,7 @@ def main() -> None:
         parts.set_xticks(
             range(len(names)),
             [REGRESSORS[name][0].replace(" ", "\n") for name in names],
-            fontsize=6,
+            fontsize=5.5,
         )
         for tick, name in zip(parts.get_xticklabels(), names, strict=True):
             tick.set_color(REGRESSORS[name][1])
@@ -279,14 +279,14 @@ def main() -> None:
                 "units": len(real),
                 "wilcoxon_p": p_value,
             }
-        left_out.set_xticks(range(len(CHECKS)), list(CHECKS.values()), fontsize=6)
+        left_out.set_xticks(range(len(CHECKS)), list(CHECKS.values()), fontsize=5.5)
         left_out.set_ylabel(r"$\Delta D^2$ of a term" + "\nthat is not in the model")
         left_out.text(
-            0.02, 0.95, "real", color=colors[0], transform=left_out.transAxes, va="top"
+            0.55, 0.82, "real", color=colors[0], transform=left_out.transAxes, va="top"
         )
         left_out.text(
-            0.02,
-            0.85,
+            0.55,
+            0.72,
             "shuffled labels",
             color=colors[1],
             transform=left_out.transAxes,

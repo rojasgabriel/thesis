@@ -282,7 +282,7 @@ def main() -> None:
         # One row for each group of regressors: its bases, then its tests.
         flash_basis, a, b, c = row(0.96, 0.77, (0.8, 0.95, 0.9, 1.7), wspace=0.9)
         hold_basis, d, exit_basis, e = row(
-            0.635, 0.445, (0.8, 2.3, 0.6, 1.25), wspace=0.72
+            0.635, 0.445, (0.65, 3.0, 0.5, 1.1), wspace=0.6
         )
         f, g, history_basis = row(0.295, 0.105, (1.6, 1, 1.0), wspace=0.5)
         task_bases = dmat.task_temporal_bases()
@@ -341,7 +341,7 @@ def main() -> None:
         stats["adaptation term"] = _plot_choice(
             c, second, VISUAL, "adaptation term", selected="recent\nflash", line=False
         )
-        c.tick_params(axis="x", labelsize=6)
+        c.tick_params(axis="x", labelsize=5.5)
         b.tick_params(axis="x", labelsize=6.5)
         stats["stimulus during hold"] = _plot_choice(
             d,
@@ -351,7 +351,7 @@ def main() -> None:
             selected=hold_grid.IN_USE,
             line=False,
         )
-        d.tick_params(axis="x", labelsize=6)
+        d.tick_params(axis="x", labelsize=5.5)
         stats["withdrawal"] = _plot_choice(
             e,
             kernel,
