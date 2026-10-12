@@ -581,6 +581,8 @@ design), `_log10_fit` (10 bases, 50 ms stretch, no initiation column), and
 | Checking the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
 | Flash against motion energy | `kernel_comparison.py` | weights of the two terms over units; descriptive |
 
+Each figure module writes its caption next to the figure (`<figure>_caption.md`), with the numbers of that run.
+
 `glm fit` writes no figure. `glm unique` writes `figure_data.npz` for the
 example unit.
 

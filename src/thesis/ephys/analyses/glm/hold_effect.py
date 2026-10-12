@@ -94,6 +94,43 @@ from thesis.plotting import (
     separate_axes,
 )
 
+CAPTION = """\
+**V1 firing is lower during fixation and recovers at the withdrawal, while the
+flashes go on.** The fixation is the time from the first flash to the
+withdrawal from the center port. The flashes continue until the animal enters
+a response port, so the time after the withdrawal has the stimulus without the
+fixation. {units} units, one session. **a**, Spikes of two example units
+against time from the first flash (left) and from the withdrawal (right), with
+the trials sorted by the length of the fixation. The vertical line is the event
+at time 0; in the left panels the orange line is the withdrawal of each trial.
+Top: a unit with a lower rate in fixation. Bottom: a unit with a higher rate
+in fixation. **b**, Observation, with no model. Top: the fraction of trials
+with a flash in each 40 ms. Bottom: the firing rate, with the rate of each unit
+divided by its mean rate (mean and SEM over units). The rate is {before:.2f}
+before the first flash, {late:.2f} in the last 200 ms of the fixation, and
+{after_rate:.2f} from 100 to 400 ms after the withdrawal. **c**, The kernels
+of a descriptive model, as a change in log rate relative to the time before
+the first flash. This model is the GLM of the main figure with one change: a
+kernel from the withdrawal to the response entry in place of the 100-ms
+withdrawal kernel. Thin lines are units; the thick line and the band are the
+median and the interquartile range. **d**, The paired comparison. For each
+unit, the mean kernel value from {lo} to {hi} ms after the first flash against
+the mean over the same time after the withdrawal (error bars: SD over the 10
+cross-validation folds). Median Δ log rate {hold:.2f} in fixation (below zero
+in {hold_below:.0%} of the units) and {after:+.2f} after the withdrawal;
+higher after the withdrawal in {higher} of {units} units (two-sided Wilcoxon
+signed-rank test, p = {p:.1g}). {outside_d} units are outside the axis limits
+and are in the test. **e**, Control for the order of fitting. The level in
+fixation when all terms are fit together against the level when the fixation
+kernel is fit last, on what the other terms do not explain (a lower bound).
+Median {joint:.2f} and {two_step:.2f}; with the kernel fit last, the level is
+below zero in {two_below:.0%} of the units (p = {p_two:.1g}). {outside_e} units
+are outside the axis limits. **f**, Control for stillness. Raw firing rate
+against motion energy of the video, in the center port and at a side port.
+At the same low motion energy, the rate is lower in the center port (median
+ratio {still_ratio:.2f}, lower in {still_fraction:.0%} of the units,
+p = {still_p:.1g}).
+"""
 ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
 # The excited example unit must fire at this rate or more (spikes/s).
@@ -683,6 +720,34 @@ def main() -> None:
         "median_center_exit_ms_from_first_flash": rates["median_exit_ms"],
     }
     output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
+    least = json.loads(stillness_path.with_suffix(".json").read_text())[
+        "least_motion_group"
+    ]
+    two = stats["two_step"]
+    output.with_name("hold_effect_caption.md").write_text(
+        CAPTION.format(
+            units=stats["units"],
+            before=stats["rate_before_first_flash"],
+            late=stats["rate_last_200_ms_of_hold"],
+            after_rate=stats["rate_100_to_400_ms_after_exit"],
+            lo=LEVEL_MS[0],
+            hi=LEVEL_MS[1],
+            hold=stats["median_delta_log_rate_hold"],
+            hold_below=stats["fraction_units_hold_below_0"],
+            after=stats["median_delta_log_rate_after_exit"],
+            higher=stats["units_higher_after_exit"],
+            p=stats["wilcoxon_p"],
+            outside_d=outside,
+            joint=two["median_delta_log_rate_joint"],
+            two_step=two["median_delta_log_rate_two_step"],
+            two_below=two["fraction_units_two_step_below_0"],
+            p_two=two["wilcoxon_p_two_step_against_0"],
+            outside_e=two["units_outside_the_axis_limits_of_panel_e"],
+            still_ratio=least["median_center_over_side"],
+            still_fraction=least["fraction_units_lower_in_center_port"],
+            still_p=least["wilcoxon_p"],
+        )
+    )
     print(json.dumps(stats, indent=1))
     print(output)
 

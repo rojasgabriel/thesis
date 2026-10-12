@@ -49,6 +49,7 @@ The sampling unit is the unit in panels d and e.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib
@@ -90,6 +91,45 @@ REGRESSORS = {
     "withdrawal": ("withdrawal", TASK),
     "video": ("motion energy", MOTION),
 }
+
+CAPTION = """\
+**A Poisson GLM predicts V1 spikes from the visual stimulus, the task, movement,
+and spike history.** The model predicts the spike count of each unit in 1-ms
+bins. Each group of regressors adds a term to the log of the firing rate, so a
+kernel is a change in log rate (Δ log rate): a value of 0.7 is a rate two times
+as high. Colors are the same in all panels: visual (blue), task (orange),
+motion energy (green), spike history (red), and model prediction (purple).
+**a**, One held-out trial of the example unit (unit {unit}, {unit_rate:.0f}
+spikes/s), against time from the first flash. From the top: the events (the
+flashes; the initiation, from the center-port entry to the first flash, in a
+light color; the fixation, from the first flash to the withdrawal from the
+center port; and the withdrawal); the first motion-energy PC of the video; the
+term that each group of regressors adds to the log rate; the term of spike
+history, in its own row; and the observed spikes. **b**, The kernels of the
+example unit. Top left: the flash kernel for a flash with no flash in the
+last 50 ms (visual flash) and for a flash that follows another within 50 ms
+(with fast adaptation, dashed). Top right: the kernel for the stimulus during
+fixation, which starts at the first flash and ends at the withdrawal. Bottom:
+the withdrawal kernel and the spike-history kernel. **c**, Observed and
+predicted firing rate of the example unit over the {test_trials} held-out test
+trials, in {bin_ms}-ms bins. Each trial is predicted by a model that was not
+fit on it. A time bin is shown while at least half of the trials have not
+reached the response port. **d**, Cross-validated D² (deviance explained on
+held-out trials, relative to a constant rate) against bits/spike for each of
+the {units} units. Small points are units, in three groups of equal size by
+firing rate. In each group, the units are in bins of equal size by bits/spike;
+a large marker is the mean of a bin and the band is ±1 SEM. For the same
+bits/spike, a unit with a higher rate has a higher D². The histograms are the
+distributions over units (median D² {d2:.3f}, median {bits:.2f} bits/spike).
+**e**, What each regressor explains: the unique ΔD² (filled; the D² that the
+model loses when that regressor is shuffled in time within each trial) and the
+maximal ΔD² (open; the D² of that regressor alone). Points are the median and
+lines the interquartile range over units; the top row is the D² of the full
+model. The axis is logarithmic and starts at {floor:g}; a smaller value is
+drawn there. The number at the right is the fraction of units with a unique ΔD²
+above zero (one-sided t-test over the 10 folds, p < {alpha}; a regressor with
+no effect gives about {alpha:.0%}).
+"""
 
 
 def _plot_trial(axes, data) -> None:
@@ -358,7 +398,22 @@ def main() -> None:
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             top_edge = axis.get_position().y1 + (0.05 if axis is population else 0.02)
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
-        print(save_figure(figure, fit_dir / "main_figure"))
+        output = save_figure(figure, fit_dir / "main_figure")
+    scalars = json.loads((fit_dir / "figure_data.json").read_text())
+    output.with_name("main_figure_caption.md").write_text(
+        CAPTION.format(
+            unit=scalars["example_unit_id"],
+            unit_rate=scalars["example_unit_training_rate_spikes_s"],
+            test_trials=scalars["test_trials"],
+            bin_ms=RATE_BIN_MS,
+            units=len(final),
+            d2=np.median(deviance),
+            bits=np.median(bits),
+            floor=FLOOR,
+            alpha=RELIABLE_ALPHA,
+        )
+    )
+    print(output)
 
 
 if __name__ == "__main__":

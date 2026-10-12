@@ -91,6 +91,39 @@ CHECKS = {
     "side, after withdrawal": "side,\nafter\nwithdrawal",
 }
 
+CAPTION = """\
+**Checks of the GLM.** No new fit is made for this figure. **a–c, Single
+trials.** **a**, Observed spikes of the example unit (unit {unit}) on the
+held-out test trials; light gray is the time after the response entry, which
+is not in the model. **b**, Spikes drawn from
+the predicted rate of the same trials (one Poisson draw). Each trial is
+predicted by a model that was not fit on it, with the observed spike history.
+**c**, Observed and predicted rate of those trials in 10-ms bins. **d–e, Units
+that took no part in the design choices.** Every design choice was made on
+{selection} units (selection). **d**, Cross-validated D² of the selection units
+and of the {held_out} other units (held out): median {d2_sel:.3f} and
+{d2_out:.3f} (two-sided Mann-Whitney U test, p = {p_d2:.2f}). **e**, The unique
+ΔD² of each regressor in the two groups (Mann-Whitney U test for each
+regressor; the smallest p is {p_unique:.2f}). **f, Terms that are not in the
+model.** The D² that each candidate term adds to the fitted model of a unit,
+and the same with shuffled labels ({units} units, paired; two-sided Wilcoxon
+signed-rank test). The largest median gain is {largest:.4f} ({largest_name}),
+against {shuffled:.4f} with shuffled labels; no term is in the model because
+each gain is small next to the D² of the model. **g, Calibration.** For each
+unit, the held-out 1-ms bins are sorted by the predicted rate and cut in
+{groups} groups of equal size. The line is the observed rate over the
+predicted rate in each group (median and interquartile range over units); 1 is
+a correct prediction. The model predicts too high a rate where its prediction
+is low (lowest ratio {cal_low:.2f}) and too low a rate where it is high
+(highest ratio {cal_high:.2f}). **h–j, Recovery of planted kernels.** Spikes
+are simulated with known kernels (planted) and the full pipeline is run on
+them (recovered), for the visual flash, the stimulus during fixation, and the
+withdrawal. In box plots, boxes are the quartiles, whiskers reach 1.5 times
+the interquartile range, and outliers are not drawn; every unit is in the
+tests (n.s., p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01; \\*\\*\\*,
+p < 0.001).
+"""
+
 
 def _boxes(axis, groups, positions, colors, fill=True) -> None:
     for values, position, color in zip(groups, positions, colors, strict=True):
@@ -426,6 +459,33 @@ def main() -> None:
         output = save_figure(figure, args.root / "model_checks")
 
     output.with_name("model_checks_stats.json").write_text(json.dumps(stats, indent=1))
+    unique = [v for k, v in stats.items() if k.startswith("unique dD2")]
+    terms = {
+        k.split(", ", 1)[1]: v
+        for k, v in stats.items()
+        if k.startswith("term not in the model")
+    }
+    largest = max(terms, key=lambda name: terms[name]["median"])
+    ratios = stats["calibration, observed / predicted by group"]["median"]
+    units = terms[largest]["units"]
+    output.with_name("model_checks_caption.md").write_text(
+        CAPTION.format(
+            unit=stats["example_unit_id"],
+            selection=stats["selection_units"],
+            held_out=units - stats["selection_units"],
+            d2_sel=stats["cross-validated D2"]["median_selection"],
+            d2_out=stats["cross-validated D2"]["median_held_out"],
+            p_d2=stats["cross-validated D2"]["mann_whitney_p"],
+            p_unique=min(item["mann_whitney_p"] for item in unique),
+            units=units,
+            largest=terms[largest]["median"],
+            largest_name=largest,
+            shuffled=terms[largest]["median_shuffled"],
+            groups=CALIBRATION_GROUPS,
+            cal_low=min(ratios),
+            cal_high=max(ratios),
+        )
+    )
     print(json.dumps(stats, indent=1))
     print(output)
 
