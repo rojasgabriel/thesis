@@ -23,7 +23,10 @@ Checks before any write:
 The tool prints how many onsets are new and in which trials. Without `--apply`
 it only prints. With `--apply` it saves the old onsets to `--backup`, then
 writes the row again as the old onsets, not changed, plus the new ones. So the
-flashes of the completed trials stay exactly as they are.
+flashes of the completed trials stay exactly as they are. The replacement needs
+the DELETE permission on the table. If a database administrator deletes the
+row instead, run `--apply` again in the same directory: the tool then takes
+the old onsets from `--backup` and only inserts.
 
 Run it where the raw session folder is (the folder with the NI file):
 
@@ -89,7 +92,16 @@ def main() -> None:
         "event_name": "ai0",
     }
     relation = DatasetEvents.Digital() & key
-    current = np.sort(np.asarray(relation.fetch1("event_timestamps"), dtype=float))
+    row_exists = len(relation) == 1
+    if row_exists:
+        current = np.asarray(relation.fetch1("event_timestamps"), dtype=float)
+    elif args.backup.exists():
+        # The row was deleted by a database administrator: use the saved onsets.
+        current = np.load(args.backup)
+        print(f"No row in the database; the old onsets come from {args.backup}.")
+    else:
+        raise SystemExit(f"No row in the database and no {args.backup}.")
+    current = np.sort(current)
     detected, ni_sync = detect_onsets(args.session_path)
     detected = np.sort(detected)
     saved_times, saved_values = (
@@ -181,11 +193,13 @@ def main() -> None:
             "Stopped: some onsets in the database have no detected onset. "
             "The clock or the method is not the same; nothing was written."
         )
-    np.save(args.backup, current)
-    print(f"Saved the old onsets to {args.backup}.")
+    if row_exists:
+        np.save(args.backup, current)
+        print(f"Saved the old onsets to {args.backup}.")
     added = detected[is_new]
     onsets = np.sort(np.concatenate((current, added)))
-    relation.delete(force=True)
+    if row_exists:
+        relation.delete(force=True)
     DatasetEvents.Digital().insert1(
         {
             **key,
