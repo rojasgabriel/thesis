@@ -60,7 +60,8 @@ WITHDRAWAL_KERNEL = True
 # early, where the rate changes fast and every trial gives data (about 20 ms
 # apart near the first-flash response), and far apart late, where the rate is
 # almost flat and only the longer holds give data. No step goes with the
-# kernel, so the window must be longer than the longest hold. A stretch of 0
+# kernel. In a trial with a hold longer than the window, the kernel keeps its
+# last value up to the center exit (no such trial in GRB006). A stretch of 0
 # gives even spacing in time (`hold_grid.py`).
 HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
@@ -430,10 +431,6 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     """Build the sensory and task columns: DAMN event kernels and the port state."""
     bases = task_temporal_bases()
     holds = trials["center_exit_s"].to_numpy(dtype=float) - np.asarray(alignments)
-    if "hold" in bases and holds.max() > HOLD_WINDOW_S:
-        raise ValueError(
-            f"The longest hold ({holds.max():.3f} s) is longer than HOLD_WINDOW_S."
-        )
     flashes, resource_raw = flash_events(trials)
     # Center the values so the common flash kernel stays the average response.
     # Store two representative centered levels for the kernel figure.
@@ -539,7 +536,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     cursor = 0
     for item in manifest:  # the hold kernel ends at the center exit
         if item["name"] == "hold":
-            values[:, cursor : cursor + item["columns"]] *= before_exit.ravel()[:, None]
+            columns = slice(cursor, cursor + item["columns"])
+            # No step goes with the kernel. In a trial with a hold longer than
+            # the window, the kernel keeps its last value up to the center exit.
+            beyond = (times - np.asarray(alignments)[:, None]) > HOLD_WINDOW_S
+            values[beyond.ravel(), columns] = bases["hold"].basis[-1]
+            values[:, columns] *= before_exit.ravel()[:, None]
+            item["trials_longer_than_window"] = int(np.sum(holds > HOLD_WINDOW_S))
         cursor += item["columns"]
     if FIXATION_COLUMN:
         entry = trials["center_entry_s"].to_numpy(dtype=float)[:, None]

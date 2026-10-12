@@ -414,9 +414,10 @@ exit (`hold` in `dmat.py`).
   meaning of its own); a flash kernel of 300 to 800 ms with no fixation term (2 to
   5% worse); a flash-recovery term, 1 − exp(−gap / τ) or log(gap), with or
   without the recent-flash term (0 to +0.5% alone).
-- The window (950 ms) must be longer than the longest fixation, because no step
-  goes with the kernel; `build_task_design` stops if it is not (longest fixation
-  here: 941 ms). After about 650 ms fewer than 10% of the trials give data.
+- The window is 950 ms, and no step goes with the kernel. The longest
+  fixation of GRB006 is 941 ms. In a trial with a longer fixation, the kernel
+  keeps its last value up to the center exit (3 of 169 trials in GRB064, up to
+  1,166 ms). After about 650 ms fewer than 10% of the trials give data.
 - The suppression ends at the center exit, so it is not adaptation to the
   flashes alone (20 units, tests removed from the code). A kernel that goes on
   to the response entry predicts worse (−1.6%, better in 4 of 20 units,
