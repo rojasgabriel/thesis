@@ -1,10 +1,27 @@
-"""Validate NIDQ camera pulses and save the accepted falling-edge frame mapping.
+"""Validate the camera pulses of a session and save one time for each video frame.
 
-This is a read-only audit of the GRB006 back-view candidate frame signal.
-Gabriel identifies NIDQ channel 1 as frame timing for the GPIO-synchronized
-camera pair. Remove the one-sample internal low pulse only when that makes the
-retained falling-edge count equal the decoded frame count. This script does not
-change database events or use AVI presentation timestamps.
+This is a read-only audit of the frame signal of the GPIO-synchronized camera
+pair (the `frames` event of the session: NIDQ channel 1 for GRB006, OneBox
+`io3` for later animals). A frame time is the falling edge of its pulse. The
+pulses are accepted only when their count is equal to the decoded frame count
+of cam0 after these repairs, each of which is written to the output:
+
+- Glitch: a pulse with a width below 1% of the median is removed (GRB006).
+- Pulses before the recording: when a gap of `START_GAP_S` or more is in the
+  first `START_SEARCH` pulses, the pulses before it are removed (the camera
+  runs for a short time before it saves frames; GRB064).
+- Irregular pulses: where two regular pulses are more than `IRREGULAR` frame
+  intervals apart or closer than the inverse, the pulses between the regular
+  ones on each side are replaced with evenly spaced times (GRB064 has one such
+  place, where three pulses are missing and one is extra).
+
+The check against the camera times that the video file stores (mapped through
+the Bpod `StreamSync` row) is in the output. This script does not change
+database events or use AVI presentation timestamps.
+
+    uv run python -m thesis.ephys.preprocessing.audit_camera_pulses \
+        --subject GRB064 --session 20260916_132939 \
+        --output figures/glm/GRB064_20260916_132939/camera_pulses.json
 """
 
 from __future__ import annotations
@@ -15,10 +32,51 @@ from pathlib import Path
 
 import numpy as np
 
+START_GAP_S = 0.5
+START_SEARCH = 1000
+IRREGULAR = 1.5
+
+
+def regular_frame_times(falling: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Drop the pulses before the recording and re-space irregular pulses."""
+    notes = {"pulses_before_the_recording": 0, "irregular_places": []}
+    early_gaps = np.flatnonzero(np.diff(falling[:START_SEARCH]) >= START_GAP_S)
+    if len(early_gaps):
+        notes["pulses_before_the_recording"] = int(early_gaps[-1] + 1)
+        falling = falling[early_gaps[-1] + 1 :]
+    period = float(np.median(np.diff(falling)))
+    ratio = np.diff(falling) / period
+    odd = np.flatnonzero((ratio > IRREGULAR) | (ratio < 1 / IRREGULAR))
+    pieces, cursor = [], 0
+    while len(odd):
+        # One place: consecutive irregular intervals between two regular pulses.
+        stop = odd[0]
+        while stop + 1 in odd:
+            stop += 1
+        left, right = odd[0], stop + 1  # the regular pulses on each side
+        steps = int(round((falling[right] - falling[left]) / period))
+        pieces += [
+            falling[cursor:left],
+            np.linspace(falling[left], falling[right], steps, endpoint=False),
+        ]
+        notes["irregular_places"].append(
+            {
+                "after_pulse": int(left),
+                "pulses_replaced": int(right - left - 1),
+                "frames_placed": steps - 1,
+                "span_s": float(falling[right] - falling[left]),
+            }
+        )
+        cursor = right
+        odd = odd[odd > stop]
+    return np.concatenate([*pieces, falling[cursor:]]), notes
+
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--subject", default="GRB006")
+    parser.add_argument("--session", default="20240821_121447")
     args = parser.parse_args()
     arrays_path = args.output.with_suffix(".npz")
     frame_times_path = args.output.with_name("frame_times.npy")
@@ -26,10 +84,13 @@ def main() -> None:
         raise FileExistsError(args.output)
     from labdata.schema import DatasetEvents, DatasetVideo, StreamSync
 
-    key = {"subject_name": "GRB006", "session_name": "20240821_121447"}
-    row = (
-        DatasetEvents.Digital & key & {"stream_name": "nidq", "event_name": "1"}
-    ).fetch1()
+    from thesis.ephys.events import _find_sess_ev_sources
+
+    key = {"subject_name": args.subject, "session_name": args.session}
+    source = _find_sess_ev_sources(args.subject, args.session, allow_incomplete=True)[
+        "frames"
+    ]
+    row = (DatasetEvents.Digital & source).fetch1()
     times = np.asarray(row["event_timestamps"], dtype=float)
     values = np.asarray(row["event_values"])
     if times.shape != values.shape or not np.isin(values, [0, 1]).all():
@@ -43,9 +104,14 @@ def main() -> None:
     video = (DatasetVideo & key & {"video_name": "cam0"}).fetch1()
     # Drop sub-percent-width pulses only when the frame count then matches.
     retained = widths >= np.median(widths) / 100
-    if int(retained.sum()) != int(video["n_frames"]):
-        raise ValueError("Retained falling-edge count does not match video frames.")
-    frame_times = falling[retained]
+    frame_times, repairs = falling[retained], {}
+    if len(frame_times) != int(video["n_frames"]):
+        frame_times, repairs = regular_frame_times(frame_times)
+    if len(frame_times) != int(video["n_frames"]):
+        raise ValueError(
+            f"{len(frame_times)} frame pulses after the repairs, "
+            f"{int(video['n_frames'])} video frames."
+        )
     removed = np.flatnonzero(~retained)
     sync = (
         StreamSync()
@@ -57,7 +123,8 @@ def main() -> None:
     residual = frame_times - reference
     result = {
         **key,
-        "channel": "nidq/1",
+        "channel": f"{source['stream_name']}/{source['event_name']}",
+        "repairs": repairs,
         "video_name": "cam0",
         "video_frames": int(video["n_frames"]),
         "pulse_pairs": len(widths),
