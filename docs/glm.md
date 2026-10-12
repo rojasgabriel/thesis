@@ -34,6 +34,14 @@ at a time.
   does not, `prepare` stops with an error that lists its trial number; it does
   not drop the trial.
 - Align to the first measured flash, not the Bpod stimulus command.
+- Stimulus (`poissonStimulusTrain.m` of the task code): the train is 1 s long,
+  in 25 bins of 40 ms (a 15 ms flash and a 25 ms minimum gap). A trial with
+  rate N has N flashes: one always in the first bin, and N − 1 in random bins
+  of the other 24. So only the first flash is at a fixed time; in an average
+  over trials the responses to later flashes are spread evenly (11.9 flashes/s
+  in the hold, 11.0 after the exit). The train stops early only at the
+  response entry. The go cue plays when the wait time (about 0.5 s) is
+  reached; no sound plays at the center poke.
 - Grid: DAMN 1 ms, pre=100 ms, post=2.54 s (2,639 centers). Keep the full
   window. Fitting **masks bins after that trial’s response entry**; it does not
   shorten the grid. Only flashes from initiation through response entry enter
@@ -337,8 +345,8 @@ the residual tests are in-sample):
   center port is 0.78 of the rate at the side port (lower in 68% of units,
   p = 3e-7); in the center port the rate does not go up with motion energy; and
   the units that movement excites are not the suppressed ones (ρ = −0.02). The
-  side ports have the same geometry, but the stimulus plays only while the
-  animal is in the center port. The stimulus in view and the task state are not
+  side ports have the same geometry, but the stimulus is off when the animal
+  is at a side port (the train stops at the response entry). The stimulus in view and the task state are not
   separated.
 - One in-port state column replaces the 8-column onset kernel. On the 20 units
   it has a median unique ΔD² of 0.0025 and a negative weight in 17 units
@@ -385,7 +393,8 @@ exit (`hold` in `dmat.py`).
   the first flash and 0.75 at 150 ms. The drop starts about 80 ms after the
   first flash in trials with a short and with a long delay from center entry,
   so it follows the first flash, not the entry. It ends at the center exit,
-  while the flashes go on to the response entry. So the term is on only while
+  while the flashes go on (the train is 1 s long and stops early only at the
+  response entry). So the term is on only while
   the stimulus is on and the animal holds: "stimulus during hold".
 - Form (`hold_grid`, validation D², against the kernel in use): no term
   −0.0065 (median; p = 4e-5), step from center entry −0.0021 (p = 0.0006), step
@@ -433,8 +442,10 @@ exit (`hold` in `dmat.py`).
     (observed 1.23 to 1.31, model 1.03 to 1.09). It is large in 7 of 20 units
     and not reliable over units (median observed / model 1.04, p = 0.28). A
     causal entry kernel (0 to 100 ms) gives +0.5% (p = 0.81). The first 40 ms
-    of the hold kernel take part of it. Open question: it is not known if a
-    light or a sound changes at the center poke.
+    of the hold kernel take part of it. No sound plays at the center poke (the
+    go cue, when the wait time is reached, is the only task sound of a
+    completed trial), so touch and the head movement into the port are the
+    candidates.
   - The response to a flash after a pause has three phases. After the first
     flash, observed / model is 0.93 at 130 to 210 ms (p = 0.008), 1.11 at 230
     to 290 ms (p = 0.017), and 0.91 at 310 to 450 ms (p = 0.0001); the rebound
@@ -594,6 +605,11 @@ motion-energy PCs. Artifacts are in
   little at high rates. The finer hold kernel did not change this, and the
   cause is not known (see the tests of a gain and of the output function
   above, which were run on the earlier fit).
+- The low rate in the hold is not the average of scattered flash responses.
+  The flash terms of the model, averaged over trials, give 1.16 of the rate
+  before the first flash in the hold and 1.16 after the exit; the observed
+  rate is 0.56 and 1.25 (below the flash terms in the hold in 150 of 167
+  units, p = 6e-23).
 - Hold effect (`hold_effect.svg`, descriptive model with a kernel after the
   center exit): Δ log rate −0.31 in the hold and +0.19 after the exit, higher
   after the exit in 144 of 167 units. Two-step control: −0.48 with all terms

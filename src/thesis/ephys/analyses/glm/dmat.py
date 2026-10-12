@@ -54,7 +54,8 @@ WITHDRAWAL_BASES = 4
 WITHDRAWAL_KERNEL = True
 # Stimulus during hold: one kernel on the first flash, set to zero from the
 # center exit on. Units fire less from about 80 ms after the first flash until
-# the animal leaves the center port; the flashes go on to the response entry.
+# the animal leaves the center port; the flashes go on (the train is 1 s long
+# and stops early only at the response entry).
 # The bases have even spacing in log(t + stretch). They are close together
 # early, where the rate changes fast and every trial gives data (about 20 ms
 # apart near the first-flash response), and far apart late, where the rate is
