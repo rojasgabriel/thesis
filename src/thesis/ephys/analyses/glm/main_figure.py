@@ -83,7 +83,7 @@ VISUAL, TASK, MOTION, HISTORY = (
 REGRESSORS = {
     "history": ("spike history", HISTORY),
     "visual_flash": ("visual flash", VISUAL),
-    "flash_adaptation": ("flash adaptation", VISUAL),
+    "flash_adaptation": ("fast adaptation", VISUAL),
     "fixation": ("fixation before stimulus", TASK),
     "hold": ("stimulus during hold", TASK),
     "withdrawal": ("withdrawal", TASK),

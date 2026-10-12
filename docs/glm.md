@@ -83,7 +83,7 @@ drift, go cue, outcome, or punishment kernel.
 | Group | Representation | Columns |
 | --- | --- | ---: |
 | Common flash | Every modeled flash; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
-| Recent flash | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
+| Fast adaptation (recent flash) | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Fixation before stimulus | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
 | Stimulus during hold | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
@@ -533,7 +533,20 @@ The first five modules fit and score designs and make no figure. Results of
   −0.0009, lower in 13 of 20 units, p = 0.11). This result moved with the form
   of the hold kernel (p = 0.008 with the in-port column, 0.07, 0.048, and 0.11
   with three forms of the kernel), so it is at the limit. The term stays in
-  the design; on all units its unique ΔD² is reliable in 60% of the units.
+  the design, as an exception to the rule of the simpler option, for two
+  reasons. On all units its unique ΔD² is reliable in 60% of the units, the
+  same level as the withdrawal kernel. And with an explicit adaptation term in
+  the model, the hold kernel is still necessary, which is the evidence that the
+  hold effect is more than adaptation.
+- Names: the recent-flash term is "fast adaptation" in the figures, because it
+  is active only for a flash within 50 ms of another. The hold kernel keeps the
+  name "stimulus during hold", which says when it is active and not what
+  causes it. Slow adaptation, if present, is inside the hold kernel and cannot
+  be separated from a state effect there: the two go together from the first
+  flash to the center exit. The hold term is not named for adaptation because
+  the effect ends at the center exit while the flashes continue, does not
+  depend on the flash rate of the trial, and lowers the baseline and the flash
+  response by the same factor.
 - Stimulus during hold: no term, a step from the center entry, and a step from
   the first flash are worse than the kernel (p = 2e-5, 0.002, 0.001). The step
   with a first-flash kernel is equal (p = 0.67); the linear kernel is worse
@@ -589,7 +602,7 @@ motion-energy PCs. Artifacts are in
 | Visual flash | 8 | 0.0050 | 83% |
 | Motion energy | 10 | 0.0021 | 64% |
 | Withdrawal | 4 | 0.0014 | 62% |
-| Flash adaptation (recent flash) | 8 | 0.0016 | 60% |
+| Fast adaptation (recent flash) | 8 | 0.0016 | 60% |
 | Fixation before stimulus | 1 | 0.0001 | 23% |
 
 - Motion energy is trial-specific: with the regressor taken from another trial,
