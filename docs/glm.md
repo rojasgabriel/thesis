@@ -541,9 +541,9 @@ design), `_log10_fit` (10 bases, 50 ms stretch, no fixation column), and
 | Figure | Module | Content |
 | --- | --- | --- |
 | Main | `main_figure.py` | one trial, the kernels, prediction, and what explains the spikes |
-| Hold effect | `hold_effect.py` | the suppression during the hold, its end at the exit, and its controls |
+| Hold effect | `hold_effect.py` | two example units, the suppression during the hold, its end at the exit, and its controls |
 | Building the model (supplement) | `design_optimization.py` | the bases and the tests of each design choice |
-| Checking the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, recovery of planted kernels |
+| Checking the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
 | Flash against motion energy | `kernel_comparison.py` | weights of the two terms over units; descriptive |
 
 `glm fit` writes no figure. `glm unique` writes `figure_data.npz` for the
@@ -586,9 +586,19 @@ motion-energy PCs. Artifacts are in
 - The rate in the 100 ms before the first flash is more than 10% off in 42% of
   the units (median observed / predicted 1.01). Part of that time is before
   the center entry, which no term covers.
+- Calibration (panel g of `model_checks.svg`; held-out 1-ms bins of each unit,
+  sorted by predicted rate, in 20 groups): observed / predicted is 0.83 to
+  0.90 from the 5th to the 50th percentile (above 1 in 19 to 35% of units),
+  1.04 to 1.14 from the 80th to the 95th (above 1 in 66 to 81%), and 0.99 in
+  the highest 5%. The model predicts too much at low and middle rates and too
+  little at high rates. The finer hold kernel did not change this, and the
+  cause is not known (see the tests of a gain and of the output function
+  above, which were run on the earlier fit).
 - Hold effect (`hold_effect.svg`, descriptive model with a kernel after the
   center exit): Δ log rate −0.31 in the hold and +0.19 after the exit, higher
   after the exit in 144 of 167 units. Two-step control: −0.48 with all terms
   fit together, −0.33 with the hold kernel fit last (below 0 in 90% of units).
+  Example units: 36 (the lowest hold level among units with 5 to 20 spikes/s)
+  and 576 (the highest hold level among units with 2 spikes/s or more).
 - `uv run python -m thesis.ephys.analyses.glm.main_figure` draws the main
   figure (`main_figure.svg`) for the example unit and all units.
