@@ -563,7 +563,14 @@ holds for other trials.
     difference left: the rate after the exit is the same with the tone and no
     stimulus as with the stimulus and no tone.
 - In GRB006 the trial table has no flashes for the 209 early-withdrawal
-  trials, so this test is not possible there. In GRB064 the fixation of the
+  trials, so this test is not possible there. This is a gap in the saved
+  events, not in the task: the stimulus events of GRB006 in the database
+  (`nidq`, `ai0`) are flash onsets that were written from the analog channel
+  in a past repair, and they have 295 trains, one for each completed trial.
+  The early-withdrawal trials had a stimulus (the animal was in the port for
+  about 510 ms before the punishment). To get their flashes, the onsets must
+  be extracted again from the raw analog channel; that code is not in this
+  repository. In GRB064 the fixation of the
   completed trials has almost the same length as in GRB006 (1st to 95th
   percentile: 455 to 747 ms), so the matched-time test is not possible there
   either; the early withdrawals are what separates the exit from the time in
