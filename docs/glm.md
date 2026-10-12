@@ -1,8 +1,9 @@
 # V1 GLM
 
 Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from six regressors: a common flash kernel, the flash kernel of a flash that
-follows another within 50 ms (the recent-flash term), a kernel for the
+from seven regressors: a common flash kernel, the flash kernel of a flash that
+follows another within 50 ms (the recent-flash term), a column for the
+fixation before the stimulus (center entry to first flash), a kernel for the
 stimulus during the hold (first flash to center exit), a causal
 post-withdrawal kernel (0 to 100 ms), 10 additive camera motion-energy PCs, and a strictly
 past self-history filter for each unit. All terms add in log rate. An earlier
@@ -72,7 +73,8 @@ drift, go cue, outcome, or punishment kernel.
 | Common flash | Every modeled flash; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
 | Recent flash | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
-| Stimulus during hold | One kernel on the first flash, set to zero from the center exit on; 10 raised cosines with even spacing in log(t + 50 ms), 0–950 ms; no step | 10 |
+| Fixation before stimulus | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
+| Stimulus during hold | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
@@ -236,13 +238,13 @@ Run this after you change the design, fit, or unique-deviance code:
 uv run python -m thesis.ephys.analyses.glm.synthetic_check
 ```
 
-It needs no database. It plants known flash, state, adaptation, flash ×
-motion-energy, withdrawal, motion-energy, and history effects in 80 simulated
-trials. Then it runs
+It needs no database. It plants known flash, adaptation, hold, withdrawal,
+motion-energy, and history effects in 80 simulated trials. Then it runs
 `prepare`, `fit`, and `unique` on them and checks that the effects come back. It
 compares 2 and 5 motion-energy PCs instead of 10–200 and takes about 1 minute.
 It raises `AssertionError` with the failed checks. Pass `--out DIR` (a new
-directory) to keep the artifacts and look at the figures.
+directory) to keep the artifacts; `synthetic_recovery.json` there has the
+planted and recovered kernels, which `model_checks.py` draws.
 
 ## Related methods
 
@@ -373,7 +375,8 @@ the residual tests are in-sample):
 
 ### Stimulus during hold
 
-Tests of 2026-10-10 and 2026-10-11 on the 20-unit sample. The in-port column
+Tests of 2026-10-10 and 2026-10-11 on the 20-unit sample, with the first form
+of the kernel (10 bases, 50 ms stretch); the next section has the final form. The in-port column
 of the section above became one kernel, from the first flash to the center
 exit (`hold` in `dmat.py`).
 
@@ -442,6 +445,49 @@ exit (`hold` in `dmat.py`).
     p > 0.3) and a recovery term (+0.3 to +0.6%, p = 0.2) do not predict
     reliably better, and with the 300 ms kernel the dip stays.
 
+### Hold kernel: spacing, resolution, and the fixation column
+
+Tests of 2026-10-11. They changed the hold kernel from 10 bases with a 50 ms
+stretch to 12 bases with a 25 ms stretch, and added the fixation column.
+
+- Log against linear spacing. The reason for log spacing is in the task, not
+  in the fit: the rate changes in the first 100 ms and is almost flat after
+  that; every trial has the first 490 ms of the hold but only 5% have 708 ms;
+  and the kernel is locked to the first flash, so only early times are aligned
+  over trials. A full fit with 10 linear bases had the same population D²
+  (0.070 against 0.071), but for unit 197 it reached about 60% of the
+  first-flash peak and its kernel was uneven after 500 ms. With the final
+  bases, linear spacing is reliably worse (p = 0.017).
+- Start at the first flash against the center entry. A kernel from the center
+  entry is equal in D² (p = 0.45 to 0.73) and it does stay near zero until the
+  flash, but it blurs the drop: the flash comes 24 to 114 ms after the entry,
+  so the model predicts too much rate from 80 to 160 ms after the flash
+  (observed / predicted 0.79 against 0.93). The kernel stays on the first
+  flash.
+- Resolution. The model missed the first-flash peak (62% for unit 197) because
+  the log bases near it were at 47, 86, and 139 ms. In single-unit refits of
+  unit 197 and the 6 other units with the clearest peak, 14 bases, 12 bases
+  with a 25 ms stretch, and a separate first-flash kernel all reached about
+  80% in 10-ms bins. 12 bases with a 25 ms stretch (bases at 0, 10, 24, 43,
+  70, 107, 159 ms, then wider) adds the fewest columns.
+- Fixation column: 1 from the center entry to the first flash, where no other
+  term is on. It makes the rate in that time correct for single units (more
+  than 10% off in 15 of 20 units without it, in 3 of 20 with it). Alone it does
+  not improve validation D² reliably (+1.0%, p = 0.25), its weight has no
+  common sign (median +0.09, negative in 9 of 20 units), and on all units its
+  unique ΔD² is 0.0001 (reliable in 23% of units). It is in the model because
+  it corrects the prediction before the stimulus, not because it adds
+  prediction. Together with the finer kernel it is reliably better than the
+  design before (+1.35% validation D², p = 0.007).
+- The output function and the penalty were checked and not changed. On
+  held-out bins the model is too high at low and middle predicted rates
+  (observed / predicted 0.83 to 0.93) and too low from the 80th to the 95th
+  percentile (1.08 to 1.12). One gain on the linear predictor is 0.99
+  (median), two gains (history, other terms) are 0.99 and 0.96, and a cubic
+  output function does not improve held-out D² (p = 0.62); none changes the
+  peak. So the kernels are not shrunk by the penalty and exp is adequate; the
+  cause of the calibration curve is not known.
+
 ### Design optimization figure
 
 `design_optimization.svg` is the one figure for these choices. Each of its
@@ -465,21 +511,43 @@ uv run python -m thesis.ephys.analyses.glm.design_optimization --units sample
 The first five modules fit and score designs and make no figure. Results of
 2026-10-11, with the hold kernel in the design:
 
-- Flash kernel: 6 bases are worse than 8 (p = 0.0003); 10 and 12 are not
-  better (p = 0.67 and 0.19). 100 ms is worse than 150 ms (p = 0.005); 200 and
-  250 ms are not better (p = 0.37 and 0.93).
-- Recent-flash term: with the hold kernel, the model without the term is no
-  longer reliably worse (median −0.0012, mean −0.0033, lower in 13 of 20 units,
-  p = 0.07; it was p = 0.008 with the in-port column). The term stays in the
-  design for now; this is an open decision. A depression resource with a fast
-  recovery is equal to it (p = 0.60).
-- Withdrawal: no kernel is worse than the 0 to 100 ms kernel (p = 0.001); the
-  ±100 and ±300 ms kernels are not better (p = 0.35 and 0.50).
+- Flash kernel: 6 bases are worse than 8 (p = 0.0005); 10 and 12 are not
+  better (p = 0.73 and 0.14). 100 ms is worse than 150 ms (p = 0.017); 200 and
+  250 ms are not better (p = 0.37 and 0.81).
+- Recent-flash term: the model without the term is not reliably worse (median
+  −0.0009, lower in 13 of 20 units, p = 0.11). This result moved with the form
+  of the hold kernel (p = 0.008 with the in-port column, 0.07, 0.048, and 0.11
+  with three forms of the kernel), so it is at the limit. The term stays in
+  the design; on all units its unique ΔD² is reliable in 60% of the units.
+- Stimulus during hold: no term, a step from the center entry, and a step from
+  the first flash are worse than the kernel (p = 2e-5, 0.002, 0.001). The step
+  with a first-flash kernel is equal (p = 0.67); the linear kernel is worse
+  (p = 0.017); the coarse kernel (10 bases, 50 ms stretch) and the design
+  without the fixation column are not reliably worse alone (p = 0.16, 0.43).
+- Withdrawal: no kernel is worse than the 0 to 100 ms kernel (p = 0.002); the
+  ±100 and ±300 ms kernels are not better (p = 0.28 and 0.47).
 - Motion-energy PCs: no motion energy is worse than 10 PCs (p = 0.006); 25 and
-  50 are not better (p = 0.60 and 0.50); 200 is worse (p = 0.003).
+  50 are not better (p = 0.62 and 0.65); 200 is worse (p = 0.001).
 
-The fit artifacts of the design with the in-port column are in
-`figures/glm/GRB006_20240821_121447_in_port_step/`.
+The figure has one row for each group of regressors: the raised cosines of its
+kernel, drawn from `dmat.py`, then the tests of its choices.
+
+Earlier fits are kept next to the session directory: `_in_port_step` (the step
+design), `_log10_fit` (10 bases, 50 ms stretch, no fixation column), and
+`_linear_hold_fit` (10 linear bases).
+
+### Figures
+
+| Figure | Module | Content |
+| --- | --- | --- |
+| Main | `main_figure.py` | one trial, the kernels, prediction, and what explains the spikes |
+| Hold effect | `hold_effect.py` | the suppression during the hold, its end at the exit, and its controls |
+| Building the model (supplement) | `design_optimization.py` | the bases and the tests of each design choice |
+| Checking the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, recovery of planted kernels |
+| Flash against motion energy | `kernel_comparison.py` | weights of the two terms over units; descriptive |
+
+`glm fit` writes no figure. `glm unique` writes `figure_data.npz` for the
+example unit.
 
 ## Results
 
@@ -487,36 +555,40 @@ Full fit of the final design, 2026-10-11: 167 units, 294 trials, 10
 motion-energy PCs. Artifacts are in
 `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
 
-- Full model: median cross-validated D² 0.071, median 0.54 bits/spike.
-- Against the design with the in-port column (0.068, 0.50 bits/spike), D² is
-  0.0020 higher per unit (paired median; higher in 136 of 167 units,
-  p = 2e-18).
-- Example unit 197: the model reaches 77% of the first-flash peak of the
-  observed rate (52% with the in-port column). Its predicted rate before the
-  first flash is too high (46 against 33 spikes/s).
-- Hold kernel: the median gain from 150 to 500 ms is 0.61, and it is below 1 in
-  89% of the units.
+- Full model: median cross-validated D² 0.072, median 0.54 bits/spike.
+- Against the design with 10 hold bases and no fixation column, D² is 0.0004
+  higher per unit (paired median; higher in 118 of 167 units, p = 3e-8).
+- Example unit 197: the model reaches the first-flash peak on held-out trials
+  (about 105 against 105 spikes/s in 20-ms bins; 52% with the in-port column).
+  Its predicted rate before the center entry is still too high (47 against 33
+  spikes/s).
 
 | Regressor | Columns | Median unique ΔD² | Units with unique ΔD² > 0 |
 | --- | ---: | ---: | ---: |
-| Spike history | 10 | 0.0266 | 92% |
-| Stimulus during hold | 10 | 0.0065 | 88% |
-| Visual flash | 8 | 0.0052 | 84% |
-| Motion energy | 10 | 0.0019 | 65% |
-| Withdrawal | 4 | 0.0016 | 61% |
-| Flash adaptation (recent flash) | 8 | 0.0015 | 57% |
+| Spike history | 10 | 0.0271 | 92% |
+| Stimulus during hold | 12 | 0.0063 | 87% |
+| Visual flash | 8 | 0.0050 | 83% |
+| Motion energy | 10 | 0.0021 | 64% |
+| Withdrawal | 4 | 0.0014 | 62% |
+| Flash adaptation (recent flash) | 8 | 0.0016 | 60% |
+| Fixation before stimulus | 1 | 0.0001 | 23% |
 
 - Motion energy is trial-specific: with the regressor taken from another trial,
-  the median loss is 0.0021 (IQR 0.0008 to 0.0041), the same as with the
-  shuffle within a trial (p = 0.66).
-- Held-out units (`heldout_units.py`): the 147 units that took no part in the
-  design choices have a median D² of 0.070, against 0.094 for the 20 selection
-  units (Mann-Whitney p = 0.45); no unique ΔD² differs between the two groups
-  (p from 0.39 to 0.97).
+  the median loss is 0.0021, the same as with the shuffle within a trial.
+- Held-out units (`heldout_units.py`, panels d and e of `model_checks.svg`):
+  the 147 units that took no part in the design choices do not differ from the
+  20 selection units in D² (p = 0.43) or in any unique ΔD² (p from 0.18 to
+  0.86).
 - Residual checks on all units (in-sample ΔD² of a term that is not in the
   model, and with shuffled labels): session drift 0.0013 (0.0007), response
-  side after withdrawal 0.0013 (0.0003), time in trial 0.0009 (0.0007; it was
-  0.0025 with the in-port column), flash rate 0.0009 (0.0006), response side
-  before withdrawal 0.0002 (0.0002).
+  side after withdrawal 0.0013 (0.0003), flash rate 0.0009 (0.0006), time in
+  trial 0.0008 (0.0007), response side before withdrawal 0.0002 (0.0002).
+- The rate in the 100 ms before the first flash is more than 10% off in 42% of
+  the units (median observed / predicted 1.01). Part of that time is before
+  the center entry, which no term covers.
+- Hold effect (`hold_effect.svg`, descriptive model with a kernel after the
+  center exit): Δ log rate −0.31 in the hold and +0.19 after the exit, higher
+  after the exit in 144 of 167 units. Two-step control: −0.48 with all terms
+  fit together, −0.33 with the hold kernel fit last (below 0 in 90% of units).
 - `uv run python -m thesis.ephys.analyses.glm.main_figure` draws the main
   figure (`main_figure.svg`) for the example unit and all units.
