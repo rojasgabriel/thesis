@@ -20,7 +20,8 @@ model. The comparison is paired over units.
 - Measures: the rate from `BEFORE_MS` and from `AFTER_MS` around the exit, and
   their ratio; two-sided Wilcoxon signed-rank tests over units.
 - Limits: the exit of an early withdrawal is earlier in the stimulus train, and
-  an early withdrawal has its own events after the exit (the punishment). The
+  an early withdrawal is followed by its punishment, a 2 s tone with no light
+  (the arena stays dark). The
   units share the trials, so the tests do not show that a result holds for
   other trials.
 

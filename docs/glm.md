@@ -558,8 +558,10 @@ holds for other trials.
     view of the stimulus.
   - The rise is at the exit and not at a time in the train (403 against
     582 ms), so it is not slow adaptation.
-  - Limit: an early withdrawal has its own events after the exit (the
-    punishment). If the punishment has light, this test is not clean.
+  - The punishment of an early withdrawal is a 2 s tone with no light (from
+    Gabriel), so the arena is dark after an early exit. The tone is the one
+    difference left: the rate after the exit is the same with the tone and no
+    stimulus as with the stimulus and no tone.
 - In GRB006 the trial table has no flashes for the 209 early-withdrawal
   trials, so this test is not possible there. In GRB064 the fixation of the
   completed trials has almost the same length as in GRB006 (1st to 95th
