@@ -462,29 +462,41 @@ exit (`hold` in `dmat.py`).
 
 ### Flash × fixation interaction
 
-Test of 2026-10-11 (`flash_fixation_test.py`, 20 selection units, results in
+Test of 2026-10-11 (`flash_fixation_test.py`, results in
 `flash_fixation_test.json`). The fixation kernel adds one value to the log
 rate, so it lowers the baseline and the flash response by the same factor. The
 test adds a second flash kernel for a flash after the center exit against a
 flash in the fixation (`FLASH_AFTER_EXIT_TERM` in `dmat.py`, off in the model).
-The first flash of a trial is not in the contrast.
+The first flash of a trial is not in the contrast. The value of a unit is the
+mean of that kernel from 30 to 120 ms (Δ log rate, after the exit minus in the
+fixation).
 
-- The term does not predict better: median validation D² +0.0003 (+0.3%),
-  better in 11 of 20 units, Wilcoxon p = 1.0. It is not in the model.
-- The kernel has no common sign. Its mean from 30 to 120 ms (Δ log rate, after
-  the exit minus in the fixation) has a median of +0.01, above zero in 11 of 20
-  units (p = 0.23).
-- So over units the fixation changes the baseline and the flash response by
-  the same factor: a gain change of the unit. This does not mean that the
-  fixation has no effect on the visual response; that effect is the fixation
-  kernel. It gives no support for an effect that is specific to the flash
-  response, such as slow adaptation, in addition to the gain change.
-- Single units differ: the value is from −0.22 to +0.41, and 14 of 20 units are
-  more than 2 SD (over the 10 folds) from zero, 8 above and 6 below. The folds
-  share training trials, so this SD is too small, and these units do not
-  predict better with the term. Not tested on all units.
+- 20 selection units: the term does not predict reliably better (validation D²
+  +0.0003, better in 11 of 20 units, p = 1.0; value +0.01, p = 0.23). By the
+  rule of the simpler option it is not in the model.
+- All 167 units: the term predicts a little better. Cross-validated D² +0.0004
+  (0.6% of the D² of the model; Wilcoxon p = 2e-8; validation D² better in 104
+  of 167 units, p = 0.004). With the same 10 folds, 28% of the units predict
+  reliably better with the term and 4% worse (a term with no effect gives 5%;
+  initiation 23%, fast adaptation 60%). The 147 held-out units alone give the
+  same result (29%, p = 3e-8).
+- The value has a median of +0.06 (above zero in 106 of 167 units, p = 3e-5):
+  the flash response after the exit is about 6% higher than the common factor
+  gives. The fixation kernel is −0.31, so most of the fixation effect is the
+  common factor.
+- The 46 units that need the term are of two kinds. 19 have a positive kernel
+  with a peak at 45 ms (median +0.67): a larger early response after the exit.
+  27 have a negative kernel with a minimum near 90 ms (median −0.33): a smaller
+  late response after the exit. Both agree with a flash response that is
+  earlier after the exit, which the flash-response analysis also found for
+  this animal (peak latency 75 ms before the exit and 45 ms after it). Not
+  tested: if these are two groups of units or one change in latency.
+- So the fixation is mostly a gain change of the unit, with a small part that
+  is specific to the flash response in about a quarter of the units. This part
+  can be slow adaptation in the fixation or an effect of the movement after
+  the exit; the test does not separate them.
 - The old design had this contrast with no fixation kernel (unique ΔD² 0.0009,
-  46% of units, not kept). It is still not necessary with the fixation kernel.
+  46% of units, not kept).
 
 ### Fixation kernel: spacing, resolution, and the initiation column
 
