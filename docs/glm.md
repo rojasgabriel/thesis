@@ -600,6 +600,37 @@ response to the right port and −1 for the left port from the center exit on
   term and the flash × fixation term have a case to be in the model. Not
   decided.
 
+### Flash kernels by gap class
+
+Tests of 2026-10-12 (`gap_class_grid.py`, 20 selection units). The response to
+a flash depends on the gap from the flash before. The first form of this was
+two terms on a common flash kernel: fast adaptation (a flash within 50 ms) and
+flash recovery (the log of the gap). They are correlated (−0.86 over 3,208
+flashes), so the fit can move weight from one to the other and their kernels
+cannot be read one by one. The flash × fixation term is not correlated with
+them (−0.01 and 0.03). The design now has one flash kernel for each gap class
+and no common kernel (`FLASH_GAP_EDGES_S` in `dmat.py`); the first flash of a
+trial is in the class of the longest gaps. Each kernel is the response at that
+gap, and the classes do not overlap.
+
+| Design | Median validation D² | Against 3 classes (40, 80 to 120, 160+) |
+| --- | ---: | --- |
+| 1 kernel, no gap term | 0.0825 | −1.9%, p = 0.11 |
+| Common kernel, fast adaptation, flash recovery | 0.0837 | −0.0%, p = 0.65 |
+| 2 classes: 40, 80+ | 0.0828 | −0.2%, p = 0.78 |
+| 3 classes: 40, 80 to 120, 160+ | 0.0839 | the design in use |
+| 3 classes: 40, 80, 120+ | 0.0831 | +0.1%, p = 0.73 |
+| 4 classes: 40, 80, 120, 160+ | 0.0842 | −0.2%, p = 0.33 |
+
+- The classes lose nothing against the earlier terms (p = 0.65).
+- 2 classes are better than 1 kernel (14 of 20 units, p = 0.024). 3 classes
+  are not reliably better than 2 on 20 units (p = 0.78), and 4 not better
+  than 3.
+- The design has 3 classes, because the observed responses differ between
+  80, 120, 160, and 200 ms (`flash_by_gap.py`), and 20 units are too few to
+  show the need for a regressor. The third class is tested on all units with
+  the same folds (`term_test.py --switch FLASH_GAP_EDGES_S --value "(0.05,)"`).
+
 ### Session drift
 
 Tests of 2026-10-12. A term for a slow change of the rate over the session

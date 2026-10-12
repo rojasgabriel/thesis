@@ -27,12 +27,21 @@ is not run again when it is there. The script writes `term_test_<switch>.json`
 in the session directory.
 
     uv run python -m thesis.ephys.analyses.glm.term_test --switch SESSION_DRIFT
+
+With `--value`, the test goes the other way: the design in use against a
+simpler design, in which the attribute has that value. For example, three gap
+classes of the flash kernel against two:
+
+    uv run python -m thesis.ephys.analyses.glm.term_test \\
+        --switch FLASH_GAP_EDGES_S --value "(0.05,)"
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -50,16 +59,29 @@ from thesis.ephys.analyses.glm.inclusion import minimum_units, regressor_tests
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--switch", required=True, help="A boolean of dmat.py.")
+    parser.add_argument("--switch", required=True, help="An attribute of dmat.py.")
+    parser.add_argument(
+        "--value",
+        help="A Python value for the attribute: the simpler design that the design "
+        "in use is tested against. Without it, the attribute is a switch that is "
+        "off, and the design with the switch on is tested against the design in use.",
+    )
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
-    if getattr(dmat, args.switch) is not False:
-        raise SystemExit(f"dmat.{args.switch} is not a switch that is off.")
-    suffix = f"_{args.switch.lower()}"
-    root = _fit_variant(args.root, args.units, suffix, {args.switch: True})
-    scores = [_validation_scores(r, args.units) for r in (args.root, root)]
-    folds = [_fold_scores(r, args.units) for r in (args.root, root)]
+    if args.value is None:
+        if getattr(dmat, args.switch) is not False:
+            raise SystemExit(f"dmat.{args.switch} is not a switch that is off.")
+        suffix, value = f"_{args.switch.lower()}", True
+    else:
+        value = ast.literal_eval(args.value)
+        slug = re.sub(r"[^0-9a-z]+", "_", args.value.lower()).strip("_")
+        suffix = f"_{args.switch.lower()}_{slug}"
+    variant = _fit_variant(args.root, args.units, suffix, {args.switch: value})
+    # The gain is always the design with the term minus the design without it.
+    pair = (args.root, variant) if args.value is None else (variant, args.root)
+    scores = [_validation_scores(r, args.units) for r in pair]
+    folds = [_fold_scores(r, args.units) for r in pair]
     unit_ids = sorted(scores[0])
     if unit_ids != sorted(scores[1]):
         raise ValueError("The two designs were not fit on the same units.")
@@ -77,6 +99,7 @@ def main() -> None:
     in_use = np.median([folds[0][u].mean() for u in paired])
     stats = {
         "switch": args.switch,
+        "tested_against_value": args.value,
         "units": len(unit_ids),
         "validation_d2_gain": {
             "median": float(np.median(gain)),
@@ -94,9 +117,9 @@ def main() -> None:
         "unit_ids": paired,
         "cross_validated_d2_gain_by_unit": [float(g.mean()) for g in fold_gains],
     }
-    output = args.root / f"term_test_{args.switch.lower()}.json"
+    output = args.root / f"term_test{suffix}.json"
     output.write_text(json.dumps(stats, indent=1))
-    print(json.dumps({k: stats[k] for k in list(stats)[:7]}, indent=1))
+    print(json.dumps({k: stats[k] for k in list(stats)[:8]}, indent=1))
     print(output)
 
 
