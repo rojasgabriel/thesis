@@ -487,16 +487,54 @@ fixation).
 - The 46 units that need the term are of two kinds. 19 have a positive kernel
   with a peak at 45 ms (median +0.67): a larger early response after the exit.
   27 have a negative kernel with a minimum near 90 ms (median −0.33): a smaller
-  late response after the exit. Both agree with a flash response that is
-  earlier after the exit, which the flash-response analysis also found for
-  this animal (peak latency 75 ms before the exit and 45 ms after it). Not
-  tested: if these are two groups of units or one change in latency.
+  late response after the exit. This looks like an earlier response after the
+  exit, but the observed responses do not show it: the peak latency is the
+  same in the fixation and after the exit (72 and 72 ms, 112 units, p = 0.44;
+  see "What causes the fixation effect"). So these are two groups of units,
+  not one change in latency.
 - So the fixation is mostly a gain change of the unit, with a small part that
   is specific to the flash response in about a quarter of the units. This part
   can be slow adaptation in the fixation or an effect of the movement after
   the exit; the test does not separate them.
 - The old design had this contrast with no fixation kernel (unique ΔD² 0.0009,
   46% of units, not kept).
+
+### What causes the fixation effect
+
+Tests of 2026-10-11 with no model (`matched_flashes.py`, 167 units, results in
+`matched_flashes.json`; panels g and h of the fixation-effect figure). The
+measures are the rate around a flash (−20 to 20 ms, the baseline) and after it
+(30 to 120 ms, the response). The first flash of a trial is not used. The
+units share the trials, so a test over units does not show that a result
+holds for other trials.
+
+| Explanation | What it predicts | What the data show |
+| --- | --- | --- |
+| Slow adaptation to the train | The rate depends on the time in the train and the flashes, not on the exit | The effect ends in about 100 ms at the exit while the flashes continue, a kernel that goes on after the exit predicts worse, and the flash rate of the trial has no effect. Not tested at a matched time: see below |
+| Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
+| Stillness in the port | The same low rate at a side port with the same motion energy | No: 0.78 of the rate at a side port |
+| A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully: units with a larger flash response are suppressed more (Spearman ρ = −0.41, p = 5e-8; −0.36 with rate and D² held), and the response changes more than the baseline for flashes after a long gap (+0.18 in log, p = 0.0003; 0.00 for short gaps) |
+| The view from the center port | A step at the entry and at the exit, in units that respond to the stimulus, with no relation to movement | Agrees with the fast step at the exit, with the relation to the flash response, and with no relation to motion energy (ρ = −0.11) or depth (ρ = 0.03). Against it: the rate is not lower from the center entry to the first flash, but that time is only 10 to 100 ms |
+
+- The matched-time test is not possible in this session. The fixation has
+  almost the same length in all trials (1st to 95th percentile: 488 to
+  708 ms; the animal leaves about 50 ms after the go cue). Only 21 flashes in
+  the fixation are at a time from the first flash where there are also flashes
+  after the exit. So the time in the train, the go cue, and the exit cannot be
+  separated here by their times. A session with wait times that differ, with
+  early withdrawals, or with the stimulus shown outside the port would separate
+  them.
+- The change at the exit is fast: flashes in the first 100 ms after the exit
+  have a baseline 1.46 times lower than later flashes, and a response only
+  1.08 times lower.
+- The fixation level has no relation to the unique ΔD² of motion energy, fast
+  adaptation, or spike history, or to depth.
+- The most probable explanation with these data is one that acts on the
+  visual drive of the unit while the animal is in the center port: the view
+  of the stimulus from the port, or a suppression of the visual response that
+  the task state sets. The data do not separate these two. Slow adaptation and
+  movement are less probable. A measure of the head or the eye, or the
+  geometry of the stimulus and the port, is necessary to go on.
 
 ### Fixation kernel: spacing, resolution, and the initiation column
 

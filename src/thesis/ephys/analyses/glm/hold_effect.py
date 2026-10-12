@@ -41,6 +41,20 @@ comparison is paired: each unit has a value in both periods.
   in-sample.
 - Panel f (control for stillness): raw rate against motion energy in the
   center port and at a side port (`port_vs_stillness.py`).
+- Panel g (control for the movement after the exit): the rate around a flash
+  in the fixation, and around a flash after the exit with less and with more
+  motion energy of the video (lower and upper half), from
+  `matched_flashes.py`. The first flash of a trial is not used. The rate of a
+  unit is divided by its mean over the flashes in the fixation and after the
+  exit; lines are the mean and bands the SEM over units. The two groups after
+  the exit are matched for the time from the first flash, the gap from the
+  flash before, and the time from the exit. The fixation is not matched to
+  them for time: the fixation has almost the same length in all trials.
+- Panel h (which units): each unit's fixation level (mean of its fixation
+  kernel over `LEVEL_MS`, main model) against the unique ΔD² of its visual
+  flash regressor. A value below `UNIQUE_FLOOR` is drawn there, and a level
+  outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
+  correlation of `matched_flashes.json`.
 
 The descriptive model and the design with no hold kernel are fit here (`glm
 fit` stages, with cross-validation) in the directories with the suffixes
@@ -56,7 +70,7 @@ session directory.
     uv run python -m thesis.ephys.analyses.glm.hold_effect --units all
 
 Each fit of all units takes about 20 minutes; a fit that is there is not run
-again. Run `port_vs_stillness` first.
+again. Run `port_vs_stillness` and `matched_flashes` first.
 """
 
 from __future__ import annotations
@@ -71,6 +85,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 from scipy.stats import sem, wilcoxon
 from sklearn.linear_model import PoissonRegressor
 
@@ -130,6 +145,15 @@ against motion energy of the video, in the center port and at a side port.
 At the same low motion energy, the rate is lower in the center port (median
 ratio {still_ratio:.2f}, lower in {still_fraction:.0%} of the units,
 p = {still_p:.1g}).
+**g**, Control for the movement after the withdrawal. The firing rate
+around a flash in fixation, and around a flash after the withdrawal with less
+and with more motion energy of the video (lower and upper half; mean and SEM
+over units; the first flash of a trial is not used). The response after the
+withdrawal does not grow with motion energy (ratio of the response, more over
+less motion energy: {energy_ratio:.2f}, p = {energy_p:.1g}). **h**, The units
+with a larger flash response have a lower rate in fixation: the level in
+fixation against the unique ΔD² of the visual flash (Spearman ρ = {rho:.2f},
+p = {rho_p:.1g}; {outside_h} units are outside the axis limits).
 """
 ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
@@ -144,11 +168,13 @@ AFTER_BASES = 8
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
 LEVEL_LIMITS = (-1.6, 1.6)
+UNIQUE_FLOOR = 1e-4  # panel h: a smaller unique ΔD² is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
 EXIT_WINDOW_MS = (-200, 500)
 TASK, VISUAL = CONCEPT_COLORS["task"], CONCEPT_COLORS["visual"]
+MOTION = CONCEPT_COLORS["motion energy"]
 
 
 def after_exit_basis() -> dmat.BasisFunction:
@@ -444,6 +470,11 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
+    matched_path = args.root / "matched_flashes.npz"
+    if not matched_path.exists():
+        raise FileNotFoundError(f"{matched_path}: run `matched_flashes` first.")
+    with np.load(matched_path, allow_pickle=False) as data:
+        matched = {key: data[key] for key in data.files}
     stillness_path = args.root / "port_vs_stillness.npz"
     if not stillness_path.exists():
         raise FileNotFoundError(f"{stillness_path}: run `port_vs_stillness` first.")
@@ -465,18 +496,27 @@ def main() -> None:
     before = float(rates["flash"][1][:, rates["flash"][0] < 0].mean())
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 10.4))
+        figure = plt.figure(figsize=(7.4, 12.6))
         examples = figure.add_gridspec(
-            2, 2, left=0.11, right=0.97, top=0.975, bottom=0.8, hspace=0.25
+            2, 2, left=0.11, right=0.97, top=0.9794, bottom=0.8349, hspace=0.25
         )
         top = figure.add_gridspec(
-            2, 2, left=0.11, right=0.97, top=0.745, bottom=0.575, height_ratios=(1, 4)
+            2,
+            2,
+            left=0.11,
+            right=0.97,
+            top=0.7895,
+            bottom=0.6492,
+            height_ratios=(1, 4),
         )
         middle = figure.add_gridspec(
-            1, 2, left=0.11, right=0.97, top=0.495, bottom=0.35
+            1, 2, left=0.11, right=0.97, top=0.5832, bottom=0.4635
         )
         bottom = figure.add_gridspec(
-            1, 3, left=0.11, right=0.88, top=0.255, bottom=0.055, wspace=0.75
+            1, 3, left=0.11, right=0.88, top=0.3851, bottom=0.22, wspace=0.75
+        )
+        last = figure.add_gridspec(
+            1, 2, left=0.11, right=0.9, top=0.15, bottom=0.045, wspace=1.25
         )
         panel_axes = []
         # Panel a has the time axes of panels b and c: from the first flash
@@ -665,12 +705,63 @@ def main() -> None:
         )
         stillness_axis = figure.add_subplot(bottom[2])
         port_vs_stillness.plot_rates(stillness_axis, stillness, states=(0, 2))
-        panel_axes += [paired, order_axis, stillness_axis]
+        # Panel g: the response to a flash in the fixation and after the exit,
+        # and after the exit with less and with more motion energy.
+        flash_axis = figure.add_subplot(last[0])
+        lags = matched["lags_ms"]
+        reference = matched["rate__fixation against after exit, matched gap"]
+        by_energy = matched[
+            "rate__after exit, lower against upper half of motion energy"
+        ]
+        scale = reference.mean((0, 2))
+        used = scale > 0
+        curves = (
+            (reference[0], TASK, "in fixation"),
+            (by_energy[0], "0.35", "after exit,\nless motion energy"),
+            (by_energy[1], MOTION, "after exit,\nmore motion energy"),
+        )
+        for (values, color, label), height in zip(
+            curves, (0.3, 0.98, 0.72), strict=True
+        ):
+            values = gaussian_filter1d(values[used] / scale[used, None], 3, axis=-1)
+            mean, error = values.mean(0), sem(values, axis=0)
+            flash_axis.plot(lags, mean, color=color)
+            flash_axis.fill_between(
+                lags, mean - error, mean + error, color=color, alpha=0.25, lw=0
+            )
+            flash_axis.text(
+                1.02,
+                height,
+                label,
+                color=color,
+                transform=flash_axis.transAxes,
+                va="top",
+            )
+        flash_axis.axvline(0, color=VISUAL, linewidth=0.8)
+        flash_axis.set_ylim(bottom=0)
+        flash_axis.set_xlabel("time from flash (ms)")
+        flash_axis.set_ylabel("normalized firing rate")
+        # Panel h: units with a larger flash response have a lower fixation level.
+        relation = figure.add_subplot(last[1])
+        relation.scatter(
+            np.maximum(matched["flash_unique"], UNIQUE_FLOOR),
+            matched["fixation_level"],
+            s=6,
+            color=TASK,
+            alpha=0.7,
+            linewidths=0,
+        )
+        relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+        relation.set_xscale("log")
+        relation.set_ylim(limits)
+        relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
+        relation.set_ylabel(r"$\Delta$ log rate in fixation")
+        panel_axes += [paired, order_axis, stillness_axis, flash_axis, relation]
         for axis in panel_axes[2:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdef", panel_axes, strict=True):
+        for letter, axis in zip("abcdefgh", panel_axes, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,
@@ -724,8 +815,23 @@ def main() -> None:
         "least_motion_group"
     ]
     two = stats["two_step"]
+    flashes = json.loads(matched_path.with_suffix(".json").read_text())
+    by_energy = flashes["after exit, lower against upper half of motion energy"][
+        "response, second / first group"
+    ]
+    relation = flashes["fixation level against unique dD2, visual_flash (Spearman)"]
     output.with_name("hold_effect_caption.md").write_text(
         CAPTION.format(
+            energy_ratio=by_energy["median_ratio"],
+            energy_p=by_energy["wilcoxon_p"],
+            rho=relation["rho"],
+            rho_p=relation["p"],
+            outside_h=int(
+                np.sum(
+                    (matched["fixation_level"] < limits[0])
+                    | (matched["fixation_level"] > limits[1])
+                )
+            ),
             units=stats["units"],
             before=stats["rate_before_first_flash"],
             late=stats["rate_last_200_ms_of_hold"],
