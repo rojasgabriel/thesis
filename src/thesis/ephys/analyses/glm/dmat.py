@@ -56,17 +56,19 @@ WITHDRAWAL_KERNEL = True
 # center exit on. Units fire less from about 80 ms after the first flash until
 # the animal leaves the center port; the flashes go on to the response entry.
 # The bases have even spacing in log(t + stretch). They are close together
-# early, where the rate changes fast and every trial gives data, and far apart
-# late, where the rate is almost flat and only the longer holds give data. No
-# step goes with the kernel, so the window must be longer than the longest
-# hold. A stretch of 0 gives even spacing in time (`hold_grid.py`).
+# early, where the rate changes fast and every trial gives data (about 20 ms
+# apart near the first-flash response), and far apart late, where the rate is
+# almost flat and only the longer holds give data. No step goes with the
+# kernel, so the window must be longer than the longest hold. A stretch of 0
+# gives even spacing in time (`hold_grid.py`).
 HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
-HOLD_BASES = 10
-HOLD_LOG_STRETCH_S = 0.05
-# Test switch: one column that is 1 from the center entry to the first flash
-# (the fixation before the stimulus), where no other term is on.
-FIXATION_COLUMN = False
+HOLD_BASES = 12
+HOLD_LOG_STRETCH_S = 0.025
+# Fixation before the stimulus: one column that is 1 from the center entry to
+# the first flash, where no other term is on. Its weight has no common sign
+# over units; it sets the rate of each unit in that time.
+FIXATION_COLUMN = True
 FIXATION = "fixation"
 # Earlier forms of that term, for `hold_grid.py`: one column that is 1 from
 # center entry (or from the first flash) to center exit, and a separate kernel

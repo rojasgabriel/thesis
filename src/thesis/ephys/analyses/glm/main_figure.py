@@ -8,7 +8,8 @@ default) of one session, after `glm fit` and `glm unique`.
 
 - Panel a (the task and the model): one held-out trial of the example unit,
   against time from the first flash. Flashes, the hold (first flash to center
-  exit), and the withdrawal; the first motion-energy PC; the term that each group of
+  exit; the fixation before the stimulus is the lighter part), and the
+  withdrawal; the first motion-energy PC; the term that each group of
   regressors adds to the log rate in the final refit (visual, task, and motion
   energy in one row, spike history in its own row, in their colors); and the
   observed spikes.
@@ -83,6 +84,7 @@ REGRESSORS = {
     "history": ("spike history", HISTORY),
     "visual_flash": ("visual flash", VISUAL),
     "flash_adaptation": ("flash adaptation", VISUAL),
+    "fixation": ("fixation before stimulus", TASK),
     "hold": ("stimulus during hold", TASK),
     "withdrawal": ("withdrawal", TASK),
     "video": ("motion energy", MOTION),
@@ -97,6 +99,11 @@ def _plot_trial(axes, data) -> None:
     entry, leave = 1000 * data["event__hold"]  # first flash to center exit
     events.axvspan(
         max(entry, left), leave, ymin=0.38, ymax=0.62, color=TASK, alpha=0.4, lw=0
+    )
+    # The fixation before the stimulus, lighter, in the same row.
+    start = 1000 * data["event__fixation"][0]
+    events.axvspan(
+        max(start, left), entry, ymin=0.38, ymax=0.62, color=TASK, alpha=0.18, lw=0
     )
     events.vlines(1000 * data["event__visual_flash"], 2.6, 3.4, color=VISUAL, lw=1)
     events.vlines(1000 * data["event__withdrawal"], 0.6, 1.4, color=TASK, lw=1.2)
