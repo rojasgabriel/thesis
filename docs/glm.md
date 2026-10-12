@@ -631,6 +631,28 @@ gap, and the classes do not overlap.
   show the need for a regressor. The third class is tested on all units with
   the same folds (`term_test.py --switch FLASH_GAP_EDGES_S --value "(0.05,)"`).
 
+### Length of the flash kernels, with kernels by gap class
+
+Test of 2026-10-12 (`flash_length_grid.py`, 20 selection units). The observed
+response to a flash is about 200 ms long (`flash_by_gap.py`), and the flash
+kernels are 150 ms long. With one kernel for each gap class, a longer kernel
+could hold the dip after a flash at a long gap. The raised cosines keep their
+spacing, so a longer kernel has more of them.
+
+| Length | Raised cosines | Median validation D² | Against 150 ms |
+| --- | ---: | ---: | --- |
+| 150 ms | 8 | 0.0839 | the design in use |
+| 200 ms | 11 | 0.0859 | −0.1%, better in 10 of 20 units, p = 0.96 |
+| 250 ms | 13 | 0.0847 | −0.3%, better in 8 of 20 units, p = 0.70 |
+| 300 ms | 16 | 0.0866 | −0.5%, better in 9 of 20 units, p = 0.41 |
+
+A longer kernel does not predict better (Friedman p = 0.90), so the kernels
+stay at 150 ms. The median of each design is higher for the longer kernels, but
+the paired differences are not: the units that gain and the units that lose
+are about equal in number. So the dip from 150 to 190 ms after a flash at a
+long gap is in the data and not in the model, and it is too small a part of
+the bins to change the prediction.
+
 ### Session drift
 
 Tests of 2026-10-12. A term for a slow change of the rate over the session
