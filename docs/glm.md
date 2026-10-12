@@ -575,6 +575,33 @@ holds for other trials.
   percentile: 455 to 747 ms), so the matched-time test is not possible there
   either; the early withdrawals are what separates the exit from the time in
   the train.
+- What starts the suppression (2026-10-12, observed population rate in 10 ms
+  bins, no model; scratch run, not in the repository). The time from the
+  center entry to the first flash differs between trials (26 to 99 ms in
+  GRB006), so the trials were cut in two halves by that time (medians 36 and
+  73 ms).
+  - GRB006 (168 units, 295 trials): the drop is locked to the first flash. It
+    comes 85 ms after the first flash in both halves (difference 0 ms, 95%
+    interval −10 to 0). From the center entry it comes at 125 and 155 ms
+    (difference +30 ms, interval 30 to 50), which is the difference in the
+    time of the first flash.
+  - GRB064 (78 units, 239 trials): not clear. The rate goes down slowly from
+    about 200 ms before the first flash, so this measure of the time of the
+    drop does not work there. The drop is the same in early-withdrawal and
+    completed trials (rate from 120 to 250 ms over the rate before: 0.50 and
+    0.51).
+- The side preference of single units does not need the stimulus (2026-10-12,
+  both sessions, no model; scratch run). Side index of a unit: (right − left)
+  / (right + left) of its rate. After the exit, about half of the units have
+  an index above 0.2 in size (51% in GRB006, 50% in GRB064; split-half
+  Spearman ρ = 0.82 and 0.77). The index with the stimulus on (100 ms after
+  the exit to the last flash) agrees with the index with the stimulus off
+  (150 ms after the last flash to the response entry, in the dark): ρ = 0.51
+  in GRB006 and 0.57 in GRB064, against a limit of about 0.7 and 0.8 from the
+  split-half values. In the fixation the index is small and has no relation to
+  the index after the exit (ρ = −0.05 and −0.11). So the side preference is a
+  signal of the movement or of the place of the animal, not of the view of the
+  stimulus. Limit: the window with the stimulus off is later in the movement.
 - The most probable explanation with these data: the rate is low while the
   animal holds in the center port with the stimulus on, and it goes up when
   the animal leaves, with or without the stimulus. The suppression starts

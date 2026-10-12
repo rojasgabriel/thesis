@@ -81,6 +81,10 @@ IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
 FIRST_FLASH_TERM = False
 IN_PORT = "in_port"
+# Camera views of cam0 that the motion energy can come from: the back view of
+# GRB006, and the bottom view from GRB064 on. The view differs between these
+# animals, so their motion-energy PCs are not the same measure.
+VIDEO_VIEWS = ("BackStereoView", "BottomView")
 # Test of `flash_fixation_test.py`: a second flash kernel for a flash after the
 # center exit against a flash in the fixation. Not in the model.
 FLASH_AFTER_EXIT_TERM = False
@@ -221,8 +225,15 @@ def write_stimulus_windows(
     key = dict(subject_name=subject, session_name=session, video_name="cam0")
     video = (DatasetVideo & key).fetch1()
     paths, missing = (File & (DatasetVideo.File & key)).check_if_files_local()
-    if missing or len(paths) != 1 or "BackStereoView" not in str(paths[0]):
-        raise ValueError("Expected one local back-view video for cam0.")
+    if (
+        missing
+        or len(paths) != 1
+        or not any(view in str(paths[0]) for view in VIDEO_VIEWS)
+    ):
+        raise ValueError(
+            f"Expected one local cam0 video ({' or '.join(VIDEO_VIEWS)}); "
+            f"missing: {missing}."
+        )
     frames = validate_frame_times(
         np.load(frame_times, allow_pickle=False), int(video["n_frames"])
     )
