@@ -499,6 +499,25 @@ fixation).
 - The old design had this contrast with no fixation kernel (unique ΔD² 0.0009,
   46% of units, not kept).
 
+### Side of the response after the exit
+
+Test of 2026-10-12 (`side_term_test.py`, 20 selection units, results in
+`side_term_test.json`). About half of the units fire more for a response to one
+side after the center exit, with or without the stimulus (`side_preference.py`),
+and the model has no term for the side. The test adds one column, +1 for a
+response to the right port and −1 for the left port from the center exit on
+(`SIDE_COLUMN` in `dmat.py`, off in the model).
+
+- The term does not predict reliably better on the 20 units: validation D²
+  +0.0001 (+0.2%), better in 11 of 20 units, Wilcoxon p = 0.25. By the rule of
+  the simpler option it is not in the model.
+- With the same 10 folds, 30% of the units predict reliably better with the
+  term and 5% worse (cross-validated D² +0.0005, p = 0.09).
+- The weights are not small: the median size is 0.28 in log rate (right
+  against left, a factor of 1.3), with no common sign (11 of 20 above zero).
+- Not tested on all units. The flash × fixation term gave the same picture on
+  20 units (not reliable) and was reliable on 167.
+
 ### What causes the fixation effect
 
 Tests of 2026-10-11 with no model (`matched_flashes.py`, 167 units, results in

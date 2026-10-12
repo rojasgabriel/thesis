@@ -81,6 +81,10 @@ IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
 FIRST_FLASH_TERM = False
 IN_PORT = "in_port"
+# Test of `side_term_test.py`: one column for the side of the response after the
+# center exit. Not in the model.
+SIDE_COLUMN = False
+SIDE = "side_after_exit"
 # Camera views of cam0 that the motion energy can come from: the back view of
 # GRB006, and the bottom view from GRB064 on. The view differs between these
 # animals, so their motion-energy PCs are not the same measure.
@@ -489,6 +493,20 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "events": len(alignments),
                 "columns": 1,
                 "coding": "1 from center entry to the first flash, else 0",
+            }
+        )
+    if SIDE_COLUMN:
+        # +1 for a response to the right port and -1 for the left port, from the
+        # center exit on; 0 before the exit.
+        sign = np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None]
+        values = np.column_stack((values, (sign * ~before_exit).ravel()))
+        manifest.append(
+            {
+                "name": SIDE,
+                "group": "task",
+                "events": len(alignments),
+                "columns": 1,
+                "coding": "+1 (right) or -1 (left) from the center exit on, else 0",
             }
         )
     if not IN_PORT_COLUMN:
