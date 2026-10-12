@@ -20,12 +20,14 @@ The comparison over gaps is paired: each unit has a value at each gap.
   (all its terms, with the observed spike history). The final refit is fit on
   all trials, so this is not a held-out prediction.
 - Panel a (observation and model): the rate of each gap group in its own row,
-  from `LAGS_MS` before the flash, so that the response to the flash before
-  is in the row. The rate of a unit is divided by its mean observed rate
-  around these flashes; lines are the mean over units, smoothed (Gaussian,
-  `SMOOTH_MS`). The solid vertical line is the flash and the dashed line is
-  the flash before it (for the longest group, the nearest one). A time bin is
-  drawn when `MIN_FLASHES` flashes or more have it inside the trial window.
+  against time from the flash before, from `TRACE_BEFORE_MS` before it to the
+  end of the response window of the flash. So a row shows the response to the
+  flash before, and then the flash of the row at its gap. The rate of a unit
+  is divided by its mean observed rate around these flashes; lines are the
+  mean over units, smoothed (Gaussian, `SMOOTH_MS`). The dashed vertical line
+  is the flash before and the solid line is the flash. In the group with the
+  longest gaps the flash comes at different times: the solid line is the
+  shortest gap and the band goes to the longest one.
 - Response measures: the mean over the flashes of a group, smoothed. Peak: its
   maximum from `PEAK_MS`; the latency is the time of that maximum. Rate before
   the flash: its mean from `BASELINE_MS`. The two are given apart, and not as
@@ -84,9 +86,10 @@ from thesis.plotting import (
 # The gaps are multiples of 40 ms. Each gap up to `LONG_GAP_MS` is a group, and
 # all longer gaps are one group.
 LONG_GAP_MS = 200
-# The window around a flash: long before it, to show the flash before.
-LAGS_MS = (-300, 150)
-MIN_FLASHES = 20
+# The window of the response measures around a flash, and the time that a row
+# of panel a shows before the flash before.
+LAGS_MS = (-40, 150)
+TRACE_BEFORE_MS = 40
 SUBSAMPLES = 50
 SEED = 0
 BASELINE_MS = (-20, 20)
@@ -162,23 +165,35 @@ def main() -> None:
     alignments, relative = prepared["alignments"], prepared["relative_centers"]
     grid = (len(alignments), len(relative))
     valid = dmat._valid_bin_mask(prepared)
-    rows, times, gaps = fixation_flashes(trials)
+    rows, times, measured_gaps = fixation_flashes(trials)
     slot = 1000 * dmat.FLASH_SLOT_S
-    gaps = slot * np.rint(gaps / slot)
+    gaps = slot * np.rint(measured_gaps / slot)
     group = (np.minimum(gaps, LONG_GAP_MS) / slot).astype(int) - 1
     groups = int(group.max()) + 1
+    # Two alignments of the bins of the model grid. For the response measures:
+    # the flash. For the rows of panel a: the flash before it.
     lags = np.arange(*LAGS_MS)
-    # The bins of the model grid around each flash. A bin before the window of
-    # the trial is not used; the bins of the response measures are all inside.
-    first = np.rint((times - alignments[rows] - relative[0]) / dmat.BINWIDTH_S)
-    columns = first.astype(int)[:, None] + lags[None, :]
-    inside = (columns >= 0) & (columns < grid[1])
-    columns = np.clip(columns, 0, grid[1] - 1)
-    measured_lags = lags >= min(BASELINE_MS[0], -2 * SMOOTH_MS * 3)
-    if not inside[:, measured_lags].all():
+    trace_lags = np.arange(-TRACE_BEFORE_MS, LONG_GAP_MS + LAGS_MS[1])
+
+    def grid_columns(event_times, offsets):
+        first = np.rint(
+            (event_times - alignments[rows] - relative[0]) / dmat.BINWIDTH_S
+        )
+        return first.astype(int)[:, None] + offsets[None, :]
+
+    columns = grid_columns(times, lags)
+    trace_columns = grid_columns(times - measured_gaps / 1000, trace_lags)
+    if columns.min() < 0 or columns.max() >= grid[1]:
         raise ValueError("A response window is outside the model grid.")
-    # weights[g]: the mean over the flashes of group g, for each lag.
-    members = inside[None] & (group[None, :, None] == np.arange(groups)[:, None, None])
+    # A bin of a row is used up to the end of the response window of the flash.
+    used = (
+        (trace_columns >= 0)
+        & (trace_columns < grid[1])
+        & (trace_lags[None, :] < (gaps + LAGS_MS[1])[:, None])
+    )
+    trace_columns = np.clip(trace_columns, 0, grid[1] - 1)
+    # weights[g]: the mean over the flashes of group g, for each bin of the row.
+    members = used[None] & (group[None, :, None] == np.arange(groups)[:, None, None])
     flashes_in_bin = members.sum(1)
     weights = members / np.maximum(flashes_in_bin, 1)[:, None, :]
     rng = np.random.default_rng(SEED)
@@ -209,15 +224,15 @@ def main() -> None:
             model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
         )
     }
-    response_lags = lags[measured_lags]
-    before = (response_lags >= BASELINE_MS[0]) & (response_lags < BASELINE_MS[1])
-    searched = (response_lags >= PEAK_MS[0]) & (response_lags < PEAK_MS[1])
+    before = (lags >= BASELINE_MS[0]) & (lags < BASELINE_MS[1])
+    searched = (lags >= PEAK_MS[0]) & (lags < PEAK_MS[1])
     out = {key: [] for key in ("rate", "measures")}
     for unit_id, spikes in zip(units["unit_id"], units["spike_times_s"], strict=True):
         spikes = np.asarray(spikes, dtype=float)
         counts = build_unit_counts(alignments, spikes)
-        observed = counts.reshape(grid)[rows[:, None], columns] / dmat.BINWIDTH_S
-        everything = gaussian_filter1d(observed[:, measured_lags].mean(0), SMOOTH_MS)
+        rate_grid = counts.reshape(grid) / dmat.BINWIDTH_S
+        observed = rate_grid[rows[:, None], columns]
+        everything = gaussian_filter1d(observed.mean(0), SMOOTH_MS)
         if (
             everything.mean() < MIN_RATE
             or everything[searched].max()
@@ -236,19 +251,19 @@ def main() -> None:
             + np.asarray(common[:, :width]) @ coefficients[:width]
             + history @ coefficients[width:]
         )
-        predicted = (
-            np.exp(log_rate).reshape(grid)[rows[:, None], columns] / dmat.BINWIDTH_S
-        )
-        pair = np.stack((observed, predicted))  # (observed or model, flash, lag)
-        scale = observed[:, measured_lags].mean()  # the mean observed rate
-        # (group, observed or model, lag), over the unit mean
-        out["rate"].append(np.einsum("gfl,mfl->gml", weights, pair) / scale)
-        response = pair[:, :, measured_lags]
-        measured = np.stack(
+        predicted_grid = np.exp(log_rate).reshape(grid) / dmat.BINWIDTH_S
+        pair = np.stack((observed, predicted_grid[rows[:, None], columns]))
+        scale = observed.mean()  # the mean observed rate around these flashes
+        # The rows of panel a: (group, observed or model, bin), over the unit mean.
+        traces = np.stack(
             [
-                _measures(response[:, subset].mean(2), response_lags).mean(-1)
-                for subset in subsets
+                source[rows[:, None], trace_columns]
+                for source in (rate_grid, predicted_grid)
             ]
+        )
+        out["rate"].append(np.einsum("gfl,mfl->gml", weights, traces) / scale)
+        measured = np.stack(
+            [_measures(pair[:, subset].mean(2), lags).mean(-1) for subset in subsets]
         )  # (group, measure, observed or model)
         measured[:, :2] /= scale
         out["measures"].append(measured)
@@ -280,7 +295,12 @@ def main() -> None:
         )
         stats[f"{name} latency (ms)"] = _summary(latency[index])
 
-    traces = gaussian_filter1d(rate.mean(1), SMOOTH_MS, axis=-1)  # (name, group, lag)
+    # (name, group, bin). The bins after the end of a row have no data, so the
+    # smoothing uses only the bins of the row.
+    has_data = (flashes_in_bin > 0).astype(float)
+    traces = gaussian_filter1d(
+        rate.mean(1) * has_data, SMOOTH_MS, axis=-1
+    ) / np.maximum(gaussian_filter1d(has_data, SMOOTH_MS, axis=-1), 1e-9)
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.2, 5.0))
         outer = figure.add_gridspec(1, 2, width_ratios=(1.25, 1), wspace=0.38)
@@ -292,43 +312,49 @@ def main() -> None:
             for g in range(1, groups)
         ]
         for g, axis in enumerate(row_axes):
-            drawn = flashes_in_bin[g] >= MIN_FLASHES
+            shortest = gaps[group == g].min()
+            drawn = trace_lags < shortest + LAGS_MS[1]
             for index, color in enumerate(COLORS):
-                axis.plot(lags[drawn], traces[index, g, drawn], color=color, lw=1.1)
-            axis.axvline(0, color=VISUAL, linewidth=1.1)
-            axis.axvline(
-                -gaps[group == g].min(), color=VISUAL, linestyle="--", linewidth=0.9
-            )
+                axis.plot(
+                    trace_lags[drawn], traces[index, g, drawn], color=color, lw=1.1
+                )
+            axis.axvline(0, color=VISUAL, linestyle="--", linewidth=0.9)
+            axis.axvline(shortest, color=VISUAL, linewidth=1.1)
+            if np.ptp(gaps[group == g]) > 0:  # the later flashes of a mixed group
+                axis.axvspan(
+                    shortest, gaps[group == g].max(), color=VISUAL, alpha=0.08, lw=0
+                )
             axis.text(
-                0.01,
+                0.99,
                 0.92,
                 f"{group_names[g]} ms gap",
                 transform=axis.transAxes,
                 va="top",
+                ha="right",
                 fontsize=6.5,
             )
             if g < groups - 1:
                 axis.tick_params(labelbottom=False)
         for index, (name, color) in enumerate(zip(NAMES, COLORS, strict=True)):
             row_axes[0].text(
-                0.84 + 0.16 * index,
-                1.04,
+                0.62,
+                0.62 - 0.3 * index,
                 name,
                 color=color,
                 transform=row_axes[0].transAxes,
-                va="bottom",
-                ha="right",
+                va="center",
             )
+        row_axes[0].set_xlim(-TRACE_BEFORE_MS, trace_lags[-1] + 10)
         row_axes[0].text(
             0,
             1.04,
-            "flash (solid), the flash before (dashed)",
+            "the flash before (dashed), the flash (solid)",
             color=VISUAL,
             transform=row_axes[0].transAxes,
             va="bottom",
             fontsize=6,
         )
-        row_axes[-1].set_xlabel("time from flash (ms)")
+        row_axes[-1].set_xlabel("time from the flash before (ms)")
         row_axes[groups // 2].set_ylabel("normalized firing rate")
 
         size_axis, latency_axis = (figure.add_subplot(cell) for cell in right)
