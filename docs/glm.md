@@ -514,7 +514,7 @@ holds for other trials.
 | Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
 | Stillness in the port | The same low rate at a side port with the same motion energy | No: 0.78 of the rate at a side port |
 | A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully: units with a larger flash response are suppressed more (Spearman ρ = −0.41, p = 5e-8; −0.36 with rate and D² held), and the response changes more than the baseline for flashes after a long gap (+0.18 in log, p = 0.0003; 0.00 for short gaps) |
-| The view from the center port | A step at the entry and at the exit, in units that respond to the stimulus, with no relation to movement | Agrees with the fast step at the exit, with the relation to the flash response, and with no relation to motion energy (ρ = −0.11) or depth (ρ = 0.03). Against it: the rate is not lower from the center entry to the first flash, but that time is only 10 to 100 ms |
+| The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate is not lower from the center entry to the first flash |
 
 - The matched-time test is not possible in this session. The fixation has
   almost the same length in all trials (1st to 95th percentile: 488 to
@@ -529,12 +529,54 @@ holds for other trials.
   1.08 times lower.
 - The fixation level has no relation to the unique ΔD² of motion energy, fast
   adaptation, or spike history, or to depth.
-- The most probable explanation with these data is one that acts on the
-  visual drive of the unit while the animal is in the center port: the view
-  of the stimulus from the port, or a suppression of the visual response that
-  the task state sets. The data do not separate these two. Slow adaptation and
-  movement are less probable. A measure of the head or the eye, or the
-  geometry of the stimulus and the port, is necessary to go on.
+- Rig facts (from Gabriel, 2026-10-11): the stimulus is an LED panel above
+  the ports, centered on the center port, so it is in the upper visual field
+  when the animal is in the center port. The flash is full-field and the arena
+  is dark, so the light is everywhere, but the source moves in the visual
+  field when the head turns (to the left of the field for a turn to the
+  right). The probe is in posterior left V1 (right visual field), aimed at the
+  upper field and the binocular zone by surgical coordinates, with no
+  retinotopy. There is no measure of the head or the eye. A second camera
+  gives a view from the right side, at an angle.
+- Side of the response (`matched_flashes.py`): the view predicts one direction
+  over units, because the source moves to the right visual field for a turn to
+  the left. The flash response after the exit has no common direction (right
+  over left 1.04, p = 0.2; baseline 1.12, p = 0.02). Single units differ: 46%
+  of the units have a response more than 1.5 times larger for one side (35 to
+  the left, 41 to the right). So the side matters for single units, but not in
+  the direction that the position of the source predicts for left V1.
+- The exit with no stimulus (`exit_without_stimulus.py`, GRB064
+  20260916_132939, 78 units, no model). In an early-withdrawal trial the animal
+  leaves the center port before the go cue and the flashes stop at the exit
+  (78 trials, exit 403 ms after the first flash; 169 completed trials, exit at
+  582 ms). The rate goes up at the exit by the same amount in both: 2.17 times
+  in completed trials (67 of 77 units, p = 4e-10) and 2.12 times in early
+  withdrawals (62 of 74 units, p = 2e-8). The rate after the exit is the same
+  with and without the stimulus (early over completed 0.98, p = 1.0). So:
+  - The effect is in a second animal.
+  - The rise at the exit does not need the stimulus, so it is not a better
+    view of the stimulus.
+  - The rise is at the exit and not at a time in the train (403 against
+    582 ms), so it is not slow adaptation.
+  - Limit: an early withdrawal has its own events after the exit (the
+    punishment). If the punishment has light, this test is not clean.
+- In GRB006 the trial table has no flashes for the 209 early-withdrawal
+  trials, so this test is not possible there. In GRB064 the fixation of the
+  completed trials has almost the same length as in GRB006 (1st to 95th
+  percentile: 455 to 747 ms), so the matched-time test is not possible there
+  either; the early withdrawals are what separates the exit from the time in
+  the train.
+- The most probable explanation with these data: the rate is low while the
+  animal holds in the center port with the stimulus on, and it goes up when
+  the animal leaves, with or without the stimulus. The suppression starts
+  about 80 ms after the first flash and not at the center entry. It is larger
+  in units with a larger flash response. It does not follow motion energy
+  after the exit, and it is not stillness. So it is a state of the trial
+  (holding in the port during the stimulus) that lowers the rate of units
+  with a visual response, and that ends with the exit. Slow adaptation, the
+  view of the stimulus, and a gain that grows with movement are less
+  probable. Not known: what starts it at the first flash, and what the side
+  preference of single units after the exit is.
 
 ### Fixation kernel: spacing, resolution, and the initiation column
 

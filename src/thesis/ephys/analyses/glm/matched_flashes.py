@@ -23,6 +23,11 @@ counts). All comparisons are paired over units.
   of the motion energy of the video at the flash, matched for the time from
   the first flash, the gap, and the time from the exit. A gain that comes with
   the movement predicts a larger response with more motion energy.
+- Side: among the flashes after the exit, trials with a response to the left
+  port against to the right port (`response` of the trial table is 1 for the
+  right port), with the same matching. The stimulus panel is above the center
+  port, so it moves to the other side of the visual field when the animal
+  turns. The recording is in left V1 (right visual field).
 - Time from the exit: among the flashes after the exit, 0 to 100 ms against
   later, matched for the time from the first flash and the gap.
 - Measures: the baseline (rate from `BASELINE_MS` around the flash, before the
@@ -83,9 +88,12 @@ def flash_table(source: Path) -> dict[str, np.ndarray]:
             video["total"],
         )
     window_s = WINDOW_MS[1] / 1000
-    out = {key: [] for key in ("time", "after", "cell", "since_exit", "energy")}
-    for row, (flashes, entry, leave, response) in enumerate(
+    out = {
+        key: [] for key in ("time", "after", "cell", "since_exit", "energy", "right")
+    }
+    for row, (side, flashes, entry, leave, response) in enumerate(
         zip(
+            trials["response"],
             trials["stim_pulse_times_s"],
             trials["center_entry_s"],
             trials["center_exit_s"],
@@ -110,6 +118,7 @@ def flash_table(source: Path) -> dict[str, np.ndarray]:
         out["after"].append(after[keep])
         out["cell"].append((time_cell * (len(GAP_EDGES_S) - 1) + gap_cell)[keep])
         out["since_exit"].append((times - leave)[keep])
+        out["right"].append(np.full(keep.sum(), side == 1))
         out["energy"].append(
             np.interp(times[keep], frame_times[frames], energy[frames])
         )
@@ -207,6 +216,11 @@ def main() -> None:
             with_exit,
             after & (table["energy"] < energy_split),
             after & (table["energy"] >= energy_split),
+        ),
+        "after exit, response to the left against to the right": (
+            with_exit,
+            after & ~table["right"],
+            after & table["right"],
         ),
         "after exit, first 100 ms against later": (
             table["cell"],
