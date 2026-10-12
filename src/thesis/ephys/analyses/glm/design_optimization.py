@@ -282,7 +282,7 @@ def main() -> None:
         # One row for each group of regressors: its bases, then its tests.
         flash_basis, a, b, c = row(0.96, 0.77, (0.8, 0.95, 0.9, 1.7), wspace=0.9)
         hold_basis, d, exit_basis, e = row(
-            0.635, 0.445, (0.65, 3.0, 0.5, 1.1), wspace=0.6
+            0.635, 0.445, (0.65, 2.8, 0.5, 1.3), wspace=0.6
         )
         f, g, history_basis = row(0.295, 0.105, (1.6, 1, 1.0), wspace=0.5)
         task_bases = dmat.task_temporal_bases()
@@ -295,12 +295,12 @@ def main() -> None:
                 "time from flash (ms)",
                 0,
             ),
-            (hold_basis, task_bases[dmat.HOLD], TASK, "time from first flash (ms)", 0),
+            (hold_basis, task_bases[dmat.HOLD], TASK, "time from\nfirst flash (ms)", 0),
             (
                 exit_basis,
                 task_bases["withdrawal"],
                 TASK,
-                "time from withdrawal (ms)",
+                "time from\nwithdrawal (ms)",
                 0,
             ),
             # History columns use spike times shifted by one bin: lags 1 to 100 ms.
@@ -356,11 +356,11 @@ def main() -> None:
             e,
             kernel,
             TASK,
-            "withdrawal kernel (ms)",
+            "withdrawal\nkernel (ms)",
             selected=withdrawal_grid.IN_USE,
             line=False,
         )
-        e.tick_params(axis="x", labelsize=6)
+        e.tick_params(axis="x", labelsize=5.5)
         stats["motion-energy PCs"] = _plot_choice(
             f,
             pcs,
