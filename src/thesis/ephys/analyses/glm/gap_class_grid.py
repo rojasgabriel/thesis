@@ -1,0 +1,81 @@
+"""Test how the V1 GLM codes the gap from the flash before.
+
+Question: the response to a flash depends on the gap from the flash before.
+Is one flash kernel for each gap class as good as the earlier terms, and how
+many classes does the model need?
+
+Comparison: the final design with one thing changed, on the fixed 20-unit
+sample, with the validation D² of each unit. The designs are in `DESIGNS`:
+
+- "1 kernel": one flash kernel for all flashes, with no term for the gap.
+- "gap terms": one common kernel, the fast-adaptation term (a flash within
+  50 ms of another), and the flash-recovery term (the log of the gap). The two
+  terms are correlated (-0.86).
+- "40 | 80+": two gap classes, with a limit at 50 ms.
+- "40 | 80-120 | 160+": three classes (the design in use, `IN_USE`).
+- "40 | 80 | 120+": three classes with the second limit at 90 ms.
+- "40 | 80 | 120 | 160+": four classes.
+
+In a design with classes, each class has its own flash kernel and there is no
+common kernel; the first flash of a trial is in the last class. The flash ×
+fixation term is in every design. The comparison is paired over units. Where
+two options do not differ reliably, the model uses the simpler one. Units,
+trials, alignment, baseline, and exclusions are those of `fit.py`.
+
+    uv run python -m thesis.ephys.analyses.glm.gap_class_grid
+
+A design that has saved scores in `gap_class_grid/gap_class_grid.json` is not
+fit again. Each design takes about two minutes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from thesis.ephys.analyses.glm import cli
+from thesis.ephys.analyses.glm.adaptation_grid import score_design
+
+NO_CLASSES = {"FLASH_GAP_EDGES_S": ()}
+DESIGNS = {
+    "1 kernel": {
+        **NO_CLASSES,
+        "SECOND_FLASH_TERM": False,
+        "FLASH_RECOVERY_TERM": False,
+    },
+    "gap terms": {**NO_CLASSES, "SECOND_FLASH_TERM": True, "FLASH_RECOVERY_TERM": True},
+    "40 | 80+": {"FLASH_GAP_EDGES_S": (0.05,)},
+    "40 | 80-120 | 160+": {"FLASH_GAP_EDGES_S": (0.05, 0.13)},
+    "40 | 80 | 120+": {"FLASH_GAP_EDGES_S": (0.05, 0.09)},
+    "40 | 80 | 120 | 160+": {"FLASH_GAP_EDGES_S": (0.05, 0.09, 0.13)},
+}
+IN_USE = "40 | 80-120 | 160+"
+
+
+def run_grid(source: Path, output: Path) -> dict[str, dict]:
+    """Score every design that has no saved scores; return all designs."""
+    path = output / "gap_class_grid.json"
+    scores = json.loads(path.read_text()) if path.exists() else {}
+    for index, (name, settings) in enumerate(DESIGNS.items()):
+        if name in scores:
+            continue
+        scores[name] = score_design(
+            source, output / "work", f"design_{index}", settings
+        )
+        output.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(scores, indent=1))
+        print(f"Scored {name!r}.", flush=True)
+    return scores
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
+    args = parser.parse_args()
+    scores = run_grid(args.root, args.root / "gap_class_grid")
+    print(f"{len(scores)} designs in {args.root / 'gap_class_grid'}")
+
+
+if __name__ == "__main__":
+    main()

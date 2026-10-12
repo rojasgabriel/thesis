@@ -45,6 +45,16 @@ FLASH_BASES = 8
 # its recovery got faster, to the level of this term (`adaptation_grid.py`).
 SECOND_FLASH_TERM = True
 RECENT_FLASH_S = 0.05
+# The flash kernel by the gap from the flash before: one kernel for each gap
+# class, and no common kernel. A class is the flashes with a gap up to its
+# limit; the last class has the longer gaps and the first flash of a trial,
+# which has no flash before it. So each kernel is the response at that gap, and
+# the classes do not overlap. With no limits (an empty tuple) the design has
+# the earlier terms: one common kernel, the fast-adaptation term
+# (`SECOND_FLASH_TERM`), and the flash-recovery term (`FLASH_RECOVERY_TERM`),
+# which are correlated (-0.86) and cannot be read one by one.
+FLASH_GAP_EDGES_S = (0.05, 0.13)
+FLASH_GAP = "flash_gap"
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
 WITHDRAWAL_PRE_S = 0.0
@@ -330,6 +340,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
     bases = {
         "visual_flash": flash,
         "flash_adaptation": flash,
+        **{name: flash for name in flash_gap_names()},
         "flash_first": flash,
         FLASH_AFTER_EXIT: flash,
         FLASH_RECOVERY: flash,
@@ -345,19 +356,48 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
     }
     if not HOLD_KERNEL:
         del bases["hold"]
-    if not SECOND_FLASH_TERM:
+    if not SECOND_FLASH_TERM or FLASH_GAP_EDGES_S:
         del bases["flash_adaptation"]
+    if FLASH_GAP_EDGES_S:
+        del bases["visual_flash"]
     if not FIRST_FLASH_TERM:
         del bases["flash_first"]
     if not FLASH_AFTER_EXIT_TERM:
         del bases[FLASH_AFTER_EXIT]
-    if not FLASH_RECOVERY_TERM:
+    if not FLASH_RECOVERY_TERM or FLASH_GAP_EDGES_S:
         del bases[FLASH_RECOVERY]
     if not ENTRY_KERNEL:
         del bases[ENTRY]
     if not WITHDRAWAL_KERNEL:
         del bases["withdrawal"]
     return bases
+
+
+def flash_gap_names() -> list[str]:
+    """Return the name of the flash kernel of each gap class, shortest gap first."""
+    return [
+        f"{FLASH_GAP}_{index + 1}" for index in range(len(FLASH_GAP_EDGES_S) + 1)
+    ] * bool(FLASH_GAP_EDGES_S)
+
+
+def flash_gap_class(trials) -> np.ndarray:
+    """Return the gap class of each modeled flash, in the order of `flash_events`.
+
+    The class is the number of limits of `FLASH_GAP_EDGES_S` that are below the
+    gap from the flash before. The first flash of a trial is in the last class.
+    """
+    classes = []
+    for flashes, center_entry, response_entry in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["response_port_entry_s"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
+        gaps = np.diff(modeled, prepend=-np.inf)
+        classes.append(np.searchsorted(FLASH_GAP_EDGES_S, gaps, side="left"))
+    return np.concatenate(classes)
 
 
 def flash_recent(modeled: np.ndarray) -> np.ndarray:
@@ -469,7 +509,19 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     adapt_center = float(resource_raw.mean())
     adapt_values = resource_raw - adapt_center
     adapt_levels = {"isolated": -adapt_center, "repeat": 1.0 - adapt_center}
+    gap_class = flash_gap_class(trials)
+    limits_ms = [f"{1000 * limit:.0f}" for limit in FLASH_GAP_EDGES_S]
+    gap_coding = [
+        *(f"flashes with a gap up to {limit} ms" for limit in limits_ms),
+        f"flashes with a gap above {limits_ms[-1]} ms, and the first flash of a trial"
+        if limits_ms
+        else "",
+    ]
     specifications = [
+        *(
+            (name, flashes[gap_class == index], None, "sensory", gap_coding[index])
+            for index, name in enumerate(flash_gap_names())
+        ),
         (
             "visual_flash",
             flashes,
