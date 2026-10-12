@@ -40,8 +40,12 @@ at a time.
   of the other 24. So only the first flash is at a fixed time; in an average
   over trials the responses to later flashes are spread evenly (11.9 flashes/s
   in the hold, 11.0 after the exit). The train stops early only at the
-  response entry. The go cue plays when the wait time (about 0.5 s) is
-  reached; no sound plays at the center poke.
+  response entry (`extraStimDur` = 0). The first flash comes 10 to 100 ms
+  after the center poke (`preStimDelay` in `Experiments/VisualTask.mat`, plus
+  the output latency; 24 to 114 ms in the data). The go cue plays when the
+  wait time (about 0.5 s) is reached. No sound plays at the center poke: the
+  state machine (`VisualTaskSMA.m`) has a start tone there, but its length is
+  the virtual-observer delay, which the settings fix at 0.
 - Grid: DAMN 1 ms, pre=100 ms, post=2.54 s (2,639 centers). Keep the full
   window. Fitting **masks bins after that trial’s response entry**; it does not
   shorten the grid. Only flashes from initiation through response entry enter
