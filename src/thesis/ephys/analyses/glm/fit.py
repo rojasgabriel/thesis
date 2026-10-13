@@ -69,16 +69,39 @@ from thesis.ephys.analyses.glm.dmat import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-EXCLUDED_UNIT_IDS = {212: "unstable out-of-fold spike-history extrapolation"}
+# Units that are not fit, for each session (subject, session): unit and reason.
+EXCLUDED_UNITS = {
+    ("GRB006", "20240821_121447"): {
+        212: "unstable out-of-fold spike-history extrapolation"
+    },
+    ("GRB064", "20260916_132939"): {
+        414: "no spikes in the validation trials",
+        437: "no spikes in the validation trials",
+    },
+}
+
+
+def excluded_units(subject: str, session: str) -> dict[int, str]:
+    """Return the excluded units of a session with the reason for each."""
+    return EXCLUDED_UNITS.get((subject, session), {})
 
 
 def load_unit_records(directory: Path, pattern: str) -> list[dict]:
     """Read per-unit JSON records, skipping units excluded from the analysis."""
+    # The session is in the name of the artifact directory.
+    excluded = next(
+        (
+            units
+            for (subject, session), units in EXCLUDED_UNITS.items()
+            if f"{subject}_{session}" in str(directory)
+        ),
+        {},
+    )
     records = []
     for path in sorted(directory.glob(pattern)):
         with path.open() as handle:
             record = json.load(handle)
-        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+        if int(record["unit_id"]) not in excluded:
             records.append(record)
     return records
 
@@ -113,9 +136,12 @@ def analysis_unit_indices(units, unit_set: str) -> np.ndarray:
     `sample` nor another replicate.
     """
     unit_ids = units["unit_id"].to_numpy(dtype=int)
-    for unit_id in sorted(set(unit_ids) & set(EXCLUDED_UNIT_IDS)):
-        print(f"Excluded unit {unit_id}: {EXCLUDED_UNIT_IDS[unit_id]}.", flush=True)
-    keep = np.flatnonzero(~np.isin(unit_ids, list(EXCLUDED_UNIT_IDS)))
+    excluded = excluded_units(
+        str(units["subject_name"].iloc[0]), str(units["session_name"].iloc[0])
+    )
+    for unit_id in sorted(set(unit_ids) & set(excluded)):
+        print(f"Excluded unit {unit_id}: {excluded[unit_id]}.", flush=True)
+    keep = np.flatnonzero(~np.isin(unit_ids, list(excluded)))
     if unit_set == "all":
         return keep
     replicate = int(unit_set.removeprefix("sample") or 0)
@@ -788,7 +814,12 @@ def fit_models(
     summary = {
         "unit_set": unit_set,
         "units": len(jobs),
-        "excluded_unit_ids": sorted(EXCLUDED_UNIT_IDS),
+        "excluded_unit_ids": sorted(
+            excluded_units(
+                prepared["metadata"]["subject_name"],
+                prepared["metadata"]["session_name"],
+            )
+        ),
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_video_components,
         "video_component_selection_rule": "highest mean validation D2",
