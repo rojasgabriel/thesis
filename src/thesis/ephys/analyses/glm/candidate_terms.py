@@ -42,7 +42,7 @@ from thesis.ephys.analyses.glm.hold_effect import _fit_variant
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 
 # First run (suffix "_candidates", output `candidate_terms.json`): side after
-# exit, flash × fixation, center entry, and flash recovery.
+# exit, flash × move, center entry, and flash recovery.
 # Second run ("_previous_side"): the previous-side column.
 ROOT_SUFFIX = "_flash_previous_side"
 CANDIDATES = {"FLASH_PREVIOUS_SIDE_TERM": dmat.FLASH_PREVIOUS_SIDE}

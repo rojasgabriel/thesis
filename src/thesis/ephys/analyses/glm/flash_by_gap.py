@@ -95,7 +95,7 @@ MIN_RATE = 2.0
 VISUAL = CONCEPT_COLORS["visual"]
 NAMES = ("observed", "model")
 COLORS = (OBSERVED_COLOR, MODEL_COLOR)
-PERIODS = ("in fixation", "after exit")
+PERIODS = ("still", "move")
 KINDS = ("units that fire more after a flash", "units that fire less after a flash")
 
 
@@ -269,7 +269,7 @@ def main() -> None:
                     ).tolist(),
                 }
             change = response[of_kind, groups:, m] - response[of_kind, :groups, m]
-            entry[f"{name}, response after exit minus in fixation"] = {
+            entry[f"{name}, response move minus still"] = {
                 "median": np.median(change, 0).tolist(),
                 "units_higher": (change > 0).sum(0).tolist(),
                 "wilcoxon_p": [

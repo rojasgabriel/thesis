@@ -139,6 +139,9 @@ VIDEO_VIEWS = ("BackStereoView", "BottomView")
 # the fixation. In the model from 2026-10-12 (`flash_fixation_test.py`,
 # `candidate_terms.py`).
 FLASH_AFTER_EXIT_TERM = True
+# Names: the figures and the docs call a flash in the fixation "still" and a
+# flash after the center exit "move", and this term "flash × move". These are
+# task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
 # A flash kernel scaled by the previous side (`flash_previous_side`), for the
 # flashes in the fixation: the raw flash response differs by the side from

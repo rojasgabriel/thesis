@@ -84,7 +84,7 @@ or punishment kernel.
 | --- | --- | ---: |
 | Flash, 40 ms gap | A flash within 50 ms of another; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
 | Flash, 80+ ms gap | Every other flash (the first flash also); same bases | 8 |
-| Flash × fixation | Same flash bases, on the flashes after the center exit | 8 |
+| Flash × move | Same flash bases, on the flashes after the center exit | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Initiation | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
 | Fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
@@ -472,7 +472,7 @@ exit (`hold` in `dmat.py`).
     p > 0.3) and a recovery term (+0.3 to +0.6%, p = 0.2) do not predict
     reliably better, and with the 300 ms kernel the dip stays.
 
-### Flash × fixation interaction
+### Flash × move interaction
 
 Test of 2026-10-11 (`flash_fixation_test.py`, results in
 `flash_fixation_test.json`). The fixation kernel adds one value to the log
@@ -515,7 +515,7 @@ fixation).
 
 From 2026-10-12 (`inclusion.py`). The importance of a regressor is tested on
 all units and on held-out trials, because 20 units are too few (the side term
-and the flash × fixation term were not reliable on 20 units and are reliable
+and the flash × move term were not reliable on 20 units and are reliable
 on 167). The form of a term (bases, window, spacing) is still chosen on the 20
 selection units. A regressor is in the model when it passes two tests, each
 with a Holm correction for the number of regressors that are tested together:
@@ -546,7 +546,7 @@ regressors of a design, by the shuffle of each), and `main_figure_stats.json`
 
 Test of 2026-10-12 (`candidate_terms.py`, all 167 units, results in
 `candidate_terms.json`). One design: the 7 regressors of the model plus four
-candidates (side after the exit, flash × fixation, flash recovery, and a
+candidates (side after the exit, flash × move, flash recovery, and a
 center-entry kernel), with the unique-deviance step. So each regressor is
 tested with all the others in the design. Holm correction for 11 regressors;
 the smallest count above chance is 17 units.
@@ -558,7 +558,7 @@ the smallest count above chance is 17 units.
 | Fixation | 12 | 71% | 72% | 0.0% | 0.0027 |
 | Motion energy | 10 | 56% | 58% | 0.0% | 0.0015 |
 | Withdrawal | 4 | 54% | 54% | 0.0% | 0.0008 |
-| Flash × fixation (candidate) | 8 | 41% | 44% | 0.0% | 0.0009 |
+| Flash × move (candidate) | 8 | 41% | 44% | 0.0% | 0.0009 |
 | Fast adaptation | 8 | 40% | 37% | 1.2% | 0.0005 |
 | Flash recovery (candidate) | 8 | 38% | 39% | 0.6% | 0.0006 |
 | Side after the exit (candidate) | 1 | 32% | 33% | 1.8% | 0.0003 |
@@ -572,7 +572,7 @@ the smallest count above chance is 17 units.
   adaptation 60% to 40%, fixation kernel 87% to 71%, initiation 23% to 13%),
   because the candidates explain a part of what they explained. The unique
   ΔD² of a regressor is what no other regressor can explain.
-- The flash × fixation term is needed by more units here (41%) than in its
+- The flash × move term is needed by more units here (41%) than in its
   own test (28%).
 
 ### Side of the response after the exit
@@ -601,14 +601,14 @@ response to the right port and −1 for the left port from the center exit on
   to the right in 120 of 167 units (median +0.16 in log rate). The 52 units
   that need the term have a median size of 0.49 (a factor of 1.6); 38 prefer
   the right and 14 the left.
-- 16 units need this term and the flash × fixation term; 82 of 167 units need
+- 16 units need this term and the flash × move term; 82 of 167 units need
   one or the other.
 - Rule from 2026-10-12 (Gabriel): the importance of a regressor is tested on
-  all units, because 20 units are too few (this term and the flash × fixation
+  all units, because 20 units are too few (this term and the flash × move
   term were not reliable on 20 units and are reliable on 167). The form of a
   term (bases, window, spacing) is still chosen on the 20 selection units. By
   this rule the fast-adaptation term is no exception (60% of units), and this
-  term and the flash × fixation term have a case to be in the model. Not
+  term and the flash × move term have a case to be in the model. Not
   decided.
 
 ### Previous choice, and the design with 11 regressors
@@ -637,7 +637,7 @@ as the response of the trial in 53%).
 | Flash, 40 ms gap | 8 | 75% | 0.0% | 0.0028 |
 | Motion energy | 10 | 57% | 0.0% | 0.0014 |
 | Withdrawal | 4 | 53% | 0.0% | 0.0008 |
-| Flash × fixation | 8 | 42% | 1.8% | 0.0008 |
+| Flash × move | 8 | 42% | 1.8% | 0.0008 |
 | Choice | 1 | 32% | 1.2% | 0.0003 |
 | Session drift | 3 | 28% | 2.4% | 0.0004 |
 | Previous choice | 1 | 20% | 0.6% | 0.0002 |
@@ -687,7 +687,7 @@ in brackets).
 | Withdrawal | 0.91 (0.80) | 94% | 0.90 |
 | Flash, 80+ ms gap | 0.90 (0.84) | 97% | 0.96 |
 | Flash, 40 ms gap | 0.88 (0.79) | 94% | 0.93 |
-| Flash × fixation | 0.80 (0.70) | 91% | 0.96 |
+| Flash × move | 0.80 (0.70) | 91% | 0.96 |
 | Fixation | 0.63 (0.53) | 62% | 0.73 |
 | Choice | one weight | | 0.96 (0.86) |
 | Previous choice | one weight | | 0.95 (0.74) |
@@ -716,14 +716,14 @@ after the flash, with no baseline subtraction. Change: log(moving / still).
 | --- | ---: | ---: |
 | Median response, still and moving (spikes/s) | 6.1 and 12.7 | 7.8 and 14.0 |
 | Observed change, median | +0.59 (91 units higher, p = 3e-13) | +0.19 (31 units higher, p = 0.017) |
-| Model without flash × fixation: variance of the change explained | 0.60 | 0.31 |
+| Model without flash × move: variance of the change explained | 0.60 | 0.31 |
 | Observed minus that prediction, median | +0.11 (p = 0.034) | −0.37 (p = 5e-7) |
 | Full model: variance of the change explained | 0.91 | 0.67 |
 | Observed minus the full model, median | 0.00 (p = 0.73) | −0.26 (p = 7e-8) |
 
 - GRB006: the other terms (the end of the fixation effect, withdrawal,
   choice, motion energy, spike history) give most of the change, 0.44 of 0.59
-  in the median. The flash × fixation kernel gives the rest, and the full
+  in the median. The flash × move kernel gives the rest, and the full
   model predicts the change of each unit.
 - GRB064: the model predicts a larger change than the observed one. The
   error is in the first flash after the exit: summed over units, the model
@@ -743,7 +743,7 @@ a flash depends on the gap from the flash before. The first form of this was
 two terms on a common flash kernel: fast adaptation (a flash within 50 ms) and
 flash recovery (the log of the gap). They are correlated (−0.86 over 3,208
 flashes), so the fit can move weight from one to the other and their kernels
-cannot be read one by one. The flash × fixation term is not correlated with
+cannot be read one by one. The flash × move term is not correlated with
 them (−0.01 and 0.03). The design now has one flash kernel for each gap class
 and no common kernel (`FLASH_GAP_EDGES_S` in `dmat.py`); the first flash of a
 trial is in the class of the longest gaps. Each kernel is the response at that

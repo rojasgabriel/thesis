@@ -5,7 +5,7 @@ the animal is still in the center port and the time after it leaves
 (`stim_responses_by_locomotion.py`). How much of that change do the other
 terms of the model give (the end of the fixation effect, the withdrawal, the
 choice, motion energy, spike history), and how much needs a flash response
-that differs between the two periods (the flash × fixation kernel)?
+that differs between the two periods (the flash × move kernel)?
 
 Comparison: in each trial, two flashes. Still: the last flash whose response
 window ends before the center exit. Moving: the first flash at or after the
@@ -17,13 +17,13 @@ measure locomotion, and the exit also changes the view of the stimulus.
 - Response: the mean rate from `RESPONSE_MS` after the flash, over the trials
   (spikes/s). There is no baseline subtraction: the change of the rate level
   between the periods is a part of the question.
-- Change of a unit: log(response moving / response still).
+- Change of a unit: log(response move / response still).
 - Observed: the spike counts in the 1-ms bins of the model.
 - Model: the rate of the final refit in the same bins (all terms, with the
   observed spike history). The final refit is fit on all trials, so this is
   not a held-out prediction.
-- Model without flash × fixation: the same weights with the weights of the
-  flash × fixation kernel set to 0. The model is not fit again, so the other
+- Model without flash × move: the same weights with the weights of the
+  flash × move kernel set to 0. The model is not fit again, so the other
   terms cannot take the place of the kernel. The kernel is scaled by a
   centered value, so without it each flash has the average flash kernel of
   the two periods.
@@ -40,7 +40,7 @@ measure locomotion, and the exit also changes the view of the stimulus.
   prediction explains, 1 - SS(observed - predicted) / SS(observed - mean).
 - Figure: one row for each session. a, the observed response, moving against
   still. b, the observed change against the change that the model predicts
-  without the flash × fixation kernel. c, the same with the full model. A
+  without the flash × move kernel. c, the same with the full model. A
   point outside the axis limits is not drawn; it is in the statistics, and
   the count is in the output.
 
@@ -89,7 +89,7 @@ BOOTSTRAPS = 500
 SEED = 0
 RATE_LIMITS = (1, 200)
 CHANGE_LIMITS = (-1.5, 2.0)
-SOURCES = ("observed", "model without flash × fixation", "model")
+SOURCES = ("observed", "model without flash × move", "model")
 
 
 def paired_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -254,11 +254,11 @@ def main() -> None:
             rates.set(xscale="log", yscale="log", xlim=RATE_LIMITS, ylim=RATE_LIMITS)
             rates.set_aspect("equal")
             rates.set_xlabel("response, still (spikes/s)")
-            rates.set_ylabel(f"{subject}\nresponse, moving (spikes/s)")
+            rates.set_ylabel(f"{subject}\nresponse, move (spikes/s)")
             rates.text(
                 0.04,
                 0.96,
-                f"{entry['units']} units\nhigher when moving: "
+                f"{entry['units']} units\nhigher in move: "
                 f"{entry['observed_change']['units_higher_when_moving']}",
                 transform=rates.transAxes,
                 va="top",
@@ -295,7 +295,7 @@ def main() -> None:
                     fontsize=6.5,
                     color=color,
                 )
-            without.set_ylabel("observed change,\nlog(moving / still)")
+            without.set_ylabel("observed change,\nlog(move / still)")
         label_panels(axes[0], x=-0.3, y=1.05)
         print(save_figure(figure, args.out / "flash_by_period"))
     (args.out / "flash_by_period.json").write_text(json.dumps(stats, indent=1))

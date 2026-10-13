@@ -191,7 +191,7 @@ def flash_condition_kernels(
 
     The model has one common flash kernel and three kernels that change it:
     fast adaptation (a flash within `RECENT_FLASH_S` of another), flash
-    recovery (the log of the gap from the flash before), and flash × fixation
+    recovery (the log of the gap from the flash before), and flash × move
     (a flash after the center exit against one in the fixation). Each is
     scaled by a centered value. The kernel of a flash is the sum at the values
     of that flash. The first flash of a trial is not one of these: its
@@ -215,7 +215,7 @@ def flash_kernel_levels(trials) -> tuple[float, float]:
     """Return the centered values of a flash at the shortest gap and in the fixation.
 
     These are the lowest centered values of the flash-recovery and the
-    flash × fixation regressors.
+    flash × move regressors.
     """
     return float(flash_recovery(trials).min()), float(flash_after_exit(trials).min())
 

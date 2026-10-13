@@ -18,7 +18,7 @@ default) of one session, after `glm fit` and `glm unique`.
   the fixation in the two gap classes, and for a flash in the fixation and
   after the center exit in the class of the longer gaps
   (`results.flash_condition_kernels`: the flash kernel of the gap class plus
-  the flash × fixation kernel at the value of that flash); the fixation
+  the flash × move kernel at the value of that flash); the fixation
   kernel. Bottom: the withdrawal kernel and the spike-history kernel. The
   initiation, the two side columns, and the session drift have no kernel over
   time and are not drawn.
@@ -98,7 +98,7 @@ REGRESSORS = {
     "flash_gap_1": ("flash, 40 ms gap", VISUAL),
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
-    "flash_after_exit": ("flash × fixation", VISUAL),
+    "flash_after_exit": ("flash × move", VISUAL),
     "flash_previous_side": ("flash × previous side", VISUAL),
     "center_entry": ("center entry", TASK),
     "fixation": ("initiation", TASK),
@@ -126,8 +126,8 @@ term that each group of regressors adds to the log rate; the term of spike
 history, in its own row; and the observed spikes. **b**, The kernels of the
 example unit. Top, from the left: the flash kernel for a flash in the fixation that
 follows another within 50 ms (40 ms gap) and for every other flash (80+ ms
-gap); the flash kernel in the fixation and after the withdrawal (dashed), at
-a gap of 80 ms or more; and the fixation kernel, which starts at the first
+gap); the flash kernel for a flash in the fixation (still) and after the
+withdrawal (move, dashed), at a gap of 80 ms or more; and the fixation kernel, which starts at the first
 flash and ends at the withdrawal. Bottom: the withdrawal kernel and the
 spike-history kernel. **c**, Observed and
 predicted firing rate of the example unit over the {test_trials} held-out test
@@ -224,8 +224,8 @@ def _plot_kernels(axes, data) -> None:
         )
     by_gap.set_xlabel("time from\nflash (ms)")
     for key, label, style, height in (
-        ("fixation", "in fixation", "-", 1.13),
-        ("after_exit", "after exit (dashed)", "--", 1.0),
+        ("fixation", "still", "-", 1.13),
+        ("after_exit", "move (dashed)", "--", 1.0),
     ):
         by_period.plot(lags, data[f"flashcond__{key}"], color=VISUAL, ls=style)
         by_period.text(
