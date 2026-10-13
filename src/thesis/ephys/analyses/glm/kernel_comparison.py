@@ -7,15 +7,16 @@ Comparison: this script makes no new fits. It reads the final refit (all valid
 trials) and the `glm unique` records of one fit set of one session (`--units`,
 `all` by default).
 
-- Panel a: one point per unit. x is the size of its visual flash weights and y
+- Panel a: one point per unit. x is the size of its flash weights (the flash
+  kernels of all gap classes together) and y
   is the size of its motion-energy weights. The size is the Euclidean norm of
   the block's coefficients. All design columns are z-scored on training bins,
   so a coefficient is the change in log rate per SD of its column. The norm is
   not exactly comparable between units, because each unit has its own L2
   penalty.
-- Panels b and c: three example units. Panel b is the common visual flash
-  kernel (the response to a flash averaged over the short-interval
-  flash term). Panel c is the motion-energy weight map. Motion energy has
+- Panels b and c: three example units. Panel b is the flash kernel of
+  the class of the longer gaps (a flash 80 ms or more after another, in the
+  design in use). Panel c is the motion-energy weight map. Motion energy has
   no temporal kernel in this model: each PC has one same-bin coefficient. The
   map is the sum of the PC images weighted by the coefficients, so it shows
   where in the back-view video frame motion goes with more (red) or fewer
@@ -51,10 +52,9 @@ import numpy as np
 from matplotlib.patheffects import withStroke
 from scipy.stats import rankdata
 
-from thesis.ephys.analyses.glm.dmat import HISTORY_COLUMNS
+from thesis.ephys.analyses.glm.dmat import HISTORY_COLUMNS, flash_gap_names
 from thesis.ephys.analyses.glm.fit import _write_json_atomic, load_unit_records
 from thesis.ephys.analyses.glm.results import (
-    FLASH_COMMON,
     block_deviance_rate,
     fitted_kernels,
 )
@@ -73,13 +73,15 @@ def load_units(root: Path, unit_set: str) -> list[dict]:
     """Return each unit's final fit, block norms, and block deviance rates."""
     with (root / "common_design_me.json").open() as handle:
         design = json.load(handle)
-    flash = next(
-        index
-        for index, item in enumerate(design["task_manifest"])
-        if item["name"] == FLASH_COMMON
+    # The flash kernels of the gap classes: the first regressors of the design.
+    gap_names = flash_gap_names()
+    manifest = [item["name"] for item in design["task_manifest"]]
+    if manifest[: len(gap_names)] != gap_names:
+        raise ValueError("The design does not start with the flash kernels by gap.")
+    flash_columns = slice(
+        0,
+        sum(int(item["columns"]) for item in design["task_manifest"][: len(gap_names)]),
     )
-    start = sum(int(item["columns"]) for item in design["task_manifest"][:flash])
-    flash_columns = slice(start, start + design["task_manifest"][flash]["columns"])
     base = int(design["base_columns"])
     checkpoints = root / f"{unit_set}_fit_me" / "checkpoints"
     final = {
@@ -98,7 +100,9 @@ def load_units(root: Path, unit_set: str) -> list[dict]:
                 "video_coefficients": video,
                 "flash_norm": float(np.linalg.norm(coefficients[flash_columns])),
                 "video_norm": float(np.linalg.norm(video)),
-                "flash_rate": block_deviance_rate(record, fit, FLASH_COMMON),
+                "flash_rate": sum(
+                    block_deviance_rate(record, fit, name) for name in gap_names
+                ),
                 "video_rate": block_deviance_rate(record, fit, "video"),
             }
         )
@@ -139,7 +143,7 @@ def plot_kernel_comparison(
 ) -> Path:
     kernels = {
         name: fitted_kernels(unit["fit"], design, np.ones(HISTORY_COLUMNS))[
-            FLASH_COMMON
+            flash_gap_names()[-1]
         ]
         for name, unit in examples.items()
     }
