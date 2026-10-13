@@ -611,7 +611,7 @@ response to the right port and −1 for the left port from the center exit on
   term and the flash × fixation term have a case to be in the model. Not
   decided.
 
-### Previous side, and the design with 11 regressors
+### Previous choice, and the design with 11 regressors
 
 Question: does the side from which the animal comes to the center port change
 the rate? The side is the side of the last response before the trial
@@ -640,12 +640,22 @@ as the response of the trial in 53%).
 | Flash × fixation | 8 | 42% | 1.8% | 0.0008 |
 | Choice | 1 | 32% | 1.2% | 0.0003 |
 | Session drift | 3 | 28% | 2.4% | 0.0004 |
-| Previous side | 1 | 20% | 0.6% | 0.0002 |
+| Previous choice | 1 | 20% | 0.6% | 0.0002 |
 | Initiation | 1 | 18% | 1.8% | 0.0001 |
 
 - Median cross-validated D² 0.0734 (IQR 0.046 to 0.104). Against the design
   with 3 gap classes and the center-entry kernel (77 columns), same folds:
   median change +0.0002 (+0.3%), 105 of 167 units better, p = 0.0003.
+- Collinearity of this design (task columns of the common design, z-scored;
+  a quick test, not a module): the variance inflation factor of a column is at
+  most 3.6 (2.9 for the flash kernel of the 40 ms gap; the usual limit is 5 to
+  10), and the condition number of the correlation matrix is 28. The largest
+  correlation between columns of two regressors is 0.40 (flash, 80+ ms gap,
+  and fixation: both start at the first flash) and 0.38 (the two flash
+  kernels). For two regressors the unique ΔD² is above the maximal ΔD² in most
+  units (flash, 40 ms gap: 102 of 167; previous choice: 94 of 167). The cause
+  is not strong collinearity: alone, with all other terms shuffled, the term
+  must fit a response that is on top of the other responses.
 - The previous side is in the model, but the column holds less than the raw
   rates show (20% of units against about half). One offset for the full time
   before the exit cannot follow an effect that is larger before the entry and
