@@ -15,7 +15,7 @@ dependencies = [
     "h5py",  # spks imports h5py, torch, and torchaudio at import time
     "ipykernel>=7.3.0",
     "ipympl>=0.10.0",
-    "labdata>=0.1.15",
+    "labdata>=0.1.21",
     "matplotlib>=3.10.0",
     "numpy>=2.4.6",
     "pandas==2.3.3",
