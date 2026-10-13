@@ -321,9 +321,17 @@ def main() -> None:
         int(item["unit_id"]): item["groups"]
         for item in load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
     }
+    # "flash": the flash kernels of all gap classes together.
+    blocks = {
+        "flash": dmat.flash_gap_names(),
+        "video": ["video"],
+        "history": ["history"],
+    }
     properties = {
-        f"unique dD2, {group}": [records[unit][group][UNIQUE] for unit in unit_ids]
-        for group in ("visual_flash", "flash_adaptation", "video", "history")
+        f"unique dD2, {name}": [
+            sum(records[unit][group][UNIQUE] for group in groups) for unit in unit_ids
+        ]
+        for name, groups in blocks.items()
     } | {
         "firing rate": [final[unit]["fit_mean_count"] for unit in unit_ids],
         "depth": [final[unit]["depth"] for unit in unit_ids],
@@ -340,7 +348,7 @@ def main() -> None:
         unit_ids=unit_ids,
         lags_ms=lags,
         fixation_level=level,
-        flash_unique=np.asarray(properties["unique dD2, visual_flash"]),
+        flash_unique=np.asarray(properties["unique dD2, flash"]),
         **{f"rate__{name}": values for name, values in rates.items()},
     )
     output = args.root / "matched_flashes.json"

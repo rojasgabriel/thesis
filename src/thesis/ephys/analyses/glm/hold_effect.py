@@ -819,7 +819,7 @@ def main() -> None:
     by_energy = flashes["after exit, lower against upper half of motion energy"][
         "response, second / first group"
     ]
-    relation = flashes["fixation level against unique dD2, visual_flash (Spearman)"]
+    relation = flashes["fixation level against unique dD2, flash (Spearman)"]
     output.with_name("hold_effect_caption.md").write_text(
         CAPTION.format(
             energy_ratio=by_energy["median_ratio"],
