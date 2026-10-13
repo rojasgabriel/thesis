@@ -6,7 +6,8 @@ check replaces the trial table and the unit table with a synthetic session,
 then runs the real pipeline code end to end in a temporary directory.
 
 Synthetic session: 80 trials, each aligned to its first flash, with
-initiation, a 30–80 ms flash train, withdrawal, and response entry. Video has
+initiation, the flash train of the task (25 slots of 40 ms, a flash in the
+first slot and 3 to 19 more), withdrawal, and response entry. Video has
 5 motion-energy PCs; only PC 1 drives spikes. The pipeline compares 2 and 5
 PCs instead of the fixed 10, so the check also covers the PC-count selection.
 
@@ -109,9 +110,10 @@ def synthetic_trials(rng: np.random.Generator) -> pd.DataFrame:
     rows = []
     for index in range(TRIALS):
         first = 10.0 + 4.0 * index
-        gaps = rng.uniform(0.03, 0.08, size=40)
-        flashes = first + np.concatenate(([0.0], np.cumsum(gaps)))
-        flashes = flashes[flashes <= first + 1.0]
+        # The flash train of the task: 25 slots of 40 ms in 1 s, a flash in the
+        # first slot, and 3 to 19 more flashes in other slots of that trial.
+        slots = 1 + rng.choice(24, size=rng.integers(3, 20), replace=False)
+        flashes = first + 0.04 * np.concatenate(([0], np.sort(slots)))
         # Some holds must be longer than 845 ms, or the last hold basis is
         # zero in every training row.
         exit_s = first + rng.uniform(0.35, 0.93)
@@ -126,7 +128,10 @@ def synthetic_trials(rng: np.random.Generator) -> pd.DataFrame:
                 "response_port_entry_s": exit_s + rng.uniform(0.3, 0.8),
             }
         )
-    return pd.DataFrame(rows)
+    table = pd.DataFrame(rows)
+    # The side of the response of the trial before (every trial has a response).
+    table["last_side"] = table["response"].shift(1)
+    return table
 
 
 def write_windows(trials: pd.DataFrame, frames: np.ndarray, output: Path) -> None:
@@ -191,6 +196,18 @@ def write_video(windows: Path, output: Path, rng: np.random.Generator) -> np.nda
     return np.column_stack((times, scores[:, 0]))
 
 
+def recent_fraction(trials: pd.DataFrame) -> float:
+    """Return the fraction of the modeled flashes that follow another within 50 ms."""
+    recent = []
+    for row in trials.itertuples():
+        times = np.asarray(row.stim_pulse_times_s)
+        times = times[
+            (times >= row.center_entry_s) & (times <= row.response_port_entry_s)
+        ]
+        recent.append(np.r_[0.0, np.diff(times) <= 0.05])
+    return float(np.concatenate(recent).mean())
+
+
 def simulate_unit(
     effects: set[str],
     trials: pd.DataFrame,
@@ -211,7 +228,7 @@ def simulate_unit(
     # 1 for a flash that follows another within 50 ms, computed here and not
     # with dmat.flash_recent.
     resources = [np.r_[0.0, np.diff(times) <= 0.05] for times in modeled]
-    center = np.concatenate(resources).mean()
+    center = recent_fraction(trials)
     history = history_kernel(np.arange(1, 101))
     spikes = []
     for index, row in enumerate(trials.itertuples()):
@@ -267,6 +284,9 @@ def main() -> None:
             {
                 "unit_id": unit_id,
                 "depth": float(unit_id),
+                # The unit exclusions of `fit.py` are by session.
+                "subject_name": "synthetic",
+                "session_name": "synthetic",
                 "spike_times_s": simulate_unit(effects, trials, centers, video, rng),
             }
             for unit_id, effects in UNITS.items()
@@ -360,8 +380,9 @@ def main() -> None:
             abs(replay - first["test"]["deviance_explained"]) < 1e-4,
         )
         unique = {
-            name: block["groups"][name]["unique_test_deviance_explained"]
-            for name in unique_dev.DETAILED_GROUPS
+            name: values["unique_test_deviance_explained"]
+            for name, values in block["groups"].items()
+            if name != "task"
         }
         d2 = final["cross_validated_deviance_explained"]
         swapped = block["groups"]["video"]["trial_specific_test_deviance_explained"]
@@ -379,22 +400,39 @@ def main() -> None:
             "unique": {name: round(value, 4) for name, value in unique.items()},
         }
         recovery[unit_id] = {}
-        flash_t, flash_v = kernels["visual_flash"]
+        # The model has one flash kernel for each gap class. The planted flash
+        # response is one kernel, scaled by the centered value of a flash that
+        # follows another within 50 ms: so the planted kernel of the class of
+        # the short gaps is that kernel at the value 1, and of the other class
+        # at the value 0.
+        short_name, long_name = dmat.flash_gap_names()
+        flash_t, short_v = kernels[short_name]
+        _, long_v = kernels[long_name]
+        center = recent_fraction(trials)
+        gain = ADAPT_GAIN * ("adapt" in effects)
         if "flash" in effects:
             # Flashes repeat every 30-80 ms, so a timing error smears the kernel
             # rather than shifting it: check shape and peak amplitude together.
-            truth = flash_kernel(flash_t / 1000)
-            check(f"{unit_id} flash kernel r>0.95", _correlation(flash_v, truth) > 0.95)
-            check(
-                f"{unit_id} flash peak within 20%",
-                abs(flash_v.max() / truth.max() - 1) < 0.2,
-            )
-            recovery[unit_id]["visual flash"] = (flash_t, flash_v, truth)
+            shape = flash_kernel(flash_t / 1000)
+            for label, values, value in (
+                ("short gap", short_v, 1.0),
+                ("long gap", long_v, 0.0),
+            ):
+                truth = (1 + gain * (value - center)) * shape
+                check(
+                    f"{unit_id} flash kernel, {label}, r>0.95",
+                    _correlation(values, truth) > 0.95,
+                )
+                check(
+                    f"{unit_id} flash peak, {label}, within 20%",
+                    abs(values.max() / truth.max() - 1) < 0.2,
+                )
+            recovery[unit_id]["flash, 80+ ms gap"] = (flash_t, long_v, truth)
         if "adapt" in effects:
-            _, adapt_v = kernels["flash_adaptation"]
             truth = ADAPT_GAIN * flash_kernel(flash_t / 1000)
             check(
-                f"{unit_id} adaptation kernel r>0.7", _correlation(adapt_v, truth) > 0.7
+                f"{unit_id} difference of the gap classes r>0.7",
+                _correlation(short_v - long_v, truth) > 0.7,
             )
         if "withdrawal" in effects:
             exit_t, exit_v = kernels["withdrawal"]
@@ -416,7 +454,7 @@ def main() -> None:
                 f"{unit_id} hold level within 25%",
                 abs(hold_v[level].mean() / truth[level].mean() - 1) < 0.25,
             )
-            recovery[unit_id]["stimulus during hold"] = (hold_t, hold_v, truth)
+            recovery[unit_id]["fixation"] = (hold_t, hold_v, truth)
         if "history" in effects:
             lag, values = kernels["history"]
             check(f"{unit_id} refractory history", values[lag <= 3].mean() < -1)
@@ -429,10 +467,10 @@ def main() -> None:
                 max(abs(value) for value in unique.values()) < 0.005,
             )
         drivers = {
-            "flash": "visual_flash",
-            "video": "video",
-            "withdrawal": "withdrawal",
-            "hold": dmat.HOLD,
+            "flash": dmat.flash_gap_names(),
+            "video": ["video"],
+            "withdrawal": ["withdrawal"],
+            "hold": [dmat.HOLD],
         }
         if len(effects - {"history"}) == 1:
             (effect,) = effects - {"history"}
@@ -441,7 +479,7 @@ def main() -> None:
             # return the first key.
             check(
                 f"{unit_id} largest unique block is {drivers[effect]}",
-                top == drivers[effect] and unique[top] > 0.001,
+                top in drivers[effect] and unique[top] > 0.001,
             )
 
     figure_dir = model.fit_dir("all")

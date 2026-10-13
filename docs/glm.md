@@ -883,6 +883,47 @@ exit. These are task periods, not a measure of locomotion.
 - Units with a raw response below 1 spike/s in a period are left out of panel
   a (55 and 20 units).
 
+### Leak of the fixation level into the flash × move kernels
+
+The synthetic check found it first: with the flash × move kernels in the
+model, a planted drop of the rate in the fixation (−0.58, no change of the
+flash response) is recovered as −0.20 to −0.41 in the fixation kernel, and the
+flash × move kernel becomes positive (+0.11 to +0.13) with nothing planted.
+A sum of flash kernels over a flash train is close to a level, so the fit
+gives a part of a level change to the flash × move kernels. The usual
+collinearity statistics do not show it (the synthetic session has the
+statistics of GRB006: condition index 5.2, canonical correlations 0.83 and
+0.86), and the split-half test cannot show it, because the two halves have
+the same bias. Three checks of `synthetic_check.py` on the fixation kernel
+fail for this reason.
+
+`leak_test.py` measures the leak in the real design of each unit
+(`leak_test.svg`, `leak_test.json`): spikes are simulated from the final
+refit of the unit with the two flash × move kernels set to 0, and the full
+model is fit to them (3 simulations for each unit).
+
+| Flash kernel, move minus still (median, Δ log rate) | GRB006 | GRB064 |
+| --- | ---: | ---: |
+| 80+ ms gap: real | +0.24 | −0.05 |
+| 80+ ms gap: leak (nothing simulated) | +0.08 (132 of 167 units above 0, p = 5e-16) | +0.06 (54 of 76, p = 2e-6) |
+| 80+ ms gap: real minus leak | +0.15 (117 of 167 above 0, p = 4e-9) | −0.13 (22 of 76 above 0, p = 0.0002) |
+| 40 ms gap: real | +0.06 | −0.01 |
+| 40 ms gap: leak | +0.03 (p = 2e-6) | +0.04 (p = 3e-5) |
+| 40 ms gap: real minus leak | +0.04 (p = 0.069) | −0.04 (p = 0.042) |
+| Fixation level of the refit over the simulated level, median | 0.55 | 0.78 |
+
+- The leak is real and positive in the two sessions, and larger in units with
+  a lower fixation level (Spearman −0.37 and −0.32).
+- With the leak taken out, the flash response at the 80+ ms gap is higher in
+  move in GRB006 (+0.15) and lower in move in GRB064 (−0.13). The two animals
+  have opposite signs.
+- The fixation kernel keeps about 55% (GRB006) and 78% (GRB064) of a simulated
+  level, so the fitted fixation level is too small in size. The rest is in the
+  flash × move kernels and in the shrinkage of the L2 penalty.
+- So the size of the fixation effect and of the flash × move effect cannot be
+  read from the weights alone; use the values with the leak taken out, and the
+  model-free measures of `hold_effect.py` for the size of the fixation effect.
+
 ### Flash kernels by gap class
 
 Tests of 2026-10-12 (`gap_class_grid.py`, 20 selection units). The response to
