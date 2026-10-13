@@ -49,8 +49,7 @@ DESIGNS = {
     "linear\nkernel": {"HOLD_LOG_STRETCH_S": 0.0},
     "coarse\nkernel": {"HOLD_BASES": 10, "HOLD_LOG_STRETCH_S": 0.05},
     "no\nfixation": {"FIXATION_COLUMN": False},
-    "same\npenalty": {"HOLD_PENALTY_SCALE": 1.0},
-    "penalty\n÷ 9": {"HOLD_PENALTY_SCALE": 3.0},
+    "penalty\n÷ 100": {"HOLD_PENALTY_SCALE": 10.0},
 }
 IN_USE = "kernel"
 

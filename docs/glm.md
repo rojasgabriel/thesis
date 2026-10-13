@@ -924,6 +924,36 @@ model is fit to them (3 simulations for each unit).
   read from the weights alone; use the values with the leak taken out, and the
   model-free measures of `hold_effect.py` for the size of the fixation effect.
 
+### Penalty: one for all terms (the model in use), and the sensitivity analysis
+
+Decision of 2026-10-13: the model in use has one L2 penalty for all terms,
+selected for each unit. That is the common practice for single-neuron task
+GLMs (Park et al. 2014: one ridge penalty, evidence optimization; Musall et
+al. 2019: ridge, one penalty for each pixel; Steinmetz et al. 2019: elastic
+net with fixed values). With it:
+
+- The leak test is the parameter-recovery check of the model (as in
+  Rabinowitz et al. 2015, who simulated known modulators), and the flash ×
+  move effect is reported with the leak taken out: +0.15 in GRB006 and −0.13
+  in GRB064 at the 80+ ms gap.
+- The size of the fixation effect is taken from the raw rates
+  (`hold_effect.py`), because the fixation kernel of this model is too small.
+- The fit with a weaker penalty on the fixation kernel is the sensitivity
+  analysis (`HOLD_PENALTY_SCALE = 10`; fits in `_weaker_fixation_penalty`,
+  with no unique-deviance step). A separate treatment of a slow baseline term
+  has precedent (a drift term with its own prior in Rabinowitz et al. 2015; a
+  drift term in Liska et al. 2024; one penalty for each group of regressors
+  in banded ridge, Nunez-Elizalde et al. 2019), but no task GLM that was read
+  leaves a state term with a weaker penalty. The conclusions are the same
+  with it: +0.09 in GRB006 and −0.16 in GRB064.
+- For a term of interest that shares variance with another term, Musall et
+  al. (orthogonalization) and Steinmetz et al. (a kernel fit to the residuals
+  of the model without it) give the shared part to the other terms. That is
+  an alternative to the leak correction and is not run here.
+
+In the tables of the next section, "same penalty" is the model in use and
+"weaker" is the sensitivity analysis.
+
 ### A weaker penalty on the fixation kernel removes the leak
 
 The leak comes from the L2 penalty. With the same penalty on all terms, the
@@ -943,7 +973,7 @@ a scratch test, not a module):
 
 - A shared time course does not remove the leak: its weight has the same
   penalty.
-- `HOLD_PENALTY_SCALE = 10` makes the columns of the fixation kernel 10 times
+- `HOLD_PENALTY_SCALE = 10` (the default is 1) makes the columns of the fixation kernel 10 times
   larger than a z-score, so the penalty on its weights is 100 times weaker.
   The saved scale of the columns has the factor in it, so the kernels are
   read as before. Factors of 30 and 100 stop the convergence of the fit.
@@ -953,8 +983,8 @@ a scratch test, not a module):
   92 of 167 units better, p = 0.52; GRB064: 46 of 76, p = 0.063).
 
 Both sessions were fit again with the weaker penalty (design of 2026-10-13,
-12 regressors; the fits with the same penalty are in `_same_penalty`), and
-`leak_test.py` was run on the new fits:
+12 regressors; these fits are in `_weaker_fixation_penalty`), and
+`leak_test.py` was run on them (`leak_test_weaker_fixation_penalty.json`):
 
 | Median over units, Δ log rate | GRB006, same penalty | GRB006, weaker | GRB064, same penalty | GRB064, weaker |
 | --- | ---: | ---: | ---: | ---: |
@@ -974,9 +1004,9 @@ Both sessions were fit again with the weaker penalty (design of 2026-10-13,
   (+0.09 with the leak taken out) and lower in move in GRB064 (−0.16). The two
   animals have opposite signs. At the 40 ms gap there is no change in GRB006
   and a small decrease in GRB064.
-- The numbers of the sections before this one (flash kernels by period,
-  kernel stability, collinearity, unique ΔD²) are from the fits with the same
-  penalty.
+- The numbers of the other sections (flash kernels by period, kernel
+  stability, collinearity, unique ΔD²) are from the model in use, with the
+  same penalty on all terms.
 
 ### Flash kernels by gap class
 

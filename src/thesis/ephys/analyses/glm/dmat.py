@@ -79,13 +79,16 @@ HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
 HOLD_BASES = 12
 HOLD_LOG_STRETCH_S = 0.025
-# The columns of the fixation kernel are this many times larger than a z-score,
-# so the L2 penalty on its weights is this factor squared times weaker than on
-# the other terms. With the same penalty, the fit makes the fixation kernel too
-# small and gives the rest of the level to the flash × move kernels
-# (`leak_test.py`). The saved scale of the columns has the factor in it, so the
-# kernels are read in the same way. A larger factor stops the convergence.
-HOLD_PENALTY_SCALE = 10.0
+# A factor on the columns of the fixation kernel after the z-score. With 1 the
+# fixation kernel has the same L2 penalty as the other terms: the model in use,
+# and the common practice. With a factor above 1 the penalty on its weights is
+# that factor squared times weaker. With the same penalty, the fit makes the
+# fixation kernel too small and gives a part of the level to the flash × move
+# kernels (`leak_test.py`); a factor of 10 removes that leak with the same
+# prediction, and is the sensitivity analysis (`_weaker_fixation_penalty`). The
+# saved scale of the columns has the factor in it, so the kernels are read in
+# the same way. A factor above 10 stops the convergence.
+HOLD_PENALTY_SCALE = 1.0
 # Initiation: one column that is 1 from the center entry to the first flash,
 # where no other term is on. Its weight has no common sign over units; it sets
 # the rate of each unit in that time.
