@@ -11,27 +11,27 @@ condition.
 - Kernel of a condition (`results.flash_kernel_at`): the flash kernel of the
   gap class of that condition, plus the flash × fixation kernel at the value of
   the period. Conditions (`CONDITIONS`): a flash in the fixation in each of
-  the three gap classes, and a flash after the center exit in the middle gap
-  class.
+  the two gap classes, and a flash after the center exit in the class of the
+  longer gaps.
 - Panels a and b (the two kinds of unit): the median kernel over the units
   that fire more after a flash (a) and that fire less (b). Left: a flash in
-  the fixation in the three gap classes. Right: a flash in the fixation and
-  after the exit in the middle gap class, with the quartiles as bands. The
+  the fixation in the two gap classes. Right: a flash in the fixation and
+  after the exit in the class of the longer gaps, with the quartiles as bands. The
   model has one flash × fixation kernel for all gap classes, so the change
   with the period is the same curve in every gap class. Here the kind of a
-  unit is from its mean response over the three conditions in the fixation
+  unit is from its mean response over the two conditions in the fixation
   (above `KIND_LIMIT` or below -`KIND_LIMIT`), so the sign of the curves is by
   selection; the panels show the shape.
 - Panel c (every unit): one map for each condition, with one row for each unit
   and the same order of units in all maps (by the mean response over the
-  three conditions in the fixation). The units do not have one kind of
+  two conditions in the fixation). The units do not have one kind of
   response, so a median curve over all units is near zero and is not shown.
   The color scale stops at ±`COLOR_LIMIT`; larger values have the color of
   the limit.
 - Response of a unit: the mean of its kernel from `RESPONSE_MS`.
-- Panel d (gap): the response at the longest gap against the response at the
-  shortest gap, one point for each unit. Panel e (period): the response after
-  the exit against the response in the fixation, at the middle gap. Error bars
+- Panel d (gap): the response at a longer gap against the response at the
+  40 ms gap, one point for each unit. Panel e (period): the response after
+  the exit against the response in the fixation, at a longer gap. Error bars
   are the SD over the 10 cross-validation folds, in both directions. A point
   outside `AXIS_LIMITS` is not drawn; it is in the statistics, and the number
   of those points is in the output.
@@ -72,22 +72,17 @@ from thesis.plotting import CONCEPT_COLORS, FIGURE_STYLE, REFERENCE_COLOR, save_
 # name: (gap in ms that selects the gap class, after the center exit)
 CONDITIONS = {
     "40 ms gap": (40, False),
-    "80 to 120 ms gap": (100, False),
-    "160+ ms gap": (250, False),
-    "80 to 120 ms gap,\nafter exit": (100, True),
+    "80+ ms gap": (100, False),
+    "80+ ms gap,\nafter exit": (100, True),
 }
-FIXATION = ("40 ms gap", "80 to 120 ms gap", "160+ ms gap")
+FIXATION = ("40 ms gap", "80+ ms gap")
 # name: (first condition, second condition, conditions that give the kind of unit)
 # The kind of a unit comes from conditions that are not in the pair. A kind
 # that comes from one of the two compared responses makes that response more
 # extreme than the other one by selection alone.
 PAIRS = {
-    "gap": ("40 ms gap", "160+ ms gap", ("80 to 120 ms gap",)),
-    "period": (
-        "80 to 120 ms gap",
-        "80 to 120 ms gap,\nafter exit",
-        ("40 ms gap", "160+ ms gap"),
-    ),
+    "gap": ("40 ms gap", "80+ ms gap", ("80+ ms gap,\nafter exit",)),
+    "period": ("80+ ms gap", "80+ ms gap,\nafter exit", ("40 ms gap",)),
 }
 RESPONSE_MS = (40, 100)
 KIND_LIMIT = 0.2
@@ -206,7 +201,7 @@ def main() -> None:
                 curves[2 * k], sharey=curve_axes[0] if curve_axes else None
             )
             by_period = figure.add_subplot(curves[2 * k + 1], sharey=by_gap)
-            for name, shade in zip(FIXATION, (0.4, 0.7, 1.0), strict=True):
+            for name, shade in zip(FIXATION, (0.5, 1.0), strict=True):
                 by_gap.plot(
                     lags,
                     np.median(kernel[members, index[name]], 0),
@@ -234,7 +229,7 @@ def main() -> None:
                     r"median flash kernel" + "\n" + r"($\Delta$ log rate)"
                 )
                 for row, (name, shade) in enumerate(
-                    zip(FIXATION, (0.4, 0.7, 1.0), strict=True)
+                    zip(FIXATION, (0.5, 1.0), strict=True)
                 ):
                     by_gap.text(
                         0.03,

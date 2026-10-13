@@ -15,13 +15,13 @@ default) of one session, after `glm fit` and `glm unique`.
   observed spikes.
 - Panel b (what the model learns): the kernels of the example unit from the
   final refit, as a change in log rate. Top: the flash kernel for a flash in
-  the fixation at three gaps from the flash before, and for a flash in the
-  fixation and after the center exit at one gap
-  (`results.flash_condition_kernels`: the common flash kernel plus the kernels
-  of fast adaptation, flash recovery, and flash × fixation at the values of
-  that flash); the fixation kernel. Bottom: the center-entry
-  kernel, the withdrawal kernel, and the spike-history kernel. The side column
-  and the session drift have no kernel over time and are not drawn.
+  the fixation in the two gap classes, and for a flash in the fixation and
+  after the center exit in the class of the longer gaps
+  (`results.flash_condition_kernels`: the flash kernel of the gap class plus
+  the flash × fixation kernel at the value of that flash); the fixation
+  kernel. Bottom: the withdrawal kernel and the spike-history kernel. The
+  initiation, the two side columns, and the session drift have no kernel over
+  time and are not drawn.
 - Panel c (prediction): observed and predicted firing rate of the example unit
   over the held-out test trials, in `RATE_BIN_MS` bins. The prediction of a
   trial comes from the cross-validation fold that did not train on it. A time
@@ -124,11 +124,12 @@ light color; the fixation, from the first flash to the withdrawal from the
 center port; and the withdrawal); the first motion-energy PC of the video; the
 term that each group of regressors adds to the log rate; the term of spike
 history, in its own row; and the observed spikes. **b**, The kernels of the
-example unit. Top left: the flash kernel for a flash with no flash in the
-last 50 ms (visual flash) and for a flash that follows another within 50 ms
-(with fast adaptation, dashed). Top right: the kernel for the stimulus during
-fixation, which starts at the first flash and ends at the withdrawal. Bottom:
-the withdrawal kernel and the spike-history kernel. **c**, Observed and
+example unit. Top, from the left: the flash kernel for a flash in the fixation that
+follows another within 50 ms (40 ms gap) and for every other flash (80+ ms
+gap); the flash kernel in the fixation and after the withdrawal (dashed), at
+a gap of 80 ms or more; and the fixation kernel, which starts at the first
+flash and ends at the withdrawal. Bottom: the withdrawal kernel and the
+spike-history kernel. **c**, Observed and
 predicted firing rate of the example unit over the {test_trials} held-out test
 trials, in {bin_ms}-ms bins. Each trial is predicted by a model that was not
 fit on it. A time bin is shown while at least half of the trials have not
@@ -205,17 +206,17 @@ def _plot_trial(axes, data) -> None:
 
 
 def _plot_kernels(axes, data) -> None:
-    by_gap, by_period, hold, entry, withdrawal, history = axes
+    by_gap, by_period, hold, withdrawal, history = axes
     lags = data["flash_lags"]
     # The flash kernel by the gap from the flash before: darker for a longer gap.
-    for gap, shade, height in zip(
-        FLASH_GAPS_MS, (0.4, 0.7, 1.0), (1.0, 1.13, 1.26), strict=True
+    for gap, label, shade, height in zip(
+        FLASH_GAPS_MS, ("40 ms gap", "80+ ms gap"), (0.5, 1.0), (1.0, 1.13), strict=True
     ):
         by_gap.plot(lags, data[f"flashcond__gap_{gap}"], color=VISUAL, alpha=shade)
         by_gap.text(
             0,
             height,
-            f"{gap} ms gap",
+            label,
             color=VISUAL,
             alpha=shade,
             fontsize=6.5,
@@ -233,15 +234,13 @@ def _plot_kernels(axes, data) -> None:
     by_period.set_xlabel("time from\nflash (ms)")
     hold.plot(data["kern_t__hold"], data["kern_v__hold"], color=TASK)
     hold.set_xlabel("time in fixation,\nfrom first flash (ms)")
-    entry.plot(data["kern_t__center_entry"], data["kern_v__center_entry"], color=TASK)
-    entry.set_xlabel("time from\ncenter entry (ms)")
     withdrawal.plot(data["kern_t__withdrawal"], data["kern_v__withdrawal"], color=TASK)
     withdrawal.set_xlabel("time from\nwithdrawal (ms)")
     history.plot(data["kern_t__history"], data["kern_v__history"], color=HISTORY)
     history.set_xlabel("time since\nspike (ms)")
     for axis in axes:
         axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-    for axis in (by_gap, entry):  # one y label for each row
+    for axis in (by_gap, withdrawal):  # one y label for each row
         axis.set_ylabel(r"$\Delta$ log rate")
 
 
@@ -407,7 +406,7 @@ def main() -> None:
         trial_axes = [figure.add_subplot(cell) for cell in trial]
         kernel_axes = [
             figure.add_subplot(cell)
-            for cell in top[1].subgridspec(2, 3, hspace=0.85, wspace=0.55)
+            for cell in list(top[1].subgridspec(2, 3, hspace=0.85, wspace=0.55))[:5]
         ]
         (prediction,) = (
             figure.add_subplot(cell)
