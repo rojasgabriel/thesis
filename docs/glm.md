@@ -88,7 +88,7 @@ or punishment kernel.
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Initiation | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
 | Fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
-| Side after exit | +1 or −1 for the side of the response, from the center exit on | 1 |
+| Choice (key `side_after_exit`) | +1 or −1 for the side of the response, from the center exit on | 1 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Session drift | 4 raised cosines over the session, with the last one left out | 3 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
@@ -638,7 +638,7 @@ as the response of the trial in 53%).
 | Motion energy | 10 | 57% | 0.0% | 0.0014 |
 | Withdrawal | 4 | 53% | 0.0% | 0.0008 |
 | Flash × fixation | 8 | 42% | 1.8% | 0.0008 |
-| Side after exit | 1 | 32% | 1.2% | 0.0003 |
+| Choice | 1 | 32% | 1.2% | 0.0003 |
 | Session drift | 3 | 28% | 2.4% | 0.0004 |
 | Previous side | 1 | 20% | 0.6% | 0.0002 |
 | Initiation | 1 | 18% | 1.8% | 0.0001 |

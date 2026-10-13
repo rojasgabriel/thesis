@@ -104,7 +104,7 @@ REGRESSORS = {
     "fixation": ("initiation", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
-    "side_after_exit": ("side after exit", TASK),
+    "side_after_exit": ("choice", TASK),
     "previous_side": ("previous side", TASK),
     "video": ("motion energy", MOTION),
     "session_drift": ("session drift", DRIFT_COLOR),

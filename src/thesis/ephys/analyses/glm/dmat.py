@@ -94,7 +94,8 @@ IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
 FIRST_FLASH_TERM = False
 IN_PORT = "in_port"
-# One column for the side of the response after the center exit. In the model
+# One column for the side of the response after the center exit (the figures
+# and the docs call it "choice"; the key stays). In the model
 # from 2026-10-12 (`side_term_test.py`, `candidate_terms.py`).
 SIDE_COLUMN = True
 SIDE = "side_after_exit"

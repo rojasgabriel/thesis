@@ -13,7 +13,7 @@ there is no comparison, baseline, exclusion, or sampling unit.
 - e, session drift: time in the session, as a fraction. The last function is
   not a column, because the model has an intercept.
 
-The initiation, the side after the exit, and each motion-energy PC are one
+The initiation, the choice, the previous side, and each motion-energy PC are one
 column each, with no basis.
 
     uv run python -m thesis.ephys.analyses.glm.basis_diagram
