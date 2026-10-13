@@ -646,16 +646,7 @@ as the response of the trial in 53%).
 - Median cross-validated D² 0.0734 (IQR 0.046 to 0.104). Against the design
   with 3 gap classes and the center-entry kernel (77 columns), same folds:
   median change +0.0002 (+0.3%), 105 of 167 units better, p = 0.0003.
-- Collinearity of this design (task columns of the common design, z-scored;
-  a quick test, not a module): the variance inflation factor of a column is at
-  most 3.6 (2.9 for the flash kernel of the 40 ms gap; the usual limit is 5 to
-  10), and the condition number of the correlation matrix is 28. The largest
-  correlation between columns of two regressors is 0.40 (flash, 80+ ms gap,
-  and fixation: both start at the first flash) and 0.38 (the two flash
-  kernels). For two regressors the unique ΔD² is above the maximal ΔD² in most
-  units (flash, 40 ms gap: 102 of 167; previous choice: 94 of 167). The cause
-  is not strong collinearity: alone, with all other terms shuffled, the term
-  must fit a response that is on top of the other responses.
+- Collinearity of this design: see "Collinearity of the regressors".
 - The previous side is in the model, but the column holds less than the raw
   rates show (20% of units against about half). One offset for the full time
   before the exit cannot follow an effect that is larger before the entry and
@@ -670,6 +661,57 @@ as the response of the trial in 53%).
   change −0.0001 (−0.1%), 67 of 167 units better, p = 0.09. The previous-side
   column goes from 20% to 12% of the units with the term in the design, so the
   two terms hold part of the same effect. The term is off in the design.
+
+### Collinearity of the regressors
+
+Question: are the regressors so correlated that the weights cannot be read?
+`collinearity.py` gives the usual statistics for the design of each unit (66
+columns: task, motion energy, and the spike history of the unit; the valid
+bins of all trials), in `collinearity.json` and `collinearity.svg`.
+
+- GVIF^(1/p): the generalized variance inflation factor of a regressor with p
+  columns (Fox and Monette, 1992), on the scale of a VIF. It is the factor by
+  which the collinearity with the other regressors multiplies the variance of
+  its weights. Limits in use: 5 (some concern) and 10 (a problem).
+- Condition index (Belsley, Kuh, and Welsch, 1980): 10 to 30 is a moderate
+  dependency, above 30 a strong one.
+
+| Regressor | GVIF^(1/p), GRB006: median (max over units) | GRB064 |
+| --- | ---: | ---: |
+| Choice | 2.14 (2.45) | 1.33 (1.72) |
+| Flash, 80+ ms gap | 1.45 (1.51) | 1.58 (1.61) |
+| Flash, 40 ms gap | 1.30 (1.34) | 1.39 (1.41) |
+| Initiation | 1.25 (1.27) | 1.16 (1.22) |
+| Fixation | 1.22 (1.23) | 1.24 (1.27) |
+| Previous choice | 1.19 (1.22) | 1.12 (1.19) |
+| Withdrawal | 1.18 (1.22) | 1.14 (1.16) |
+| Motion energy | 1.17 (1.21) | 1.08 (1.10) |
+| Flash × move | 1.16 (1.19) | 1.16 (1.17) |
+| Session drift | 1.02 (1.06) | 1.06 (1.07) |
+| Spike history | 1.01 (1.11) | 1.02 (1.09) |
+
+- No regressor is near the limit of 5 in a unit of the two sessions. The
+  largest value is the choice in GRB006 (2.45).
+- The largest condition index of a unit is 5.7 in the median (6.6 at most) in
+  GRB006 and 6.7 (7.7 at most) in GRB064. No unit has an index above 10, so
+  there is no dependency to decompose.
+- The VIF of a single column is higher in two regressors, from columns of the
+  same regressor: 4.0 for a basis function of the flash kernel of the 40 ms
+  gap in GRB064, and 3.9 to 5.2 for session drift. That is the overlap of
+  the basis functions of one kernel. It makes one weight of a basis function
+  uncertain, not the kernel, which is their sum.
+- The first canonical correlation with all other columns is highest for the
+  fixation kernel (0.85 and 0.82) and motion energy (0.81 and 0.53): one
+  weighted sum of the columns of each is shared with the other regressors
+  (for the fixation kernel, the response to the first flash). The other 11
+  and 9 dimensions are not, so the GVIF stays low.
+- These are statistics of an ordinary fit. The L2 penalty makes the weights
+  more stable than they say, and the split-half test below measures the
+  weights directly.
+- For two regressors the unique ΔD² is above the maximal ΔD² in most units
+  (flash, 40 ms gap: 102 of 167; previous choice: 94 of 167). The cause is
+  not strong collinearity: alone, with all other terms shuffled, the term
+  must fit a response that is on top of the other responses.
 
 ### Are the kernels stable?
 
