@@ -13,15 +13,24 @@ condition.
   the period. Conditions (`CONDITIONS`): a flash in the fixation in each of
   the three gap classes, and a flash after the center exit in the middle gap
   class.
-- Panel a (every unit): one map for each condition, with one row for each unit
+- Panels a and b (the two kinds of unit): the median kernel over the units
+  that fire more after a flash (a) and that fire less (b). Left: a flash in
+  the fixation in the three gap classes. Right: a flash in the fixation and
+  after the exit in the middle gap class, with the quartiles as bands. The
+  model has one flash × fixation kernel for all gap classes, so the change
+  with the period is the same curve in every gap class. Here the kind of a
+  unit is from its mean response over the three conditions in the fixation
+  (above `KIND_LIMIT` or below -`KIND_LIMIT`), so the sign of the curves is by
+  selection; the panels show the shape.
+- Panel c (every unit): one map for each condition, with one row for each unit
   and the same order of units in all maps (by the mean response over the
-  three conditions in the fixation). The units do not have one kind of response: some fire more after a
-  flash and some fire less, so a median curve over units is near zero and is
-  not shown. The color scale stops at ±`COLOR_LIMIT`; larger values have the
-  color of the limit.
+  three conditions in the fixation). The units do not have one kind of
+  response, so a median curve over all units is near zero and is not shown.
+  The color scale stops at ±`COLOR_LIMIT`; larger values have the color of
+  the limit.
 - Response of a unit: the mean of its kernel from `RESPONSE_MS`.
-- Panel b (gap): the response at the longest gap against the response at the
-  shortest gap, one point for each unit. Panel c (period): the response after
+- Panel d (gap): the response at the longest gap against the response at the
+  shortest gap, one point for each unit. Panel e (period): the response after
   the exit against the response in the fixation, at the middle gap. Error bars
   are the SD over the 10 cross-validation folds, in both directions. A point
   outside `AXIS_LIMITS` is not drawn; it is in the statistics, and the number
@@ -178,10 +187,76 @@ def main() -> None:
     # One order for all maps: the mean response over the fixation conditions.
     order = np.argsort(mean_of(FIXATION))[::-1]
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.2, 5.6))
-        outer = figure.add_gridspec(2, 1, height_ratios=(1.55, 1), hspace=0.42)
-        maps = outer[0].subgridspec(1, len(CONDITIONS), wspace=0.18)
-        below = outer[1].subgridspec(1, 3, width_ratios=(1, 1, 0.35), wspace=0.55)
+        figure = plt.figure(figsize=(7.2, 7.6))
+        outer = figure.add_gridspec(3, 1, height_ratios=(0.8, 1.55, 1), hspace=0.6)
+        curves = outer[0].subgridspec(1, 4, wspace=0.12)
+        maps = outer[1].subgridspec(1, len(CONDITIONS), wspace=0.18)
+        below = outer[2].subgridspec(1, 3, width_ratios=(1, 1, 0.35), wspace=0.55)
+        # The median kernel of each kind of unit: by gap in the fixation, and in
+        # the two periods at the middle gap.
+        fixation_mean = mean_of(FIXATION)
+        curve_axes = []
+        for k, (kind, members) in enumerate(
+            (
+                ("units that fire more after a flash", fixation_mean > KIND_LIMIT),
+                ("units that fire less after a flash", fixation_mean < -KIND_LIMIT),
+            )
+        ):
+            by_gap = figure.add_subplot(
+                curves[2 * k], sharey=curve_axes[0] if curve_axes else None
+            )
+            by_period = figure.add_subplot(curves[2 * k + 1], sharey=by_gap)
+            for name, shade in zip(FIXATION, (0.4, 0.7, 1.0), strict=True):
+                by_gap.plot(
+                    lags,
+                    np.median(kernel[members, index[name]], 0),
+                    color=VISUAL,
+                    alpha=shade,
+                )
+            for name, style in zip(PAIRS["period"][:2], ("-", "--"), strict=True):
+                values = kernel[members, index[name]]
+                low, median, high = np.percentile(values, [25, 50, 75], axis=0)
+                by_period.plot(lags, median, color=VISUAL, linestyle=style)
+                by_period.fill_between(lags, low, high, color=VISUAL, alpha=0.1, lw=0)
+            for axis in (by_gap, by_period):
+                axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+                axis.set_xlabel("time from flash (ms)")
+                axis.tick_params(labelleft=not curve_axes and axis is by_gap)
+            by_gap.text(
+                0,
+                1.2,
+                f"{kind} ({int(members.sum())})",
+                transform=by_gap.transAxes,
+                fontsize=7.5,
+            )
+            if not curve_axes:
+                by_gap.set_ylabel(
+                    r"median flash kernel" + "\n" + r"($\Delta$ log rate)"
+                )
+                for row, (name, shade) in enumerate(
+                    zip(FIXATION, (0.4, 0.7, 1.0), strict=True)
+                ):
+                    by_gap.text(
+                        0.03,
+                        1.12 - 0.105 * row,
+                        name,
+                        color=VISUAL,
+                        alpha=shade,
+                        transform=by_gap.transAxes,
+                        va="top",
+                        fontsize=6,
+                    )
+                for row, label in enumerate(("in fixation", "after exit (dashed)")):
+                    by_period.text(
+                        0.03,
+                        1.12 - 0.105 * row,
+                        label,
+                        color=VISUAL,
+                        transform=by_period.transAxes,
+                        va="top",
+                        fontsize=6,
+                    )
+            curve_axes += [by_gap, by_period]
         map_axes = []
         for position, name in enumerate(CONDITIONS):
             axis = figure.add_subplot(maps[position])
@@ -229,8 +304,15 @@ def main() -> None:
             pair_axes.append(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abc", (map_axes[0], *pair_axes), strict=True):
-            edge = axis.yaxis.get_tightbbox().transformed(to_figure).x0
+        for letter, axis in zip(
+            "abcde",
+            (curve_axes[0], curve_axes[2], map_axes[0], *pair_axes),
+            strict=True,
+        ):
+            box = axis.yaxis.get_tightbbox()  # None for an axis with no tick labels
+            edge = (
+                box.transformed(to_figure).x0 if box else axis.get_position().x0 - 0.01
+            )
             figure.text(
                 edge - 0.01,
                 axis.get_position().y1 + 0.035,
