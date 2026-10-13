@@ -21,17 +21,17 @@ exclusions are those of `fit.py`.
     uv run python -m thesis.ephys.analyses.glm.flash_length_grid
 
 A design that has saved scores in `flash_length_grid/flash_length_grid.json`
-is not fit again. Each design takes about two minutes.
+is not fit again. `--samples N` scores each design on N sets of 20 units
+(no unit is in two sets); the comparison is then paired over all those units. Each design takes about two minutes.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from thesis.ephys.analyses.glm import cli
-from thesis.ephys.analyses.glm.adaptation_grid import score_design
+from thesis.ephys.analyses.glm.adaptation_grid import score_designs
 
 DESIGNS = {
     "150": {"FLASH_WINDOW_S": 0.15, "FLASH_BASES": 8},
@@ -42,27 +42,23 @@ DESIGNS = {
 IN_USE = "150"
 
 
-def run_grid(source: Path, output: Path) -> dict[str, dict]:
-    """Score every design that has no saved scores; return all designs."""
-    path = output / "flash_length_grid.json"
-    scores = json.loads(path.read_text()) if path.exists() else {}
-    for index, (name, settings) in enumerate(DESIGNS.items()):
-        if name in scores:
-            continue
-        scores[name] = score_design(
-            source, output / "work", f"design_{index}", settings
-        )
-        output.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(scores, indent=1))
-        print(f"Scored {name!r}.", flush=True)
-    return scores
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=1,
+        help="Number of sets of 20 units (no unit is in two sets).",
+    )
     args = parser.parse_args()
-    scores = run_grid(args.root, args.root / "flash_length_grid")
+    scores = score_designs(
+        args.root,
+        args.root / "flash_length_grid",
+        "flash_length_grid.json",
+        DESIGNS,
+        args.samples,
+    )
     print(f"{len(scores)} designs in {args.root / 'flash_length_grid'}")
 
 

@@ -66,7 +66,7 @@ def flash_resource(modeled: np.ndarray, u: float, tau_recover_s: float) -> np.nd
 
 
 def score_design(
-    source: Path, work: Path, name: str, settings: dict
+    source: Path, work: Path, name: str, settings: dict, unit_set: str = UNIT_SET
 ) -> dict[str, float]:
     """Return each unit's validation D² with some `dmat` attributes replaced."""
     model = cli.PoissonGLM(root=work / name)
@@ -80,13 +80,13 @@ def score_design(
         setattr(dmat, name, value)
     try:
         dmat.prepare_common_design(model.windows, model.video, model.design)
-        fit.fit_models(model.windows, model.design, UNIT_SET, model.fit_dir(UNIT_SET))
+        fit.fit_models(model.windows, model.design, unit_set, model.fit_dir(unit_set))
     finally:
         for name, value in saved.items():
             setattr(dmat, name, value)
     count = str(max(dmat.VIDEO_COMPONENT_COUNTS))
     scores = {}
-    for path in (model.fit_dir(UNIT_SET) / "checkpoints").glob(
+    for path in (model.fit_dir(unit_set) / "checkpoints").glob(
         "unit_*_validation.json"
     ):
         record = json.loads(path.read_text())
@@ -94,6 +94,38 @@ def score_design(
             "deviance_explained"
         ]
     shutil.rmtree(model.root)  # one design is about 80 MB
+    return scores
+
+
+def score_designs(
+    source: Path,
+    output: Path,
+    filename: str,
+    designs: dict[str, dict],
+    samples: int = 1,
+) -> dict[str, dict]:
+    """Score each design on `samples` sets of 20 units; return design -> unit -> D².
+
+    The sets are `sample`, `sample1`, ... of `fit.analysis_unit_indices`: fixed
+    sets of 20 units with no unit in two sets, so their scores go in one table
+    and the comparison of two designs is paired over all of those units. A
+    design with saved scores for a set is not fit again for it.
+    """
+    path = output / filename
+    scores = json.loads(path.read_text()) if path.exists() else {}
+    for index, (name, settings) in enumerate(designs.items()):
+        for sample in range(samples):
+            if len(scores.get(name, {})) >= fit.SAMPLE_UNITS * (sample + 1):
+                continue
+            unit_set = "sample" + (str(sample) if sample else "")
+            scores.setdefault(name, {}).update(
+                score_design(
+                    source, output / "work", f"design_{index}", settings, unit_set
+                )
+            )
+            output.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(scores, indent=1))
+            print(f"Scored {name!r} on {unit_set}.", flush=True)
     return scores
 
 
