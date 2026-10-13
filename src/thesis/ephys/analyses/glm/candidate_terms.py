@@ -43,8 +43,9 @@ from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor
 
 # First run (suffix "_candidates", output `candidate_terms.json`): side after
 # exit, flash × fixation, center entry, and flash recovery.
-ROOT_SUFFIX = "_previous_side"
-CANDIDATES = {"PREVIOUS_SIDE_COLUMN": dmat.PREVIOUS_SIDE}
+# Second run ("_previous_side"): the previous-side column.
+ROOT_SUFFIX = "_flash_previous_side"
+CANDIDATES = {"FLASH_PREVIOUS_SIDE_TERM": dmat.FLASH_PREVIOUS_SIDE}
 
 
 def main() -> None:

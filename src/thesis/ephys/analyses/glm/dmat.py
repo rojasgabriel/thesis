@@ -139,6 +139,11 @@ VIDEO_VIEWS = ("BackStereoView", "BottomView")
 # `candidate_terms.py`).
 FLASH_AFTER_EXIT_TERM = True
 FLASH_AFTER_EXIT = "flash_after_exit"
+# A flash kernel scaled by the previous side (`flash_previous_side`), for the
+# flashes in the fixation: the raw flash response differs by the side from
+# which the animal came. A candidate (`candidate_terms.py`); not in the model.
+FLASH_PREVIOUS_SIDE_TERM = False
+FLASH_PREVIOUS_SIDE = "flash_previous_side"
 HOLD = "hold"
 HISTORY_COLUMNS = 10
 
@@ -354,6 +359,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         **{name: flash for name in flash_gap_names()},
         "flash_first": flash,
         FLASH_AFTER_EXIT: flash,
+        FLASH_PREVIOUS_SIDE: flash,
         FLASH_RECOVERY: flash,
         ENTRY: RaisedCosineBasis(
             ENTRY_BASES, 0, ENTRY_WINDOW_S + BINWIDTH_S, BINWIDTH_S
@@ -375,6 +381,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases["flash_first"]
     if not FLASH_AFTER_EXIT_TERM:
         del bases[FLASH_AFTER_EXIT]
+    if not FLASH_PREVIOUS_SIDE_TERM:
+        del bases[FLASH_PREVIOUS_SIDE]
     if not FLASH_RECOVERY_TERM or FLASH_GAP_EDGES_S:
         del bases[FLASH_RECOVERY]
     if not ENTRY_KERNEL:
@@ -463,6 +471,31 @@ def flash_after_exit(trials) -> np.ndarray:
     after = np.concatenate(after).astype(float)
     first = np.concatenate(first)
     return np.where(first, 0.0, after - after[~first].mean())
+
+
+def flash_previous_side(trials) -> np.ndarray:
+    """Return the centered previous side of each modeled flash, in the order of `flash_events`.
+
+    +1 (right) or -1 (left) for the side of the last response before the trial
+    (`last_side`), minus the mean over the flashes in the fixation. A flash at
+    or after the center exit, and a flash of a trial with no response before
+    it, gets 0.
+    """
+    side, used = [], []
+    for flashes, center_entry, center_exit, response_entry, last in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["center_exit_s"],
+        trials["response_port_entry_s"],
+        trials["last_side"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
+        side.append(np.full(len(modeled), last, dtype=float))
+        used.append((modeled < center_exit) & np.isfinite(last))
+    side, used = np.concatenate(side), np.concatenate(used)
+    return np.where(used, side - side[used].mean(), 0.0)
 
 
 def flash_recovery(trials) -> np.ndarray:
@@ -562,6 +595,14 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             "centered; 1 for a flash after the center exit, 0 in the fixation; "
             "the first flash is 0",
+        ),
+        (
+            FLASH_PREVIOUS_SIDE,
+            flashes,
+            flash_previous_side(trials),
+            "sensory",
+            "centered; +1 (right) or -1 (left) for the side of the last response, "
+            "for a flash in the fixation; 0 after the center exit",
         ),
         (
             FLASH_RECOVERY,
