@@ -77,8 +77,8 @@ selection and preprocessing procedure.
 Common columns use a z-score on **valid** original training bins; that scaling
 is fixed for selection, cross-validation, and the final refit. Self-history
 scaling uses the training rows for selection, the non-test rows in each fold,
-and all valid rows for the final refit. Intercept unpenalized. No session-time
-drift, go cue, outcome, or punishment kernel.
+and all valid rows for the final refit. Intercept unpenalized. No go cue, outcome,
+or punishment kernel.
 
 | Group | Representation | Columns |
 | --- | --- | ---: |
