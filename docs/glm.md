@@ -725,6 +725,15 @@ the two sessions (`candidate_terms.py`,
   differs between the gap classes in about a quarter of the units of each
   animal. A fit with this term alone is the next test
   (`candidate_terms_flash_move_gap.json`).
+- Flash × move × gap alone, added to the final design (12 regressors, 74
+  columns; `candidate_terms_flash_move_gap.json`): it passes the two tests of
+  the rule in the two sessions. GRB006: 44 of 167 units need it (26%), 0.6%
+  worse, median unique ΔD² 0.0004; whole model +0.17% (96 of 167 units better,
+  p = 0.011). GRB064: 18 of 76 (24%), 0% worse, 0.0005; whole model +0.19% (43
+  of 76 better, p = 0.21). The gain is small and has the same size in the two
+  animals. The term is not in the design yet (the decision is open); with it,
+  the flash kernel has a value for each of the four conditions (still and
+  move, at the two gap classes).
 - Flash × motion energy: not the same in the two animals. In GRB064 no unit
   needs it. The video is a different view in the two sessions (the back
   stereo view in GRB006, the bottom view in GRB064), so the total motion
