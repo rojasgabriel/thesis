@@ -672,40 +672,41 @@ as the response of the trial in 53%).
 
 ### Form of each term in the final design, on 80 units
 
-The four grids were run again on 4 sets of 20 units (`--samples 4`, 80 units)
-with the final design of 2026-10-12 as the base (median validation D² 0.0790).
-Each row is a design against the form in use (paired over the 80 units,
-two-sided Wilcoxon). The results of the earlier base design are in
-`<grid>_earlier_design`.
+The four grids were run on 4 sets of 20 units (`--samples 4`, 80 units) with
+the design of 12 regressors as the base (median validation D² 0.0800). Each
+row is a design against the form in use (paired over the 80 units, two-sided
+Wilcoxon). The results of the earlier base designs are in
+`<grid>_earlier_design` and `<grid>_eleven_regressors`; they give the same
+choices.
 
 | Grid | Design | Median change | Units better | p |
 | --- | --- | ---: | ---: | ---: |
-| Flash kernel length (in use: 150 ms) | 200 ms | +0.42% | 45 | 0.23 |
-| | 250 ms | −0.31% | 36 | 0.33 |
-| | 300 ms | −0.20% | 36 | 0.41 |
-| Session drift (in use: 4 raised cosines) | none | −0.26% | 31 | 0.041 |
-| | 8 | +0.01% | 40 | 0.71 |
-| | 12 | −0.54% | 29 | 0.022 |
-| | cubic spline | +0.04% | 41 | 0.87 |
-| Gap classes (in use: 40, 80+) | 1 kernel | −1.31% | 23 | 7e-6 |
-| | gap terms | −0.04% | 38 | 0.69 |
-| | 40, 80 to 120, 160+ | −0.11% | 36 | 0.26 |
-| | 40, 80, 120+ | −0.30% | 31 | 0.15 |
-| | 40, 80, 120, 160+ | −0.35% | 31 | 0.094 |
-| Fixation term (in use: log-spaced kernel) | none | −3.85% | 9 | 7e-12 |
-| | step from the center entry | −1.80% | 15 | 5e-9 |
-| | step from the first flash | −1.84% | 15 | 4e-9 |
-| | step and a kernel on the first flash | 0.00% | 40 | 0.75 |
-| | kernel, linear spacing | −0.62% | 22 | 0.0002 |
-| | kernel, 10 bases | −0.25% | 29 | 0.039 |
-| | kernel, no initiation column | −0.06% | 34 | 0.11 |
+| Flash kernel length (in use: 150 ms) | 200 ms | +0.16% | 42 | 0.48 |
+| | 250 ms | −0.66% | 30 | 0.18 |
+| | 300 ms | −0.74% | 37 | 0.45 |
+| Session drift (in use: 4 raised cosines) | none | −0.32% | 31 | 0.017 |
+| | 8 | −0.08% | 37 | 0.81 |
+| | 12 | −0.35% | 31 | 0.071 |
+| | cubic spline | +0.21% | 45 | 0.14 |
+| Gap classes (in use: 40, 80+) | 1 kernel | −1.37% | 24 | 0.0002 |
+| | gap terms | +0.39% | 49 | 0.080 |
+| | 40, 80 to 120, 160+ | −0.20% | 35 | 0.21 |
+| | 40, 80, 120+ | −0.25% | 33 | 0.46 |
+| | 40, 80, 120, 160+ | −0.38% | 33 | 0.15 |
+| Fixation term (in use: log-spaced kernel) | none | −3.36% | 10 | 1e-10 |
+| | step from the center entry | −1.74% | 18 | 3e-7 |
+| | step from the first flash | −1.86% | 19 | 2e-7 |
+| | step and a kernel on the first flash | −0.02% | 39 | 0.42 |
+| | kernel, linear spacing | −0.59% | 21 | 9e-5 |
+| | kernel, 10 bases | −0.16% | 32 | 0.10 |
+| | kernel, no initiation column | 0.00% | 41 | 0.50 |
 
 - No other form is reliably better than the form in use, so each form stays.
-- Two forms are equal to the form in use: a step with a kernel on the first
-  flash (for the fixation term) and 8 raised cosines or a spline (for the
-  drift). The form in use is the one with fewer parts or columns.
+- The two designs with no gap classes (1 kernel, gap terms) have no flash ×
+  move × gap term: it is the product of the period and the class of the
+  shortest gaps.
 - The initiation column gives no gain on these 80 units. Its importance is
-  tested on all units (18% need it in GRB006, 26% in GRB064).
+  tested on all units (16% need it in GRB006, 24% in GRB064).
 
 ### Candidates for the flash response when the animal moves
 
@@ -764,33 +765,35 @@ bins of all trials), in `collinearity.json` and `collinearity.svg`.
 
 | Regressor | GVIF^(1/p), GRB006: median (max over units) | GRB064 |
 | --- | ---: | ---: |
-| Choice | 2.14 (2.45) | 1.33 (1.72) |
-| Flash, 80+ ms gap | 1.45 (1.51) | 1.58 (1.61) |
+| Choice | 2.15 (2.45) | 1.33 (1.72) |
+| Flash, 80+ ms gap | 1.45 (1.51) | 1.58 (1.62) |
+| Flash × move | 1.44 (1.47) | 1.45 (1.47) |
 | Flash, 40 ms gap | 1.30 (1.34) | 1.39 (1.41) |
-| Initiation | 1.25 (1.27) | 1.16 (1.22) |
-| Fixation | 1.22 (1.23) | 1.24 (1.27) |
+| Initiation | 1.26 (1.28) | 1.16 (1.22) |
+| Flash × move × gap | 1.25 (1.26) | 1.26 (1.27) |
+| Fixation | 1.24 (1.25) | 1.26 (1.28) |
+| Withdrawal | 1.21 (1.24) | 1.17 (1.19) |
 | Previous choice | 1.19 (1.22) | 1.12 (1.19) |
-| Withdrawal | 1.18 (1.22) | 1.14 (1.16) |
 | Motion energy | 1.17 (1.21) | 1.08 (1.10) |
-| Flash × move | 1.16 (1.19) | 1.16 (1.17) |
 | Session drift | 1.02 (1.06) | 1.06 (1.07) |
 | Spike history | 1.01 (1.11) | 1.02 (1.09) |
 
-- No regressor is near the limit of 5 in a unit of the two sessions. The
-  largest value is the choice in GRB006 (2.45).
-- The largest condition index of a unit is 5.7 in the median (6.6 at most) in
+- Values of the design with 12 regressors (74 columns). No regressor is near
+  the limit of 5 in a unit of the two sessions. The largest value is the
+  choice in GRB006 (2.45).
+- The largest condition index of a unit is 5.8 in the median (6.6 at most) in
   GRB006 and 6.7 (7.7 at most) in GRB064. No unit has an index above 10, so
   there is no dependency to decompose.
 - The VIF of a single column is higher in two regressors, from columns of the
   same regressor: 4.0 for a basis function of the flash kernel of the 40 ms
-  gap in GRB064, and 3.9 to 5.2 for session drift. That is the overlap of
+  gap in GRB064, and 4.0 to 5.2 for session drift. That is the overlap of
   the basis functions of one kernel. It makes one weight of a basis function
   uncertain, not the kernel, which is their sum.
 - The first canonical correlation with all other columns is highest for the
-  fixation kernel (0.85 and 0.82) and motion energy (0.81 and 0.53): one
-  weighted sum of the columns of each is shared with the other regressors
-  (for the fixation kernel, the response to the first flash). The other 11
-  and 9 dimensions are not, so the GVIF stays low.
+  fixation kernel (0.86 and 0.83), flash × move (0.83 and 0.79), and motion
+  energy (0.81 and 0.53): one weighted sum of the columns of each is shared
+  with the other regressors. The other dimensions are not, so the GVIF stays
+  low.
 - These are statistics of an ordinary fit. The L2 penalty makes the weights
   more stable than they say, and the split-half test below measures the
   weights directly.
@@ -805,29 +808,35 @@ Question: can the weights be read, or do correlated regressors make them
 change from one set of trials to another? `kernel_reliability.py` fits each
 unit on the even and on the odd trials (no shared trial) and compares the
 kernels (`kernel_reliability.svg`). Agreement is `1 - |a - b|² / (|a|² + |b|²)`:
-1 for equal kernels, 0 for unrelated kernels. GRB006, 167 units, each half has
-147 trials; the values are for the units that need the regressor (all units
-in brackets).
+1 for equal kernels, 0 for unrelated kernels. Design with 12 regressors; each
+half has 147 trials in GRB006 and 84 or 85 in GRB064. The values are for the
+units that need the regressor (all units in brackets).
 
-| Regressor | Median agreement | Units with agreement above 0.5 | Response over units (Spearman) |
-| --- | ---: | ---: | ---: |
-| Spike history | 0.97 (0.96) | 100% | 0.97 |
-| Withdrawal | 0.91 (0.80) | 94% | 0.90 |
-| Flash, 80+ ms gap | 0.90 (0.84) | 97% | 0.96 |
-| Flash, 40 ms gap | 0.88 (0.79) | 94% | 0.93 |
-| Flash × move | 0.80 (0.70) | 91% | 0.96 |
-| Fixation | 0.63 (0.53) | 62% | 0.73 |
-| Choice | one weight | | 0.96 (0.86) |
-| Previous choice | one weight | | 0.95 (0.74) |
-| Initiation | one weight | | 0.86 (0.66) |
+| Regressor | Median agreement, GRB006 | GRB064 | Response over units (Spearman), GRB006 | GRB064 |
+| --- | ---: | ---: | ---: | ---: |
+| Spike history | 0.97 (0.97) | 0.96 (0.96) | 0.97 | 0.96 |
+| Withdrawal | 0.90 (0.75) | 0.82 (0.74) | 0.93 | 0.91 |
+| Flash, 80+ ms gap | 0.89 (0.83) | 0.86 (0.73) | 0.94 | 0.95 |
+| Flash, 40 ms gap | 0.88 (0.80) | 0.73 (0.64) | 0.93 | 0.94 |
+| Flash × move | 0.80 (0.72) | 0.68 (0.63) | 0.93 | 0.85 |
+| Flash × move × gap | 0.61 (0.45) | 0.57 (0.36) | 0.62 | 0.39 |
+| Fixation | 0.59 (0.51) | 0.83 (0.82) | 0.65 | 0.91 |
+| Choice | one weight | | 0.93 | 0.97 |
+| Previous choice | one weight | | 0.92 | 0.97 |
+| Initiation | one weight | | 0.92 | 0.90 |
 
-- The flash kernels, the withdrawal kernel, and spike history are stable: a
-  fit on half of the trials gives the same kernel.
-- The fixation kernel is stable up to 700 ms and not after it. Median
-  agreement by time from the first flash: 0.86 (0 to 150 ms), 0.93 (150 to
-  450), 0.92 (450 to 700), 0.32 (700 to 950). The animal leaves before 708 ms
-  in 95% of the trials, so few trials give data for the last bases. Do not
-  read the fixation kernel after 700 ms in this session.
+- The flash kernels of the two gap classes, flash × move, the withdrawal
+  kernel, and spike history are stable: a fit on half of the trials gives the
+  same kernel.
+- Flash × move × gap is the least stable kernel in the two sessions. The term
+  passes the rule over units, but the kernel of one unit is not precise: read
+  it over units, not unit by unit.
+- The fixation kernel is stable up to 700 ms. Median agreement by time from
+  the first flash, GRB006: 0.84 (0 to 150 ms), 0.91 (150 to 450), 0.91 (450
+  to 700), 0.26 (700 to 950). GRB064, where the fixation is longer: 0.87,
+  0.93, 0.90, 0.73. In GRB006 the animal leaves before 708 ms in 95% of the
+  trials, so few trials give data for the last bases. Do not read the
+  fixation kernel after 700 ms in GRB006.
 - A half has half of the data, so the final refit is more stable than this
   test shows.
 
