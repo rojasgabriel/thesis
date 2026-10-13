@@ -1428,6 +1428,32 @@ other figures:
 `glm fit` writes no figure. `glm unique` writes `figure_data.npz` for the
 example unit.
 
+### Performance in the measures of other papers
+
+`performance.py` (`performance.svg`, `performance.json`): each trial is
+predicted by the fold that did not train on it, with the task and
+motion-energy terms and no spike history, and compared with the observed
+spikes. Median over units of the Pearson correlation (r² in brackets):
+
+| | GRB006 (167 units) | GRB064 (76 units) |
+| --- | ---: | ---: |
+| Single trials, 1-ms bins | 0.04 | 0.05 |
+| Single trials, 10-ms bins | 0.12 (0.015) | 0.16 (0.024) |
+| Single trials, 33-ms bins | 0.20 (0.04) | 0.27 (0.07) |
+| Single trials, 100-ms bins | 0.27 (0.07) | 0.42 (0.17) |
+| Mean over held-out trials, 20-ms bins | 0.88 (0.77) | 0.87 (0.76) |
+
+- The model predicts the mean time course of a unit well and single trials
+  weakly. With the spike-history term the prediction of a wide bin has the
+  spikes of that bin in it, so it is not used here.
+- Values from other papers, with different signals, bins, and predictors (no
+  direct comparison): Musall et al. 2019, two-photon neurons in V1 at 30 Hz,
+  cvR² 31% with many video and movement regressors; Akella et al. 2025,
+  Neuropixels units of the visual cortex with rates smoothed at 50 ms, cvR²
+  27 ± 14% with stimulus, behavior, and the activity of other areas and LFP
+  (stimulus alone 20%); Parker et al. 2022, V1 units of freely moving mice in
+  50-ms bins smoothed over 2 s, mean correlation 0.28 for the visual model.
+
 ## Results
 
 Model in use: the design of 2026-10-13 (12 regressors, 74 columns), one L2
