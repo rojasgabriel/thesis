@@ -148,6 +148,17 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # which the animal came. A candidate (`candidate_terms.py`); not in the model.
 FLASH_PREVIOUS_SIDE_TERM = False
 FLASH_PREVIOUS_SIDE = "flash_previous_side"
+# Two candidates for the change of the flash response when the animal moves
+# (`candidate_terms.py`); not in the model.
+# A flash kernel for the product of the period and the gap class: with it, the
+# change from the fixation to after the exit can differ between the gap classes.
+FLASH_MOVE_GAP_TERM = False
+FLASH_MOVE_GAP = "flash_move_gap"
+# A flash kernel scaled by the total motion energy of the video at the time of
+# the flash (z-score over the flashes): a measure of movement, where the
+# flash × move term has only the task period.
+FLASH_MOTION_TERM = False
+FLASH_MOTION = "flash_motion"
 HOLD = "hold"
 HISTORY_COLUMNS = 10
 
@@ -364,6 +375,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         "flash_first": flash,
         FLASH_AFTER_EXIT: flash,
         FLASH_PREVIOUS_SIDE: flash,
+        FLASH_MOVE_GAP: flash,
+        FLASH_MOTION: flash,
         FLASH_RECOVERY: flash,
         ENTRY: RaisedCosineBasis(
             ENTRY_BASES, 0, ENTRY_WINDOW_S + BINWIDTH_S, BINWIDTH_S
@@ -387,6 +400,10 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_AFTER_EXIT]
     if not FLASH_PREVIOUS_SIDE_TERM:
         del bases[FLASH_PREVIOUS_SIDE]
+    if not FLASH_MOVE_GAP_TERM:
+        del bases[FLASH_MOVE_GAP]
+    if not FLASH_MOTION_TERM:
+        del bases[FLASH_MOTION]
     if not FLASH_RECOVERY_TERM or FLASH_GAP_EDGES_S:
         del bases[FLASH_RECOVERY]
     if not ENTRY_KERNEL:
@@ -502,6 +519,33 @@ def flash_previous_side(trials) -> np.ndarray:
     return np.where(used, side - side[used].mean(), 0.0)
 
 
+def flash_move_gap(trials) -> np.ndarray:
+    """Return the period-by-gap product of each modeled flash, in the order of `flash_events`.
+
+    The centered period of `flash_after_exit` times the centered indicator of
+    the class of the shortest gaps. The first flash of a trial gets 0.
+    """
+    period = flash_after_exit(trials)
+    used = period != 0  # the first flash of a trial is exactly 0
+    short = (flash_gap_class(trials) == 0).astype(float)
+    return np.where(used, period * (short - short[used].mean()), 0.0)
+
+
+def flash_motion(trials, flashes: np.ndarray) -> np.ndarray:
+    """Return the z-score of the total motion energy at the time of each flash.
+
+    `trials.attrs["motion"]` holds the frame times and the total motion energy
+    of the video (`prepare_common_design` sets it).
+    """
+    if "motion" not in trials.attrs:
+        raise ValueError(
+            "The flash × motion term needs the motion energy of the video."
+        )
+    frame_times, total = trials.attrs["motion"]
+    values = np.interp(flashes, frame_times, total)
+    return (values - values.mean()) / values.std()
+
+
 def flash_recovery(trials) -> np.ndarray:
     """Return the centered log gap of each modeled flash, in the order of `flash_events`.
 
@@ -607,6 +651,21 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             "centered; +1 (right) or -1 (left) for the side of the last response, "
             "for a flash in the fixation; 0 after the center exit",
+        ),
+        (
+            FLASH_MOVE_GAP,
+            flashes,
+            flash_move_gap(trials),
+            "sensory",
+            "the centered period (flash × move) times the centered gap class "
+            "(1 for the shortest gaps, else 0); the first flash is 0",
+        ),
+        (
+            FLASH_MOTION,
+            flashes,
+            flash_motion(trials, flashes) if FLASH_MOTION_TERM else None,
+            "sensory",
+            "z-score over the flashes of the total motion energy at the flash",
         ),
         (
             FLASH_RECOVERY,
@@ -862,6 +921,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         frame_times = data["frame_times_s"].copy()
         # The video file has more PCs than the model can use; keep the first ones.
         scores = data["scores"][:, : max(VIDEO_COMPONENT_COUNTS)].copy()
+        trials.attrs["motion"] = (frame_times, data["total"].copy())
     if scores.ndim != 2 or scores.shape[1] != max(VIDEO_COMPONENT_COUNTS):
         raise ValueError("The video file has too few motion-energy PCs.")
     if len(frame_times) != len(scores):

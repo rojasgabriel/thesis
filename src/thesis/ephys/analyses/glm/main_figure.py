@@ -100,6 +100,8 @@ REGRESSORS = {
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × move", VISUAL),
     "flash_previous_side": ("flash × previous side", VISUAL),
+    "flash_move_gap": ("flash × move × gap", VISUAL),
+    "flash_motion": ("flash × motion energy", VISUAL),
     "center_entry": ("center entry", TASK),
     "fixation": ("initiation", TASK),
     "hold": ("fixation", TASK),
