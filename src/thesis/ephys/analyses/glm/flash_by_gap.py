@@ -1,54 +1,52 @@
-"""Show how the flash response depends on the time from the flash before.
+"""Show how the flash response depends on the gap from the flash before and on the period.
 
-Question: how do the size and the latency of the response of a V1 unit to a
-flash change with the gap from the flash before, and does the model predict
-the same change?
+Question: how does the response of a V1 unit to a flash change with the gap
+from the flash before, in the fixation and after the center exit, for units
+that fire more and for units that fire less after a flash? Does the model
+predict the same?
 
 Comparison: the observed firing rate and the firing rate that the model
-predicts, around the same flashes, at different gaps. Both rates have the
-response to the flash before in them, so they are measured in the same way.
-The comparison over gaps is paired: each unit has a value at each gap.
+predicts, around the same flashes. Both rates have the response to the flash
+before in them, so they are measured in the same way. The comparisons over
+gaps and between periods are paired: each unit has a value in each condition.
 
-- Flashes: every flash that is not the first of its trial and whose response
-  window ends before the center exit (`LAGS_MS` after the flash). So all
-  flashes are in the fixation, and the period of the trial is not a factor.
-  The gaps are multiples of 40 ms. Each gap up to `LONG_GAP_MS` is a group
-  (40, 80, 120, and 160 ms), and all longer gaps are one group.
+- Flashes: every flash that is not the first of its trial. In the fixation:
+  its response window (`LAGS_MS` after the flash) ends before the center
+  exit. After the exit: the flash and the flash before it are both at or
+  after the center exit, and the response window ends before the response
+  entry. The gaps are multiples of 40 ms. Each gap up to `LONG_GAP_MS` is a
+  group (40, 80, 120, and 160 ms), and all longer gaps are one group.
+- Kind of unit: from the flash kernels of the model (`flash_kernels.npz`, the
+  mean response over the three gap classes in the fixation). A unit fires more
+  after a flash when that response is above `KIND_LIMIT`, and less when it is
+  below -`KIND_LIMIT`. Units between the limits, and units with a mean rate
+  below `MIN_RATE` spikes/s around the flashes, are not used.
 - Observed rate: the spike count of the unit in the 1-ms bins of the model
   around each flash, as a rate.
 - Predicted rate: the rate of the final refit of the unit in the same bins
   (all its terms, with the observed spike history). The final refit is fit on
   all trials, so this is not a held-out prediction.
-- Panel a (observation and model): the rate of each gap group in its own row,
-  against time from the flash before, from `TRACE_BEFORE_MS` before it to the
-  end of the response window of the flash. So a row shows the response to the
-  flash before, and then the flash of the row at its gap. The rate of a unit
-  is divided by its mean observed rate around these flashes; lines are the
-  mean over units, smoothed (Gaussian, `SMOOTH_MS`). The dashed vertical line
-  is the flash before and the solid line is the flash. In the group with the
-  longest gaps the flash comes at different times: the solid line is the
-  shortest gap and the band goes to the longest one.
-- Response measures: the mean over the flashes of a group, smoothed. Peak: its
-  maximum from `PEAK_MS`; the latency is the time of that maximum. Rate before
-  the flash: its mean from `BASELINE_MS`. The two are given apart, and not as
-  a ratio: the rate before a flash is not a neutral level, because it is a
-  part of the response to the flash before (on its peak at a gap of 80 ms, in
-  the dip after it at 160 ms). The maximum of a noisy trace is higher with
-  fewer flashes, so every group uses the same number of flashes: `SUBSAMPLES`
-  random subsets with the size of the smallest group, the same subsets for the
-  observed and the predicted rate, and the mean over them.
-- Panel b: the peak after the flash (solid) and the rate before the flash
-  (dashed) against the gap, observed and predicted. Panel c: the latency of
-  the peak. Median and interquartile range over units. Two-sided Wilcoxon
-  signed-rank test of the longest against the shortest gap, for each measure.
-- Units: the units of the fit (`--units`) with a response in the data: the
-  peak of the response to all these flashes is `MIN_RESPONSE_RATIO` times the
-  rate before the flash or more, and the mean rate is `MIN_RATE` spikes/s or
-  more. The numbers are in the output.
+- The figure: one block for each kind of unit. In a block, one row for each
+  gap group, with the fixation in the left column and the time after the exit
+  in the right column. A row shows the rate against time from the flash
+  before, from `TRACE_BEFORE_MS` before it to the end of the response window
+  of the flash: the response to the flash before, and then the flash of the
+  row at its gap. The rate of a unit is divided by its mean observed rate
+  around all these flashes; lines are the mean over the units of the kind,
+  smoothed (Gaussian, `SMOOTH_MS`). The dashed vertical line is the flash
+  before and the solid line is the flash. In the group with the longest gaps
+  the flash comes at different times: the solid line is the shortest gap and
+  the band goes to the longest one.
+- Measures in the output: the rate before the flash (mean from `BASELINE_MS`)
+  and the response (mean from `RESPONSE_MS`), over the unit mean, for each
+  condition; and for each kind and gap, the two-sided Wilcoxon signed-rank
+  test of the response after the exit against in the fixation. The rate
+  before a flash is not a neutral level: it is a part of the response to the
+  flash before.
 
 Trials, alignment, and exclusions are those of `fit.py`. The sampling unit is
 the unit. The script writes `flash_by_gap.svg` and `flash_by_gap.json` in the
-session directory (`--root`).
+session directory (`--root`). Run `flash_kernels` first.
 
     uv run python -m thesis.ephys.analyses.glm.flash_by_gap
 """
@@ -73,38 +71,38 @@ from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     load_unit_records,
 )
+from thesis.ephys.analyses.glm.flash_kernels import KIND_LIMIT
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
-    REFERENCE_COLOR,
     save_figure,
 )
 
 # The gaps are multiples of 40 ms. Each gap up to `LONG_GAP_MS` is a group, and
 # all longer gaps are one group.
 LONG_GAP_MS = 200
-# The window of the response measures around a flash, and the time that a row
-# of panel a shows before the flash before.
+# The window of the response around a flash, and the time that a row shows
+# before the flash before.
 LAGS_MS = (-40, 150)
 TRACE_BEFORE_MS = 40
-SUBSAMPLES = 50
-SEED = 0
 BASELINE_MS = (-20, 20)
-PEAK_MS = (20, 130)
+RESPONSE_MS = (40, 100)
 SMOOTH_MS = 5
-MIN_RESPONSE_RATIO = 1.2
 MIN_RATE = 2.0
 VISUAL = CONCEPT_COLORS["visual"]
 NAMES = ("observed", "model")
 COLORS = (OBSERVED_COLOR, MODEL_COLOR)
+PERIODS = ("in fixation", "after exit")
+KINDS = ("units that fire more after a flash", "units that fire less after a flash")
 
 
-def fixation_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return the trial row, the time, and the gap (ms) of each flash that is used."""
-    rows, times, gaps = [], [], []
+def flashes_by_period(trials) -> dict[str, np.ndarray]:
+    """Return the trial row, time, gap (ms), and period of each flash that is used."""
+    out = {key: [] for key in ("row", "time", "gap", "period")}
+    window = LAGS_MS[1] / 1000
     for row, (flashes, entry, leave, response) in enumerate(
         zip(
             trials["stim_pulse_times_s"],
@@ -116,42 +114,19 @@ def fixation_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     ):
         flashes = np.asarray(flashes, dtype=float)
         flashes = flashes[(flashes >= entry) & (flashes <= response)]
-        keep = flashes[1:] + LAGS_MS[1] / 1000 <= leave
-        times.append(flashes[1:][keep])
-        gaps.append(1000 * np.diff(flashes)[keep])
-        rows.append(np.full(int(keep.sum()), row))
-    return np.concatenate(rows), np.concatenate(times), np.concatenate(gaps)
+        before, times = flashes[:-1], flashes[1:]
+        in_fixation = times + window <= leave
+        after_exit = (before >= leave) & (times + window <= response)
+        keep = in_fixation | after_exit
+        out["row"].append(np.full(int(keep.sum()), row))
+        out["time"].append(times[keep])
+        out["gap"].append(1000 * (times - before)[keep])
+        out["period"].append(after_exit[keep].astype(int))
+    return {key: np.concatenate(values) for key, values in out.items()}
 
 
-def _measures(response: np.ndarray, lags: np.ndarray) -> np.ndarray:
-    """Return the peak rate, the rate before the flash, and the latency (ms)."""
-    smooth = gaussian_filter1d(response, SMOOTH_MS, axis=-1)
-    searched = (lags >= PEAK_MS[0]) & (lags < PEAK_MS[1])
-    before = (lags >= BASELINE_MS[0]) & (lags < BASELINE_MS[1])
-    part = smooth[..., searched]
-    return np.stack(
-        (
-            part.max(-1),
-            smooth[..., before].mean(-1),
-            lags[searched][part.argmax(-1)].astype(float),
-        )
-    )
-
-
-def _summary(values: np.ndarray) -> dict:
-    """Median and quartiles over units for each gap, and the longest against the shortest."""
-    values = np.where(np.isfinite(values), values, np.nan)
-    low, median, high = np.nanpercentile(values, [25, 50, 75], axis=0)
-    change = values[:, -1] - values[:, 0]
-    change = change[np.isfinite(change)]
-    return {
-        "median": median.tolist(),
-        "quartiles": [low.tolist(), high.tolist()],
-        "longest_minus_shortest_median": float(np.median(change)),
-        "units_higher_at_longest": int(np.sum(change > 0)),
-        "units": len(change),
-        "wilcoxon_p": float(wilcoxon(change).pvalue),
-    }
+def _window_mean(values: np.ndarray, lags: np.ndarray, limits) -> np.ndarray:
+    return values[..., (lags >= limits[0]) & (lags < limits[1])].mean(-1)
 
 
 def main() -> None:
@@ -160,18 +135,28 @@ def main() -> None:
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     model = cli.PoissonGLM(root=args.root)
+    kernel_path = args.root / "flash_kernels.npz"
+    if not kernel_path.exists():
+        raise FileNotFoundError(f"{kernel_path}: run `flash_kernels` first.")
+    with np.load(kernel_path) as saved:
+        kernel_response = dict(
+            zip(saved["unit_ids"].tolist(), saved["fixation_response"], strict=True)
+        )
     prepared = dmat._load_windows(model.windows)
     trials = dmat._load_selected_trials(prepared)
     alignments, relative = prepared["alignments"], prepared["relative_centers"]
     grid = (len(alignments), len(relative))
     valid = dmat._valid_bin_mask(prepared)
-    rows, times, measured_gaps = fixation_flashes(trials)
+    table = flashes_by_period(trials)
+    rows = table["row"]
     slot = 1000 * dmat.FLASH_SLOT_S
-    gaps = slot * np.rint(measured_gaps / slot)
+    gaps = slot * np.rint(table["gap"] / slot)
     group = (np.minimum(gaps, LONG_GAP_MS) / slot).astype(int) - 1
     groups = int(group.max()) + 1
-    # Two alignments of the bins of the model grid. For the response measures:
-    # the flash. For the rows of panel a: the flash before it.
+    condition = table["period"] * groups + group  # the period, then the gap group
+    conditions = len(PERIODS) * groups
+    # Two alignments of the bins of the model grid. For the measures: the flash.
+    # For the rows of the figure: the flash before it.
     lags = np.arange(*LAGS_MS)
     trace_lags = np.arange(-TRACE_BEFORE_MS, LONG_GAP_MS + LAGS_MS[1])
 
@@ -181,8 +166,8 @@ def main() -> None:
         )
         return first.astype(int)[:, None] + offsets[None, :]
 
-    columns = grid_columns(times, lags)
-    trace_columns = grid_columns(times - measured_gaps / 1000, trace_lags)
+    columns = grid_columns(table["time"], lags)
+    trace_columns = grid_columns(table["time"] - table["gap"] / 1000, trace_lags)
     if columns.min() < 0 or columns.max() >= grid[1]:
         raise ValueError("A response window is outside the model grid.")
     # A bin of a row is used up to the end of the response window of the flash.
@@ -192,21 +177,12 @@ def main() -> None:
         & (trace_lags[None, :] < (gaps + LAGS_MS[1])[:, None])
     )
     trace_columns = np.clip(trace_columns, 0, grid[1] - 1)
-    # weights[g]: the mean over the flashes of group g, for each bin of the row.
-    members = used[None] & (group[None, :, None] == np.arange(groups)[:, None, None])
+    # weights[c]: the mean over the flashes of condition c, for each bin.
+    members = np.stack([used & (condition == c)[:, None] for c in range(conditions)])
     flashes_in_bin = members.sum(1)
     weights = members / np.maximum(flashes_in_bin, 1)[:, None, :]
-    rng = np.random.default_rng(SEED)
-    size = int(np.bincount(group, minlength=groups).min())
-    subsets = [
-        np.stack(
-            [
-                rng.choice(np.flatnonzero(group == g), size, replace=False)
-                for _ in range(SUBSAMPLES)
-            ]
-        )
-        for g in range(groups)
-    ]
+    in_condition = np.stack([condition == c for c in range(conditions)]).astype(float)
+    in_condition /= in_condition.sum(1, keepdims=True)
 
     units = fetch_unit_table(
         prepared["metadata"]["subject_name"],
@@ -224,20 +200,18 @@ def main() -> None:
             model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
         )
     }
-    before = (lags >= BASELINE_MS[0]) & (lags < BASELINE_MS[1])
-    searched = (lags >= PEAK_MS[0]) & (lags < PEAK_MS[1])
-    out = {key: [] for key in ("rate", "measures")}
+    out = {key: [] for key in ("trace", "before", "response", "kind")}
     for unit_id, spikes in zip(units["unit_id"], units["spike_times_s"], strict=True):
+        size = float(kernel_response[int(unit_id)])
+        if abs(size) <= KIND_LIMIT:
+            continue
         spikes = np.asarray(spikes, dtype=float)
-        counts = build_unit_counts(alignments, spikes)
-        rate_grid = counts.reshape(grid) / dmat.BINWIDTH_S
+        rate_grid = (
+            build_unit_counts(alignments, spikes).reshape(grid) / dmat.BINWIDTH_S
+        )
         observed = rate_grid[rows[:, None], columns]
-        everything = gaussian_filter1d(observed.mean(0), SMOOTH_MS)
-        if (
-            everything.mean() < MIN_RATE
-            or everything[searched].max()
-            < MIN_RESPONSE_RATIO * everything[before].mean()
-        ):
+        scale = observed.mean()  # the mean observed rate around these flashes
+        if scale < MIN_RATE:
             continue
         # The rate of the final refit in every bin, with the observed history.
         record = final[int(unit_id)]
@@ -252,158 +226,148 @@ def main() -> None:
             + history @ coefficients[width:]
         )
         predicted_grid = np.exp(log_rate).reshape(grid) / dmat.BINWIDTH_S
-        pair = np.stack((observed, predicted_grid[rows[:, None], columns]))
-        scale = observed.mean()  # the mean observed rate around these flashes
-        # The rows of panel a: (group, observed or model, bin), over the unit mean.
-        traces = np.stack(
-            [
-                source[rows[:, None], trace_columns]
-                for source in (rate_grid, predicted_grid)
-            ]
-        )
-        out["rate"].append(np.einsum("gfl,mfl->gml", weights, traces) / scale)
-        measured = np.stack(
-            [_measures(pair[:, subset].mean(2), lags).mean(-1) for subset in subsets]
-        )  # (group, measure, observed or model)
-        measured[:, :2] /= scale
-        out["measures"].append(measured)
-    # rate: (observed or model, unit, group, lag)
-    rate = np.moveaxis(np.asarray(out["rate"]), 2, 0)
-    # (measure, observed or model, unit, group)
-    peak, before_flash, latency = np.moveaxis(
-        np.asarray(out["measures"]), (2, 3), (0, 1)
-    )
+        sources = (rate_grid, predicted_grid)
+        # (condition, observed or model, bin) and (condition, observed or model)
+        traces = np.stack([source[rows[:, None], trace_columns] for source in sources])
+        out["trace"].append(np.einsum("cfl,mfl->cml", weights, traces) / scale)
+        around = np.stack([source[rows[:, None], columns] for source in sources])
+        mean = np.einsum("cf,mfl->cml", in_condition, around) / scale
+        out["before"].append(_window_mean(mean, lags, BASELINE_MS))
+        out["response"].append(_window_mean(mean, lags, RESPONSE_MS))
+        out["kind"].append(int(size < 0))
+    kind = np.asarray(out["kind"])
+    trace, before, response = (
+        np.asarray(out[key]) for key in ("trace", "before", "response")
+    )  # (unit, condition, observed or model[, bin])
     group_names = [
         f"{gaps[group == g].min():.0f}" + ("" if np.ptp(gaps[group == g]) == 0 else "+")
         for g in range(groups)
     ]
     stats = {
         "units": int(len(units)),
-        "units_with_a_response": int(rate.shape[1]),
-        "flashes": len(times),
+        "units_of_each_kind": {
+            name: int(np.sum(kind == k)) for k, name in enumerate(KINDS)
+        },
         "gap_groups_ms": group_names,
-        "flashes_in_each_gap_group": np.bincount(group, minlength=groups).tolist(),
-        "flashes_in_each_subset": size,
-        "mean_gap_of_each_group_ms": [
-            float(gaps[group == g].mean()) for g in range(groups)
-        ],
+        "flashes": {
+            period: np.bincount(group[table["period"] == p], minlength=groups).tolist()
+            for p, period in enumerate(PERIODS)
+        },
     }
-    for index, name in enumerate(NAMES):
-        stats[f"{name} peak rate (over the unit mean)"] = _summary(peak[index])
-        stats[f"{name} rate before the flash (over the unit mean)"] = _summary(
-            before_flash[index]
-        )
-        stats[f"{name} latency (ms)"] = _summary(latency[index])
+    for k, kind_name in enumerate(KINDS):
+        of_kind = kind == k
+        entry = {}
+        for m, name in enumerate(NAMES):
+            for p, period in enumerate(PERIODS):
+                block = slice(p * groups, (p + 1) * groups)
+                entry[f"{name}, {period}"] = {
+                    "median_rate_before_the_flash": np.median(
+                        before[of_kind, block, m], 0
+                    ).tolist(),
+                    "median_response": np.median(
+                        response[of_kind, block, m], 0
+                    ).tolist(),
+                }
+            change = response[of_kind, groups:, m] - response[of_kind, :groups, m]
+            entry[f"{name}, response after exit minus in fixation"] = {
+                "median": np.median(change, 0).tolist(),
+                "units_higher": (change > 0).sum(0).tolist(),
+                "wilcoxon_p": [
+                    float(wilcoxon(change[:, g]).pvalue) for g in range(groups)
+                ],
+            }
+        stats[kind_name] = entry
 
-    # (name, group, bin). The bins after the end of a row have no data, so the
-    # smoothing uses only the bins of the row.
     has_data = (flashes_in_bin > 0).astype(float)
-    traces = gaussian_filter1d(
-        rate.mean(1) * has_data, SMOOTH_MS, axis=-1
-    ) / np.maximum(gaussian_filter1d(has_data, SMOOTH_MS, axis=-1), 1e-9)
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.2, 5.0))
-        outer = figure.add_gridspec(1, 2, width_ratios=(1.25, 1), wspace=0.38)
-        left = outer[0].subgridspec(groups, 1, hspace=0.18)
-        right = outer[1].subgridspec(2, 1, hspace=0.5)
-        row_axes = [figure.add_subplot(left[0])]
-        row_axes += [
-            figure.add_subplot(left[g], sharex=row_axes[0], sharey=row_axes[0])
-            for g in range(1, groups)
-        ]
-        for g, axis in enumerate(row_axes):
-            shortest = gaps[group == g].min()
-            drawn = trace_lags < shortest + LAGS_MS[1]
-            for index, color in enumerate(COLORS):
-                axis.plot(
-                    trace_lags[drawn], traces[index, g, drawn], color=color, lw=1.1
-                )
-            axis.axvline(0, color=VISUAL, linestyle="--", linewidth=0.9)
-            axis.axvline(shortest, color=VISUAL, linewidth=1.1)
-            if np.ptp(gaps[group == g]) > 0:  # the later flashes of a mixed group
-                axis.axvspan(
-                    shortest, gaps[group == g].max(), color=VISUAL, alpha=0.08, lw=0
-                )
-            axis.text(
-                0.99,
-                0.92,
-                f"{group_names[g]} ms gap",
-                transform=axis.transAxes,
-                va="top",
-                ha="right",
-                fontsize=6.5,
+        figure = plt.figure(figsize=(7.4, 5.6))
+        outer = figure.add_gridspec(1, len(KINDS), wspace=0.22)
+        letter_axes = []
+        for k in range(len(KINDS)):
+            # The bins after the end of a row have no data, so the smoothing uses
+            # only the bins of the row. (condition, observed or model, bin)
+            mean = trace[kind == k].mean(0) * has_data[:, None, :]
+            smooth = gaussian_filter1d(mean, SMOOTH_MS, axis=-1) / np.maximum(
+                gaussian_filter1d(has_data, SMOOTH_MS, axis=-1)[:, None, :], 1e-9
             )
-            if g < groups - 1:
-                axis.tick_params(labelbottom=False)
-        for index, (name, color) in enumerate(zip(NAMES, COLORS, strict=True)):
-            row_axes[0].text(
-                0.62,
-                0.62 - 0.3 * index,
-                name,
-                color=color,
-                transform=row_axes[0].transAxes,
-                va="center",
+            block = outer[k].subgridspec(groups, len(PERIODS), hspace=0.2, wspace=0.08)
+            axes = np.empty((groups, len(PERIODS)), dtype=object)
+            for g in range(groups):
+                for p in range(len(PERIODS)):
+                    axis = figure.add_subplot(
+                        block[g, p], sharex=axes[0, 0], sharey=axes[0, 0]
+                    )
+                    axes[g, p] = axis
+                    c = p * groups + g
+                    shortest = gaps[group == g].min()
+                    drawn = trace_lags < shortest + LAGS_MS[1]
+                    for m, color in enumerate(COLORS):
+                        axis.plot(
+                            trace_lags[drawn], smooth[c, m, drawn], color=color, lw=1.0
+                        )
+                    axis.axvline(0, color=VISUAL, linestyle="--", linewidth=0.8)
+                    axis.axvline(shortest, color=VISUAL, linewidth=1.0)
+                    if np.ptp(gaps[group == g]) > 0:  # the later flashes of the group
+                        axis.axvspan(
+                            shortest,
+                            gaps[group == g].max(),
+                            color=VISUAL,
+                            alpha=0.08,
+                            lw=0,
+                        )
+                    axis.tick_params(labelbottom=g == groups - 1, labelleft=p == 0)
+                    if p == 0:
+                        axis.text(
+                            0.98,
+                            0.93,
+                            f"{group_names[g]} ms gap",
+                            transform=axis.transAxes,
+                            va="top",
+                            ha="right",
+                            fontsize=6,
+                        )
+                    if g == 0:
+                        axis.text(
+                            0.5,
+                            1.05,
+                            PERIODS[p],
+                            transform=axis.transAxes,
+                            va="bottom",
+                            ha="center",
+                            fontsize=7,
+                        )
+            axes[0, 0].set_xlim(-TRACE_BEFORE_MS, trace_lags[-1] + 10)
+            axes[groups // 2, 0].set_ylabel("normalized firing rate")
+            figure.text(
+                (axes[-1, 0].get_position().x0 + axes[-1, -1].get_position().x1) / 2,
+                axes[-1, 0].get_position().y0 - 0.075,
+                "time from the flash before (ms)",
+                ha="center",
             )
-        row_axes[0].set_xlim(-TRACE_BEFORE_MS, trace_lags[-1] + 10)
-        row_axes[0].text(
-            0,
-            1.04,
+            figure.text(
+                axes[0, 0].get_position().x0,
+                axes[0, 0].get_position().y1 + 0.055,
+                KINDS[k],
+                fontsize=7.5,
+            )
+            letter_axes.append(axes[0, 0])
+        for m, (name, color) in enumerate(zip(NAMES, COLORS, strict=True)):
+            figure.text(0.84 + 0.085 * m, 0.955, name, color=color, ha="right")
+        figure.text(
+            0.5,
+            0.005,
             "the flash before (dashed), the flash (solid)",
             color=VISUAL,
-            transform=row_axes[0].transAxes,
-            va="bottom",
-            fontsize=6,
-        )
-        row_axes[-1].set_xlabel("time from the flash before (ms)")
-        row_axes[groups // 2].set_ylabel("normalized firing rate")
-
-        size_axis, latency_axis = (figure.add_subplot(cell) for cell in right)
-
-        def draw(axis, values, color, style, face, shift):
-            values = np.where(np.isfinite(values), values, np.nan)
-            low, median, high = np.nanpercentile(values, [25, 50, 75], axis=0)
-            axis.errorbar(
-                np.arange(groups) + shift,
-                median,
-                yerr=(median - low, high - median),
-                color=color,
-                linestyle=style,
-                marker="o",
-                markerfacecolor=face or color,
-                markersize=3,
-                linewidth=1.1,
-                elinewidth=0.5,
-                capsize=1.5,
-            )
-
-        for index, color in enumerate(COLORS):
-            shift = 0.08 * (2 * index - 1)  # observed and model side by side
-            draw(size_axis, peak[index], color, "-", None, shift)
-            draw(size_axis, before_flash[index], color, "--", "white", shift)
-            draw(latency_axis, latency[index], color, "-", None, shift)
-        size_axis.text(
-            0,
-            1.03,
-            "peak after the flash (solid)\nrate before the flash (dashed)",
-            transform=size_axis.transAxes,
-            va="bottom",
+            ha="center",
             fontsize=6.5,
         )
-        size_axis.axhline(1, color=REFERENCE_COLOR, linestyle=":", linewidth=0.7)
-        size_axis.set_ylabel("normalized firing rate")
-        latency_axis.set_ylabel("peak latency (ms)")
-        for axis in (size_axis, latency_axis):
-            axis.set_xticks(range(groups), group_names)
-        latency_axis.set_xlabel("gap from the flash before (ms)")
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip(
-            "abc", (row_axes[0], size_axis, latency_axis), strict=True
-        ):
+        for letter, axis in zip("ab", letter_axes, strict=True):
             edge = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
-                edge - 0.035,
-                axis.get_position().y1 + 0.03,
+                edge - 0.02,
+                axis.get_position().y1 + 0.05,
                 letter,
                 fontweight="bold",
                 fontsize=10,

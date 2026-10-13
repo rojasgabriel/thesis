@@ -36,7 +36,8 @@ condition.
 
 Units (`--units`), trials, alignment (first flash), baseline, and exclusions
 are those of `fit.py`. The sampling unit is the unit. The script writes
-`flash_kernels.svg` and `flash_kernels.json` in the session directory.
+`flash_kernels.svg`, `flash_kernels.json`, and `flash_kernels.npz` (the response
+of each unit) in the session directory.
 
     uv run python -m thesis.ephys.analyses.glm.flash_kernels
 """
@@ -238,6 +239,14 @@ def main() -> None:
                 fontsize=10,
             )
         print(save_figure(figure, args.root / "flash_kernels"))
+    # The response of each unit, for the modules that group units by it.
+    np.savez(
+        args.root / "flash_kernels.npz",
+        unit_ids=np.asarray([int(item["unit_id"]) for item in final]),
+        conditions=np.asarray([name.replace(",\n", ", ") for name in CONDITIONS]),
+        response=response,
+        fixation_response=mean_of(FIXATION),
+    )
     output = args.root / "flash_kernels.json"
     output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
