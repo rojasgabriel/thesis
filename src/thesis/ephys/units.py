@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+from thesis.ephys.cache import cached
 
+
+@cached
 def fetch_unit_table(
     subject: str,
     session: str,

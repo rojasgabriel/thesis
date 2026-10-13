@@ -7,6 +7,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from thesis.ephys.cache import cached
+
 ALIGNMENT_EV_COLUMNS = (
     "first_stim_times_s",
     "stim_pulse_times_s",
@@ -85,6 +87,7 @@ def _select_task_ev_sequence(
     }
 
 
+@cached
 def build_trial_table(
     subject: str, session: str, *, include_frames: bool = True
 ) -> pd.DataFrame:
