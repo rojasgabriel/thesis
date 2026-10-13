@@ -45,11 +45,10 @@ from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor
 # exit, flash × move, center entry, and flash recovery.
 # Second run ("_previous_side"): the previous-side column. Third run
 # ("_flash_previous_side"): the flash kernel by previous side.
-ROOT_SUFFIX = "_flash_move_candidates"
-CANDIDATES = {
-    "FLASH_MOVE_GAP_TERM": dmat.FLASH_MOVE_GAP,
-    "FLASH_MOTION_TERM": dmat.FLASH_MOTION,
-}
+# Fourth run ("_flash_move_candidates"): flash × move × gap and flash × motion
+# energy, together.
+ROOT_SUFFIX = "_flash_move_gap"
+CANDIDATES = {"FLASH_MOVE_GAP_TERM": dmat.FLASH_MOVE_GAP}
 
 
 def main() -> None:

@@ -699,6 +699,38 @@ two-sided Wilcoxon). The results of the earlier base design are in
 - The initiation column gives no gain on these 80 units. Its importance is
   tested on all units (18% need it in GRB006, 26% in GRB064).
 
+### Candidates for the flash response when the animal moves
+
+Two terms were added together to the final design and tested on all units of
+the two sessions (`candidate_terms.py`,
+`candidate_terms_flash_move_candidates.json`, 13 regressors, 82 columns).
+
+- Flash × move × gap (`FLASH_MOVE_GAP_TERM`, 8 columns): the flash bases
+  scaled by the centered period times the centered gap class. With it, the
+  change from still to move can differ between the 40 ms and the 80+ ms gap.
+- Flash × motion energy (`FLASH_MOTION_TERM`, 8 columns): the flash bases
+  scaled by the z-score of the total motion energy of the video at the flash
+  (correlation with the period over flashes: 0.57 in GRB006). It is a measure
+  of movement; the flash × move term has only the task period.
+
+| Term | GRB006: units that need it | GRB064 | Rule |
+| --- | ---: | ---: | --- |
+| Flash × move × gap | 43 of 167 (26%), 0.0% worse, median unique ΔD² 0.0004 | 18 of 76 (24%), 1.3% worse, 0.0005 | passes in the two sessions |
+| Flash × motion energy | 54 of 167 (32%), 0.6% worse, 0.0005 | 1 of 76 (1%), 1.3% worse, 0.0001 | passes in GRB006, fails in GRB064 |
+
+- Whole model with the two terms against the final design, same folds:
+  GRB006 +0.5% in the median (110 of 167 units better, p = 2e-5); GRB064
+  −0.4% (32 of 76 better, p = 0.020).
+- Flash × move × gap: the change of the flash response from still to move
+  differs between the gap classes in about a quarter of the units of each
+  animal. A fit with this term alone is the next test
+  (`candidate_terms_flash_move_gap.json`).
+- Flash × motion energy: not the same in the two animals. In GRB064 no unit
+  needs it. The video is a different view in the two sessions (the back
+  stereo view in GRB006, the bottom view in GRB064), so the total motion
+  energy is not the same measure. The term stays out.
+- The other regressors keep their level with the two terms in the design.
+
 ### Collinearity of the regressors
 
 Question: are the regressors so correlated that the weights cannot be read?
