@@ -79,6 +79,13 @@ HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.95
 HOLD_BASES = 12
 HOLD_LOG_STRETCH_S = 0.025
+# The columns of the fixation kernel are this many times larger than a z-score,
+# so the L2 penalty on its weights is this factor squared times weaker than on
+# the other terms. With the same penalty, the fit makes the fixation kernel too
+# small and gives the rest of the level to the flash × move kernels
+# (`leak_test.py`). The saved scale of the columns has the factor in it, so the
+# kernels are read in the same way. A larger factor stops the convergence.
+HOLD_PENALTY_SCALE = 10.0
 # Initiation: one column that is 1 from the center entry to the first flash,
 # where no other term is on. Its weight has no common sign over units; it sets
 # the rate of each unit in that time.
@@ -939,6 +946,13 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     valid = _valid_bin_mask(prepared)
     train_rows, _, _ = _split_masks(prepared["split"], valid)
     scaled_base, base_mean, base_scale = training_zscore(task_values, train_rows)
+    cursor = 0
+    for item in task_manifest:  # a weaker penalty on the fixation kernel
+        if item["name"] == HOLD:
+            columns = slice(cursor, cursor + item["columns"])
+            scaled_base[:, columns] *= HOLD_PENALTY_SCALE
+            base_scale[columns] /= HOLD_PENALTY_SCALE
+        cursor += item["columns"]
     base_names = [
         f"{item['name']}_basis_{index + 1:02d}"
         for item in task_manifest
@@ -1001,6 +1015,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "training_scale": base_scale.tolist() + video_scale,
         "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
         "recent_flash_s": RECENT_FLASH_S,
+        "hold_penalty_scale": HOLD_PENALTY_SCALE,
     }
     matrix.flush()
     del matrix
@@ -1051,4 +1066,5 @@ def _common_design_is_current(output: Path) -> bool:
             *(columns for _, columns in state),
         ]
         and metadata.get("recent_flash_s") == RECENT_FLASH_S
+        and metadata.get("hold_penalty_scale", 1.0) == HOLD_PENALTY_SCALE
     )
