@@ -631,6 +631,29 @@ gap, and the classes do not overlap.
   show the need for a regressor. The third class is tested on all units with
   the same folds (`term_test.py --switch FLASH_GAP_EDGES_S --value "(0.05,)"`).
 
+### Gap classes on 80 units
+
+From 2026-10-12 the form of a term is chosen on 4 sets of 20 units (80 units,
+no unit in two sets; `--samples 4` in the grid modules), which leaves 87 units
+held out. One set of 20 had too little power. The gap-class grid on 80 units:
+
+| Comparison | Median change in validation D² | Units better | p |
+| --- | ---: | ---: | ---: |
+| 2 classes (40, 80+) against 1 kernel | +1.46% | 59 of 80 | 1e-6 |
+| 3 classes (40, 80 to 120, 160+) against 2 | −0.17% | 33 of 80 | 0.054 |
+| 3 classes (40, 80, 120+) against 2 | −0.36% | 31 of 80 | 0.19 |
+| 4 classes against 2 | −0.44% | 30 of 80 | 0.022 |
+| Common kernel with the two gap terms against 2 classes | −0.06% | 38 of 80 | 1.0 |
+
+- A step at 40 ms is necessary. More classes are not better, and 4 classes
+  are reliably worse than 2.
+- 2 classes are equal to the earlier gap terms, with 8 columns in place of 24.
+- The test of 3 classes against 2 on all 167 units with the same folds gives
+  the same answer (`term_test_flash_gap_edges_s_0_05.json`: median change
+  −0.00002, 6.6% of units better, 7.2% worse, p = 0.49).
+- So the form that the rule gives is 2 flash kernels: a flash 40 ms after
+  another, and every other flash.
+
 ### Length of the flash kernels, with kernels by gap class
 
 Test of 2026-10-12 (`flash_length_grid.py`, 20 selection units). The observed
