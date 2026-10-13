@@ -148,7 +148,7 @@ def _plot_bits_deviance_by_rate(
             # label goes above its end.
             right = x[-1] > 0.8 * longest
             axis.annotate(
-                f"{name}\nfiring rate",
+                f"{name}\nmean rate",
                 (x[-1], y[-1]),
                 xytext=(6, 0) if right else (-2, 6),
                 textcoords="offset points",

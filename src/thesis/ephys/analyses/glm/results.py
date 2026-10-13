@@ -19,6 +19,7 @@ from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
     FIXATION,
     FLASH_AFTER_EXIT,
+    FLASH_GAP,
     FLASH_GAP_EDGES_S,
     FLASH_RECOVERY,
     FLASH_SLOT_S,
@@ -289,10 +290,17 @@ def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
     final = {int(item["unit_id"]): item for item in results}
     if EXAMPLE_UNIT_ID in final:
         return EXAMPLE_UNIT_ID
+    # The flash regressors of the design: the common kernel, or one for each gap class.
+    flash = [
+        name
+        for name in unique_records[0]["groups"]
+        if name == FLASH_COMMON or name.startswith(FLASH_GAP)
+    ]
     best = max(
         unique_records,
-        key=lambda record: block_deviance_rate(
-            record, final[int(record["unit_id"])], FLASH_COMMON
+        key=lambda record: sum(
+            block_deviance_rate(record, final[int(record["unit_id"])], name)
+            for name in flash
         ),
     )
     return int(best["unit_id"])

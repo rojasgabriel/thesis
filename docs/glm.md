@@ -671,6 +671,38 @@ as the response of the trial in 53%).
   column goes from 20% to 12% of the units with the term in the design, so the
   two terms hold part of the same effect. The term is off in the design.
 
+### Are the kernels stable?
+
+Question: can the weights be read, or do correlated regressors make them
+change from one set of trials to another? `kernel_reliability.py` fits each
+unit on the even and on the odd trials (no shared trial) and compares the
+kernels (`kernel_reliability.svg`). Agreement is `1 - |a - b|² / (|a|² + |b|²)`:
+1 for equal kernels, 0 for unrelated kernels. GRB006, 167 units, each half has
+147 trials; the values are for the units that need the regressor (all units
+in brackets).
+
+| Regressor | Median agreement | Units with agreement above 0.5 | Response over units (Spearman) |
+| --- | ---: | ---: | ---: |
+| Spike history | 0.97 (0.96) | 100% | 0.97 |
+| Withdrawal | 0.91 (0.80) | 94% | 0.90 |
+| Flash, 80+ ms gap | 0.90 (0.84) | 97% | 0.96 |
+| Flash, 40 ms gap | 0.88 (0.79) | 94% | 0.93 |
+| Flash × fixation | 0.80 (0.70) | 91% | 0.96 |
+| Fixation | 0.63 (0.53) | 62% | 0.73 |
+| Choice | one weight | | 0.96 (0.86) |
+| Previous choice | one weight | | 0.95 (0.74) |
+| Initiation | one weight | | 0.86 (0.66) |
+
+- The flash kernels, the withdrawal kernel, and spike history are stable: a
+  fit on half of the trials gives the same kernel.
+- The fixation kernel is stable up to 700 ms and not after it. Median
+  agreement by time from the first flash: 0.86 (0 to 150 ms), 0.93 (150 to
+  450), 0.92 (450 to 700), 0.32 (700 to 950). The animal leaves before 708 ms
+  in 95% of the trials, so few trials give data for the last bases. Do not
+  read the fixation kernel after 700 ms in this session.
+- A half has half of the data, so the final refit is more stable than this
+  test shows.
+
 ### Flash kernels by gap class
 
 Tests of 2026-10-12 (`gap_class_grid.py`, 20 selection units). The response to
