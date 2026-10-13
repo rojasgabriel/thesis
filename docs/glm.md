@@ -649,7 +649,17 @@ as the response of the trial in 53%).
 - The previous side is in the model, but the column holds less than the raw
   rates show (20% of units against about half). One offset for the full time
   before the exit cannot follow an effect that is larger before the entry and
-  in the first flash response. A flash kernel by previous side is not tested.
+  in the first flash response. See the test below.
+- Flash kernel by previous side (`FLASH_PREVIOUS_SIDE_TERM`, 8 columns: the
+  flash bases scaled by the centered previous side, for the flashes in the
+  fixation; `candidate_terms_flash_previous_side.json`, all 167 units, the 11
+  regressors plus this term). The term passes both tests of the rule: 24 units
+  need it (14%; chance gives 18 or fewer for 12 regressors), 1.2% are worse,
+  median unique ΔD² 0.00015. But the model does not predict better with it:
+  cross-validated D² against the design with 11 regressors, same folds, median
+  change −0.0001 (−0.1%), 67 of 167 units better, p = 0.09. The previous-side
+  column goes from 20% to 12% of the units with the term in the design, so the
+  two terms hold part of the same effect. The term is off in the design.
 
 ### Flash kernels by gap class
 
