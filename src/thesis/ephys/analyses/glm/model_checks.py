@@ -8,7 +8,8 @@ Question: can the fitted model be trusted? Five checks, with no new fit.
   the cross-validation fold that did not train on it. The predicted spikes are
   one Poisson draw (`PREDICTION_SEED`).
 - Panels d and e (units that took no part in the design choices): every design
-  choice was made on the 20 units of `--units sample`. Panel d: cross-validated
+  choice was made on the 80 units of the 4 sets of 20 units of the grids
+  (`SELECTION_SETS`). Panel d: cross-validated
   D² of those selection units and of all other (held-out) units. Panel e: the
   unique ΔD² of each regressor in the two groups. The groups are not paired;
   the mark is a two-sided Mann-Whitney U test.
@@ -27,8 +28,9 @@ Question: can the fitted model be trusted? Five checks, with no new fit.
 - Panels h to j (recovery of planted kernels): `synthetic_check.py` simulates
   units with known kernels and runs the real pipeline on them. The panels show
   the planted and the recovered kernel of the unit that has every effect, for
-  the visual flash, the stimulus during hold, and the withdrawal. The hold
-  kernel is drawn to 350 ms, the shortest simulated hold.
+  the flash at a gap of 80 ms or more, the fixation, and the withdrawal. The
+  fixation kernel is drawn to 350 ms, the shortest simulated fixation. The
+  model makes the fixation kernel too small (see `leak_test.py`).
 
 Box plots are the quartiles with whiskers to 1.5 IQR and no outlier points;
 every unit is in the tests. Units, trials, alignment, baseline, and exclusions
@@ -37,7 +39,7 @@ trial in panels a to c.
 
     uv run python -m thesis.ephys.analyses.glm.model_checks
 
-Run `glm fit` and `glm unique` with `--units all` and `--units sample`,
+Run `glm fit` and `glm unique` with `--units all`,
 `residual_checks --units all`, and `synthetic_check --out
 figures/glm/synthetic_check`, first. The script writes `model_checks.svg` and
 `model_checks_stats.json` in the session directory.
@@ -76,10 +78,12 @@ PREDICTION_SEED = 2008
 HELD_OUT_COLOR = "0.55"
 # Synthetic unit with every effect, and how far each kernel is drawn (ms).
 SYNTHETIC_UNIT = 197
+# The form of each term was chosen on this many sets of 20 units (`--samples`).
+SELECTION_SETS = 4
 CALIBRATION_GROUPS = 20
 SYNTHETIC_KERNELS = {
-    "visual flash": 150,
-    "stimulus during hold": 350,
+    "flash, 80+ ms gap": 150,
+    "fixation": 350,
     "withdrawal": 100,
 }
 # Candidate terms of `residual_checks.py`, with their labels.
@@ -117,8 +121,9 @@ a correct prediction. The model predicts too high a rate where its prediction
 is low (lowest ratio {cal_low:.2f}) and too low a rate where it is high
 (highest ratio {cal_high:.2f}). **h–j, Recovery of planted kernels.** Spikes
 are simulated with known kernels (planted) and the full pipeline is run on
-them (recovered), for the visual flash, the fixation, and the
-withdrawal. In box plots, boxes are the quartiles, whiskers reach 1.5 times
+them (recovered), for the flash at a gap of 80 ms or more, the fixation, and
+the withdrawal. The recovered fixation kernel is too small: the penalty of the
+model gives a part of the level to other terms. In box plots, boxes are the quartiles, whiskers reach 1.5 times
 the interquartile range, and outliers are not drawn; every unit is in the
 tests (n.s., p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01; \\*\\*\\*,
 p < 0.001).
@@ -225,16 +230,26 @@ def main() -> None:
         int(item["unit_id"]): item
         for item in load_unit_records(checkpoints / "unique", "unit_*.json")
     }
+    # The units of the design choices: the sets of 20 units of the grids.
+    metadata = dmat._load_windows(model.windows)["metadata"]
+    table = fetch_unit_table(
+        metadata["subject_name"],
+        metadata["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
     selection = {
-        int(item["unit_id"])
-        for item in load_unit_records(
-            model.fit_dir("sample") / "checkpoints", "unit_*_final.json"
+        int(table.iloc[row]["unit_id"])
+        for sample in range(SELECTION_SETS)
+        for row in fit.analysis_unit_indices(
+            table, "sample" + (str(sample) if sample else "")
         )
     }
     residual_path = fit_dir / "residual_checks.json"
     data_path = fit_dir / "figure_data.npz"
     if not (final and selection and len(unique) == len(final)):
-        raise FileNotFoundError("Run `glm fit` and `glm unique` for all and sample.")
+        raise FileNotFoundError("Run `glm fit` and `glm unique` for all units.")
     for path in (residual_path, data_path):
         if not path.exists():
             raise FileNotFoundError(path)
@@ -307,7 +322,8 @@ def main() -> None:
         }
 
         parts = figure.add_subplot(right[1])
-        names = list(REGRESSORS)
+        fitted = next(iter(unique.values()))["groups"]
+        names = [name for name in REGRESSORS if name in fitted]
         for position, name in enumerate(names):
             values = np.asarray(
                 [unique[int(item["unit_id"])]["groups"][name][UNIQUE] for item in final]
@@ -328,8 +344,11 @@ def main() -> None:
         parts.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         parts.set_xticks(
             range(len(names)),
-            [REGRESSORS[name][0].replace(" ", "\n") for name in names],
-            fontsize=5,
+            [REGRESSORS[name][0] for name in names],
+            fontsize=5.5,
+            rotation=40,
+            ha="right",
+            rotation_mode="anchor",
         )
         for tick, name in zip(parts.get_xticklabels(), names, strict=True):
             tick.set_color(REGRESSORS[name][1])
@@ -422,10 +441,7 @@ def main() -> None:
                 times[keep], np.asarray(kernel["recovered"])[keep], color=MODEL_COLOR
             )
             axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            label = name.replace(
-                "during hold", "during fixation"
-            )  # key of the saved file
-            axis.set_xlabel(f"{label}:\ntime from event (ms)")
+            axis.set_xlabel(f"{name}:\ntime from event (ms)")
             if column == 0:
                 axis.set_ylabel(r"$\Delta$ log rate")
             if column == 1:  # the curves are low here, so the labels are clear of them
