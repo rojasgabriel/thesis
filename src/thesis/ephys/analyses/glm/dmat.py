@@ -83,7 +83,7 @@ HOLD_LOG_STRETCH_S = 0.025
 # where no other term is on. Its weight has no common sign over units; it sets
 # the rate of each unit in that time.
 # Names: the figures and the docs call this column "initiation" and the hold
-# kernel "stimulus during fixation". The keys ("fixation", "hold") stay, because
+# kernel "fixation". The keys ("fixation", "hold") stay, because
 # the saved fits use them.
 FIXATION_COLUMN = True
 FIXATION = "fixation"

@@ -6,7 +6,7 @@ diagram shows the functions that `dmat.py` makes, with no data and no fit, so
 there is no comparison, baseline, exclusion, or sampling unit.
 
 - a, flash kernels (each gap class and flash × fixation): time from the flash.
-- b, stimulus during fixation: time from the first flash. After the last
+- b, fixation: time from the first flash. After the last
   function the kernel keeps its last value until the withdrawal.
 - c, withdrawal: time from the center-port exit.
 - d, spike history: time before the bin, from 1 ms.
@@ -48,7 +48,7 @@ def main() -> None:
     drift = np.column_stack([drift, 1 - drift.sum(1)])
     panels = [
         ("flash kernels", 1000 * flash.basis_time, flash.basis, VISUAL, "time from flash (ms)"),
-        ("stimulus during fixation", 1000 * hold.basis_time, hold.basis, TASK, "time from first flash (ms)"),
+        ("fixation", 1000 * hold.basis_time, hold.basis, TASK, "time from first flash (ms)"),
         ("withdrawal", 1000 * withdrawal.basis_time, withdrawal.basis, TASK, "time from center exit (ms)"),
         ("spike history", 1000 * history.basis_time + 1, history.basis, HISTORY, "time before the bin (ms)"),
         ("session drift", session, drift, DRIFT_COLOR, "time in session (fraction)"),

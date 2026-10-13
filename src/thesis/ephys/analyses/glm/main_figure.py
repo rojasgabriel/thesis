@@ -19,7 +19,7 @@ default) of one session, after `glm fit` and `glm unique`.
   fixation and after the center exit at one gap
   (`results.flash_condition_kernels`: the common flash kernel plus the kernels
   of fast adaptation, flash recovery, and flash × fixation at the values of
-  that flash); the stimulus-during-fixation kernel. Bottom: the center-entry
+  that flash); the fixation kernel. Bottom: the center-entry
   kernel, the withdrawal kernel, and the spike-history kernel. The side column
   and the session drift have no kernel over time and are not drawn.
 - Panel c (prediction): observed and predicted firing rate of the example unit
@@ -101,7 +101,7 @@ REGRESSORS = {
     "flash_after_exit": ("flash × fixation", VISUAL),
     "center_entry": ("center entry", TASK),
     "fixation": ("initiation", TASK),
-    "hold": ("stimulus during fixation", TASK),
+    "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
     "side_after_exit": ("side after exit", TASK),
     "video": ("motion energy", MOTION),

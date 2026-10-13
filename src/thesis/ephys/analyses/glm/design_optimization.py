@@ -348,7 +348,7 @@ def main() -> None:
             d,
             hold,
             TASK,
-            "term for the stimulus during fixation",
+            "term for the fixation",
             selected=hold_grid.IN_USE,
             line=False,
         )

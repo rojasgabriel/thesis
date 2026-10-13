@@ -117,7 +117,7 @@ a correct prediction. The model predicts too high a rate where its prediction
 is low (lowest ratio {cal_low:.2f}) and too low a rate where it is high
 (highest ratio {cal_high:.2f}). **h–j, Recovery of planted kernels.** Spikes
 are simulated with known kernels (planted) and the full pipeline is run on
-them (recovered), for the visual flash, the stimulus during fixation, and the
+them (recovered), for the visual flash, the fixation, and the
 withdrawal. In box plots, boxes are the quartiles, whiskers reach 1.5 times
 the interquartile range, and outliers are not drawn; every unit is in the
 tests (n.s., p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01; \\*\\*\\*,

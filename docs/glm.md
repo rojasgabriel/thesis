@@ -87,7 +87,7 @@ or punishment kernel.
 | Flash × fixation | Same flash bases, on the flashes after the center exit | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Initiation | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
-| Stimulus during fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
+| Fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
 | Side after exit | +1 or −1 for the side of the response, from the center exit on | 1 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Session drift | 4 raised cosines over the session, with the last one left out | 3 |
@@ -98,7 +98,7 @@ or punishment kernel.
 
 Design changes on 2026-10-12, not fitted on all units yet: 2 gap classes in
 place of 3 (see "gap classes"), and no center-entry kernel (9% of the units
-needed it; the initiation column and the stimulus-during-fixation kernel cover
+needed it; the initiation column and the fixation kernel cover
 the same time).
 
 No flash × movement interaction, response-entry,
@@ -396,7 +396,7 @@ the residual tests are in-sample):
   the exit is 1.87 times the rate of completed trials at the same time from
   onset. So the go cue does not end the suppression; the exit does.
 
-### Stimulus during fixation
+### Fixation
 
 Tests of 2026-10-10 and 2026-10-11 on the 20-unit sample, with the first form
 of the kernel (10 bases, 50 ms stretch); the next section has the final form. The in-port column
@@ -410,7 +410,7 @@ exit (`hold` in `dmat.py`).
   so it follows the first flash, not the entry. It ends at the center exit,
   while the flashes go on (the train is 1 s long and stops early only at the
   response entry). So the term is on only while
-  the stimulus is on and the animal holds: "stimulus during fixation".
+  the stimulus is on and the animal holds: "fixation".
 - Form (`hold_grid`, validation D², against the kernel in use): no term
   −0.0065 (median; p = 4e-5), step from center entry −0.0021 (p = 0.0006), step
   from the first flash −0.0010 (p = 0.0004). A step from the first flash with a
@@ -555,7 +555,7 @@ the smallest count above chance is 17 units.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Spike history | 10 | 90% | 90% | 2.4% | 0.0257 |
 | Visual flash | 8 | 78% | 77% | 0.0% | 0.0037 |
-| Stimulus during fixation | 12 | 71% | 72% | 0.0% | 0.0027 |
+| Fixation | 12 | 71% | 72% | 0.0% | 0.0027 |
 | Motion energy | 10 | 56% | 58% | 0.0% | 0.0015 |
 | Withdrawal | 4 | 54% | 54% | 0.0% | 0.0008 |
 | Flash × fixation (candidate) | 8 | 41% | 44% | 0.0% | 0.0009 |
@@ -915,7 +915,7 @@ The first five modules fit and score designs and make no figure. Results of
   named for adaptation because the effect ends at the center exit while the
   flashes continue, does not depend on the flash rate of the trial, and lowers
   the baseline and the flash response by the same factor.
-- Stimulus during fixation: no term, a step from the center entry, and a step from
+- Fixation: no term, a step from the center entry, and a step from
   the first flash are worse than the kernel (p = 2e-5, 0.002, 0.001). The step
   with a first-flash kernel is equal (p = 0.67); the linear kernel is worse
   (p = 0.017); the coarse kernel (10 bases, 50 ms stretch) and the design
@@ -968,7 +968,7 @@ motion-energy PCs. Artifacts are in
 | Regressor | Columns | Median unique ΔD² | Units with unique ΔD² > 0 |
 | --- | ---: | ---: | ---: |
 | Spike history | 10 | 0.0271 | 92% |
-| Stimulus during fixation | 12 | 0.0063 | 87% |
+| Fixation | 12 | 0.0063 | 87% |
 | Visual flash | 8 | 0.0050 | 83% |
 | Motion energy | 10 | 0.0021 | 64% |
 | Withdrawal | 4 | 0.0014 | 62% |
