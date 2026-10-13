@@ -662,6 +662,43 @@ as the response of the trial in 53%).
   column goes from 20% to 12% of the units with the term in the design, so the
   two terms hold part of the same effect. The term is off in the design.
 
+### Form of each term in the final design, on 80 units
+
+The four grids were run again on 4 sets of 20 units (`--samples 4`, 80 units)
+with the final design of 2026-10-12 as the base (median validation D² 0.0790).
+Each row is a design against the form in use (paired over the 80 units,
+two-sided Wilcoxon). The results of the earlier base design are in
+`<grid>_earlier_design`.
+
+| Grid | Design | Median change | Units better | p |
+| --- | --- | ---: | ---: | ---: |
+| Flash kernel length (in use: 150 ms) | 200 ms | +0.42% | 45 | 0.23 |
+| | 250 ms | −0.31% | 36 | 0.33 |
+| | 300 ms | −0.20% | 36 | 0.41 |
+| Session drift (in use: 4 raised cosines) | none | −0.26% | 31 | 0.041 |
+| | 8 | +0.01% | 40 | 0.71 |
+| | 12 | −0.54% | 29 | 0.022 |
+| | cubic spline | +0.04% | 41 | 0.87 |
+| Gap classes (in use: 40, 80+) | 1 kernel | −1.31% | 23 | 7e-6 |
+| | gap terms | −0.04% | 38 | 0.69 |
+| | 40, 80 to 120, 160+ | −0.11% | 36 | 0.26 |
+| | 40, 80, 120+ | −0.30% | 31 | 0.15 |
+| | 40, 80, 120, 160+ | −0.35% | 31 | 0.094 |
+| Fixation term (in use: log-spaced kernel) | none | −3.85% | 9 | 7e-12 |
+| | step from the center entry | −1.80% | 15 | 5e-9 |
+| | step from the first flash | −1.84% | 15 | 4e-9 |
+| | step and a kernel on the first flash | 0.00% | 40 | 0.75 |
+| | kernel, linear spacing | −0.62% | 22 | 0.0002 |
+| | kernel, 10 bases | −0.25% | 29 | 0.039 |
+| | kernel, no initiation column | −0.06% | 34 | 0.11 |
+
+- No other form is reliably better than the form in use, so each form stays.
+- Two forms are equal to the form in use: a step with a kernel on the first
+  flash (for the fixation term) and 8 raised cosines or a spline (for the
+  drift). The form in use is the one with fewer parts or columns.
+- The initiation column gives no gain on these 80 units. Its importance is
+  tested on all units (18% need it in GRB006, 26% in GRB064).
+
 ### Collinearity of the regressors
 
 Question: are the regressors so correlated that the weights cannot be read?
