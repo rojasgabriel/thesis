@@ -611,6 +611,46 @@ response to the right port and −1 for the left port from the center exit on
   term and the flash × fixation term have a case to be in the model. Not
   decided.
 
+### Previous side, and the design with 11 regressors
+
+Question: does the side from which the animal comes to the center port change
+the rate? The side is the side of the last response before the trial
+(`trials.last_side`: 205 trials from the left, 88 from the right; the same side
+as the response of the trial in 53%).
+
+- Raw rates, no model (a quick test, not a module): the rate differs between
+  the two sides (Mann-Whitney, p < 0.05) in 58% of the units in the 300 ms
+  before the center entry, 35% from the entry to the first flash, 60% in the
+  150 ms after the first flash, and 34% from 200 to 450 ms. With the response
+  3 or 5 trials back, or of the next trial, it is 1 to 9%, so it is not drift.
+- Term: one column, +1 (right) or −1 (left) from the start of the window to the
+  center exit (`PREVIOUS_SIDE_COLUMN`). `unique_dev.py` shuffles it over trials.
+- Test on all 167 units (`candidate_terms.py`, `candidate_terms_previous_side.json`),
+  with the design of 2026-10-12 (2 gap classes, no center-entry kernel, 66
+  columns). Every regressor passes both tests of the rule (Holm p < 0.001).
+
+| Regressor | Columns | Units that need it | Units worse | Median unique ΔD² |
+| --- | ---: | ---: | ---: | ---: |
+| Spike history | 10 | 92% | 2.4% | 0.0261 |
+| Fixation | 12 | 77% | 0.0% | 0.0039 |
+| Flash, 80+ ms gap | 8 | 75% | 0.0% | 0.0034 |
+| Flash, 40 ms gap | 8 | 75% | 0.0% | 0.0028 |
+| Motion energy | 10 | 57% | 0.0% | 0.0014 |
+| Withdrawal | 4 | 53% | 0.0% | 0.0008 |
+| Flash × fixation | 8 | 42% | 1.8% | 0.0008 |
+| Side after exit | 1 | 32% | 1.2% | 0.0003 |
+| Session drift | 3 | 28% | 2.4% | 0.0004 |
+| Previous side | 1 | 20% | 0.6% | 0.0002 |
+| Initiation | 1 | 18% | 1.8% | 0.0001 |
+
+- Median cross-validated D² 0.0734 (IQR 0.046 to 0.104). Against the design
+  with 3 gap classes and the center-entry kernel (77 columns), same folds:
+  median change +0.0002 (+0.3%), 105 of 167 units better, p = 0.0003.
+- The previous side is in the model, but the column holds less than the raw
+  rates show (20% of units against about half). One offset for the full time
+  before the exit cannot follow an effect that is larger before the entry and
+  in the first flash response. A flash kernel by previous side is not tested.
+
 ### Flash kernels by gap class
 
 Tests of 2026-10-12 (`gap_class_grid.py`, 20 selection units). The response to
