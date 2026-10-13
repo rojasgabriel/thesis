@@ -136,7 +136,7 @@ fit on it. A time bin is shown while at least half of the trials have not
 reached the response port. **d**, Cross-validated D² (deviance explained on
 held-out trials, relative to a constant rate) against bits/spike for each of
 the {units} units. Small points are units, in three groups of equal size by
-firing rate. In each group, the units are in bins of equal size by bits/spike;
+firing rate (a darker gray is a higher rate). In each group, the units are in bins of equal size by bits/spike;
 a large marker is the mean of a bin and the band is ±1 SEM. For the same
 bits/spike, a unit with a higher rate has a higher D². The histograms are the
 distributions over units (median D² {d2:.3f}, median {bits:.2f} bits/spike).

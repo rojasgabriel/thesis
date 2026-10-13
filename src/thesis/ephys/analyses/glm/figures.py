@@ -25,7 +25,9 @@ from thesis.plotting import (
 COUNT_BIN_MS = 10
 MIN_RATE_TRIAL_FRACTION = 0.5
 # Firing-rate groups of main-figure panel d, from the lowest rate to the highest.
-RATE_GROUP_COLORS = {"low": "#a50026", "medium": "#d9a400", "high": "#313695"}
+# Shades of gray: the rate is not a concept of the model, and a darker shade is
+# a higher rate.
+RATE_GROUP_COLORS = {"low": "0.68", "medium": "0.42", "high": "black"}
 RATE_GROUP_BINS = 4
 PREDICTION_SEED = 2008
 
