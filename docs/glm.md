@@ -82,15 +82,26 @@ drift, go cue, outcome, or punishment kernel.
 
 | Group | Representation | Columns |
 | --- | --- | ---: |
-| Common flash | Every modeled flash; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
-| Fast adaptation (recent flash) | Same flash bases, scaled by 1 for a flash that follows another within 50 ms and 0 otherwise, centered | 8 |
+| Flash, 40 ms gap | A flash within 50 ms of another; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
+| Flash, 80+ ms gap | Every other flash (the first flash also); same bases | 8 |
+| Flash × fixation | Same flash bases, on the flashes after the center exit | 8 |
 | Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
 | Initiation | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
 | Stimulus during fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
+| Side after exit | +1 or −1 for the side of the response, from the center exit on | 1 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
+| Session drift | 4 raised cosines over the session, with the last one left out | 3 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
-No flash × movement interaction, initiation, response-entry, response-side,
+65 columns. `basis_diagram.py` draws the basis functions
+(`figures/glm/basis_functions.svg`).
+
+Design changes on 2026-10-12, not fitted on all units yet: 2 gap classes in
+place of 3 (see "gap classes"), and no center-entry kernel (9% of the units
+needed it; the initiation column and the stimulus-during-fixation kernel cover
+the same time).
+
+No flash × movement interaction, response-entry,
 same-bin history, cross-unit coupling, or previous-trial
 terms. Motion-energy coefficients are contemporaneous nuisance associations.
 Pose tracking is not included.
@@ -652,7 +663,8 @@ held out. One set of 20 had too little power. The gap-class grid on 80 units:
   the same answer (`term_test_flash_gap_edges_s_0_05.json`: median change
   −0.00002, 6.6% of units better, 7.2% worse, p = 0.49).
 - So the form that the rule gives is 2 flash kernels: a flash 40 ms after
-  another, and every other flash.
+  another, and every other flash. The design has this form from 2026-10-12
+  (`FLASH_GAP_EDGES_S = (0.05,)`).
 
 ### Length of the flash kernels, with kernels by gap class
 

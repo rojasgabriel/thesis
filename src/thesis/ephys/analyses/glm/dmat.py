@@ -52,8 +52,10 @@ RECENT_FLASH_S = 0.05
 # the classes do not overlap. With no limits (an empty tuple) the design has
 # the earlier terms: one common kernel, the fast-adaptation term
 # (`SECOND_FLASH_TERM`), and the flash-recovery term (`FLASH_RECOVERY_TERM`),
-# which are correlated (-0.86) and cannot be read one by one.
-FLASH_GAP_EDGES_S = (0.05, 0.13)
+# which are correlated (-0.86) and cannot be read one by one. Two classes (a
+# flash within 50 ms of another, and every other flash): more classes do not
+# predict better on 80 units or on all units (`gap_class_grid.py`).
+FLASH_GAP_EDGES_S = (0.05,)
 FLASH_GAP = "flash_gap"
 # Causal withdrawal kernel: this long after center exit, with this many bases.
 # It is short so that it holds few flashes, and it has no part before the event.
@@ -98,8 +100,10 @@ SIDE_COLUMN = True
 SIDE = "side_after_exit"
 # Terms that were tested on all units with the unique-deviance step
 # (`candidate_terms.py`). In the model from 2026-10-12.
-# A kernel on the center entry (some units respond to the entry).
-ENTRY_KERNEL = True
+# A kernel on the center entry (some units respond to the entry). Off from
+# 2026-10-12: 9% of the units need it, and the initiation column and the hold
+# kernel cover the same time.
+ENTRY_KERNEL = False
 ENTRY = "center_entry"
 ENTRY_WINDOW_S = 0.2
 ENTRY_BASES = 4

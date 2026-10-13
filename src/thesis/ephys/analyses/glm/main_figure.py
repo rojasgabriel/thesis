@@ -96,7 +96,7 @@ REGRESSORS = {
     "flash_adaptation": ("fast adaptation", VISUAL),
     "flash_recovery": ("flash recovery", VISUAL),
     "flash_gap_1": ("flash, 40 ms gap", VISUAL),
-    "flash_gap_2": ("flash, 80 to 120 ms gap", VISUAL),
+    "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × fixation", VISUAL),
     "center_entry": ("center entry", TASK),

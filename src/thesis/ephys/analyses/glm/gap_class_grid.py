@@ -11,8 +11,9 @@ sample, with the validation D² of each unit. The designs are in `DESIGNS`:
 - "gap terms": one common kernel, the fast-adaptation term (a flash within
   50 ms of another), and the flash-recovery term (the log of the gap). The two
   terms are correlated (-0.86).
-- "40 | 80+": two gap classes, with a limit at 50 ms.
-- "40 | 80-120 | 160+": three classes (the design in use, `IN_USE`).
+- "40 | 80+": two gap classes, with a limit at 50 ms (the design in use,
+  `IN_USE`).
+- "40 | 80-120 | 160+": three classes.
 - "40 | 80 | 120+": three classes with the second limit at 90 ms.
 - "40 | 80 | 120 | 160+": four classes.
 
@@ -50,7 +51,7 @@ DESIGNS = {
     "40 | 80 | 120+": {"FLASH_GAP_EDGES_S": (0.05, 0.09)},
     "40 | 80 | 120 | 160+": {"FLASH_GAP_EDGES_S": (0.05, 0.09, 0.13)},
 }
-IN_USE = "40 | 80-120 | 160+"
+IN_USE = "40 | 80+"
 
 
 def main() -> None:
