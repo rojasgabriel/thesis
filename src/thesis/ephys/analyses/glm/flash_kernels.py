@@ -336,6 +336,7 @@ def main() -> None:
         unit_ids=np.asarray([int(item["unit_id"]) for item in final]),
         conditions=np.asarray(list(CONDITIONS)),
         response=response,
+        response_sd_over_folds=spread,
         fixation_response=mean_of(FIXATION),
     )
     output = args.root / "flash_kernels.json"
