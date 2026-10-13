@@ -148,12 +148,13 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # which the animal came. A candidate (`candidate_terms.py`); not in the model.
 FLASH_PREVIOUS_SIDE_TERM = False
 FLASH_PREVIOUS_SIDE = "flash_previous_side"
-# Two candidates for the change of the flash response when the animal moves
-# (`candidate_terms.py`); not in the model.
 # A flash kernel for the product of the period and the gap class: with it, the
 # change from the fixation to after the exit can differ between the gap classes.
-FLASH_MOVE_GAP_TERM = False
+# In the model from 2026-10-13 (`candidate_terms.py`: about a quarter of the
+# units need it in the two sessions).
+FLASH_MOVE_GAP_TERM = True
 FLASH_MOVE_GAP = "flash_move_gap"
+# A candidate that is not in the model (it fails in GRB064).
 # A flash kernel scaled by the total motion energy of the video at the time of
 # the flash (z-score over the flashes): a measure of movement, where the
 # flash × move term has only the task period.

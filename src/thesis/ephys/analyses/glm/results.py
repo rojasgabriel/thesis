@@ -21,6 +21,7 @@ from thesis.ephys.analyses.glm.dmat import (
     FLASH_AFTER_EXIT,
     FLASH_GAP,
     FLASH_GAP_EDGES_S,
+    FLASH_MOVE_GAP,
     FLASH_RECOVERY,
     FLASH_SLOT_S,
     HISTORY_COLUMNS,
@@ -32,6 +33,7 @@ from thesis.ephys.analyses.glm.dmat import (
     build_unit_history,
     flash_after_exit,
     flash_events,
+    flash_gap_class,
     flash_gap_names,
     flash_recovery,
     spike_history_basis,
@@ -211,19 +213,23 @@ def flash_condition_kernels(
     return out
 
 
-def flash_kernel_levels(trials) -> tuple[float, float]:
+def flash_kernel_levels(trials) -> tuple[float, float, float]:
     """Return the centered values of a flash at the shortest gap and in the fixation.
 
     These are the lowest centered values of the flash-recovery and the
-    flash × move regressors.
+    flash × move regressors. The third value is the fraction of the flashes
+    (the first flash of a trial not counted) in the class of the shortest
+    gaps: the center of the gap class in the flash × move × gap regressor.
     """
-    return float(flash_recovery(trials).min()), float(flash_after_exit(trials).min())
+    period = flash_after_exit(trials)
+    short = (flash_gap_class(trials) == 0)[period != 0]
+    return float(flash_recovery(trials).min()), float(period.min()), float(short.mean())
 
 
 def flash_kernel_at(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
     adapt_levels: dict[str, float] | None,
-    levels: tuple[float, float],
+    levels: tuple[float, float, float],
     gap_ms: float,
     after_exit: bool,
 ) -> np.ndarray:
@@ -232,9 +238,10 @@ def flash_kernel_at(
     With flash kernels by gap class, it is the kernel of the class of that gap.
     With the earlier terms, it is the common kernel plus the fast-adaptation
     and the flash-recovery kernels at the values of that gap. The flash ×
-    fixation kernel is added at the value of the period in both.
+    move kernel is added at the value of the period in both, and the flash ×
+    move × gap kernel at the product of the period and the gap class.
     """
-    shortest_gap, in_fixation = levels
+    shortest_gap, in_fixation, short_fraction = levels
     gap_s = gap_ms / 1000
     classes = flash_gap_names()
     if classes and classes[0] in kernels:
@@ -251,6 +258,13 @@ def flash_kernel_at(
         )
     if FLASH_AFTER_EXIT in kernels:
         by_gap = by_gap + (in_fixation + after_exit) * kernels[FLASH_AFTER_EXIT][1]
+    if FLASH_MOVE_GAP in kernels:
+        short = float(np.searchsorted(FLASH_GAP_EDGES_S, gap_s) == 0)
+        by_gap = by_gap + (
+            (in_fixation + after_exit)
+            * (short - short_fraction)
+            * kernels[FLASH_MOVE_GAP][1]
+        )
     return by_gap
 
 

@@ -10,15 +10,13 @@ condition.
 
 - Kernel of a condition (`results.flash_kernel_at`): the flash kernel of the
   gap class of that condition, plus the flash × move kernel at the value of
-  the period. Conditions (`CONDITIONS`): a flash in the fixation in each of
-  the two gap classes, and a flash after the center exit in the class of the
-  longer gaps.
+  the period. Conditions (`CONDITIONS`): a flash in the fixation (still) and after the center exit
+  (move), in each of the two gap classes. The flash × move × gap kernel is
+  added at the product of the centered period and the centered gap class.
 - Panels a and b (the two kinds of unit): the median kernel over the units
   that fire more after a flash (a) and that fire less (b). Left: a flash in
   the fixation in the two gap classes. Right: a flash in the fixation and
-  after the exit in the class of the longer gaps, with the quartiles as bands. The
-  model has one flash × move kernel for all gap classes, so the change
-  with the period is the same curve in every gap class. Here the kind of a
+  after the exit in the class of the longer gaps, with the quartiles as bands. Here the kind of a
   unit is from its mean response over the two conditions in the fixation
   (above `KIND_LIMIT` or below -`KIND_LIMIT`), so the sign of the curves is by
   selection; the panels show the shape.
@@ -30,8 +28,9 @@ condition.
   the limit.
 - Response of a unit: the mean of its kernel from `RESPONSE_MS`.
 - Panel d (gap): the response at a longer gap against the response at the
-  40 ms gap, one point for each unit. Panel e (period): the response after
-  the exit against the response in the fixation, at a longer gap. Error bars
+  40 ms gap when still, one point for each unit. Panels e and f (period):
+  the response in move against the response when still, at a longer gap (e)
+  and at the 40 ms gap (f). Error bars
   are the SD over the 10 cross-validation folds, in both directions. A point
   outside `AXIS_LIMITS` is not drawn; it is in the statistics, and the number
   of those points is in the output.
@@ -74,6 +73,7 @@ from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, save_figure
 CONDITIONS = {
     "still, 40 ms gap": (40, False),
     "still, 80+ ms gap": (100, False),
+    "move, 40 ms gap": (40, True),
     "move, 80+ ms gap": (100, True),
 }
 FIXATION = ("still, 40 ms gap", "still, 80+ ms gap")
@@ -82,8 +82,17 @@ FIXATION = ("still, 40 ms gap", "still, 80+ ms gap")
 # that comes from one of the two compared responses makes that response more
 # extreme than the other one by selection alone.
 PAIRS = {
-    "gap": ("still, 40 ms gap", "still, 80+ ms gap", ("move, 80+ ms gap",)),
+    "gap": (
+        "still, 40 ms gap",
+        "still, 80+ ms gap",
+        ("move, 40 ms gap", "move, 80+ ms gap"),
+    ),
     "period": ("still, 80+ ms gap", "move, 80+ ms gap", ("still, 40 ms gap",)),
+    "period, 40 ms gap": (
+        "still, 40 ms gap",
+        "move, 40 ms gap",
+        ("still, 80+ ms gap",),
+    ),
 }
 RESPONSE_MS = (40, 100)
 KIND_LIMIT = 0.2
@@ -122,7 +131,11 @@ def main() -> None:
         term: [
             i for i, column in enumerate(names) if column.startswith(f"{term}_basis")
         ]
-        for term in (*dmat.flash_gap_names(), dmat.FLASH_AFTER_EXIT)
+        for term in (
+            *dmat.flash_gap_names(),
+            dmat.FLASH_AFTER_EXIT,
+            dmat.FLASH_MOVE_GAP,
+        )
     }
 
     def kernels(coefficients) -> np.ndarray:
@@ -189,7 +202,7 @@ def main() -> None:
         outer = figure.add_gridspec(3, 1, height_ratios=(0.8, 1.55, 1), hspace=0.6)
         curves = outer[0].subgridspec(1, 4, wspace=0.12)
         maps = outer[1].subgridspec(1, len(CONDITIONS), wspace=0.18)
-        below = outer[2].subgridspec(1, 3, width_ratios=(1, 1, 0.35), wspace=0.55)
+        below = outer[2].subgridspec(1, 3, wspace=0.75)
         # The median kernel of each kind of unit: by gap in the fixation, and in
         # the two periods at the middle gap.
         fixation_mean = mean_of(FIXATION)
@@ -271,7 +284,9 @@ def main() -> None:
                 extent=(lags[0], lags[-1], len(order), 0),
                 interpolation="nearest",
             )
-            axis.text(0, 1.02, name, transform=axis.transAxes, va="bottom", fontsize=7)
+            axis.text(
+                0, 1.02, name, transform=axis.transAxes, va="bottom", fontsize=6.5
+            )
             axis.set_xlabel("time from flash (ms)")
             if position:
                 axis.tick_params(labelleft=False)
@@ -314,7 +329,7 @@ def main() -> None:
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
         for letter, axis in zip(
-            "abcde",
+            "abcdef",
             (curve_axes[0], curve_axes[2], map_axes[0], *pair_axes),
             strict=True,
         ):
