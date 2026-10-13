@@ -703,6 +703,39 @@ in brackets).
 - A half has half of the data, so the final refit is more stable than this
   test shows.
 
+### Flash response when still and when moving, with the model
+
+`flash_by_period.py` joins the raw comparison of
+`stim_responses_by_locomotion.py` with the model (`flash_by_period.svg`, both
+sessions). In each trial: the last flash in the fixation (still) and the first
+flash after the center exit (moving). Response: the mean rate 40 to 100 ms
+after the flash, with no baseline subtraction. Change: log(moving / still).
+"Moving" is a task period, not a measure of locomotion.
+
+| Measure | GRB006 (112 units, 285 trials) | GRB064 (56 units, 143 trials) |
+| --- | ---: | ---: |
+| Median response, still and moving (spikes/s) | 6.1 and 12.7 | 7.8 and 14.0 |
+| Observed change, median | +0.59 (91 units higher, p = 3e-13) | +0.19 (31 units higher, p = 0.017) |
+| Model without flash × fixation: variance of the change explained | 0.60 | 0.31 |
+| Observed minus that prediction, median | +0.11 (p = 0.034) | −0.37 (p = 5e-7) |
+| Full model: variance of the change explained | 0.91 | 0.67 |
+| Observed minus the full model, median | 0.00 (p = 0.73) | −0.26 (p = 7e-8) |
+
+- GRB006: the other terms (the end of the fixation effect, withdrawal,
+  choice, motion energy, spike history) give most of the change, 0.44 of 0.59
+  in the median. The flash × fixation kernel gives the rest, and the full
+  model predicts the change of each unit.
+- GRB064: the model predicts a larger change than the observed one. The
+  error is in the first flash after the exit: summed over units, the model
+  gives 1.18 times the observed response to that flash (median 34 ms after
+  the exit), and 0.95 for the later flashes after the exit (0.99 and 0.93 in
+  GRB006). So in GRB064 the response to a flash just after the exit is
+  smaller than the response to the later flashes, and the model has one
+  kernel for all flashes after the exit. The cause is not tested.
+- The model without the kernel is not fit again (the weights of the kernel
+  are set to 0), and the final refit is fit on all trials. Units with a
+  response below 1 spike/s in a period are left out (55 and 20 units).
+
 ### Flash kernels by gap class
 
 Tests of 2026-10-12 (`gap_class_grid.py`, 20 selection units). The response to
