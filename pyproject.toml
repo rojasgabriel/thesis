@@ -18,7 +18,7 @@ dependencies = [
     "labdata>=0.1.15",
     "matplotlib>=3.10.0",
     "numpy>=2.4.6",
-    "pandas==2.3.3",
+    "pandas==3.0.6",
     "scipy>=1.15.3",
     "scikit-learn>=1.7.0",
     "spks",
