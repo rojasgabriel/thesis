@@ -716,9 +716,9 @@ def main() -> None:
         scale = reference.mean((0, 2))
         used = scale > 0
         curves = (
-            (reference[0], TASK, "in fixation"),
-            (by_energy[0], "0.35", "after exit,\nless motion energy"),
-            (by_energy[1], MOTION, "after exit,\nmore motion energy"),
+            (reference[0], TASK, "still"),
+            (by_energy[0], "0.35", "move,\nless motion energy"),
+            (by_energy[1], MOTION, "move,\nmore motion energy"),
         )
         for (values, color, label), height in zip(
             curves, (0.3, 0.98, 0.72), strict=True
