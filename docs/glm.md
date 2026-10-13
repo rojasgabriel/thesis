@@ -924,6 +924,60 @@ model is fit to them (3 simulations for each unit).
   read from the weights alone; use the values with the leak taken out, and the
   model-free measures of `hold_effect.py` for the size of the fixation effect.
 
+### A weaker penalty on the fixation kernel removes the leak
+
+The leak comes from the L2 penalty. With the same penalty on all terms, the
+fit makes the fixation kernel too small, and the flash × move kernels take the
+rest of the level: in the simulations, the fixation kernel keeps the full
+level at a penalty of 1e-5, 80% at 1e-4, and 39% at 1e-3.
+
+Test on simulated spikes of every unit (the true flash × move effect is 0;
+a scratch test, not a module):
+
+| Way to fit the fixation term | Leak, GRB006 | GRB064 | Level kept, GRB006 | GRB064 |
+| --- | ---: | ---: | ---: | ---: |
+| Same penalty on all terms | +0.086 | +0.058 | 63% | 78% |
+| One shared time course for all units, one weight for each unit | +0.093 | +0.058 | 56% | 77% |
+| Weaker penalty on all terms (1e-5) | +0.073 | +0.049 | 83% | 95% |
+| Penalty 100 times weaker on the fixation kernel only | +0.030 | −0.003 | 101% | 103% |
+
+- A shared time course does not remove the leak: its weight has the same
+  penalty.
+- `HOLD_PENALTY_SCALE = 10` makes the columns of the fixation kernel 10 times
+  larger than a z-score, so the penalty on its weights is 100 times weaker.
+  The saved scale of the columns has the factor in it, so the kernels are
+  read as before. Factors of 30 and 100 stop the convergence of the fit.
+- Prediction on real data is the same: on 80 units the same penalty is not
+  different from the weaker one (`hold_grid`, −0.04%, 38 of 80 units better,
+  p = 0.75), and on all units the cross-validated D² does not change (GRB006:
+  92 of 167 units better, p = 0.52; GRB064: 46 of 76, p = 0.063).
+
+Both sessions were fit again with the weaker penalty (design of 2026-10-13,
+12 regressors; the fits with the same penalty are in `_same_penalty`), and
+`leak_test.py` was run on the new fits:
+
+| Median over units, Δ log rate | GRB006, same penalty | GRB006, weaker | GRB064, same penalty | GRB064, weaker |
+| --- | ---: | ---: | ---: | ---: |
+| Fixation level (kernel, 200 to 450 ms) | −0.24 | −0.54 | −0.46 | −0.71 |
+| Simulated fixation level that the refit keeps | 59% | 89% | 79% | 102% |
+| Flash kernel, move minus still, 80+ ms gap | +0.24 | +0.13 | −0.05 | −0.14 |
+| Leak at the 80+ ms gap | +0.08 | +0.02 (p = 2e-7) | +0.06 | 0.00 (p = 0.82) |
+| Real minus leak, 80+ ms gap | +0.15 | +0.09 (p = 3e-5) | −0.13 | −0.16 (p = 3e-7) |
+| Flash kernel, move minus still, 40 ms gap | +0.06 | 0.00 | −0.01 | −0.04 |
+| Real minus leak, 40 ms gap | +0.04 | −0.01 (p = 0.53) | −0.04 | −0.06 (p = 0.003) |
+
+- The fixation level of the kernel is now −0.54 in GRB006. The raw rate in
+  the fixation is 0.56 of the rate before the first flash (log −0.58), so the
+  kernel now agrees with the model-free measure.
+- The leak is gone in GRB064 and small in GRB006 (+0.02).
+- The flash response at the 80+ ms gap is a little higher in move in GRB006
+  (+0.09 with the leak taken out) and lower in move in GRB064 (−0.16). The two
+  animals have opposite signs. At the 40 ms gap there is no change in GRB006
+  and a small decrease in GRB064.
+- The numbers of the sections before this one (flash kernels by period,
+  kernel stability, collinearity, unique ΔD²) are from the fits with the same
+  penalty.
+
 ### Flash kernels by gap class
 
 Tests of 2026-10-12 (`gap_class_grid.py`, 20 selection units). The response to

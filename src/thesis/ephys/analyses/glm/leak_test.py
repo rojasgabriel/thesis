@@ -85,6 +85,7 @@ SEED = 0
 MAX_COUNT = 0.5
 RESPONSE_MS = (40, 100)
 LEVEL_MS = (200, 450)
+MIN_LEVEL = 0.1
 GAPS_MS = {"80+ ms gap": 100, "40 ms gap": 40}
 REMOVED = (dmat.FLASH_AFTER_EXIT, dmat.FLASH_MOVE_GAP)
 AXIS_LIMITS = (-1.0, 1.5)
@@ -241,8 +242,13 @@ def main() -> None:
             entry["fixation level"] = {
                 "median_simulated": float(np.median(simulated_level)),
                 "median_refit": float(np.median(leak[:, 2])),
+                # For the units with a level: the ratio has no meaning near 0.
                 "median_refit_over_simulated": float(
-                    np.median(leak[:, 2] / simulated_level)
+                    np.median(
+                        (leak[:, 2] / simulated_level)[
+                            np.abs(simulated_level) > MIN_LEVEL
+                        ]
+                    )
                 ),
             }
             entry["median_spikes_simulated_over_real"] = float(
