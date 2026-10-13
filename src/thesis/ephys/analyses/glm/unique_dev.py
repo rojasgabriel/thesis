@@ -38,6 +38,7 @@ from scipy.stats import sem
 from thesis.ephys.analyses.glm.dmat import (
     DRIFT,
     HISTORY_COLUMNS,
+    PREVIOUS_SIDE,
     _design_with_history,
     _load_windows,
     build_unit_history,
@@ -258,8 +259,9 @@ def _block_task(job: dict) -> dict:
         blocks = [name for name in order if name != "task"]
 
         def shuffle_of(name):
-            # Session drift is constant inside a trial: shuffle it over trials.
-            return between if name == DRIFT else within
+            # Session drift and the previous side do not change in the part of
+            # a trial where they are on: shuffle them over trials.
+            return between if name in (DRIFT, PREVIOUS_SIDE) else within
 
         for name in blocks:
             put(groups[name], shuffle_of(name))

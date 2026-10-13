@@ -163,6 +163,13 @@ def build_trial_table(
     trial_table["trial_start_s"] = trial_starts_s[:n_trials]
     trial_table["prev_rewarded"] = trial_table["rewarded"].shift(1)
     trial_table["prev_response"] = trial_table["response"].shift(1)
+    # The side of the last response before this trial: the trial before can have
+    # no response (early withdrawal), so go back to the last trial with one.
+    # ponytail: from the response, not from the side-port pokes; use the poke
+    # times if the animal goes to a side port in trials with no response.
+    trial_table["last_side"] = (
+        trial_table["response"].where(trial_table["response"] != 0).ffill().shift(1)
+    )
     trial_table["stim_category"] = pd.cut(
         trial_table["visual_stim_rate_hz"] - trial_table["category_boundary_hz"],
         bins=[-np.inf, -1e-9, 1e-9, np.inf],
@@ -311,6 +318,7 @@ def build_trial_table(
             "early_withdrawal",
             "prev_response",
             "prev_rewarded",
+            "last_side",
             "trial_start_s",
             "center_entry_s",
             "first_stim_times_s",

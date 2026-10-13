@@ -98,6 +98,13 @@ IN_PORT = "in_port"
 # from 2026-10-12 (`side_term_test.py`, `candidate_terms.py`).
 SIDE_COLUMN = True
 SIDE = "side_after_exit"
+# One column for the side of the last response port that the animal went to
+# before this trial (`trials.last_side`), from the start of the window to the
+# center exit: the side from which the animal comes to the center port. On raw
+# rates, about half of the units differ by it. Not tested in the model yet.
+# `unique_dev.py` shuffles it over trials.
+PREVIOUS_SIDE_COLUMN = True
+PREVIOUS_SIDE = "previous_side"
 # Terms that were tested on all units with the unique-deviance step
 # (`candidate_terms.py`). In the model from 2026-10-12.
 # A kernel on the center entry (some units respond to the entry). Off from
@@ -659,6 +666,21 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "coding": "+1 (right) or -1 (left) from the center exit on, else 0",
             }
         )
+    if PREVIOUS_SIDE_COLUMN:
+        # +1 (right) or -1 (left) up to the center exit; 0 from the exit on, and
+        # in the trials before the first response of the session.
+        last = np.nan_to_num(trials["last_side"].to_numpy(dtype=float))[:, None]
+        values = np.column_stack((values, (last * before_exit).ravel()))
+        manifest.append(
+            {
+                "name": PREVIOUS_SIDE,
+                "group": "task",
+                "events": int(np.count_nonzero(last)),
+                "columns": 1,
+                "coding": "+1 (right) or -1 (left) for the side of the last "
+                "response, up to the center exit, else 0",
+            }
+        )
     if SESSION_DRIFT:
         drift = session_drift_columns(np.asarray(alignments, dtype=float))
         values = np.column_stack((values, np.repeat(drift, times.shape[1], axis=0)))
@@ -907,6 +929,7 @@ def _common_design_is_current(output: Path) -> bool:
         for name, columns, used in (
             (FIXATION, 1, FIXATION_COLUMN),
             (SIDE, 1, SIDE_COLUMN),
+            (PREVIOUS_SIDE, 1, PREVIOUS_SIDE_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
             (IN_PORT, 1, IN_PORT_COLUMN),
         )

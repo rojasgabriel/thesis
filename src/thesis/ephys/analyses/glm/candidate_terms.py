@@ -16,14 +16,14 @@ own control.
   regressors of the design, and the fraction of units that are reliably worse
   with it. The fraction of units that need it is also given for the units
   outside the 20 selection units.
-- The shuffle is within a trial, so it cannot test a term that is constant in
-  a trial (session drift is not a candidate for this reason).
+- The shuffle is within a trial. Session drift and the previous side do not
+  change in a trial, so they are shuffled over trials (`unique_dev.py`).
 
 Units (`--units`, all by default), trials, alignment (first flash), baseline,
 and exclusions are those of `fit.py`. The sampling unit is the unit. The fit
 goes to a directory next to the session directory (suffix `ROOT_SUFFIX`); a
-stage that is done is not run again. The script writes `candidate_terms.json`
-in the session directory.
+stage that is done is not run again. The script writes
+`candidate_terms<ROOT_SUFFIX>.json` in the session directory.
 
     uv run python -m thesis.ephys.analyses.glm.candidate_terms
 """
@@ -41,13 +41,10 @@ from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.hold_effect import _fit_variant
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 
-ROOT_SUFFIX = "_candidates"
-CANDIDATES = {
-    "SIDE_COLUMN": dmat.SIDE,
-    "FLASH_AFTER_EXIT_TERM": dmat.FLASH_AFTER_EXIT,
-    "ENTRY_KERNEL": dmat.ENTRY,
-    "FLASH_RECOVERY_TERM": dmat.FLASH_RECOVERY,
-}
+# First run (suffix "_candidates", output `candidate_terms.json`): side after
+# exit, flash × fixation, center entry, and flash recovery.
+ROOT_SUFFIX = "_previous_side"
+CANDIDATES = {"PREVIOUS_SIDE_COLUMN": dmat.PREVIOUS_SIDE}
 
 
 def main() -> None:
@@ -101,7 +98,7 @@ def main() -> None:
     )
     full = np.asarray([item["complete_test_deviance_explained"] for item in records])
     stats["median_d2_of_the_design_with_all_candidates"] = float(np.median(full))
-    output = args.root / "candidate_terms.json"
+    output = args.root / f"candidate_terms{ROOT_SUFFIX}.json"
     output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
     print(output)
