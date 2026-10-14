@@ -28,17 +28,22 @@ unit has one kernel of each regressor from each half.
   for a regressor with one column.
 - Each measure is given for all units and for the units that need the
   regressor (unique ΔD² above 0 over the folds, the test of `inclusion.py`).
-- Figure: a, the kernels of the example unit from the two halves. b, the
-  agreement of each kernel regressor in each unit (points; the line is the
+- Figure: a, the kernels of the example unit of GRB006 from the two halves.
+  b, the agreement of each kernel regressor in each unit (points, GRB006 on
+  the left and GRB064 on the right of each regressor; the line is the
   median). A point below `DISPLAY_FLOOR` is drawn at the floor; it is in the
-  statistics, and the count is in the output. c, the response of each unit in
-  one half against the other half.
+  statistics, and the count is in the output. c (GRB006) and d (GRB064), the
+  response of each unit in one half against the other half.
 
 Units (`--units`), trials, alignment (first flash), baseline, and exclusions
-are those of `fit.py`. The sampling unit is the unit. The script writes
-`kernel_reliability.svg`, `.json`, and `.npz` in the session directory.
+are those of `fit.py`. The sampling unit is the unit, and each measure is
+within one animal (`SESSIONS`); the units of the two animals are not pooled.
+With `--refit`, the script fits the two halves of each session and writes
+`kernel_reliability.npz` and `.json` in the session directory. It then draws
+`kernel_reliability.svg` from those files and writes `kernel_reliability.json`
+(by session) in `--out`.
 
-    uv run python -m thesis.ephys.analyses.glm.kernel_reliability
+    uv run python -m thesis.ephys.analyses.glm.kernel_reliability [--refit]
 """
 
 from __future__ import annotations
@@ -61,6 +66,7 @@ from thesis.ephys.analyses.glm.fit import (
     fit_poisson_at_alpha,
     load_unit_records,
 )
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.inclusion import ALPHA
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS
 from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID, fitted_kernels
@@ -106,17 +112,10 @@ def agreement(first: np.ndarray, second: np.ndarray) -> np.ndarray:
     return 1 - ((first - second) ** 2).sum(1) / (first**2 + second**2).sum(1)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--subject", default="GRB006")
-    parser.add_argument("--session", default="20240821_121447")
-    parser.add_argument("--units", type=cli._unit_set, default="all")
-    parser.add_argument("--workers", type=int, default=6)
-    args = parser.parse_args()
-    model = cli.PoissonGLM(
-        args.subject, args.session, Path(f"figures/glm/{args.subject}_{args.session}")
-    )
-    checkpoints = model.fit_dir(args.units) / "checkpoints"
+def fit_session(subject: str, session: str, unit_set: str, workers: int) -> None:
+    """Fit each unit of one session on the two halves; write the `.npz` and `.json`."""
+    model = cli.PoissonGLM(subject, session, Path(f"figures/glm/{subject}_{session}"))
+    checkpoints = model.fit_dir(unit_set) / "checkpoints"
     final = {
         int(item["unit_id"]): item
         for item in load_unit_records(checkpoints, "unit_*_final.json")
@@ -126,8 +125,8 @@ def main() -> None:
         for item in load_unit_records(checkpoints / "unique", "unit_*.json")
     }
     table = fetch_unit_table(
-        args.subject,
-        args.session,
+        subject,
+        session,
         unit_criteria_id=1,
         stability_param_id=0,
         include_metrics=False,
@@ -142,7 +141,7 @@ def main() -> None:
         }
         for unit in unit_ids
     ]
-    with Pool(args.workers, _load, (model.windows, model.design)) as pool:
+    with Pool(workers, _load, (model.windows, model.design)) as pool:
         fits = pool.map(_fit_halves, jobs)
     bases = dmat.task_temporal_bases()
     history_ms = 1 + 1000 * dmat.spike_history_basis().basis_time
@@ -156,7 +155,7 @@ def main() -> None:
         name: [np.asarray([fit[f"{name}__{half}"] for fit in fits]) for half in (0, 1)]
         for name in names
     }
-    stats = {"subject": args.subject, "session": args.session, "units": len(unit_ids)}
+    stats = {"subject": subject, "session": session, "units": len(unit_ids)}
     arrays = {"unit_ids": np.asarray(unit_ids)}
     for name in names:
         first, second = halves[name]
@@ -209,90 +208,153 @@ def main() -> None:
         arrays[f"response__{name}"] = np.asarray(response)
         arrays[f"needs__{name}"] = needs
         stats[name] = entry
-    kernels = [name for name in names if name in times]
+    (model.root / "kernel_reliability.json").write_text(json.dumps(stats, indent=1))
+    np.savez(model.root / "kernel_reliability.npz", **arrays)
+
+
+def kernel_times() -> dict[str, np.ndarray]:
+    """Return the time points (ms) of each kernel regressor."""
+    times = {
+        name: 1000 * basis.basis_time
+        for name, basis in dmat.task_temporal_bases().items()
+    }
+    times["history"] = 1 + 1000 * dmat.spike_history_basis().basis_time
+    return times
+
+
+def draw_responses(figure, axes, arrays: dict, names: list, subject: str) -> dict:
+    """Draw the response of each unit in the two halves; return the hidden counts."""
+    outside = {}
+    for ax, name in zip(axes, names):
+        label, color = REGRESSORS[name]
+        first, second = arrays[f"response__{name}"]
+        needs = arrays[f"needs__{name}"]
+        ax.scatter(first[~needs], second[~needs], s=5, color="0.75", lw=0)
+        ax.scatter(first[needs], second[needs], s=5, color=color, lw=0)
+        limits = np.percentile(np.concatenate((first, second)), [1, 99])
+        ax.plot(limits, limits, color=REFERENCE_COLOR, lw=0.8, ls="--")
+        ax.set_xlim(limits)
+        ax.set_ylim(limits)
+        ax.set_aspect("equal")
+        ax.set_title(label, color=color, fontsize=7)
+        ax.tick_params(labelsize=6)
+        outside[name] = int(
+            np.sum(
+                (np.minimum(first, second) < limits[0])
+                | (np.maximum(first, second) > limits[1])
+            )
+        )
+    axes[0].set_ylabel(f"{subject}: response,\nodd trials (Δ log rate)")
+    return outside
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--units", type=cli._unit_set, default="all")
+    parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument(
+        "--refit",
+        action="store_true",
+        help="fit the two halves of each session again before the figure",
+    )
+    args = parser.parse_args()
+    if args.refit:
+        for name in SESSIONS:
+            subject, session = name.split("_", 1)
+            fit_session(subject, session, args.units, args.workers)
+    saved = []
+    for name in SESSIONS:
+        path = args.out / name / "kernel_reliability.npz"
+        if not path.exists():
+            raise FileNotFoundError(f"{path}: run with --refit first.")
+        with np.load(path) as values:
+            saved.append({key: values[key] for key in values.files})
+    stats = {
+        name: json.loads((args.out / name / "kernel_reliability.json").read_text())
+        for name in SESSIONS
+    }
+    subjects = [name.split("_")[0] for name in SESSIONS]
+    times = kernel_times()
+    # Regressors in the order of the main figure.
+    names = [n for n in REGRESSORS if f"response__{n}" in saved[0]]
+    kernels = [n for n in names if f"kernel__{n}" in saved[0]]
+    arrays = saved[0]
+    unit_ids = arrays["unit_ids"].tolist()
     example = unit_ids.index(EXAMPLE_UNIT_ID) if EXAMPLE_UNIT_ID in unit_ids else 0
-    stats["example_unit"] = unit_ids[example]
     rng = np.random.default_rng(0)
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(11, 6.6), layout="constrained")
-        rows = figure.subfigures(3, 1, height_ratios=(1, 1.05, 0.8))
+        figure = plt.figure(figsize=(11, 8.6), layout="constrained")
+        rows = figure.subfigures(4, 1, height_ratios=(1, 1.05, 0.8, 0.8))
         top = rows[0].subplots(1, len(kernels))
         for ax, name in zip(top, kernels):
             label, color = REGRESSORS[name]
             for half, style in enumerate(("-", "--")):
-                ax.plot(times[name], halves[name][half][example], color=color, ls=style)
+                ax.plot(
+                    times[name],
+                    arrays[f"kernel__{name}"][half, example],
+                    color=color,
+                    ls=style,
+                )
             ax.axhline(0, color=REFERENCE_COLOR, lw=0.8, ls="--")
             ax.set_title(label, color=color, fontsize=8)
             ax.set_xlabel("time (ms)")
-        top[0].set_ylabel("Δ log rate")
-        top[-1].text(
+        top[0].set_ylabel(f"{subjects[0]} example unit\nΔ log rate")
+        top[0].text(
             0.98,
-            0.3,
+            0.08,
             "even trials\nodd trials (dashed)",
-            transform=top[-1].transAxes,
+            transform=top[0].transAxes,
             ha="right",
             fontsize=6.5,
         )
         middle = rows[1].subplots()
         for position, name in enumerate(kernels):
             label, color = REGRESSORS[name]
-            values = np.maximum(arrays[f"agreement__{name}"], DISPLAY_FLOOR)
-            needs = arrays[f"needs__{name}"]
-            jitter = rng.uniform(-0.25, 0.25, len(values))
-            middle.scatter(
-                position + jitter[~needs], values[~needs], s=6, color="0.75", lw=0
-            )
-            middle.scatter(
-                position + jitter[needs], values[needs], s=6, color=color, lw=0
-            )
-            middle.hlines(
-                np.median(arrays[f"agreement__{name}"][needs]),
-                position - 0.35,
-                position + 0.35,
-                color="black",
-                lw=1.5,
-            )
+            for side, values_of in zip((-0.2, 0.2), saved):
+                agree = values_of[f"agreement__{name}"]
+                values = np.maximum(agree, DISPLAY_FLOOR)
+                needs = values_of[f"needs__{name}"]
+                x = position + side + rng.uniform(-0.12, 0.12, len(values))
+                middle.scatter(x[~needs], values[~needs], s=5, color="0.75", lw=0)
+                middle.scatter(
+                    x[needs],
+                    values[needs],
+                    s=5,
+                    color=color,
+                    alpha=1 if side < 0 else 0.5,
+                    lw=0,
+                )
+                middle.hlines(
+                    np.median(agree[needs]),
+                    position + side - 0.15,
+                    position + side + 0.15,
+                    color="black",
+                    lw=1.5,
+                )
         middle.axhline(0, color=REFERENCE_COLOR, lw=0.8, ls="--")
         middle.set_xticks(range(len(kernels)), [REGRESSORS[n][0] for n in kernels])
         for tick, name in zip(middle.get_xticklabels(), kernels):
             tick.set_color(REGRESSORS[name][1])
         middle.set_ylabel("agreement of the two halves\n(1 = equal kernels)")
-        middle.text(
-            1.0,
-            0.02,
-            "color: units that need the regressor; gray: other units\n"
-            "line: median of the units that need it",
-            transform=middle.transAxes,
-            ha="right",
-            fontsize=6.5,
+        middle.set_title(
+            f"left: {subjects[0]}, right: {subjects[1]}. Color: units that need the "
+            "regressor; gray: other units; line: median of the units that need it",
+            fontsize=7,
+            loc="left",
         )
-        bottom = rows[2].subplots(1, len(names))
-        for ax, name in zip(bottom, names):
-            label, color = REGRESSORS[name]
-            first, second = arrays[f"response__{name}"]
-            needs = arrays[f"needs__{name}"]
-            ax.scatter(first[~needs], second[~needs], s=5, color="0.75", lw=0)
-            ax.scatter(first[needs], second[needs], s=5, color=color, lw=0)
-            limits = np.percentile(np.concatenate((first, second)), [1, 99])
-            ax.plot(limits, limits, color=REFERENCE_COLOR, lw=0.8, ls="--")
-            ax.set_xlim(limits)
-            ax.set_ylim(limits)
-            ax.set_aspect("equal")
-            ax.set_title(label, color=color, fontsize=7)
-            ax.tick_params(labelsize=6)
-            stats[name]["units_outside_the_axis_limits"] = int(
-                np.sum(
-                    (np.minimum(first, second) < limits[0])
-                    | (np.maximum(first, second) > limits[1])
-                )
-            )
-        bottom[0].set_ylabel("response, odd trials\n(Δ log rate)")
-        rows[2].supxlabel("response, even trials (Δ log rate)", fontsize=9)
+        bottoms = []
+        for row, values_of, subject, name in zip(rows[2:], saved, subjects, SESSIONS):
+            axes = row.subplots(1, len(names))
+            outside = draw_responses(figure, axes, values_of, names, subject)
+            for regressor, count in outside.items():
+                stats[name][regressor]["units_outside_the_axis_limits"] = count
+            bottoms.append(axes[0])
+        rows[3].supxlabel("response, even trials (Δ log rate)", fontsize=9)
         label_panels([top[0], middle], x=-0.02, y=1.08)
-        label_panels([None, None, bottom[0]], x=-0.75, y=1.2)
-        print(save_figure(figure, model.root / "kernel_reliability"))
-    (model.root / "kernel_reliability.json").write_text(json.dumps(stats, indent=1))
-    np.savez(model.root / "kernel_reliability.npz", **arrays)
+        label_panels([None, None, *bottoms], x=-0.75, y=1.2)
+        print(save_figure(figure, args.out / "kernel_reliability"))
+    (args.out / "kernel_reliability.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 
 

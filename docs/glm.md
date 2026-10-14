@@ -871,7 +871,7 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 | Design optimization (supplement) | `design_optimization.py`, `collinearity.py`, `parameter_recovery.py` | step 1: the six design grids on 80 units of GRB006, each with its test of prediction; step 2, in GRB006 and the held-out GRB064: the collinearity of the design in use (variance inflation, condition indices, shared direction of each pair of regressors) and the parameter recovery of each regressor |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
 | Checks of the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
-| Kernel stability (supplement) | `kernel_reliability.py` | the kernels from two halves of the trials |
+| Kernel stability (supplement) | `kernel_reliability.py` | the kernels from two halves of the trials; both sessions |
 | Leak test (supplement) | `leak_test.py` | the flash × move effect that the model makes when none is simulated, against the real effect |
 | Flash against motion energy | `kernel_comparison.py` | the weights of the two terms over units; descriptive |
 
@@ -933,11 +933,13 @@ other figures:
   model has an intercept. The initiation, the choice, the previous choice,
   and each motion-energy PC are one column each.
 - **Kernel stability (`kernel_reliability.svg`).** Each unit is fit on the
-  even and on the odd trials. **a**, The kernels of the example unit from the
-  two halves. **b**, The agreement of the two kernels of each unit, 1 − |a −
-  b|² / (|a|² + |b|²), for each kernel regressor (color: units that need the
-  regressor; gray: other units; line: the median of the units that need it).
-  **c**, The response of each unit in one half against the other half.
+  even and on the odd trials. **a**, The kernels of the example unit (GRB006)
+  from the two halves. **b**, The agreement of the two kernels of each unit,
+  1 − |a − b|² / (|a|² + |b|²), for each kernel regressor, GRB006 on the left
+  and GRB064 on the right (color: units that need the regressor; gray: other
+  units; line: the median of the units that need it). **c, d**, The response
+  of each unit in one half against the other half, in GRB006 (c) and GRB064
+  (d).
 - **Leak test (`leak_test.svg`).** For each unit, spikes are
   simulated from its fitted model with the flash × move kernels set to 0, and
   the full model is fit to them. One row for each session. **a**, The real
