@@ -18,8 +18,8 @@ movement of that specific trial.
 A shuffle permutes design rows among the valid bins of each trial. All columns
 of a block move together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
-three broad groups (task, video, history) and the eight groups in
-`DETAILED_GROUPS`.
+three broad groups (task, video, history) and each regressor of the design
+(the task manifest of the saved design).
 
 Units, event alignment, excluded bins and units, and the D² null (a constant
 rate equal to the fit-trial mean) are the same as in `fit.py`. The sampling
@@ -58,16 +58,6 @@ from thesis.ephys.units import fetch_unit_table
 
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
-DETAILED_GROUPS = (
-    "visual_flash",
-    "flash_adaptation",
-    "fixation",
-    "hold",
-    "withdrawal",
-    "video",
-    "history",
-)
-GROUP_ORDER = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
 RELIABLE_ALPHA = 0.05
 UNIQUE = "unique_test_deviance_explained"
 MAXIMAL = "maximal_test_deviance_explained"
