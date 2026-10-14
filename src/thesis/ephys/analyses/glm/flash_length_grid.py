@@ -31,7 +31,7 @@ import argparse
 from pathlib import Path
 
 from thesis.ephys.analyses.glm import cli
-from thesis.ephys.analyses.glm.adaptation_grid import score_designs
+from thesis.ephys.analyses.glm.grid import score_designs
 
 DESIGNS = {
     "150": {"FLASH_WINDOW_S": 0.15, "FLASH_BASES": 8},

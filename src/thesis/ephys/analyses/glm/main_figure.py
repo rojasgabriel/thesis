@@ -92,17 +92,12 @@ VISUAL, TASK, MOTION, HISTORY = (
 DRIFT_COLOR = "0.4"  # not a variable of the task
 REGRESSORS = {
     "history": ("spike history", HISTORY),
-    "visual_flash": ("visual flash", VISUAL),
-    "flash_adaptation": ("fast adaptation", VISUAL),
-    "flash_recovery": ("flash recovery", VISUAL),
+    "visual_flash": ("flash", VISUAL),
     "flash_gap_1": ("flash, 40 ms gap", VISUAL),
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × move", VISUAL),
-    "flash_previous_side": ("flash × previous side", VISUAL),
     "flash_move_gap": ("flash × move × gap", VISUAL),
-    "flash_motion": ("flash × motion energy", VISUAL),
-    "center_entry": ("center entry", TASK),
     "fixation": ("initiation", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),

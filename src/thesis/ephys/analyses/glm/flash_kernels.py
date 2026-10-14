@@ -147,7 +147,7 @@ def main() -> None:
         }
         return np.stack(
             [
-                flash_kernel_at(terms, None, levels, gap, after)
+                flash_kernel_at(terms, levels, gap, after)
                 for gap, after in CONDITIONS.values()
             ]
         )

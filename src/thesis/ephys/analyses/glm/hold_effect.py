@@ -90,7 +90,6 @@ from scipy.stats import sem, wilcoxon
 from sklearn.linear_model import PoissonRegressor
 
 from thesis.ephys.analyses.glm import cli, dmat, port_vs_stillness
-from thesis.ephys.analyses.glm.adaptation_grid import INPUTS
 from thesis.ephys.analyses.glm.fit import (
     analysis_unit_indices,
     build_unit_counts,
@@ -99,6 +98,7 @@ from thesis.ephys.analyses.glm.fit import (
     load_unit_records,
     refit_final,
 )
+from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,

@@ -36,18 +36,13 @@ import argparse
 from pathlib import Path
 
 from thesis.ephys.analyses.glm import cli
-from thesis.ephys.analyses.glm.adaptation_grid import score_designs
+from thesis.ephys.analyses.glm.grid import score_designs
 
 # With no gap classes there is no flash × move × gap term: it is the product of
 # the period and the class of the shortest gaps.
 NO_CLASSES = {"FLASH_GAP_EDGES_S": (), "FLASH_MOVE_GAP_TERM": False}
 DESIGNS = {
-    "1 kernel": {
-        **NO_CLASSES,
-        "SECOND_FLASH_TERM": False,
-        "FLASH_RECOVERY_TERM": False,
-    },
-    "gap terms": {**NO_CLASSES, "SECOND_FLASH_TERM": True, "FLASH_RECOVERY_TERM": True},
+    "1 kernel": NO_CLASSES,
     "40 | 80+": {"FLASH_GAP_EDGES_S": (0.05,)},
     "40 | 80-120 | 160+": {"FLASH_GAP_EDGES_S": (0.05, 0.13)},
     "40 | 80 | 120+": {"FLASH_GAP_EDGES_S": (0.05, 0.09)},

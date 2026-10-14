@@ -19,14 +19,12 @@ from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
     FIXATION,
     FLASH_AFTER_EXIT,
+    FLASH_COMMON,
     FLASH_GAP,
     FLASH_GAP_EDGES_S,
     FLASH_MOVE_GAP,
-    FLASH_RECOVERY,
-    FLASH_SLOT_S,
     HISTORY_COLUMNS,
     HOLD,
-    RECENT_FLASH_S,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
@@ -35,7 +33,6 @@ from thesis.ephys.analyses.glm.dmat import (
     flash_events,
     flash_gap_class,
     flash_gap_names,
-    flash_recovery,
     spike_history_basis,
     task_temporal_bases,
     training_zscore,
@@ -48,13 +45,7 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-# The design codes flashes as a common kernel plus a centered term that is 1
-# for a flash that follows another within `dmat.RECENT_FLASH_S`. Each displayed
-# flash condition maps to the key of its centered value in the design metadata.
 EXAMPLE_UNIT_ID = 197
-FLASH_COMMON = "visual_flash"
-FLASH_ADAPT = "flash_adaptation"
-FLASH_CONDITIONS = {"flash_isolated": "isolated", "flash_repeat": "repeat"}
 
 
 def fitted_trial_contributions(
@@ -150,34 +141,6 @@ def fitted_kernels(
     return kernels
 
 
-def flash_condition_display(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    task_names: list[str],
-    adapt_levels: dict[str, float],
-) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
-    """Replace the raw flash regressors with one kernel per flash condition.
-
-    A flash's log-rate contribution is the common kernel plus the adaptation
-    kernel scaled by its centered adaptation index. Evaluating that at
-    representative levels gives one interpretable kernel per condition.
-    """
-    if FLASH_COMMON not in kernels or FLASH_ADAPT not in kernels:
-        return kernels, task_names  # flash kernels by gap class: shown as they are
-    flash_blocks = (FLASH_COMMON, FLASH_ADAPT)
-    display = {
-        name: values for name, values in kernels.items() if name not in flash_blocks
-    }
-    times, common = kernels[FLASH_COMMON]
-    adapt = kernels[FLASH_ADAPT][1]
-    for name, level_key in FLASH_CONDITIONS.items():
-        values = common + adapt_levels[level_key] * adapt
-        if not np.isfinite(values).all():
-            raise ValueError("Combined flash kernels must be finite.")
-        display[name] = (times, values)
-    remaining = [name for name in task_names if name not in flash_blocks]
-    return display, [*FLASH_CONDITIONS, *remaining]
-
-
 # Flash kernels of the kernel figure: the gap from the flash before (ms), for a
 # flash in the fixation, and the two periods for a flash at `PERIOD_GAP_MS`.
 FLASH_GAPS_MS = (40, 100)  # one gap in each gap class of the design
@@ -185,77 +148,58 @@ PERIOD_GAP_MS = 100
 
 
 def flash_condition_kernels(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    adapt_levels: dict[str, float],
-    trials,
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]], trials
 ) -> dict[str, np.ndarray]:
     """Return the flash kernel of the model for some flashes (Δ log rate).
 
-    The model has one common flash kernel and three kernels that change it:
-    fast adaptation (a flash within `RECENT_FLASH_S` of another), flash
-    recovery (the log of the gap from the flash before), and flash × move
-    (a flash after the center exit against one in the fixation). Each is
-    scaled by a centered value. The kernel of a flash is the sum at the values
-    of that flash. The first flash of a trial is not one of these: its
-    response is in the fixation kernel.
+    The model has one flash kernel for each gap class and two kernels that
+    change it: flash × move (a flash after the center exit against one in the
+    fixation) and flash × move × gap. Each of the two is scaled by a centered
+    value. The kernel of a flash is the sum at the values of that flash.
     """
     levels = flash_kernel_levels(trials)
     out = {
-        f"gap_{gap}": flash_kernel_at(kernels, adapt_levels, levels, gap, False)
+        f"gap_{gap}": flash_kernel_at(kernels, levels, gap, False)
         for gap in FLASH_GAPS_MS
     }
-    out["fixation"] = flash_kernel_at(
-        kernels, adapt_levels, levels, PERIOD_GAP_MS, False
-    )
-    out["after_exit"] = flash_kernel_at(
-        kernels, adapt_levels, levels, PERIOD_GAP_MS, True
-    )
+    out["fixation"] = flash_kernel_at(kernels, levels, PERIOD_GAP_MS, False)
+    out["after_exit"] = flash_kernel_at(kernels, levels, PERIOD_GAP_MS, True)
     return out
 
 
-def flash_kernel_levels(trials) -> tuple[float, float, float]:
-    """Return the centered values of a flash at the shortest gap and in the fixation.
+def flash_kernel_levels(trials) -> tuple[float, float]:
+    """Return the two centers that `flash_kernel_at` needs.
 
-    These are the lowest centered values of the flash-recovery and the
-    flash × move regressors. The third value is the fraction of the flashes
-    (the first flash of a trial not counted) in the class of the shortest
-    gaps: the center of the gap class in the flash × move × gap regressor.
+    The centered value of the flash × move regressor for a flash in the
+    fixation (its lowest value), and the fraction of the flashes (the first
+    flash of a trial not counted) in the class of the shortest gaps: the
+    center of the gap class in the flash × move × gap regressor.
     """
     period = flash_after_exit(trials)
     short = (flash_gap_class(trials) == 0)[period != 0]
-    return float(flash_recovery(trials).min()), float(period.min()), float(short.mean())
+    return float(period.min()), float(short.mean())
 
 
 def flash_kernel_at(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    adapt_levels: dict[str, float] | None,
-    levels: tuple[float, float, float],
+    levels: tuple[float, float],
     gap_ms: float,
     after_exit: bool,
 ) -> np.ndarray:
     """Return the flash kernel of the model for a flash at one gap and period.
 
-    With flash kernels by gap class, it is the kernel of the class of that gap.
-    With the earlier terms, it is the common kernel plus the fast-adaptation
-    and the flash-recovery kernels at the values of that gap. The flash ×
-    move kernel is added at the value of the period in both, and the flash ×
-    move × gap kernel at the product of the period and the gap class.
+    It is the kernel of the gap class of that gap (or the common kernel, in a
+    design with no gap classes), plus the flash × move kernel at the value of
+    the period, plus the flash × move × gap kernel at the product of the
+    period and the gap class.
     """
-    shortest_gap, in_fixation, short_fraction = levels
+    in_fixation, short_fraction = levels
     gap_s = gap_ms / 1000
     classes = flash_gap_names()
-    if classes and classes[0] in kernels:
+    if classes:
         by_gap = kernels[classes[int(np.searchsorted(FLASH_GAP_EDGES_S, gap_s))]][1]
     else:
-        zero = np.zeros_like(kernels[FLASH_COMMON][1])
-        term = lambda name: kernels[name][1] if name in kernels else zero  # noqa: E731
-        adapt = adapt_levels["repeat" if gap_s <= RECENT_FLASH_S else "isolated"]
-        recovery = shortest_gap + np.log(max(gap_s, FLASH_SLOT_S) / FLASH_SLOT_S)
-        by_gap = (
-            kernels[FLASH_COMMON][1]
-            + adapt * term(FLASH_ADAPT)
-            + recovery * term(FLASH_RECOVERY)
-        )
+        by_gap = kernels[FLASH_COMMON][1]
     if FLASH_AFTER_EXIT in kernels:
         by_gap = by_gap + (in_fixation + after_exit) * kernels[FLASH_AFTER_EXIT][1]
     if FLASH_MOVE_GAP in kernels:
@@ -385,17 +329,6 @@ def write_figure_data(
         example_history_raw, valid
     )
     kernels = fitted_kernels(example_result, design_metadata, kernel_history_scale)
-    adapt_levels = next(
-        (
-            item["adapt_levels_centered"]
-            for item in design_metadata["task_manifest"]
-            if item["name"] == FLASH_ADAPT
-        ),
-        None,  # a design with flash kernels by gap class has no such term
-    )
-    display_kernels, display_task_names = flash_condition_display(
-        kernels, task_names, adapt_levels
-    )
     example_counts = build_unit_counts(prepared["alignments"], example_spikes)
     count_grid = example_counts.reshape(len(trial_split), bin_count)
     history_grid = example_history_raw.reshape(
@@ -468,9 +401,7 @@ def write_figure_data(
     center_entry = float(trial["center_entry_s"])
     center_exit = float(trial["center_exit_s"])
     response_entry = float(trial["response_port_entry_s"])
-    modeled_flash_times, resource_values = flash_events(
-        trials.iloc[[selected_trial_row]]
-    )
+    modeled_flash_times = flash_events(trials.iloc[[selected_trial_row]])
     modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
     if (
         len(modeled_flashes) == 0
@@ -514,10 +445,10 @@ def write_figure_data(
     for name, values in events.items():
         arrays[f"event__{name}"] = values
     arrays["flash_lags"] = kernels[FLASH_AFTER_EXIT][0]
-    for name, values in flash_condition_kernels(kernels, adapt_levels, trials).items():
+    for name, values in flash_condition_kernels(kernels, trials).items():
         arrays[f"flashcond__{name}"] = values
-    kernel_keys = list(display_kernels)
-    for name, (kernel_times, kernel_values) in display_kernels.items():
+    kernel_keys = list(kernels)
+    for name, (kernel_times, kernel_values) in kernels.items():
         arrays[f"kern_t__{name}"] = kernel_times
         arrays[f"kern_v__{name}"] = kernel_values
 
@@ -531,9 +462,8 @@ def write_figure_data(
         "test_trials": trial_count,
         "model_design_trial": int(test_trial_numbers[typical_trial]),
         "model_design_flashes": len(modeled_flash_times),
-        "model_design_isolated_flashes": int(np.count_nonzero(resource_values == 0)),
         "model_design_valid_bins": int(displayed_rows.sum()),
-        "display_task_names": list(display_task_names),
+        "display_task_names": list(task_names),
         "kernel_keys": kernel_keys,
         "task_manifest": design_metadata["task_manifest"],
     }

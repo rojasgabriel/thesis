@@ -12,8 +12,6 @@ paired: each unit is scored with each design.
 - "none": no term for the hold.
 - "step,\nentry": one column that is 1 from center entry to center exit.
 - "step,\nflash": one column that is 1 from the first flash to center exit.
-- "step +\nonset": that column, and a kernel of 150 ms on the first flash
-  (the bases of the flash kernel). The term is flat after 150 ms.
 - "kernel": the design in `dmat.py`. One kernel from the first flash to the
   center exit, with bases at even spacing in log(t + 25 ms), and no step.
 - "linear\nkernel": the same kernel with bases at even spacing in time.
@@ -37,14 +35,13 @@ import argparse
 from pathlib import Path
 
 from thesis.ephys.analyses.glm import cli
-from thesis.ephys.analyses.glm.adaptation_grid import score_designs
+from thesis.ephys.analyses.glm.grid import score_designs
 
 STEP = {"HOLD_KERNEL": False, "IN_PORT_COLUMN": True}
 DESIGNS = {
     "none": {"HOLD_KERNEL": False},
     "step,\nentry": STEP,
     "step,\nflash": {**STEP, "STATE_FROM_FIRST_FLASH": True},
-    "step +\nonset": {**STEP, "STATE_FROM_FIRST_FLASH": True, "FIRST_FLASH_TERM": True},
     "kernel": {},
     "linear\nkernel": {"HOLD_LOG_STRETCH_S": 0.0},
     "coarse\nkernel": {"HOLD_BASES": 10, "HOLD_LOG_STRETCH_S": 0.05},

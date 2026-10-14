@@ -110,8 +110,8 @@ def measures(result: dict, history_scale: np.ndarray) -> np.ndarray:
     window = (lags >= RESPONSE_MS[0]) & (lags < RESPONSE_MS[1])
     out = [
         (
-            flash_kernel_at(kernels, None, _SHARED["levels"], gap, True)
-            - flash_kernel_at(kernels, None, _SHARED["levels"], gap, False)
+            flash_kernel_at(kernels, _SHARED["levels"], gap, True)
+            - flash_kernel_at(kernels, _SHARED["levels"], gap, False)
         )[window].mean()
         for gap in GAPS_MS.values()
     ]

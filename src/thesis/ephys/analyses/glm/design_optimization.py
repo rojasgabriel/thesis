@@ -50,6 +50,7 @@ from scipy.stats import wilcoxon
 
 from thesis.ephys.analyses.glm import (
     cli,
+    drift_grid,
     flash_length_grid,
     gap_class_grid,
     hold_grid,
@@ -57,31 +58,30 @@ from thesis.ephys.analyses.glm import (
 from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, TASK, VISUAL
 from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
 
-# name of the grid: (form in use, color, x label, labels of the forms)
+# name of the grid: (its module, the form in use, color, x label)
 GRIDS = {
     "gap_class_grid": (
+        gap_class_grid,
         gap_class_grid.IN_USE,
         VISUAL,
         "flash kernels by gap from the flash before (ms)",
-        {},
     ),
     "flash_length_grid": (
+        flash_length_grid,
         flash_length_grid.IN_USE,
         VISUAL,
         "length of the flash kernels (ms)",
-        {},
     ),
-    "hold_grid": (hold_grid.IN_USE, TASK, "form of the fixation term", {}),
+    "hold_grid": (hold_grid, hold_grid.IN_USE, TASK, "form of the fixation term"),
     "drift_grid": (
+        drift_grid,
         "4",
         DRIFT_COLOR,
         "session drift (number of raised cosines)",
-        {},
     ),
 }
 # Tick labels that differ from the name of the design in its grid.
 LABELS = {
-    "gap terms": "gap\nterms",
     "40 | 80+": "40,\n80+",
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
@@ -120,7 +120,9 @@ def main() -> None:
     rng = np.random.default_rng(0)
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(2, 2, figsize=(9.5, 6.4), layout="constrained")
-        for axis, (grid, (in_use, color, xlabel, _)) in zip(axes.flat, GRIDS.items()):
+        for axis, (grid, (module, in_use, color, xlabel)) in zip(
+            axes.flat, GRIDS.items()
+        ):
             path = args.root / grid / f"{grid}.json"
             if not path.exists():
                 raise FileNotFoundError(f"{path}: run `{grid}` first.")
@@ -128,7 +130,8 @@ def main() -> None:
             units = sorted(scores[in_use])
             reference = np.asarray([scores[in_use][unit] for unit in units])
             entry = {"units": len(units), "form_in_use": in_use.replace("\n", " ")}
-            names = list(scores)
+            # The designs of the grid module that have scores, in its order.
+            names = [name for name in module.DESIGNS if name in scores]
             for position, name in enumerate(names):
                 if name == in_use:
                     axis.plot(position, 0, "o", mfc="white", mec=color, ms=6)
