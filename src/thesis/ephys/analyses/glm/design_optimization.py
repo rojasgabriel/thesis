@@ -1,4 +1,4 @@
-"""Draw the tests of the form of each term of the V1 GLM in one figure.
+"""Draw the design optimization of the V1 GLM in one figure: the form of each term and the collinearity.
 
 Question: why does each term of the design have its form (the number of gap
 classes, the length of the flash kernels, the form of the fixation term, the
@@ -31,11 +31,19 @@ importance of a regressor is tested on all units (`inclusion.py`). Each point
 is a unit, and the black line is the median. A point outside `DISPLAY_LIMIT`
 is drawn at the limit; it is in the statistics, and the count is in
 `design_optimization_stats.json`. The number under each form is the largest
-direction that the term of the panel, in that form, shares with another task
-regressor: the largest first canonical correlation of a pair of regressors
+direction that the term of the panel, in that form, shares with another
+regressor (task or motion energy): the largest first canonical correlation of a pair of regressors
 with the term in it (`collinearity.shared_directions`; the pair is in the
 stats file). A form with no such term has no number. It is in red when it is
-above the largest value of all pairs of the design in use (`SHARED_TOLERANCE`).
+above the largest value of all pairs of the design in use, panel i
+(`SHARED_TOLERANCE`).
+
+- Panels g to i (`collinearity.py`): the collinearity of the design in use,
+  for the design of each unit of the session. g, the generalized variance
+  inflation factor of each regressor (points are units; the line is the
+  median; dashed lines at 5 and 10). h, the condition indices of each unit,
+  sorted (dashed lines at 10 and 30). i, the shared direction of each pair of
+  regressors; for a pair with spike history, the median over units.
 
 Rule for the form of a term: another form replaces the form in use when it
 (1) predicts reliably better on these units, and (2) is separable: the term in that form does not share a direction with
@@ -73,8 +81,18 @@ from thesis.ephys.analyses.glm import (
     pc_grid,
     withdrawal_grid,
 )
-from thesis.ephys.analyses.glm.collinearity import shared_directions
-from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
+from thesis.ephys.analyses.glm.collinearity import (
+    INDEX_LIMITS,
+    VIF_LIMITS,
+    shared_directions,
+)
+from thesis.ephys.analyses.glm.main_figure import (
+    DRIFT_COLOR,
+    MOTION,
+    REGRESSORS,
+    TASK,
+    VISUAL,
+)
 from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
 
 # name of the grid: (its module, the form in use, color, x label, and the starts
@@ -148,10 +166,19 @@ kernel, against {limit:.2f} for the largest one in the design in use. **e**,
 Number of motion-energy PCs. {pc_sentence} **f**, Session drift. No drift is
 worse; more functions are not better. The number under each form is the
 largest first canonical correlation of the term of the panel, in that form,
-with another task regressor (red: above the largest value of the design in
-use). A form replaces the form in use when it
+with another regressor (red: above the largest value of the design in use,
+panel i). A form replaces the form in use when it
 predicts reliably better and is separable; no form does both. The importance of each regressor is tested on all units
-(main figure).
+(main figure). **g–i, Collinearity of the design in use**, for the design of
+each unit. **g**, The generalized variance inflation factor of each regressor,
+as GVIF^(1/p) (points are units; the line is the median); the dashed lines
+are the usual limits of 5 and 10. The largest value is {gvif:.2f}. **h**, The
+condition indices of each unit, sorted; the dashed lines are 10 and 30. The
+largest is {index:.1f}. **i**, The shared direction of each pair of
+regressors: the largest correlation of a weighted sum of the columns of one
+with a weighted sum of the columns of the other (0, nothing shared; 1, a time
+course that both can make). For a pair with spike history, the median over
+units.
 """
 
 
@@ -175,14 +202,15 @@ def _pc_sentence(entry: dict) -> str:
 
 
 def shared_direction(
-    settings: dict, terms: tuple[str, ...], prepared: dict, trials
+    settings: dict, terms: tuple[str, ...], prepared: dict, trials, video: np.ndarray
 ) -> tuple[float, str, str] | None:
     """Return the largest direction that a term of one design shares with another.
 
     `terms` are the starts of the names of the regressors of the term (all
     regressors for an empty tuple). The value is the largest first canonical
-    correlation of a pair of task regressors with one of them in the pair,
-    with the names of the pair. None when the design has no such regressor.
+    correlation of a pair of regressors (task and motion energy; `video` has
+    the motion-energy columns) with one of them in the pair, with the names of
+    the pair. None when the design has no such regressor.
     """
     saved = {name: getattr(dmat, name) for name in settings}
     for name, value in settings.items():
@@ -196,7 +224,8 @@ def shared_direction(
     for item in manifest:
         groups[item["name"]] = slice(cursor, cursor + item["columns"])
         cursor += item["columns"]
-    columns = values[dmat._valid_bin_mask(prepared)]
+    groups["video"] = slice(cursor, cursor + video.shape[1])
+    columns = np.hstack((values, video))[dmat._valid_bin_mask(prepared)]
     columns = (columns - columns.mean(0)) / columns.std(0)
     pairs = shared_directions(columns.T @ columns / len(columns), groups)
     names = list(groups)
@@ -218,12 +247,30 @@ def main() -> None:
     args = parser.parse_args()
     stats = {}
     rng = np.random.default_rng(0)
-    prepared = dmat._load_windows(cli.PoissonGLM(root=args.root).windows)
+    model = cli.PoissonGLM(root=args.root)
+    prepared = dmat._load_windows(model.windows)
     trials = dmat._load_selected_trials(prepared)
-    limit = shared_direction({}, (), prepared, trials)[0] + SHARED_TOLERANCE
-    stats["largest_shared_direction_of_the_design_in_use"] = limit - SHARED_TOLERANCE
+    metadata = json.loads(model.design.with_suffix(".json").read_text())
+    base = int(metadata["base_columns"])
+    video = np.asarray(
+        np.load(model.design, mmap_mode="r")[
+            :, base : base + max(dmat.VIDEO_COMPONENT_COUNTS)
+        ],
+        dtype=float,
+    )
+    measures_path = args.root / "collinearity.npz"
+    if not measures_path.exists():
+        raise FileNotFoundError(f"{measures_path}: run `collinearity` first.")
+    with np.load(measures_path) as saved:
+        measures = {key: saved[key] for key in saved.files}
+    # The limit of the rule: the largest pair of all regressors of the design.
+    largest = float(np.nanmax(measures["shared_directions"]))
+    limit = largest + SHARED_TOLERANCE
+    stats["largest_shared_direction_of_the_design_in_use"] = largest
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(3, 2, figsize=(9.5, 9.6), layout="constrained")
+        figure = plt.figure(figsize=(9.5, 13.6), layout="constrained")
+        top, bottom = figure.subfigures(2, 1, height_ratios=(9.6, 4.0))
+        axes = top.subplots(3, 2)
         for axis, (grid, (module, in_use, color, xlabel, terms)) in zip(
             axes.flat, GRIDS.items()
         ):
@@ -240,7 +287,9 @@ def main() -> None:
             for position, name in enumerate(names):
                 # The task columns are the same for each number of PCs.
                 pair = (
-                    shared_direction(module.DESIGNS[name], terms, prepared, trials)
+                    shared_direction(
+                        module.DESIGNS[name], terms, prepared, trials, video
+                    )
                     if isinstance(module.DESIGNS, dict)
                     else None
                 )
@@ -305,7 +354,86 @@ def main() -> None:
             )
             axis.set_xlabel(xlabel, color=color)
             axis.set_ylabel(r"$D^2$ minus $D^2$ of the form in use")
+        gvif_axis, index_axis, pair_axis = bottom.subplots(
+            1, 3, width_ratios=(1.5, 0.75, 1.6)
+        )
+        names = measures["regressors"].tolist()
+        order = np.argsort(-np.median(measures["gvif"], 0))
+        for position, column in enumerate(order):
+            values = measures["gvif"][:, column]
+            gvif_axis.scatter(
+                position + rng.uniform(-0.25, 0.25, len(values)),
+                values,
+                s=4,
+                color=REGRESSORS[names[column]][1],
+                alpha=0.5,
+                lw=0,
+            )
+            gvif_axis.hlines(
+                np.median(values), position - 0.35, position + 0.35, "black"
+            )
+        for value in VIF_LIMITS:
+            gvif_axis.axhline(value, color=REFERENCE_COLOR, ls="--", lw=0.8)
+        gvif_axis.set_yscale("log")
+        gvif_axis.set_ylim(0.9, 12)
+        gvif_axis.set_yticks([1, 2, 5, 10], ["1", "2", "5", "10"])
+        gvif_axis.set_xticks(
+            range(len(names)),
+            [REGRESSORS[names[column]][0] for column in order],
+            rotation=40,
+            ha="right",
+            rotation_mode="anchor",
+            fontsize=6,
+        )
+        for tick, column in zip(gvif_axis.get_xticklabels(), order):
+            tick.set_color(REGRESSORS[names[column]][1])
+        gvif_axis.set_ylabel("variance inflation,\n" + r"GVIF$^{1/p}$")
+        for unit in measures["condition_indices"]:
+            index_axis.plot(unit, color="0.3", alpha=0.15, lw=0.6)
+        for value in INDEX_LIMITS:
+            index_axis.axhline(value, color=REFERENCE_COLOR, ls="--", lw=0.8)
+        index_axis.set_yscale("log")
+        index_axis.set_ylim(0.9, 60)
+        index_axis.set_yticks([1, 3, 10, 30], ["1", "3", "10", "30"])
+        index_axis.set_xlabel("dimension of the\ndesign, sorted")
+        index_axis.set_ylabel("condition index")
+        pairs = measures["shared_directions"]
+        pair_axis.imshow(pairs, cmap="Greys", vmin=0, vmax=1)
+        for (row, column), value in np.ndenumerate(pairs):
+            if np.isfinite(value):
+                pair_axis.text(
+                    column,
+                    row,
+                    f"{value:.2f}"[1:],
+                    ha="center",
+                    va="center",
+                    fontsize=5,
+                    color="white" if value > 0.55 else "black",
+                )
+        labels = [REGRESSORS[name][0] for name in names]
+        pair_axis.set_xticks(
+            range(len(labels)),
+            labels,
+            rotation=40,
+            ha="right",
+            rotation_mode="anchor",
+            fontsize=6,
+        )
+        pair_axis.set_yticks(range(len(labels)), labels, fontsize=6)
+        for ticks in (pair_axis.get_xticklabels(), pair_axis.get_yticklabels()):
+            for tick, name in zip(ticks, names):
+                tick.set_color(REGRESSORS[name][1])
+        pair_axis.spines[["left", "bottom"]].set_visible(False)
+        pair_axis.tick_params(length=0)
+        stats["collinearity"] = {
+            "largest_gvif_per_column": float(measures["gvif"].max()),
+            "largest_condition_index": float(measures["condition_indices"].max()),
+            "units_outside_the_gvif_axis_limits": int(
+                np.sum((measures["gvif"] > 12).any(1))
+            ),
+        }
         label_panels(axes.flat, x=-0.16, y=1.04)
+        label_panels([None] * 6 + [gvif_axis, index_axis, pair_axis], x=-0.2, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
     first = stats[next(iter(GRIDS))]
     (args.root / "design_optimization_stats.json").write_text(
@@ -320,6 +448,8 @@ def main() -> None:
                 "±300"
             ]["largest_shared_direction"],
             limit=stats["largest_shared_direction_of_the_design_in_use"],
+            gvif=stats["collinearity"]["largest_gvif_per_column"],
+            index=stats["collinearity"]["largest_condition_index"],
         )
     )
     print(json.dumps(stats, indent=1))

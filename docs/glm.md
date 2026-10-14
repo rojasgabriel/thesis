@@ -332,10 +332,12 @@ choices.
      use. The shared direction of two regressors is their first canonical
      correlation: the largest correlation of a weighted sum of the columns of
      one with a weighted sum of the columns of the other
-     (`collinearity.shared_directions`, on the task columns). Panel c of
-     `collinearity.svg` gives it for each pair of the design in use. The
-     largest pair of task regressors is flash × move with the fixation kernel
-     (0.67 in GRB006, 0.64 in GRB064); the limit is 0.67 plus 0.05.
+     (`collinearity.shared_directions`). Panel i of
+     `design_optimization.svg` gives it for each pair of the design in use,
+     with all regressors in it. The largest pair in GRB006 is the choice with
+     motion energy (0.69), then flash × move with the fixation kernel (0.67);
+     in GRB064 it is the two flash kernels (0.65). The limit is the largest
+     pair plus 0.05: 0.74 in GRB006.
 - Test 2 keeps the kernels readable. A form can predict better because it
   covers the time of another term; the two terms then share the effect, and
   neither kernel can be read. That is the cause of the leak of the fixation
@@ -600,9 +602,10 @@ holds for other trials.
 ## Collinearity of the regressors
 
 Question: are the regressors so correlated that the weights cannot be read?
-`collinearity.py` gives the usual statistics for the design of each unit (66
+`collinearity.py` gives the usual statistics for the design of each unit (74
 columns: task, motion energy, and the spike history of the unit; the valid
-bins of all trials), in `collinearity.json` and `collinearity.svg`.
+bins of all trials), in `collinearity.json`. Panels g to i of
+`design_optimization.svg` draw them for GRB006.
 
 - GVIF^(1/p): the generalized variance inflation factor of a regressor with p
   columns (Fox and Monette, 1992), on the scale of a VIF. It is the factor by
@@ -848,10 +851,9 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 | Flash by gap | `flash_by_gap.py` | observed and predicted rate around flashes at each gap, still and move |
 | Still against move | `flash_by_period.py` | raw response and flash kernel in the two periods, both sessions |
 | Fixation effect | `hold_effect.py` | two example units, the lower rate in the fixation, its end at the exit, and its controls |
-| Form of each term (supplement) | `design_optimization.py` | the four design grids on 80 units |
+| Design optimization (supplement) | `design_optimization.py`, `collinearity.py` | the six design grids on 80 units, each with its test of prediction and of separability; and the collinearity of the design in use (variance inflation, condition indices, shared direction of each pair of regressors) |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
 | Checks of the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
-| Collinearity (supplement) | `collinearity.py` | GVIF and condition indices of the design of each unit, both sessions |
 | Kernel stability (supplement) | `kernel_reliability.py` | the kernels from two halves of the trials |
 | Parameter recovery (supplement) | `leak_test.py` | the flash × move effect that the model makes when none is simulated, against the real effect |
 | Flash against motion energy | `kernel_comparison.py` | the weights of the two terms over units; descriptive |
@@ -910,12 +912,6 @@ other figures:
   drift: 4 over the session; the dotted one is not a column, because the
   model has an intercept. The initiation, the choice, the previous choice,
   and each motion-energy PC are one column each.
-- **Collinearity (`collinearity.svg`).** One row for each session. **a**, The
-  generalized variance inflation factor of each regressor in the design of
-  each unit, as GVIF^(1/p) (points are units; the line is the median). The
-  dashed lines are the usual limits of 5 and 10. **b**, The condition indices
-  of the design of each unit, sorted; the dashed lines are 10 and 30. No
-  regressor is above 2.5 and no condition index is above 8.
 - **Kernel stability (`kernel_reliability.svg`).** Each unit is fit on the
   even and on the odd trials. **a**, The kernels of the example unit from the
   two halves. **b**, The agreement of the two kernels of each unit, 1 − |a −
