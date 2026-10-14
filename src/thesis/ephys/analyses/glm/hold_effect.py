@@ -7,11 +7,11 @@ entry, so the time after the center exit has the stimulus without the fixation.
 
 Comparison: the fixation (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
-comparison is paired: each unit has a value in both periods. Each test is
-within one animal (`SESSIONS`); the units of the two animals are not pooled.
-Panel a is GRB006. In panels b to e and h, solid lines and filled points are
-GRB006, and dashed lines and open points are GRB064. Panels f and g have both mice in
-one axis (circles and solid lines GRB006, triangles and dashed lines GRB064).
+comparison is paired: each unit has a value in both periods. Panel a is
+GRB006. In panels b to h the units of both mice (`SESSIONS`) are pooled
+(standard practice); in d, e, and h the large marker is the pooled median
+with its hierarchical-bootstrap 95% interval (mice, then units), and the open
+circles are the median of each mouse. The tests are within each mouse.
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
@@ -44,8 +44,7 @@ one axis (circles and solid lines GRB006, triangles and dashed lines GRB064).
   prediction (`two_step_levels`). The two-step value is a lower bound. Both are
   in-sample. The axis is `ORDER_LIMITS`; a unit with a two-step value beyond
   `NO_ESTIMATE` has no estimate (its fit with no penalty did not converge). It
-  is listed in the output and stays in the rank test. Thin unit lines in panel
-  c are the first animal only.
+  is listed in the output and stays in the rank test.
 - Panel f (control for stillness): raw rate against motion energy in the
   center port and at a side port (`port_vs_stillness.py`), with its slope test.
   The two animals have different camera views, so motion energy is not the
@@ -115,11 +114,11 @@ from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
-    ANIMAL_MARKERS,
     CONCEPT_COLORS,
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
+    pooled_points,
     save_figure,
     separate_axes,
 )
@@ -129,9 +128,10 @@ CAPTION = """\
 go on.** The fixation is the time from the first flash to the withdrawal from
 the center port. The flashes continue until the animal enters a response port,
 so the time after the withdrawal has the stimulus without the fixation. Two
-animals: {units}. Each test is within one animal; the units of the two animals
-are not pooled. In b to e and h, solid lines and filled points are {subject};
-dashed lines and open points are {other}. **a**, Spikes of two example units of
+mice: {units}. In b to h the units of both mice are pooled; in d, e, and h
+the large marker is the pooled median with its hierarchical-bootstrap 95%
+interval (the mice, then the units of each), and the open circles are the
+median of each mouse ({subject} and {other}). The tests are within each mouse. **a**, Spikes of two example units of
 {subject} against time from the first flash (left) and from the withdrawal
 (right), with the trials sorted by the length of the fixation. The vertical
 line is the event at time 0; in the left panels the orange line is the
@@ -144,7 +144,7 @@ fixation, and {after_rate} from 100 to 400 ms after the withdrawal. **c**, The
 kernels of a descriptive model, as a change in log rate relative to the time
 before the first flash. This model is the GLM of the main figure with one
 change: a kernel from the withdrawal to the response entry in place of the
-100-ms withdrawal kernel. Thin lines are the units of {subject}; the thick lines and the
+100-ms withdrawal kernel. Thin lines are units; the thick lines and the
 bands are the median and the interquartile range. **d**, The paired comparison. For
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
@@ -717,7 +717,6 @@ def main() -> None:
         return
     sessions = [session_effect(args.out / s, args.units, fit=False) for s in SESSIONS]
     limits = LEVEL_LIMITS
-    styles = ("-", "--")
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 12.6))
@@ -748,45 +747,39 @@ def main() -> None:
             kernel_axis = figure.add_subplot(
                 middle[column], sharey=panel_axes[-1] if column else None
             )
-            for data, style in zip(sessions, styles, strict=True):
-                rates = data["rates"]
-                slots, fraction = rates[f"{name}_fraction"]
-                flash_axis.step(slots, fraction, where="post", color=VISUAL, ls=style)
-                centers, values = rates[name]
-                mean, error = values.mean(axis=0), sem(values, axis=0)
-                axis.fill_between(
-                    centers,
-                    mean - error,
-                    mean + error,
-                    color=OBSERVED_COLOR,
-                    alpha=0.2,
-                    lw=0,
-                )
-                axis.plot(centers, mean, color=OBSERVED_COLOR, ls=style)
-                kernel = data["kernels"][dmat.HOLD if name == "flash" else AFTER]
-                shown = (
-                    kernel["times"]
-                    <= (FLASH_WINDOW_MS if column == 0 else EXIT_WINDOW_MS)[1]
-                )
-                times = kernel["times"][shown]
-                if style == styles[0]:  # the units of the first animal only
-                    kernel_axis.plot(
-                        times,
-                        kernel["values"][:, shown].T,
-                        color="0.6",
-                        linewidth=0.3,
-                        alpha=0.3,
-                        zorder=1,
-                    )
-                low, median, high = np.percentile(
-                    kernel["values"][:, shown], [25, 50, 75], axis=0
-                )
-                kernel_axis.fill_between(
-                    times, low, high, color=TASK, alpha=0.3, linewidth=0, zorder=2
-                )
-                kernel_axis.plot(
-                    times, median, color=TASK, linewidth=1.6, ls=style, zorder=3
-                )
+            # The units of both mice pooled (standard practice).
+            slots, _ = sessions[0]["rates"][f"{name}_fraction"]
+            fraction = np.mean(
+                [data["rates"][f"{name}_fraction"][1] for data in sessions], axis=0
+            )
+            flash_axis.step(slots, fraction, where="post", color=VISUAL)
+            centers = sessions[0]["rates"][name][0]
+            values = np.concatenate([data["rates"][name][1] for data in sessions])
+            mean, error = values.mean(axis=0), sem(values, axis=0)
+            axis.fill_between(
+                centers,
+                mean - error,
+                mean + error,
+                color=OBSERVED_COLOR,
+                alpha=0.25,
+                lw=0,
+            )
+            axis.plot(centers, mean, color=OBSERVED_COLOR)
+            key = dmat.HOLD if name == "flash" else AFTER
+            times_all = sessions[0]["kernels"][key]["times"]
+            shown = times_all <= (FLASH_WINDOW_MS if column == 0 else EXIT_WINDOW_MS)[1]
+            times = times_all[shown]
+            curves = np.concatenate(
+                [data["kernels"][key]["values"][:, shown] for data in sessions]
+            )
+            kernel_axis.plot(
+                times, curves.T, color="0.6", linewidth=0.3, alpha=0.25, zorder=1
+            )
+            low, median, high = np.percentile(curves, [25, 50, 75], axis=0)
+            kernel_axis.fill_between(
+                times, low, high, color=TASK, alpha=0.4, linewidth=0, zorder=2
+            )
+            kernel_axis.plot(times, median, color=TASK, linewidth=1.6, zorder=3)
             flash_axis.set_ylim(0, 1.05)
             flash_axis.tick_params(labelbottom=False)
             axis.set_xlabel(xlabel)
@@ -806,7 +799,7 @@ def main() -> None:
                 axis.text(
                     0.02,
                     0.04,
-                    f"{sessions[0]['subject']} (solid)\n{sessions[1]['subject']} (dashed)",
+                    f"{len(values)} units, {len(sessions)} mice",
                     transform=axis.transAxes,
                     fontsize=6.5,
                 )
@@ -841,38 +834,49 @@ def main() -> None:
         paired = figure.add_subplot(bottom[0])
         order_axis = figure.add_subplot(bottom[1])
         relation = figure.add_subplot(last[1])
-        for data, face in zip(sessions, (TASK, "white"), strict=True):
-            hold, after = data["kernels"][dmat.HOLD], data["kernels"][AFTER]
-            paired.errorbar(
-                hold["level"],
-                after["level"],
-                xerr=hold["level_sd"],
-                yerr=after["level_sd"],
-                fmt="o",
-                color=TASK,
-                mfc=face,
-                markersize=2.5,
-                elinewidth=0.4,
-                alpha=0.7,
-            )
-            order_axis.plot(
-                data["steps"]["joint"],
-                data["steps"]["two_step"],
-                "o",
-                color=TASK,
-                mfc=face,
-                markersize=2.5,
-                alpha=0.7,
-            )
-            relation.plot(
-                np.maximum(data["matched"]["flash_unique"], UNIQUE_FLOOR),
-                data["matched"]["fixation_level"],
-                "o",
-                color=TASK,
-                mfc=face,
-                markersize=2.5,
-                alpha=0.7,
-            )
+        subjects = [data["subject"] for data in sessions]
+        holds = [data["kernels"][dmat.HOLD] for data in sessions]
+        afters = [data["kernels"][AFTER] for data in sessions]
+        # Panel d: each unit with its SD over the folds in both directions.
+        paired.errorbar(
+            np.concatenate([h["level"] for h in holds]),
+            np.concatenate([a["level"] for a in afters]),
+            xerr=np.concatenate([h["level_sd"] for h in holds]),
+            yerr=np.concatenate([a["level_sd"] for a in afters]),
+            fmt="none",
+            ecolor=TASK,
+            elinewidth=0.4,
+            alpha=0.4,
+        )
+        for axis, shown in ((paired, limits), (order_axis, ORDER_LIMITS)):
+            axis.set_xlim(shown)
+            axis.set_ylim(shown)
+        pooled_points(
+            paired,
+            [h["level"] for h in holds],
+            [a["level"] for a in afters],
+            subjects,
+            TASK,
+        )
+        pooled_points(
+            order_axis,
+            [data["steps"]["joint"] for data in sessions],
+            [data["steps"]["two_step"] for data in sessions],
+            subjects,
+            TASK,
+        )
+        relation.set_xscale("log")
+        relation.set_ylim(limits)
+        pooled_points(
+            relation,
+            [
+                np.maximum(data["matched"]["flash_unique"], UNIQUE_FLOOR)
+                for data in sessions
+            ],
+            [data["matched"]["fixation_level"] for data in sessions],
+            subjects,
+            TASK,
+        )
         for axis, shown in ((paired, limits), (order_axis, ORDER_LIMITS)):
             axis.plot(
                 shown, shown, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
@@ -891,34 +895,39 @@ def main() -> None:
         order_axis.set_ylabel(
             r"$\Delta$ log rate in fixation," + "\nfixation kernel fit last"
         )
-        # Panels f and g: both mice in one axis (`ANIMAL_MARKERS`, solid and dashed).
+        # Panels f and g: the units of both mice pooled.
         stillness_axis = figure.add_subplot(bottom[2])
-        for k, data in enumerate(sessions):
-            port_vs_stillness.plot_rates(
-                stillness_axis,
-                data["stillness"],
-                states=(0, 2),
-                marker=ANIMAL_MARKERS[data["subject"]],
-                linestyle=styles[k],
-                labels=k == len(sessions) - 1,
-                shift=0.1 * (k - 0.5),
-            )
-        stillness_axis.set_xlabel("motion energy\n(percentile)")
-        matched_axis = figure.add_subplot(last[0])
-        for k, data in enumerate(sessions):
-            _draw_matched(matched_axis, data, labels=k == 0, style=styles[k])
-        matched_axis.set_ylabel("normalized firing rate")
-        matched_axis.text(
-            0.98,
-            0.03,
-            f"{sessions[0]['subject']} solid, {sessions[1]['subject']} dashed",
-            transform=matched_axis.transAxes,
-            ha="right",
-            fontsize=6,
+        port_vs_stillness.plot_rates(
+            stillness_axis,
+            {
+                "rate": np.concatenate([d["stillness"]["rate"] for d in sessions]),
+                "frames": np.sum([d["stillness"]["frames"] for d in sessions], axis=0),
+            },
+            states=(0, 2),
         )
+        stillness_axis.set_xlabel("motion energy\n(percentile in each mouse)")
+        matched_axis = figure.add_subplot(last[0])
+        keys = (
+            "rate__fixation against after exit, matched gap",
+            "rate__after exit, lower against upper half of motion energy",
+        )
+        _draw_matched(
+            matched_axis,
+            {
+                "matched": {
+                    "lags_ms": sessions[0]["matched"]["lags_ms"],
+                    **{
+                        key: np.concatenate(
+                            [d["matched"][key] for d in sessions], axis=1
+                        )
+                        for key in keys
+                    },
+                }
+            },
+            labels=True,
+        )
+        matched_axis.set_ylabel("normalized firing rate")
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-        relation.set_xscale("log")
-        relation.set_ylim(limits)
         relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
         panel_axes += [paired, order_axis, stillness_axis, matched_axis, relation]

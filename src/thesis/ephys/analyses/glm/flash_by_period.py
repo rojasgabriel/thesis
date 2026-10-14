@@ -185,6 +185,7 @@ def main() -> None:
                 [d["peaks"][:, k, 1] for d in sessions],
                 subjects,
                 COLORS[k],
+                count_hidden=True,
             )
             axis.set_xlabel(f"{RATES[k]} peak, still\n(spikes/s)")
             axis.set_ylabel(f"{RATES[k]} peak, move (spikes/s)")

@@ -102,7 +102,9 @@ def hierarchical_interval(groups, seed: int = 0) -> dict:
     }
 
 
-def pooled_points(axis, xs, ys, subjects, color, seed: int = 0) -> None:
+def pooled_points(
+    axis, xs, ys, subjects, color, seed: int = 0, count_hidden: bool = False
+) -> None:
     """Draw the units of all mice pooled, with the medians of the mice and of all.
 
     Units are small light dots. The median of each mouse is a small open
@@ -147,7 +149,7 @@ def pooled_points(axis, xs, ys, subjects, color, seed: int = 0) -> None:
                     )
                 )
             )
-            and axis.get_xscale() == "log"
+            and count_hidden
             else ""
         ),
         transform=axis.transAxes,
