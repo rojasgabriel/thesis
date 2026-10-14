@@ -5,6 +5,7 @@ import string
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.axes import Axes
 
 # Use with `plt.rc_context(FIGURE_STYLE)`.
@@ -25,6 +26,55 @@ OBSERVED_COLOR = "black"
 # Not a concept color and not gray: gray marks the excluded bins in the rasters.
 MODEL_COLOR = "C4"
 REFERENCE_COLOR = "0.65"
+# One marker for each animal, so that colors keep their concept. Both animals go
+# in one axis; their units are never pooled.
+ANIMAL_MARKERS = {"GRB006": "o", "GRB064": "^"}
+BOOTSTRAPS = 2000
+
+
+def median_interval(values, seed: int = 0) -> tuple[float, float, float]:
+    """Return the median and its bootstrap 95% interval over the values."""
+    values = np.asarray(values, dtype=float)
+    picks = np.random.default_rng(seed).integers(
+        0, len(values), (BOOTSTRAPS, len(values))
+    )
+    low, high = np.percentile(np.median(values[picks], axis=1), [2.5, 97.5])
+    return float(np.median(values)), float(low), float(high)
+
+
+def animal_points(axis, x, y, subject: str, color, label: bool = True) -> None:
+    """Draw the units of one animal and its median with 95% intervals on both axes.
+
+    Units are small, light markers of the animal's shape. The median of x and
+    the median of y are one large marker, with the bootstrap 95% interval of
+    each median as error bars, and the name of the animal next to it.
+    """
+    marker = ANIMAL_MARKERS[subject]
+    axis.scatter(x, y, s=9, marker=marker, color=color, alpha=0.3, lw=0, zorder=2)
+    (mx, xl, xh), (my, yl, yh) = median_interval(x), median_interval(y)
+    axis.errorbar(
+        mx,
+        my,
+        xerr=[[mx - xl], [xh - mx]],
+        yerr=[[my - yl], [yh - my]],
+        fmt=marker,
+        ms=6,
+        color=color,
+        mec="white",
+        mew=0.6,
+        elinewidth=1,
+        capsize=2,
+        zorder=4,
+    )
+    if label:
+        axis.annotate(
+            subject,
+            (mx, my),
+            xytext=(6, -8),
+            textcoords="offset points",
+            color=color,
+            fontsize=6.5,
+        )
 
 
 def label_panels(axes, x: float = -0.14, y: float = 1.05) -> None:

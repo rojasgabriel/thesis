@@ -955,17 +955,21 @@ other figures:
   the fixation effect to the flash × move kernels, so the move-against-still
   differences are too high by about 0.08 (GRB006) and 0.06 (GRB064) at the
   80+ ms gap (`leak_test.py`).
-- **Still against move (`flash_by_period.svg`).** One row for each session.
-  **a**, Raw response: the mean rate from 40 to 100 ms after the last flash in
-  the fixation (still) and after the first flash after the withdrawal (move),
-  for each unit with 1 spike/s or more in the two periods; error bars are the
-  SD over 500 resamples of the trials. **b**, The response of the flash
-  kernel of the model at a gap of 80 ms or more, in the two periods; error
-  bars are the SD over the 10 cross-validation folds; colors as in the flash
-  kernel figure. The raw response is higher in move in the two animals
-  (median change in log rate +0.59 and +0.19). The response to the flash
-  alone, with the leak taken out, is higher in move in GRB006 (+0.15) and
-  lower in GRB064 (−0.13).
+- **Still against move (`flash_by_period.svg`).** One measure on three rates
+  of the same flashes and units: the peak of the trial-mean rate (10-ms bins)
+  from 30 to 120 ms after the last flash in the fixation (still) and the first
+  flash after the withdrawal (move), minus the still rate from −40 to 0 ms, as
+  in `stim_responses_by_locomotion.py`. Units: the "excited" units of
+  StimulusResponse that the GLM fits (23 in GRB006, 15 in GRB064). Circles
+  GRB006, triangles GRB064; small markers are units, large markers the median
+  with its bootstrap 95% interval. **a**, Observed peaks. **b**, Peaks of the
+  model rate (final refit, in-sample). **c**, Move minus still in the observed
+  rate, the model rate, and the model rate with the flash × move terms set to
+  0. The peak is higher in move in both animals (median +12.7 and +24.6
+  spikes/s; 23 of 23 and 13 of 15 units). The model predicts most of it
+  (+8.9 and +20.6), and the flash × move terms carry +2.6 (p = 0.01) and
+  +1.3 spikes/s (p = 0.8). So in both animals most of the change is the rate
+  change at the exit, not a larger response to the flash.
 - **Flash by gap (`flash_by_gap.svg`).** Observed (black) and predicted
   (purple) rate around flashes, for the units that fire more and that fire
   less after a flash, in GRB006 (a, b) and GRB064 (c, d); the number of units
