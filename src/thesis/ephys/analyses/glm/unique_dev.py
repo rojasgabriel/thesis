@@ -65,6 +65,8 @@ from thesis.ephys.units import fetch_unit_table
 
 # The regressors that are a variable of the trial, shuffled over trials.
 OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, FLASH_RATE, CHOICE_KERNEL)
+# The name of the shuffle rule, saved in each record.
+SHUFFLE_RULE = "trial variables over trials, 2026-10-14"
 
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
@@ -324,6 +326,7 @@ def _block_task(job: dict) -> dict:
         "depth": job["depth"],
         "video_components": job["video_components"],
         "shuffle_seed": SHUFFLE_SEED,
+        "shuffle_rule": SHUFFLE_RULE,
         "folds": len(complete_folds),
         "complete_test_deviance_explained": float(np.mean(complete_folds)),
         "groups": group_results,
@@ -399,6 +402,18 @@ def run_unique(
     if missing:
         raise ValueError(
             f"{missing} units have no cross-validated record; run fit again."
+        )
+    # A saved record is reused when its file exists (`fit._run_one`). A record of
+    # another shuffle rule must not be reused.
+    stale = [
+        path.name
+        for path in checkpoint_dir.glob("unit_*.json")
+        if json.loads(path.read_text()).get("shuffle_rule") != SHUFFLE_RULE
+    ]
+    if stale:
+        raise ValueError(
+            f"{len(stale)} records in {checkpoint_dir} were made with another "
+            "shuffle rule; move that folder aside and run again."
         )
     print(
         f"Starting unique-deviance analysis: {len(jobs)} units, "
