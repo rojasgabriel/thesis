@@ -1,6 +1,6 @@
 """Score variants of the design of the V1 GLM on fixed sets of units.
 
-The form of a term is chosen on sets of 20 units (`fit.analysis_unit_indices`:
+The parameterization of a term is chosen on sets of 20 units (`fit.analysis_unit_indices`:
 `sample`, `sample1`, ...; no unit is in two sets). `score_design` builds the
 design with some constants of `dmat` replaced, runs the model-selection stage
 of `glm fit` (fit on the training trials, D² on the validation trials), and

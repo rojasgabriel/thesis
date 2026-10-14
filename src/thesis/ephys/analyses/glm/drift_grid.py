@@ -1,4 +1,4 @@
-"""Test the form of the session-drift term of the V1 GLM.
+"""Test the parameterization of the session-drift term of the V1 GLM.
 
 Question: the model can have a term for a slow change of the rate over the
 session (`dmat.SESSION_DRIFT`). How many raised cosines does it need, and does
@@ -10,7 +10,7 @@ sample, with the validation D² of each unit. The designs are in `DESIGNS`:
 - "none": no drift term.
 - "4", "8", "12": that number of raised cosines over the session (one fewer
   column, because the last one is left out).
-- "spline": a cubic spline with 6 knots (7 columns), the first form that was
+- "spline": a cubic spline with 6 knots (7 columns), the first parameterization that was
   tested.
 
 The comparison is paired over units. Where two options do not differ reliably,
@@ -33,7 +33,7 @@ from thesis.ephys.analyses.glm.grid import score_designs
 
 DESIGNS = {
     "none": {"SESSION_DRIFT": False},
-    "4": {"SESSION_DRIFT": True, "DRIFT_BASES": 4},  # the form in `dmat.py`
+    "4": {"SESSION_DRIFT": True, "DRIFT_BASES": 4},  # the parameterization in `dmat.py`
     "8": {"SESSION_DRIFT": True, "DRIFT_BASES": 8},
     "12": {"SESSION_DRIFT": True, "DRIFT_BASES": 12},
     "spline": {"SESSION_DRIFT": True, "DRIFT_SPLINE": True},

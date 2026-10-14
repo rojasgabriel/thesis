@@ -94,7 +94,7 @@ HOLD_PENALTY_SCALE = 1.0
 # the saved fits use them.
 FIXATION_COLUMN = True
 FIXATION = "fixation"
-# Earlier forms of that term, for `hold_grid.py`: one column that is 1 from
+# Earlier parameterizations of that term, for `hold_grid.py`: one column that is 1 from
 # center entry (or from the first flash) to center exit.
 IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
@@ -115,7 +115,7 @@ PREVIOUS_SIDE = "previous_side"
 # A slow change of the rate over the session: raised cosines over the time of
 # the trial in the session, constant inside a trial (`session_drift_columns`).
 # In the model from 2026-10-12. `unique_dev.py` shuffles it over trials, not
-# inside a trial. `DRIFT_SPLINE` gives the first form that was tested, a cubic spline
+# inside a trial. `DRIFT_SPLINE` gives the first parameterization that was tested, a cubic spline
 # with `DRIFT_KNOTS` knots, for `drift_grid.py`.
 SESSION_DRIFT = True
 DRIFT = "session_drift"
@@ -634,7 +634,7 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
         )
     if not IN_PORT_COLUMN:
         return values, manifest
-    # Earlier form of the hold term: one state column with no temporal basis.
+    # Earlier parameterization of the hold term: one state column with no temporal basis.
     start = (
         np.asarray(alignments, dtype=float)
         if STATE_FROM_FIRST_FLASH

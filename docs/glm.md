@@ -256,7 +256,7 @@ unique and maximal ΔD², and the population summary from these files.
 From 2026-10-12 (`inclusion.py`). The importance of a regressor is tested on
 all units and on held-out trials, because 20 units are too few (the side term
 and the flash × move term were not reliable on 20 units and are reliable
-on 167). The form of a term (bases, window, spacing) is still chosen on the 20
+on 167). The parameterization of a term (bases, window, spacing) is still chosen on the 20
 selection units. A regressor is in the model when it passes two tests, each
 with a Holm correction for the number of regressors that are tested together:
 
@@ -276,9 +276,10 @@ make a unit predict worse except by noise. In the current model it is 0 to 3%
 for every regressor, so 5% is a fair chance level. Limits: the folds of a unit
 share training trials, and the units share the trials.
 
-The form of a term (its window, its bases, its classes) has its own rule,
-with a test of prediction and a test of separability on 80 units; see "Form
-of each term in the final design".
+The parameterization of a term (its window, its bases, its classes) is
+chosen by prediction on 80 units, and the collinearity of the resulting
+design is then measured; see "Parameterization of each term in the final
+design".
 
 The tests say that a regressor is real for the population. They do not say
 that it is worth its columns; that is a choice of parsimony. The tests are in
@@ -287,11 +288,11 @@ that it is worth its columns; that is a choice of parsimony. The tests are in
 writes them for the model in use to `main_figure_stats.json` (all 12 regressors
 pass both tests in the two sessions).
 
-## Form of each term in the final design, on 80 units
+## Parameterization of each term in the final design, on 80 units
 
 The six grids were run on 4 sets of 20 units (`--samples 4`, 80 units) with
 the design of 12 regressors as the base (median validation D² 0.0800). Each
-row is a design against the form in use (paired over the 80 units, two-sided
+row is a design against the parameterization in use (paired over the 80 units, two-sided
 Wilcoxon). The results of the earlier base designs are in
 `<grid>_earlier_design` and `<grid>_eleven_regressors`; they give the same
 choices.
@@ -324,32 +325,31 @@ choices.
 | | 100 | −1.87% | 26 | 0.001 |
 | | 200 | −5.66% | 12 | 2e-10 |
 
-- Rule for the form of a term. Another form replaces the form in use when it
-  passes two tests on these units:
-  1. Prediction: its validation D² is reliably higher (paired Wilcoxon).
-  2. Separability: the term in that form does not share a direction with
-     another regressor that is larger than the largest one of the design in
-     use. The shared direction of two regressors is their first canonical
-     correlation: the largest correlation of a weighted sum of the columns of
-     one with a weighted sum of the columns of the other
-     (`collinearity.shared_directions`). Panel i of
-     `design_optimization.svg` gives it for each pair of the design in use,
-     with all regressors in it. The largest pair in GRB006 is the choice with
-     motion energy (0.69), then flash × move with the fixation kernel (0.67);
-     in GRB064 it is the two flash kernels (0.65). The limit is the largest
-     pair plus 0.05: 0.74 in GRB006.
-- Test 2 keeps the kernels readable. A form can predict better because it
-  covers the time of another term; the two terms then share the effect, and
-  neither kernel can be read. That is the cause of the leak of the fixation
-  level, which the pair at 0.67 already shows.
-- No form passes both tests, so each form stays. The withdrawal kernel in use
-  shares at most 0.38 with another regressor (flash × move). From 300 ms
-  before to 300 ms after the exit, it passes test 1 (+0.58%, 51 of 80 units,
-  p = 0.010) and fails test 2: it shares 0.90 with the fixation kernel,
-  because it covers the end of the fixation. The kernel of ±100 ms also fails
-  test 2 (0.75) and does not predict better. In all other forms the term
-  shares 0.69 or less (the number under each form in
-  `design_optimization.svg`; the pair is in `design_optimization_stats.json`).
+- The design is made in two steps.
+  1. The parameterization of each term is chosen by prediction: another
+     parameterization replaces the one in use when its validation D² is
+     reliably higher on these units (paired Wilcoxon).
+  2. The collinearity of the regressors of the resulting design is measured
+     with the published diagnostics (see "Collinearity of the regressors"):
+     the generalized variance inflation factor (Fox and Monette 1992; limit
+     5) and the condition indices (Belsley, Kuh, and Welsch 1980; limit 30).
+     A regressor that is collinear with another must go, because its weights
+     cannot be read.
+- Step 1: no other parameterization predicts reliably better, with one
+  exception. The withdrawal kernel from 300 ms before to 300 ms after the
+  exit predicts better than the kernel of 0 to 100 ms in use (+0.58%, 51 of
+  80 units, p = 0.010). OPEN DECISION (2026-10-13): the model still has the
+  kernel of 0 to 100 ms.
+  - With the ±300 ms kernel, the published diagnostics do not show
+    collinearity (GVIF^(1/p) 1.53 for the withdrawal kernel and 1.45 for the
+    fixation kernel; largest condition index about 6).
+  - Parameter recovery (Wilson and Collins 2019; a scratch test, GRB006, one
+    simulation for each unit): with the ±300 ms kernel the known fixation
+    level is recovered worse (recovered over true 0.57 against 0.74; the
+    error is larger in 114 of 167 units, p = 1e-8). The recovery of the
+    flash × move effect does not change (p = 0.87).
+- Step 2, for the design in use: no regressor is above the limits (largest
+  GVIF^(1/p) 2.45; largest condition index 7.7), so no regressor goes.
 - Motion energy: 10 PCs are needed (none is worse), and more PCs do not help;
   100 and 200 are worse.
 - The design with one flash kernel has no flash × move × gap term: it is the
@@ -400,9 +400,9 @@ Findings, with the section that has the details:
   recovery gets back 59% of a simulated level in GRB006 and 79% in GRB064),
   so the size of the effect is taken from the raw rates. ("What causes the
   fixation effect"; "Leak of the fixation level".)
-- **The flash response has two forms by the gap from the flash before.** One
+- **The flash response has two parameterizations by the gap from the flash before.** One
   kernel for all flashes is worse than two gap classes (80 units, −1.4%,
-  p = 0.0002); three or four classes are not better. ("Form of each term in
+  p = 0.0002); three or four classes are not better. ("Parameterization of each term in
   the final design".)
 - **The raw response to a flash is higher in move, and most of that is the
   rate level.** Raw change in log rate +0.59 (GRB006) and +0.19 (GRB064).
@@ -417,10 +417,10 @@ Findings, with the section that has the details:
 - **Checks.** Collinearity is low (largest GVIF^(1/p) 2.45, largest condition
   index 7.7). The kernels are stable in split halves, with two limits: flash
   × move × gap (agreement 0.61 and 0.57) and the fixation kernel after 700 ms
-  in GRB006. The 87 units that took no part in the choices of form do not
+  in GRB006. The 87 units that took no part in the choices of parameterization do not
   differ from the 80 selection units in D² (median 0.066 against 0.082,
   p = 0.23) or in the unique ΔD² of a regressor (p from 0.10 to 0.96; session
-  drift 0.03, not corrected for 12 tests). Each form of a term holds on 80
+  drift 0.03, not corrected for 12 tests). Each parameterization of a term holds on 80
   units.
 - **Known limits of the model.**
   - Calibration (GRB006): observed over predicted rate is 0.81 to 0.93 from

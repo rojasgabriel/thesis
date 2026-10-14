@@ -78,7 +78,7 @@ PREDICTION_SEED = 2008
 HELD_OUT_COLOR = "0.55"
 # Synthetic unit with every effect, and how far each kernel is drawn (ms).
 SYNTHETIC_UNIT = 197
-# The form of each term was chosen on this many sets of 20 units (`--samples`).
+# The parameterization of each term was chosen on this many sets of 20 units (`--samples`).
 SELECTION_SETS = 4
 CALIBRATION_GROUPS = 20
 SYNTHETIC_KERNELS = {

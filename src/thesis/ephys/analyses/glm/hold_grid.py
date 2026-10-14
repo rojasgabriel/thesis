@@ -1,7 +1,7 @@
-"""Test the form of the stimulus-during-hold term of the V1 GLM.
+"""Test the parameterization of the stimulus-during-hold term of the V1 GLM.
 
 Question: units fire less from about 80 ms after the first flash until the
-animal leaves the center port. Which form of the term for that time predicts
+animal leaves the center port. Which parameterization of the term for that time predicts
 held-out spikes best?
 
 Comparison: for each design in `DESIGNS`, build the full design and run the
