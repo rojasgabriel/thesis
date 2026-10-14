@@ -41,6 +41,7 @@ uv run double-peak-candidates GRB064 20260916_132939
 uv run python -m thesis.ephys.analyses.double_peaks
 uv run python -m thesis.ephys.analyses.category_decoding -a GRB006 -s 20240821_121447
 uv run python -m thesis.ephys.analyses.rate_decoding -a GRB006 -s 20240821_121447
+uv run python -m thesis.ephys.analyses.cross_state_decoding -a GRB064 -s 20260916_132939
 ```
 
 The first command compares stationary and movement flashes across its listed
@@ -51,7 +52,11 @@ separate cross-session double-peak supplement, including its 30 ms control.
 The decoding commands decode the stimulus category, the choice, and the stimulus rate from
 the population firing rates of one session, and write
 `figures/category_decoding/category_decoding.svg` and
-`figures/rate_decoding/rate_decoding.svg`.
+`figures/rate_decoding/rate_decoding.svg`. The cross-state decoder trains the
+category decoder before or after center exit and tests it in the other window,
+against a time-only control, and writes
+`figures/cross_state_decoding/<subject>_<session>.svg`. Run it with
+`--synthetic gain` or `--synthetic reformat` to check it on simulated units.
 
 ## Tested on
 

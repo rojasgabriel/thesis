@@ -68,6 +68,13 @@ identify body parts, direction, or task-independent movement.
 - Low vs high video motion energy did not change stationary-period choice
   decoding.
 
+**Implemented, not yet run on real data**
+
+- `src/thesis/ephys/analyses/cross_state_decoding.py` — category decoder
+  trained before or after center exit and tested in the other window, with an
+  equal time shift inside the stationary state as the control. Checked on
+  simulated gain and reformatting populations only.
+
 ## Competing explanations
 
 **Additive gain.** Post-exit state scales rates, sensory axes stay put.
