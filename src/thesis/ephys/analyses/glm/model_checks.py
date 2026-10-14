@@ -12,7 +12,10 @@ Question: can the fitted model be trusted? Five checks, with no new fit.
   (`SELECTION_SETS`). Panel d: cross-validated
   D² of those selection units and of all other (held-out) units. Panel e: the
   unique ΔD² of each regressor in the two groups. The groups are not paired;
-  the mark is a two-sided Mann-Whitney U test.
+  the mark is a two-sided Mann-Whitney U test. The open box is the other
+  session of `SESSIONS` (GRB064), an animal that took no part in the design
+  choices; it has no test, because a difference between animals has other
+  causes.
 - Panel f (terms that are not in the model): for each candidate term, the D²
   that it adds to the final refit of a unit (in-sample), and the same with
   shuffled labels (`residual_checks.py`). The comparison is paired over units;
@@ -25,6 +28,7 @@ Question: can the fitted model be trusted? Five checks, with no new fit.
   group (median and interquartile range over units). Each bin is predicted by
   the cross-validation fold that did not train on its trial. The values are
   saved in `calibration.npz` in the fit directory and not computed again.
+  The dashed line is the median of the other session.
 - Panels h to j (recovery of planted kernels): `synthetic_check.py` simulates
   units with known kernels and runs the real pipeline on them. The panels show
   the planted and the recovered kernel of the unit that has every effect, for
@@ -62,6 +66,7 @@ from thesis.ephys.analyses.glm import cli, dmat, fit
 from thesis.ephys.analyses.glm.design_optimization import _stars
 from thesis.ephys.analyses.glm.figures import draw_prediction
 from thesis.ephys.analyses.glm.fit import load_unit_records
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS
 from thesis.ephys.analyses.glm.unique_dev import UNIQUE
 from thesis.ephys.units import fetch_unit_table
@@ -106,9 +111,12 @@ predicted by a model that was not fit on it, with the observed spike history.
 that took no part in the design choices.** Every design choice was made on
 {selection} units (selection). **d**, Cross-validated D² of the selection units
 and of the {held_out} other units (held out): median {d2_sel:.3f} and
-{d2_out:.3f} (two-sided Mann-Whitney U test, p = {p_d2:.2f}). **e**, The unique
-ΔD² of each regressor in the two groups (Mann-Whitney U test for each
-regressor; the smallest p is {p_unique:.2f}). **f, Terms that are not in the
+{d2_out:.3f} (two-sided Mann-Whitney U test, p = {p_d2:.2f}). The open box is
+{other} ({other_units} units, median {d2_other:.3f}), an animal that took no part
+in the design choices; it has no test, because a difference between animals
+has other causes. **e**, The unique ΔD² of each regressor in the three groups
+(Mann-Whitney U test of the two groups of {subject} for each regressor; the
+smallest p is {p_unique:.2f}). **f, Terms that are not in the
 model.** The D² that each candidate term adds to the fitted model of a unit,
 and the same with shuffled labels ({units} units, paired; two-sided Wilcoxon
 signed-rank test). The largest median gain is {largest:.4f} ({largest_name}),
@@ -116,8 +124,9 @@ against {shuffled:.4f} with shuffled labels; no term is in the model because
 each gain is small next to the D² of the model. **g, Calibration.** For each
 unit, the held-out 1-ms bins are sorted by the predicted rate and cut in
 {groups} groups of equal size. The line is the observed rate over the
-predicted rate in each group (median and interquartile range over units); 1 is
-a correct prediction. The model predicts too high a rate where its prediction
+predicted rate in each group (median and interquartile range over units of
+{subject}; the dashed line is the median of {other}); 1 is a correct
+prediction. The model predicts too high a rate where its prediction
 is low (lowest ratio {cal_low:.2f}) and too low a rate where it is high
 (highest ratio {cal_high:.2f}). **h–j, Recovery of planted kernels.** Spikes
 are simulated with known kernels (planted) and the full pipeline is run on
@@ -130,12 +139,15 @@ p < 0.001).
 """
 
 
-def _boxes(axis, groups, positions, colors, fill=True) -> None:
-    for values, position, color in zip(groups, positions, colors, strict=True):
+def _boxes(axis, groups, positions, colors, fill=True, width=0.32) -> None:
+    fills = fill if isinstance(fill, tuple) else (fill,) * len(groups)
+    for values, position, color, fill in zip(
+        groups, positions, colors, fills, strict=True
+    ):
         axis.boxplot(
             values,
             positions=[position],
-            widths=0.32,
+            widths=width,
             showfliers=False,
             patch_artist=True,
             medianprops={"color": color, "linewidth": 1.4},
@@ -268,6 +280,22 @@ def main() -> None:
     )
     stats = {"example_unit_id": int(example), "selection_units": int(chosen.sum())}
     ratio = calibration(model)
+    # The animal that took no part in the design choices: all its units are held
+    # out. It is drawn next to the two groups of the first animal, with no test,
+    # because a difference between animals has other causes.
+    other_root = args.root.parent / next(s for s in SESSIONS if s != args.root.name)
+    other = cli.PoissonGLM(root=other_root)
+    other_subject = other_root.name.split("_")[0]
+    other_final = load_unit_records(
+        other.fit_dir("all") / "checkpoints", "unit_*_final.json"
+    )
+    other_unique = load_unit_records(
+        other.fit_dir("all") / "checkpoints" / "unique", "unit_*.json"
+    )
+    other_deviance = np.asarray(
+        [item["cross_validated_deviance_explained"] for item in other_final]
+    )
+    other_ratio = calibration(other)
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 9.2))
@@ -303,15 +331,23 @@ def main() -> None:
 
         colors = (OBSERVED_COLOR, HELD_OUT_COLOR)
         full = figure.add_subplot(right[0])
-        _boxes(full, (deviance[chosen], deviance[~chosen]), (0, 1), colors)
-        full.set_xticks(
-            (0, 1),
-            (
-                f"selection\n({chosen.sum()} units)",
-                f"held out\n({(~chosen).sum()} units)",
-            ),
+        _boxes(
+            full,
+            (deviance[chosen], deviance[~chosen], other_deviance),
+            (0, 1, 2),
+            (*colors, HELD_OUT_COLOR),
+            fill=(True, True, False),
         )
-        full.set_xlim(-0.6, 1.6)
+        full.set_xticks(
+            (0, 1, 2),
+            (
+                f"selection\n({chosen.sum()})",
+                f"held out\n({(~chosen).sum()})",
+                f"{other_subject}\n({len(other_final)})",
+            ),
+            fontsize=6,
+        )
+        full.set_xlim(-0.6, 2.6)
         full.set_ylabel(r"cross-validated $D^2$")
         p_value = float(mannwhitneyu(deviance[chosen], deviance[~chosen]).pvalue)
         _mark(full, 0.5, p_value)
@@ -319,6 +355,7 @@ def main() -> None:
             "median_selection": float(np.median(deviance[chosen])),
             "median_held_out": float(np.median(deviance[~chosen])),
             "mann_whitney_p": p_value,
+            f"median_{other_subject}": float(np.median(other_deviance)),
         }
 
         parts = figure.add_subplot(right[1])
@@ -328,18 +365,24 @@ def main() -> None:
             values = np.asarray(
                 [unique[int(item["unit_id"])]["groups"][name][UNIQUE] for item in final]
             )
+            other_values = np.asarray(
+                [item["groups"][name][UNIQUE] for item in other_unique]
+            )
             _boxes(
                 parts,
-                (values[chosen], values[~chosen]),
-                (position - 0.19, position + 0.19),
-                colors,
+                (values[chosen], values[~chosen], other_values),
+                (position - 0.26, position, position + 0.26),
+                (*colors, HELD_OUT_COLOR),
+                fill=(True, True, False),
+                width=0.22,
             )
             p_value = float(mannwhitneyu(values[chosen], values[~chosen]).pvalue)
-            _mark(parts, position, p_value)
+            _mark(parts, position - 0.13, p_value)
             stats[f"unique dD2, {name}"] = {
                 "median_selection": float(np.median(values[chosen])),
                 "median_held_out": float(np.median(values[~chosen])),
                 "mann_whitney_p": p_value,
+                f"median_{other_subject}": float(np.median(other_values)),
             }
         parts.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         parts.set_xticks(
@@ -367,6 +410,15 @@ def main() -> None:
             0.85,
             "held out",
             color=colors[1],
+            transform=parts.transAxes,
+            ha="right",
+            va="top",
+        )
+        parts.text(
+            0.98,
+            0.75,
+            f"{other_subject} (open)",
+            color=HELD_OUT_COLOR,
             transform=parts.transAxes,
             ha="right",
             va="top",
@@ -417,6 +469,18 @@ def main() -> None:
             centers, low, high, color=MODEL_COLOR, alpha=0.25, linewidth=0
         )
         calibration_axis.plot(centers, median, color=MODEL_COLOR)
+        other_median = np.nanpercentile(other_ratio, 50, axis=0)
+        calibration_axis.plot(centers, other_median, color=MODEL_COLOR, ls="--")
+        calibration_axis.text(
+            0.97,
+            0.95,
+            f"{args.root.name.split('_')[0]}\n{other_subject} (dashed)",
+            color=MODEL_COLOR,
+            transform=calibration_axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=6,
+        )
         calibration_axis.axhline(
             1, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
         )
@@ -427,6 +491,7 @@ def main() -> None:
             "group_percentile": centers.tolist(),
             "median": median.tolist(),
             "fraction_units_above_1": np.mean(ratio > 1, axis=0).tolist(),
+            f"median_{other_subject}": other_median.tolist(),
         }
         planted_axes = []
         for column, (name, limit_ms) in enumerate(SYNTHETIC_KERNELS.items()):
@@ -500,6 +565,10 @@ def main() -> None:
             groups=CALIBRATION_GROUPS,
             cal_low=min(ratios),
             cal_high=max(ratios),
+            subject=args.root.name.split("_")[0],
+            other=other_subject,
+            other_units=len(other_final),
+            d2_other=stats["cross-validated D2"][f"median_{other_subject}"],
         )
     )
     print(json.dumps(stats, indent=1))

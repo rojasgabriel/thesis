@@ -870,7 +870,7 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 | Fixation effect | `hold_effect.py` | two example units, the lower rate in the fixation, its end at the exit, and its controls |
 | Design optimization (supplement) | `design_optimization.py`, `collinearity.py`, `parameter_recovery.py` | step 1: the six design grids on 80 units of GRB006, each with its test of prediction; step 2, in GRB006 and the held-out GRB064: the collinearity of the design in use (variance inflation, condition indices, shared direction of each pair of regressors) and the parameter recovery of each regressor |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
-| Checks of the model (supplement) | `model_checks.py` | single trials, held-out units, terms that are not in the model, calibration, recovery of planted kernels |
+| Checks of the model (supplement) | `model_checks.py` | single trials, held-out units (and the held-out animal GRB064), terms that are not in the model, calibration (both sessions), recovery of planted kernels |
 | Kernel stability (supplement) | `kernel_reliability.py` | the kernels from two halves of the trials; both sessions |
 | Leak test (supplement) | `leak_test.py` | the flash × move effect that the model makes when none is simulated, against the real effect |
 | Flash against motion energy | `kernel_comparison.py` | the weights of the two terms over units; descriptive |
