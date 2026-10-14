@@ -101,7 +101,13 @@ def binned_rates(
 
 
 def _plot_bits_deviance_by_rate(
-    axis, bits: np.ndarray, deviance: np.ndarray, rate: np.ndarray
+    axis,
+    bits: np.ndarray,
+    deviance: np.ndarray,
+    rate: np.ndarray,
+    marker: str = "o",
+    linestyle: str = "-",
+    label: bool = True,
 ) -> None:
     """Plot D² against bits/spike, with the units grouped by firing rate.
 
@@ -136,14 +142,19 @@ def _plot_bits_deviance_by_rate(
                 bits[members],
                 deviance[members],
                 color=color,
-                s=5,
+                s=6,
+                marker=marker,
                 alpha=0.5,
                 linewidths=0,
             )
             axis.fill_between(
                 x, y - error, y + error, color=color, alpha=0.3, linewidth=0
             )
-            axis.plot(x, y, color=color, marker="o", ms=3, linewidth=1.2)
+            axis.plot(
+                x, y, color=color, marker=marker, ms=3, linewidth=1.2, ls=linestyle
+            )
+            if not label:
+                continue
             # A line that ends left of the others has them on its right, so its
             # label goes above its end.
             right = x[-1] > 0.8 * longest
