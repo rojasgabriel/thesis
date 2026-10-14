@@ -30,26 +30,17 @@ of the two animals are not pooled.
   trial comes from the cross-validation fold that did not train on it. A time
   bin is shown while at least `MIN_TRIAL_FRACTION` of the test trials have not
   reached the response port.
-- Panel d (population, both mice in one axis; circles and solid lines GRB006,
-  triangles and dashed lines GRB064): cross-validated D² of each unit against
-  its bits/spike (the log-likelihood gain over the constant-rate model for
-  each spike), with the units of each mouse in three groups of equal size by
-  firing rate (`figures._plot_bits_deviance_by_rate`). For the same
-  bits/spike, a unit with a higher rate has a higher D². The step histograms
-  above and at the right are the distributions of the two measures in each
-  mouse, with their medians.
-- Panel e (what explains the spikes, both mice in one axis): for each
-  regressor, the unique ΔD² (filled; the D² that the model loses when that
-  regressor is shuffled) and the maximal ΔD² (open; the D² of that regressor
-  alone minus the D² with every regressor shuffled); for each mouse, the
-  median over units with its bootstrap 95% interval. The top row is the D² of
-  the full model. The axis is logarithmic and starts at `FLOOR`; a smaller
-  value is drawn at the floor. The numbers at the right are the fraction of
-  units of each mouse whose unique ΔD² is above zero (one-sided t-test of the
-  fold values, p < `RELIABLE_ALPHA`; a regressor with no effect gives about
-  5%). The order of the regressors is that of the first session. The two tests
-  of `inclusion.py` for each regressor go to `main_figure_stats.json`; a
-  regressor that does not pass both has "n.s." after its number.
+- Panel d (population): cross-validated D² of each unit against its
+  bits/spike, the units of both mice pooled, in three groups of equal size by
+  firing rate (`figures._plot_bits_deviance_by_rate`), with the distributions
+  of the two measures and their medians (pooled and of each mouse).
+- Panel e (what explains the spikes): for each regressor, the unique ΔD² and
+  the maximal ΔD²; the pooled median with its hierarchical-bootstrap 95%
+  interval (`plotting.hierarchical_interval`), and the median of each mouse as
+  a bar. The axis is logarithmic and starts at `FLOOR`. The numbers at the
+  right are the fraction of units of each mouse that need the regressor; the
+  two tests of `inclusion.py` are within each mouse
+  (`main_figure_stats.json`).
 
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
@@ -85,19 +76,16 @@ from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor
 from thesis.ephys.analyses.glm.results import FLASH_GAPS_MS
 from thesis.ephys.analyses.glm.unique_dev import MAXIMAL, RELIABLE_ALPHA, UNIQUE
 from thesis.plotting import (
-    ANIMAL_MARKERS,
     CONCEPT_COLORS,
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
-    median_interval,
+    hierarchical_interval,
     save_figure,
     separate_axes,
 )
 
 FLOOR = 1e-4
-# Line style of each mouse, in the order of `SESSIONS`.
-MOUSE_STYLES = ("-", "--")
 RATE_BIN_MS = 20
 MIN_TRIAL_FRACTION = 0.5
 VISUAL, TASK, MOTION, HISTORY = (
@@ -149,22 +137,21 @@ trials, in {bin_ms}-ms bins. Each trial is predicted by a model that was not
 fit on it. A time bin is shown while at least half of the trials have not
 reached the response port. **d**, Cross-validated D² (deviance explained on
 held-out trials, relative to a constant rate) against bits/spike for each of
-the {units} units, both mice in one axis (circles and solid lines {subject};
-triangles and dashed lines {other}). Small points are units, in three groups
-of equal size by firing rate in each mouse (a darker gray is a higher rate).
-In each group, the units are in bins of equal size by bits/spike; a large
-marker is the mean of a bin and the band is ±1 SEM. For the same bits/spike,
-a unit with a higher rate has a higher D². The histograms are the
-distributions over units (median D² {d2}; median bits/spike {bits}).
-**e**, What each regressor explains, both mice in one axis (circles {subject},
-triangles {other}; the order of the regressors is that of {subject}): the
-unique ΔD² (filled; the D² that the model loses when that regressor is
-shuffled: inside each trial, or over trials for a variable of the trial) and
-the maximal ΔD² (open; the D² of that regressor alone). Points are the median
-over units and lines its bootstrap 95% interval; the top row is the D² of the
-full model. The axis is logarithmic and starts at {floor:g}; a smaller value
-is drawn there. The numbers at the right are the fraction of units of each
-mouse with a unique ΔD² above zero (one-sided t-test over the 10 folds,
+the {units} units, pooled over the two mice. Small points are units, in three
+groups of equal size by firing rate (a darker gray is a higher rate). In each
+group, the units are in bins of equal size by bits/spike; a large marker is
+the mean of a bin and the band is ±1 SEM. For the same bits/spike, a unit with
+a higher rate has a higher D². The histograms are the distributions over
+units (median D² {d2}; median bits/spike {bits}). **e**, What each regressor
+explains (the order of the regressors is that of {subject}): the unique ΔD²
+(filled; the D² that the model loses when that regressor is shuffled: inside
+each trial, or over trials for a variable of the trial) and the maximal ΔD²
+(open; the D² of that regressor alone). Markers are the median over the
+pooled units with its hierarchical-bootstrap 95% interval (the mice, then the
+units of each); the bars are the median of each mouse. The top row is the D²
+of the full model. The axis is logarithmic and starts at {floor:g}; a smaller
+value is drawn there. The numbers at the right are the fraction of units of
+each mouse with a unique ΔD² above zero (one-sided t-test over the 10 folds,
 p < {alpha}; a regressor with no effect gives about {alpha:.0%}). A regressor is in the model when it passes
 two tests over all units, each with a Holm correction for the {regressors}
 regressors: the unique ΔD² is above zero (one-sided Wilcoxon signed-rank test
@@ -294,42 +281,30 @@ def _plot_prediction(axis, data) -> None:
 
 
 def _plot_population(axis, sessions: list[dict]) -> None:
-    """D² against bits/spike by firing-rate group, both mice, with the distributions."""
-    for k, session in enumerate(sessions):
-        _plot_bits_deviance_by_rate(
-            axis,
-            session["bits"],
-            session["deviance"],
-            session["rate"],
-            marker=ANIMAL_MARKERS[session["subject"]],
-            linestyle=MOUSE_STYLES[k],
-            label=k == 0,
-        )
+    """D² against bits/spike by firing-rate group, units of all mice pooled."""
+    bits, deviance, rate = (
+        np.concatenate([s[key] for s in sessions])
+        for key in ("bits", "deviance", "rate")
+    )
+    _plot_bits_deviance_by_rate(axis, bits, deviance, rate)
     axis.set_xlabel("bits/spike")
     axis.set_ylabel(r"cross-validated $D^2$")
     above = axis.inset_axes([0, 1.04, 1, 0.22], sharex=axis)
     side = axis.inset_axes([1.04, 0, 0.22, 1], sharey=axis)
-    for k, session in enumerate(sessions):
-        style = {"color": "black", "ls": MOUSE_STYLES[k], "linewidth": 1.0}
-        above.hist(session["bits"], bins=24, histtype="step", density=True, **style)
-        side.hist(
-            session["deviance"],
-            bins=24,
-            histtype="step",
-            density=True,
-            orientation="horizontal",
-            **style,
-        )
-        above.axvline(np.median(session["bits"]), **style)
-        side.axhline(np.median(session["deviance"]), **style)
+    above.hist(bits, bins=24, color="black", alpha=0.75)
+    side.hist(deviance, bins=24, color="black", alpha=0.75, orientation="horizontal")
+    above.axvline(np.median(bits), color="black", linewidth=1.2)
+    side.axhline(np.median(deviance), color="black", linewidth=1.2)
     above.text(
-        0.55,
+        0.45,
         1.0,
-        "\n".join(
-            f"{s['subject']} ({'solid' if k == 0 else 'dashed'}): median"
-            f" {np.median(s['bits']):.2f} bits/spike, D² {np.median(s['deviance']):.3f}"
-            for k, s in enumerate(sessions)
-        ),
+        f"{len(bits)} units, {len(sessions)} mice. Median {np.median(bits):.2f}"
+        f" bits/spike, D² {np.median(deviance):.3f}\n("
+        + "; ".join(
+            f"{s['subject']} {np.median(s['bits']):.2f}, {np.median(s['deviance']):.3f}"
+            for s in sessions
+        )
+        + ")",
         transform=above.transAxes,
         ha="left",
         va="bottom",
@@ -364,38 +339,39 @@ def unique_order(records: list[dict], tests: dict[str, dict]) -> list[str]:
 
 
 def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
-    """Unique (filled) and maximal (open) ΔD² of each regressor, both mice.
+    """Unique (filled) and maximal (open) ΔD² of each regressor, units of all mice pooled.
 
-    For each mouse, the median over units with its bootstrap 95% interval; the
-    mice are one above the other in each row (`ANIMAL_MARKERS`).
+    The large marker is the pooled median with its hierarchical-bootstrap 95%
+    interval (mice, then units); the small marks are the median of each mouse.
     """
-    for k, session in enumerate(sessions):
-        records = session["records"]
-        marker = ANIMAL_MARKERS[session["subject"]]
-        base = -0.2 + 0.4 * k
-        for position, name in enumerate(order):
-            color = REGRESSORS[name][1]
-            for key, offset, face in ((UNIQUE, -0.08, color), (MAXIMAL, 0.08, "white")):
-                values = [item["groups"][name][key] for item in records]
-                median, low, high = np.maximum(median_interval(values), FLOOR)
-                y = position + base + offset
-                axis.plot([low, high], [y, y], color=color, linewidth=1.0)
-                axis.scatter(
-                    median,
-                    y,
-                    s=16,
-                    marker=marker,
-                    zorder=3,
-                    facecolor=face,
-                    edgecolor=color,
-                )
-        full = [item["complete_test_deviance_explained"] for item in records]
-        median, low, high = median_interval(full)
-        axis.plot([low, high], [len(order) + base] * 2, color="black", linewidth=1.0)
+
+    def draw(y, groups, color, face):
+        stats = hierarchical_interval(groups)
+        low, high = np.maximum(stats["interval_95"], FLOOR)
+        axis.plot([low, high], [y, y], color=color, linewidth=1.0)
         axis.scatter(
-            median, len(order) + base, s=16, marker=marker, zorder=3, color="black"
+            max(stats["median"], FLOOR),
+            y,
+            s=22,
+            zorder=3,
+            facecolor=face,
+            edgecolor=color,
         )
+        for median in stats["median_of_each_mouse"]:
+            axis.plot(max(median, FLOOR), y, "|", color=color, ms=6, mew=1.0, zorder=3)
+
     for position, name in enumerate(order):
+        color = REGRESSORS[name][1]
+        for key, offset, face in ((UNIQUE, -0.17, color), (MAXIMAL, 0.17, "white")):
+            draw(
+                position + offset,
+                [
+                    [item["groups"][name][key] for item in s["records"]]
+                    for s in sessions
+                ],
+                color,
+                face,
+            )
         axis.text(
             1.03,
             position,
@@ -404,11 +380,20 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
                 + ("" if s["tests"][name]["passes_both_tests"] else " n.s.")
                 for s in sessions
             ),
-            color=REGRESSORS[name][1],
+            color=color,
             va="center",
             fontsize=6.5,
             transform=axis.get_yaxis_transform(),
         )
+    draw(
+        len(order),
+        [
+            [item["complete_test_deviance_explained"] for item in s["records"]]
+            for s in sessions
+        ],
+        "black",
+        "black",
+    )
     axis.text(
         1.03,
         len(order) + 0.5,
@@ -428,13 +413,7 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     for tick, name in zip(axis.get_yticklabels(), order, strict=False):
         tick.set_color(REGRESSORS[name][1])
     axis.set_xlabel(
-        r"$\Delta D^2$ (filled: unique; open: maximal)"
-        + "\n"
-        + ", ".join(
-            f"{'circles' if ANIMAL_MARKERS[s['subject']] == 'o' else 'triangles'}"
-            f" {s['subject']}"
-            for s in sessions
-        )
+        r"$\Delta D^2$ (filled: unique; open: maximal)" + "\nbars: median of each mouse"
     )
 
 

@@ -48,17 +48,25 @@ def median_interval(values, seed: int = 0) -> tuple[float, float, float]:
 PEAK_AXIS_LIMITS = (0.5, 200)
 
 
-def peak_axes(axis) -> None:
-    """Give a peak-against-peak scatter the same log axes, limits, and ticks, and the identity line."""
-    axis.set_xscale("log")
-    axis.set_yscale("log")
-    axis.set_xlim(*PEAK_AXIS_LIMITS)
-    axis.set_ylim(*PEAK_AXIS_LIMITS)
-    axis.set_xticks([1, 10, 100], ["1", "10", "100"])
-    axis.set_yticks([1, 10, 100], ["1", "10", "100"])
-    axis.plot(
-        PEAK_AXIS_LIMITS, PEAK_AXIS_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--"
-    )
+def peak_axes(axis, limits=None) -> None:
+    """Give a peak-against-peak scatter the same axes on x and y, and the identity line.
+
+    With no `limits`: the matplotlib log scale on both axes, from
+    `PEAK_AXIS_LIMITS`. With `limits`: linear axes over them, for peaks that are
+    often at or below 0, which a log axis cannot show.
+    """
+    if limits is None:
+        limits = PEAK_AXIS_LIMITS
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        ticks = [1, 10, 100]
+    else:
+        ticks = np.arange(np.ceil(limits[0] / 10) * 10, limits[1] + 1, 10)
+    axis.set_xlim(*limits)
+    axis.set_ylim(*limits)
+    axis.set_xticks(ticks, [f"{tick:g}" for tick in ticks])
+    axis.set_yticks(ticks, [f"{tick:g}" for tick in ticks])
+    axis.plot(limits, limits, color=REFERENCE_COLOR, lw=0.8, ls="--")
     axis.set_aspect("equal")
 
 

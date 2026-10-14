@@ -31,8 +31,8 @@ GRB006, dashed lines and triangles GRB064.
   observed rate (e) and the model rate (f), and 40 ms minus 80+ ms in both
   (g). The baseline is the 80+ ms rate from `peaks.BASELINE_MS`. Small markers
   are units; large markers the median with its bootstrap 95% interval. A
-  point outside `PEAK_LIMITS` is not drawn; it is in the statistics, and the
-  count is in the output.
+  point outside `GAP_LIMITS` (linear axes) is not drawn; it is in the
+  statistics, and the count is in the output.
 - Statistics: two-sided Wilcoxon signed-rank tests of the paired difference.
   For the kernels (in the output), also for the units that fire more and that
   fire less apart, with the kind from conditions outside the pair (`PAIRS`).
@@ -66,7 +66,6 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
-    PEAK_AXIS_LIMITS,
     REFERENCE_COLOR,
     hierarchical_interval,
     peak_axes,
@@ -115,7 +114,9 @@ OTHER_COLOR = "0.7"
 # The matched peak (`peaks.py`): the observed rate and the model rate.
 RATES = ("observed", "model")
 RATE_COLORS = (OBSERVED_COLOR, MODEL_COLOR)
-PEAK_LIMITS = PEAK_AXIS_LIMITS
+# The gap peaks are small and often at or below 0, so their axes are linear.
+GAP_LIMITS = (-15, 25)
+PEAK_LIMITS = GAP_LIMITS
 
 
 def _paired(first: np.ndarray, second: np.ndarray) -> dict:
@@ -395,7 +396,7 @@ def main() -> None:
         )
         subjects = [gap["subject"] for gap in matched]
         for axis, k in zip(gap_axes[:2], range(2), strict=True):
-            peak_axes(axis)
+            peak_axes(axis, GAP_LIMITS)
             pooled_points(
                 axis,
                 [g["peaks"][:, k, 0] for g in matched],
