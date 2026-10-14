@@ -42,6 +42,140 @@ def median_interval(values, seed: int = 0) -> tuple[float, float, float]:
     return float(np.median(values)), float(low), float(high)
 
 
+def hierarchical_interval(groups, seed: int = 0) -> dict:
+    """Return the pooled median with a hierarchical-bootstrap 95% interval and p.
+
+    `groups` holds the values of each mouse. A resample draws the mice with
+    replacement, then the units of each drawn mouse with replacement, and takes
+    the median of all of them (Saravanan, Berman and Sober 2020). p is the
+    two-sided bootstrap p-value of the median against 0. Also returns the
+    median of each mouse.
+    """
+    groups = [np.asarray(values, dtype=float) for values in groups]
+    rng = np.random.default_rng(seed)
+    medians = np.empty(BOOTSTRAPS)
+    for b in range(BOOTSTRAPS):
+        picked = rng.integers(0, len(groups), len(groups))
+        medians[b] = np.median(
+            np.concatenate(
+                [
+                    groups[g][rng.integers(0, len(groups[g]), len(groups[g]))]
+                    for g in picked
+                ]
+            )
+        )
+    low, high = np.percentile(medians, [2.5, 97.5])
+    p_value = min(1.0, 2 * min(np.mean(medians <= 0), np.mean(medians >= 0)))
+    return {
+        "median": float(np.median(np.concatenate(groups))),
+        "interval_95": [float(low), float(high)],
+        "p_bootstrap": float(max(p_value, 1 / BOOTSTRAPS)),
+        "median_of_each_mouse": [float(np.median(values)) for values in groups],
+    }
+
+
+def pooled_points(axis, xs, ys, subjects, color, seed: int = 0) -> None:
+    """Draw the units of all mice pooled, with the medians of the mice and of all.
+
+    Units are small light dots. The median of each mouse is a small open
+    circle with its name. The pooled median is a large dot with the
+    hierarchical-bootstrap 95% interval of each median as error bars.
+    """
+    axis.scatter(
+        np.concatenate(xs),
+        np.concatenate(ys),
+        s=8,
+        color=color,
+        alpha=0.3,
+        lw=0,
+        zorder=2,
+    )
+    for x, y, subject in zip(xs, ys, subjects, strict=True):
+        mx, my = np.median(x), np.median(y)
+        axis.scatter(mx, my, s=22, facecolor="white", edgecolor=color, lw=1, zorder=3)
+        axis.annotate(
+            subject,
+            (mx, my),
+            xytext=(4, 3),
+            textcoords="offset points",
+            color=color,
+            fontsize=5.5,
+        )
+    fx, fy = hierarchical_interval(xs, seed), hierarchical_interval(ys, seed)
+    axis.errorbar(
+        fx["median"],
+        fy["median"],
+        xerr=[
+            [fx["median"] - fx["interval_95"][0]],
+            [fx["interval_95"][1] - fx["median"]],
+        ],
+        yerr=[
+            [fy["median"] - fy["interval_95"][0]],
+            [fy["interval_95"][1] - fy["median"]],
+        ],
+        fmt="o",
+        ms=6,
+        color=color,
+        mec="white",
+        mew=0.6,
+        elinewidth=1,
+        capsize=2,
+        zorder=4,
+    )
+
+
+def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) -> dict:
+    """Draw one column of pooled units, the median of each mouse, and the pooled median.
+
+    Returns the statistics of `hierarchical_interval`.
+    """
+    rng = np.random.default_rng(seed)
+    values = np.concatenate(groups)
+    axis.scatter(
+        position + rng.uniform(-0.15, 0.15, len(values)),
+        values,
+        s=8,
+        color=color,
+        alpha=0.3,
+        lw=0,
+        zorder=2,
+    )
+    stats = hierarchical_interval(groups, seed)
+    for median, subject in zip(stats["median_of_each_mouse"], subjects, strict=True):
+        axis.scatter(
+            position + 0.25,
+            median,
+            s=22,
+            facecolor="white",
+            edgecolor=color,
+            lw=1,
+            zorder=3,
+        )
+        axis.annotate(
+            subject,
+            (position + 0.25, median),
+            xytext=(4, -2),
+            textcoords="offset points",
+            color=color,
+            fontsize=5.5,
+        )
+    low, high = stats["interval_95"]
+    axis.errorbar(
+        position,
+        stats["median"],
+        yerr=[[stats["median"] - low], [high - stats["median"]]],
+        fmt="o",
+        ms=6,
+        color=color,
+        mec="white",
+        mew=0.6,
+        elinewidth=1,
+        capsize=2,
+        zorder=4,
+    )
+    return stats
+
+
 def animal_points(axis, x, y, subject: str, color, label: bool = True) -> None:
     """Draw the units of one animal and its median with 95% intervals on both axes.
 

@@ -31,15 +31,17 @@ terms carry.
 - Units: the units with the "excited" classification of StimulusResponse
   (stimulus-response parameter 0) that the GLM fits, as in the raw figure. A
   peak has no meaning for a unit with no response to the flash.
-- Each test is within one animal (`SESSIONS`); the units of the two animals are
-  not pooled. Statistics: two-sided Wilcoxon signed-rank tests over units of
-  move minus still in each rate, of the observed against the model change, and
-  of the model against the model with no flash × move. Summary: the median of
-  the units of each animal with its bootstrap 95% interval.
+- Units of both mice are pooled in the plots (standard practice; Parker et al.
+  2022), and the caption gives the units and mice. The large dot is the pooled
+  median with a hierarchical-bootstrap 95% interval (resample the mice, then
+  the units of each; Saravanan et al. 2020); the small open circles are the
+  median of each mouse. Statistics: the hierarchical bootstrap of the pooled
+  median, and in each mouse a two-sided Wilcoxon signed-rank test, of move
+  minus still in each rate, of the observed against the model change, and of
+  the model against the model with no flash × move.
 - Figure: a, b, observed and model peaks, still against move; c, move minus
-  still in the three rates. Both animals in each axis, one marker for each
-  animal. A point outside the axis limits is not drawn; it is in the
-  statistics, and the count is in the output.
+  still in the three rates. A point outside the axis limits is drawn at the
+  limit; it is in the statistics, and the count is in the output.
 
 Trials, alignment (first flash), and exclusions are those of `fit.py`. The
 sampling unit is the unit. The script writes `flash_by_period.svg` and
@@ -65,14 +67,15 @@ from thesis.ephys.analyses.glm import cli, dmat, peaks
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import BASELINE_MS, PEAK_MS
 from thesis.plotting import (
-    ANIMAL_MARKERS,
     FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
-    animal_points,
+    hierarchical_interval,
     label_panels,
     median_interval,
+    pooled_points,
+    pooled_strip,
     save_figure,
 )
 
@@ -134,91 +137,76 @@ def main() -> None:
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     sessions = [session_peaks(args.out / session, args.units) for session in SESSIONS]
-    stats = {}
-    for session, data in zip(SESSIONS, sessions, strict=True):
-        values = data["peaks"]
-        change = values[:, :, 1] - values[:, :, 0]  # (unit, rate)
-        stats[session] = {
-            "trials_with_both_flashes": data["trials"],
-            "units": len(values),
-            **{
-                f"{rate}: move minus still (spikes/s)": _change(change[:, k])
-                for k, rate in enumerate(RATES)
-            },
-            "model minus observed change": _change(change[:, 1] - change[:, 0]),
-            "part of the model change from flash × move": _change(
-                change[:, 1] - change[:, 2]
+    subjects = [data["subject"] for data in sessions]
+    changes = [data["peaks"][:, :, 1] - data["peaks"][:, :, 0] for data in sessions]
+    stats = {
+        "units": {s: len(c) for s, c in zip(subjects, changes, strict=True)},
+        "trials_with_both_flashes": {
+            s: data["trials"] for s, data in zip(subjects, sessions, strict=True)
+        },
+    }
+    for k, rate in enumerate(RATES):
+        stats[f"{rate}: move minus still (spikes/s)"] = {
+            "pooled, hierarchical bootstrap": hierarchical_interval(
+                [c[:, k] for c in changes]
             ),
-            "units_outside_the_peak_axis": int(
-                np.sum((values < PEAK_LIMITS[0]) | (values > PEAK_LIMITS[1]))
-            ),
-            "units_outside_the_change_axis": int(
-                np.sum((change < CHANGE_LIMITS[0]) | (change > CHANGE_LIMITS[1]))
-            ),
+            **{s: _change(c[:, k]) for s, c in zip(subjects, changes, strict=True)},
         }
+    for name, part in (
+        ("model minus observed change", lambda c: c[:, 1] - c[:, 0]),
+        ("part of the model change from flash × move", lambda c: c[:, 1] - c[:, 2]),
+    ):
+        stats[name] = {
+            "pooled, hierarchical bootstrap": hierarchical_interval(
+                [part(c) for c in changes]
+            ),
+            **{s: _change(part(c)) for s, c in zip(subjects, changes, strict=True)},
+        }
+    stats["units_outside_the_peak_axis"] = int(
+        sum(
+            np.sum((d["peaks"] < PEAK_LIMITS[0]) | (d["peaks"] > PEAK_LIMITS[1]))
+            for d in sessions
+        )
+    )
+    stats["units_outside_the_change_axis"] = int(
+        sum(np.sum((c < CHANGE_LIMITS[0]) | (c > CHANGE_LIMITS[1])) for c in changes)
+    )
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             1, 3, figsize=(7.4, 2.7), layout="constrained", width_ratios=(1, 1, 1.15)
         )
         for axis, k in zip(axes[:2], range(2), strict=True):
-            for data in sessions:
-                values = data["peaks"][:, k]
-                animal_points(
-                    axis,
-                    np.clip(values[:, 0], *PEAK_LIMITS),
-                    np.clip(values[:, 1], *PEAK_LIMITS),
-                    data["subject"],
-                    COLORS[k],
-                )
+            pooled_points(
+                axis,
+                [np.clip(d["peaks"][:, k, 0], *PEAK_LIMITS) for d in sessions],
+                [np.clip(d["peaks"][:, k, 1], *PEAK_LIMITS) for d in sessions],
+                subjects,
+                COLORS[k],
+            )
             axis.plot(PEAK_LIMITS, PEAK_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
             axis.set(xlim=PEAK_LIMITS, ylim=PEAK_LIMITS, aspect="equal")
             axis.set_xlabel(f"{RATES[k]} peak, still\n(spikes/s)")
             axis.set_ylabel(f"{RATES[k]} peak, move (spikes/s)")
         change_axis = axes[2]
-        rng = np.random.default_rng(0)
-        for data in sessions:
-            values = data["peaks"]
-            change = values[:, :, 1] - values[:, :, 0]
-            side = -0.17 if data["subject"] == sessions[0]["subject"] else 0.17
-            marker = ANIMAL_MARKERS[data["subject"]]
-            for k, color in enumerate(COLORS):
-                shown = np.clip(change[:, k], *CHANGE_LIMITS)
-                change_axis.scatter(
-                    k + side + rng.uniform(-0.07, 0.07, len(shown)),
-                    shown,
-                    s=9,
-                    marker=marker,
-                    color=color,
-                    alpha=0.3,
-                    lw=0,
-                )
-                median, low, high = median_interval(change[:, k])
-                change_axis.errorbar(
-                    k + side,
-                    median,
-                    yerr=[[median - low], [high - median]],
-                    fmt=marker,
-                    ms=6,
-                    color=color,
-                    mec="white",
-                    mew=0.6,
-                    capsize=2,
-                    zorder=4,
-                )
+        for k, color in enumerate(COLORS):
+            pooled_strip(
+                change_axis,
+                k,
+                [np.clip(c[:, k], *CHANGE_LIMITS) for c in changes],
+                subjects,
+                color,
+            )
         change_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
         change_axis.set_xticks(
             range(len(RATES)), ["observed", "model", "model, no\nflash × move"]
         )
         for tick, color in zip(change_axis.get_xticklabels(), COLORS, strict=True):
             tick.set_color(color)
+        change_axis.set_xlim(-0.5, len(RATES) - 0.2)
         change_axis.set_ylim(*CHANGE_LIMITS)
         change_axis.set_ylabel("peak, move minus still (spikes/s)")
         change_axis.set_title(
-            "  ".join(
-                f"{ANIMAL_MARKERS[data['subject']].replace('^', '△').replace('o', '○')}"
-                f" {data['subject']}"
-                for data in sessions
-            ),
+            f"{sum(len(c) for c in changes)} units, {len(changes)} mice",
             fontsize=6.5,
             loc="left",
         )
