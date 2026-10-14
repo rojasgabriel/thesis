@@ -139,6 +139,27 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # units need it in the two sessions).
 FLASH_MOVE_GAP_TERM = True
 FLASH_MOVE_GAP = "flash_move_gap"
+# Candidate terms, off in the model in use. The residual checks of 2026-10-13
+# (`residual_checks.py`, GRB006) found three kinds of structure that the model
+# leaves: over the time in the trial, by the flash rate, and in the time course
+# of the choice. `candidate_terms.py` tests them with the inclusion rule.
+# - Time in trial: `TRIAL_TIME_BASES` raised cosines over the time from the
+#   first flash, 0 to `TRIAL_TIME_WINDOW_S`; 0 outside.
+# - Flash rate: the same bases times the category of the trial (+1 above the
+#   category boundary, -1 below it, 0 at it).
+# - Choice kernel: the side of the response (+1 right, -1 left) times
+#   `CHOICE_KERNEL_BASES` raised cosines over `CHOICE_KERNEL_S` around the
+#   center exit; 0 outside. It adds a time course to the choice column.
+TIME_IN_TRIAL_TERM = False
+TIME_IN_TRIAL = "time_in_trial"
+FLASH_RATE_TERM = False
+FLASH_RATE = "flash_rate"
+TRIAL_TIME_WINDOW_S = 1.5
+TRIAL_TIME_BASES = 6
+CHOICE_KERNEL_TERM = False
+CHOICE_KERNEL = "choice_kernel"
+CHOICE_KERNEL_S = (-0.3, 0.6)
+CHOICE_KERNEL_BASES = 9
 HOLD = "hold"
 HISTORY_COLUMNS = 10
 
@@ -455,6 +476,17 @@ def flash_move_gap(trials) -> np.ndarray:
     return np.where(used, period * (short - short[used].mean()), 0.0)
 
 
+def _bumps(position: np.ndarray, count: int) -> np.ndarray:
+    """Return `count` raised cosines with even spacing over a position of 0 to 1.
+
+    Each one is two spacings wide, so they add up to 1 from 0 to 1; outside
+    that range they are 0.
+    """
+    centers = np.linspace(0, 1, count)
+    distance = (np.asarray(position)[..., None] - centers) / (centers[1] - centers[0])
+    return np.where(np.abs(distance) < 1, 0.5 * (1 + np.cos(np.pi * distance)), 0.0)
+
+
 def session_drift_columns(trial_times: np.ndarray) -> np.ndarray:
     """Return the drift columns of each trial: smooth bumps over the session.
 
@@ -470,10 +502,7 @@ def session_drift_columns(trial_times: np.ndarray) -> np.ndarray:
             n_knots=DRIFT_KNOTS, degree=3, include_bias=False
         ).fit_transform(trial_times[:, None])
     position = (trial_times - trial_times.min()) / np.ptp(trial_times)
-    centers = np.linspace(0, 1, DRIFT_BASES)
-    distance = (position[:, None] - centers) / (centers[1] - centers[0])
-    bumps = np.where(np.abs(distance) < 1, 0.5 * (1 + np.cos(np.pi * distance)), 0.0)
-    return bumps[:, :-1]
+    return _bumps(position, DRIFT_BASES)[:, :-1]
 
 
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
@@ -632,6 +661,51 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "trial in the session",
             }
         )
+    since_first = times - np.asarray(alignments, dtype=float)[:, None]
+    over_trial = _bumps(since_first / TRIAL_TIME_WINDOW_S, TRIAL_TIME_BASES)
+    category = np.sign(
+        trials["visual_stim_rate_hz"].to_numpy(dtype=float)
+        - trials["category_boundary_hz"].to_numpy(dtype=float)
+    )
+    since_exit = times - trials["center_exit_s"].to_numpy(dtype=float)[:, None]
+    around_exit = _bumps(
+        (since_exit - CHOICE_KERNEL_S[0]) / np.ptp(CHOICE_KERNEL_S), CHOICE_KERNEL_BASES
+    )
+    for name, used, block, coding in (
+        (
+            TIME_IN_TRIAL,
+            TIME_IN_TRIAL_TERM,
+            over_trial,
+            f"{TRIAL_TIME_BASES} raised cosines over 0 to {TRIAL_TIME_WINDOW_S} s "
+            "from the first flash",
+        ),
+        (
+            FLASH_RATE,
+            FLASH_RATE_TERM,
+            category[:, None, None] * over_trial,
+            "the time-in-trial bases times the category (+1 above the boundary, "
+            "-1 below, 0 at it)",
+        ),
+        (
+            CHOICE_KERNEL,
+            CHOICE_KERNEL_TERM,
+            np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None, None]
+            * around_exit,
+            f"+1 (right) or -1 (left) times {CHOICE_KERNEL_BASES} raised cosines "
+            f"over {CHOICE_KERNEL_S[0]} to {CHOICE_KERNEL_S[1]} s from the center exit",
+        ),
+    ):
+        if used:
+            values = np.column_stack((values, block.reshape(-1, block.shape[-1])))
+            manifest.append(
+                {
+                    "name": name,
+                    "group": "task",
+                    "events": len(alignments),
+                    "columns": block.shape[-1],
+                    "coding": coding,
+                }
+            )
     if not IN_PORT_COLUMN:
         return values, manifest
     # Earlier parameterization of the hold term: one state column with no temporal basis.
@@ -876,6 +950,9 @@ def _common_design_is_current(output: Path) -> bool:
             (SIDE, 1, SIDE_COLUMN),
             (PREVIOUS_SIDE, 1, PREVIOUS_SIDE_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
+            (TIME_IN_TRIAL, TRIAL_TIME_BASES, TIME_IN_TRIAL_TERM),
+            (FLASH_RATE, TRIAL_TIME_BASES, FLASH_RATE_TERM),
+            (CHOICE_KERNEL, CHOICE_KERNEL_BASES, CHOICE_KERNEL_TERM),
             (IN_PORT, 1, IN_PORT_COLUMN),
         )
         if used

@@ -37,9 +37,10 @@ from pathlib import Path
 import numpy as np
 
 from thesis.ephys.analyses.glm import cli, dmat
-from thesis.ephys.analyses.glm.fit import load_unit_records
+from thesis.ephys.analyses.glm.fit import analysis_unit_indices, load_unit_records
 from thesis.ephys.analyses.glm.hold_effect import _fit_variant
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
+from thesis.ephys.units import fetch_unit_table
 
 # First run (suffix "_candidates", output `candidate_terms.json`): side after
 # exit, flash × move, center entry, and flash recovery.
@@ -47,8 +48,16 @@ from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor
 # ("_flash_previous_side"): the flash kernel by previous side.
 # Fourth run ("_flash_move_candidates"): flash × move × gap and flash × motion
 # energy, together.
-ROOT_SUFFIX = "_flash_move_gap"
-CANDIDATES = {"FLASH_MOVE_GAP_TERM": dmat.FLASH_MOVE_GAP}
+# Fifth run ("_flash_move_gap"): flash × move × gap.
+# Sixth run: the three kinds of structure that the residual checks found.
+ROOT_SUFFIX = "_residual_candidates"
+CANDIDATES = {
+    "TIME_IN_TRIAL_TERM": dmat.TIME_IN_TRIAL,
+    "FLASH_RATE_TERM": dmat.FLASH_RATE,
+    "CHOICE_KERNEL_TERM": dmat.CHOICE_KERNEL,
+}
+# The units of the design choices: the sets of 20 units of the grids.
+SELECTION_SETS = 4
 
 
 def main() -> None:
@@ -74,10 +83,20 @@ def main() -> None:
             for name, value in saved.items():
                 setattr(dmat, name, value)
     records = load_unit_records(unique_dir, "unit_*.json")
-    sample_path = cli.PoissonGLM(root=args.root).fit_dir("sample") / "checkpoints"
+    metadata = dmat._load_windows(cli.PoissonGLM(root=args.root).windows)["metadata"]
+    table = fetch_unit_table(
+        metadata["subject_name"],
+        metadata["session_name"],
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
     selection = {
-        int(item["unit_id"])
-        for item in load_unit_records(sample_path, "unit_*_final.json")
+        int(table.iloc[row]["unit_id"])
+        for sample in range(SELECTION_SETS)
+        for row in analysis_unit_indices(
+            table, "sample" + (str(sample) if sample else "")
+        )
     }
     held_out = np.asarray([int(item["unit_id"]) not in selection for item in records])
     stats = {"units": len(records), "held_out_units": int(held_out.sum())}

@@ -15,8 +15,12 @@ the motion-energy block taken from another trial at the same time in the trial
 energy in a trial, so this value is the part of the unique ΔD² that needs the
 movement of that specific trial.
 
-A shuffle permutes design rows among the valid bins of each trial. All columns
-of a block move together. One permutation (`SHUFFLE_SEED`) is shared by all
+A shuffle permutes design rows among the valid bins of each trial. A block
+that is a variable of the trial (`OVER_TRIALS`: drift, the previous side, the
+side of the response, the flash-rate category, the choice kernel) is instead
+taken from another trial at the same bin (`trial_swap_permutation`), because a
+shuffle inside the trial keeps its value there. All columns of a block move
+together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
 three broad groups (task, video, history) and each regressor of the design
 (the task manifest of the saved design).
@@ -36,9 +40,12 @@ import numpy as np
 from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
+    CHOICE_KERNEL,
     DRIFT,
+    FLASH_RATE,
     HISTORY_COLUMNS,
     PREVIOUS_SIDE,
+    SIDE,
     _design_with_history,
     _load_windows,
     build_unit_history,
@@ -55,6 +62,9 @@ from thesis.ephys.analyses.glm.fit import (
     poisson_metrics,
 )
 from thesis.ephys.units import fetch_unit_table
+
+# The regressors that are a variable of the trial, shuffled over trials.
+OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, FLASH_RATE, CHOICE_KERNEL)
 
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
@@ -249,9 +259,11 @@ def _block_task(job: dict) -> dict:
         blocks = [name for name in order if name != "task"]
 
         def shuffle_of(name):
-            # Session drift and the previous side do not change in the part of
-            # a trial where they are on: shuffle them over trials.
-            return between if name in (DRIFT, PREVIOUS_SIDE) else within
+            # A variable of the trial (drift, the previous side, the side of the
+            # response, the flash-rate category) is shuffled over trials. A
+            # shuffle inside a trial keeps its sign there, so it would test only
+            # when the column turns on, not the variable.
+            return between if name in OVER_TRIALS else within
 
         for name in blocks:
             put(groups[name], shuffle_of(name))

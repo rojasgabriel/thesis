@@ -112,6 +112,9 @@ REGRESSORS = {
     "previous_side": ("previous choice", TASK),
     "video": ("motion energy", MOTION),
     "session_drift": ("session drift", DRIFT_COLOR),
+    "time_in_trial": ("time in trial", TASK),
+    "flash_rate": ("flash rate × time", VISUAL),
+    "choice_kernel": ("choice kernel", TASK),
 }
 
 CAPTION = """\
