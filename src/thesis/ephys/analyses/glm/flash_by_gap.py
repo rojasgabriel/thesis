@@ -33,20 +33,21 @@ gaps and between periods are paired: each unit has a value in each condition.
   of the flash: the response to the flash before, and then the flash of the
   row at its gap. The rate of a unit is divided by its mean observed rate
   around all these flashes; lines are the mean over the units of the kind,
-  smoothed (Gaussian, `SMOOTH_MS`). The dashed vertical line is the flash
+  smoothed (Gaussian, `SMOOTH_MS`). The dotted vertical line is the flash
   before and the solid line is the flash. In the group with the longest gaps
   the flash comes at different times: the solid line is the shortest gap and
   the band goes to the longest one.
-- Measures in the output: the rate before the flash (mean from `BASELINE_MS`)
-  and the response (mean from `RESPONSE_MS`), over the unit mean, for each
-  condition; and for each kind and gap, the two-sided Wilcoxon signed-rank
-  test of the response after the exit against in the fixation. The rate
-  before a flash is not a neutral level: it is a part of the response to the
-  flash before.
+- Measure in the output: the matched peak of `peaks.py` (spikes/s; baseline
+  from the still rate before the flash), for each gap group, still and move,
+  on the observed rate and the model rate, for the excited units of
+  StimulusResponse; and the two-sided Wilcoxon signed-rank test of move minus
+  still for each gap group. The traces are of all units of each kind, as
+  above.
+- Both mice in each axis: solid lines GRB006, dashed lines GRB064.
 
 Trials, alignment, and exclusions are those of `fit.py`. The sampling unit is
-the unit, and each test is within one animal (`SESSIONS`); the units of the two
-animals are not pooled. Panels a and b are GRB006 and c and d are GRB064. The
+the unit, and each test is within one mouse (`SESSIONS`); the units of the two
+mice are not pooled. Panel a: units that fire more; b: units that fire less. The
 script writes `flash_by_gap.svg` and `flash_by_gap.json` (by session) in
 `--out`. Run `flash_kernels` first.
 
@@ -67,7 +68,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import wilcoxon
 
-from thesis.ephys.analyses.glm import cli, dmat
+from thesis.ephys.analyses.glm import cli, dmat, peaks
 from thesis.ephys.analyses.glm.fit import (
     analysis_unit_indices,
     build_unit_counts,
@@ -90,14 +91,13 @@ LONG_GAP_MS = 200
 # before the flash before.
 LAGS_MS = (-40, 150)
 TRACE_BEFORE_MS = 40
-BASELINE_MS = (-20, 20)
-RESPONSE_MS = (40, 100)
 SMOOTH_MS = 5
 MIN_RATE = 2.0
 VISUAL = CONCEPT_COLORS["visual"]
 NAMES = ("observed", "model")
 COLORS = (OBSERVED_COLOR, MODEL_COLOR)
 PERIODS = ("still", "move")
+MOUSE_STYLES = ("-", "--")
 KINDS = ("units that fire more after a flash", "units that fire less after a flash")
 
 
@@ -125,10 +125,6 @@ def flashes_by_period(trials) -> dict[str, np.ndarray]:
         out["gap"].append(1000 * (times - before)[keep])
         out["period"].append(after_exit[keep].astype(int))
     return {key: np.concatenate(values) for key, values in out.items()}
-
-
-def _window_mean(values: np.ndarray, lags: np.ndarray, limits) -> np.ndarray:
-    return values[..., (lags >= limits[0]) & (lags < limits[1])].mean(-1)
 
 
 def session_traces(root: Path, unit_set: str) -> dict:
@@ -199,18 +195,21 @@ def session_traces(root: Path, unit_set: str) -> dict:
             model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
         )
     }
-    out = {key: [] for key in ("trace", "before", "response", "kind")}
+    excited = peaks.excited_units(
+        prepared["metadata"]["subject_name"], prepared["metadata"]["session_name"]
+    )
+    in_peak = lags < peaks.PEAK_MS[1]  # the bins of the matched peak
+    out = {key: [] for key in ("trace", "kind", "peak")}
     for unit_id, spikes in zip(units["unit_id"], units["spike_times_s"], strict=True):
         size = float(kernel_response[int(unit_id)])
-        if abs(size) <= KIND_LIMIT:
-            continue
         spikes = np.asarray(spikes, dtype=float)
         rate_grid = (
             build_unit_counts(alignments, spikes).reshape(grid) / dmat.BINWIDTH_S
         )
         observed = rate_grid[rows[:, None], columns]
         scale = observed.mean()  # the mean observed rate around these flashes
-        if scale < MIN_RATE:
+        traced = abs(size) > KIND_LIMIT and scale >= MIN_RATE
+        if not traced and int(unit_id) not in excited:
             continue
         # The rate of the final refit in every bin, with the observed history.
         record = final[int(unit_id)]
@@ -227,17 +226,26 @@ def session_traces(root: Path, unit_set: str) -> dict:
         predicted_grid = np.exp(log_rate).reshape(grid) / dmat.BINWIDTH_S
         sources = (rate_grid, predicted_grid)
         # (condition, observed or model, bin) and (condition, observed or model)
-        traces = np.stack([source[rows[:, None], trace_columns] for source in sources])
-        out["trace"].append(np.einsum("cfl,mfl->cml", weights, traces) / scale)
-        around = np.stack([source[rows[:, None], columns] for source in sources])
-        mean = np.einsum("cf,mfl->cml", in_condition, around) / scale
-        out["before"].append(_window_mean(mean, lags, BASELINE_MS))
-        out["response"].append(_window_mean(mean, lags, RESPONSE_MS))
-        out["kind"].append(int(size < 0))
+        if int(unit_id) in excited:
+            # The matched peak (`peaks.py`) of each gap group, still and move,
+            # for the observed rate and the model: (group, observed or model, period).
+            around = np.stack([source[rows[:, None], columns] for source in sources])
+            mean = np.einsum("cf,mfl->cml", in_condition, around)[:, :, in_peak]
+            out["peak"].append(
+                [
+                    [peaks.peaks(mean[[g, groups + g], m]) for m in range(len(NAMES))]
+                    for g in range(groups)
+                ]
+            )
+        if traced:
+            traces = np.stack(
+                [source[rows[:, None], trace_columns] for source in sources]
+            )
+            out["trace"].append(np.einsum("cfl,mfl->cml", weights, traces) / scale)
+            out["kind"].append(int(size < 0))
     kind = np.asarray(out["kind"])
-    trace, before, response = (
-        np.asarray(out[key]) for key in ("trace", "before", "response")
-    )  # (unit, condition, observed or model[, bin])
+    trace = np.asarray(out["trace"])  # (unit, condition, observed or model, bin)
+    peak = np.asarray(out["peak"])  # (excited unit, group, observed or model, period)
     group_names = [
         f"{gaps[group == g].min():.0f}" + ("" if np.ptp(gaps[group == g]) == 0 else "+")
         for g in range(groups)
@@ -253,29 +261,20 @@ def session_traces(root: Path, unit_set: str) -> dict:
             for p, period in enumerate(PERIODS)
         },
     }
-    for k, kind_name in enumerate(KINDS):
-        of_kind = kind == k
-        entry = {}
-        for m, name in enumerate(NAMES):
-            for p, period in enumerate(PERIODS):
-                block = slice(p * groups, (p + 1) * groups)
-                entry[f"{name}, {period}"] = {
-                    "median_rate_before_the_flash": np.median(
-                        before[of_kind, block, m], 0
-                    ).tolist(),
-                    "median_response": np.median(
-                        response[of_kind, block, m], 0
-                    ).tolist(),
-                }
-            change = response[of_kind, groups:, m] - response[of_kind, :groups, m]
-            entry[f"{name}, response move minus still"] = {
-                "median": np.median(change, 0).tolist(),
-                "units_higher": (change > 0).sum(0).tolist(),
+    change = peak[..., 1] - peak[..., 0]  # (excited unit, group, observed or model)
+    stats["matched peak (spikes/s), move minus still, excited units"] = {
+        "units": len(peak),
+        **{
+            name: {
+                "median": np.median(change[:, :, m], 0).tolist(),
+                "units_higher_in_move": (change[:, :, m] > 0).sum(0).tolist(),
                 "wilcoxon_p": [
-                    float(wilcoxon(change[:, g]).pvalue) for g in range(groups)
+                    float(wilcoxon(change[:, g, m]).pvalue) for g in range(groups)
                 ],
             }
-        stats[kind_name] = entry
+            for m, name in enumerate(NAMES)
+        },
+    }
 
     return {
         "subject": root.name.split("_")[0],
@@ -291,17 +290,24 @@ def session_traces(root: Path, unit_set: str) -> dict:
     }
 
 
-def draw_block(figure, slot, data: dict, k: int):
-    """Draw the rows of one kind of unit in one session; return the top-left axis."""
-    trace, kind, gaps, group = data["trace"], data["kind"], data["gaps"], data["group"]
-    groups, group_names = data["groups"], data["group_names"]
-    trace_lags, has_data = data["trace_lags"], data["has_data"]
-    # The bins after the end of a row have no data, so the smoothing uses
-    # only the bins of the row. (condition, observed or model, bin)
-    mean = trace[kind == k].mean(0) * has_data[:, None, :]
-    smooth = gaussian_filter1d(mean, SMOOTH_MS, axis=-1) / np.maximum(
+def _smooth(data: dict, k: int) -> np.ndarray:
+    """Return the smoothed mean trace of one kind: (condition, observed or model, bin)."""
+    has_data = data["has_data"]
+    # The bins after the end of a row have no data, so the smoothing uses only
+    # the bins of the row.
+    mean = data["trace"][data["kind"] == k].mean(0) * has_data[:, None, :]
+    return gaussian_filter1d(mean, SMOOTH_MS, axis=-1) / np.maximum(
         gaussian_filter1d(has_data, SMOOTH_MS, axis=-1)[:, None, :], 1e-9
     )
+
+
+def draw_block(figure, slot, sessions: list[dict], k: int):
+    """Draw the rows of one kind of unit, both mice in each axis; return the top-left axis."""
+    first = sessions[0]
+    gaps, group, groups = first["gaps"], first["group"], first["groups"]
+    if any(data["group_names"] != first["group_names"] for data in sessions):
+        raise ValueError("The mice have different gap groups.")
+    smooth = [_smooth(data, k) for data in sessions]
     block = slot.subgridspec(groups, len(PERIODS), hspace=0.2, wspace=0.08)
     axes = np.empty((groups, len(PERIODS)), dtype=object)
     for g in range(groups):
@@ -310,10 +316,14 @@ def draw_block(figure, slot, data: dict, k: int):
             axes[g, p] = axis
             c = p * groups + g
             shortest = gaps[group == g].min()
-            drawn = trace_lags < shortest + LAGS_MS[1]
-            for m, color in enumerate(COLORS):
-                axis.plot(trace_lags[drawn], smooth[c, m, drawn], color=color, lw=1.0)
-            axis.axvline(0, color=VISUAL, linestyle="--", linewidth=0.8)
+            for data, values, style in zip(sessions, smooth, MOUSE_STYLES, strict=True):
+                lags = data["trace_lags"]
+                drawn = lags < shortest + LAGS_MS[1]
+                for m, color in enumerate(COLORS):
+                    axis.plot(
+                        lags[drawn], values[c, m, drawn], color=color, lw=1.0, ls=style
+                    )
+            axis.axvline(0, color=VISUAL, linestyle=":", linewidth=0.9)
             axis.axvline(shortest, color=VISUAL, linewidth=1.0)
             if np.ptp(gaps[group == g]) > 0:  # the later flashes of the group
                 axis.axvspan(
@@ -324,7 +334,7 @@ def draw_block(figure, slot, data: dict, k: int):
                 axis.text(
                     0.98,
                     0.93,
-                    f"{group_names[g]} ms gap",
+                    f"{first['group_names'][g]} ms gap",
                     transform=axis.transAxes,
                     va="top",
                     ha="right",
@@ -340,18 +350,21 @@ def draw_block(figure, slot, data: dict, k: int):
                     ha="center",
                     fontsize=7,
                 )
-    axes[0, 0].set_xlim(-TRACE_BEFORE_MS, trace_lags[-1] + 10)
+    axes[0, 0].set_xlim(-TRACE_BEFORE_MS, first["trace_lags"][-1] + 10)
     axes[groups // 2, 0].set_ylabel("normalized firing rate")
     figure.text(
         (axes[-1, 0].get_position().x0 + axes[-1, -1].get_position().x1) / 2,
-        axes[-1, 0].get_position().y0 - 0.04,
+        axes[-1, 0].get_position().y0 - 0.06,
         "time from the flash before (ms)",
         ha="center",
     )
+    counts = ", ".join(
+        f"{int(np.sum(data['kind'] == k))} {data['subject']}" for data in sessions
+    )
     figure.text(
         axes[0, 0].get_position().x0,
-        axes[0, 0].get_position().y1 + 0.028,
-        f"{data['subject']}, {KINDS[k]} ({int(np.sum(kind == k))})",
+        axes[0, 0].get_position().y1 + 0.04,
+        f"{KINDS[k]} ({counts})",
         fontsize=7.5,
     )
     return axes[0, 0]
@@ -364,30 +377,41 @@ def main() -> None:
     args = parser.parse_args()
     sessions = [session_traces(args.out / session, args.units) for session in SESSIONS]
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 10.6))
-        outer = figure.add_gridspec(len(SESSIONS), len(KINDS), wspace=0.22, hspace=0.32)
+        figure = plt.figure(figsize=(7.4, 6.2))
+        outer = figure.add_gridspec(
+            1, len(KINDS), wspace=0.22, left=0.08, right=0.98, top=0.86, bottom=0.12
+        )
         letter_axes = [
-            draw_block(figure, outer[row, k], data, k)
-            for row, data in enumerate(sessions)
-            for k in range(len(KINDS))
+            draw_block(figure, outer[0, k], sessions, k) for k in range(len(KINDS))
         ]
-        for m, (name, color) in enumerate(zip(NAMES, COLORS, strict=True)):
-            figure.text(0.84 + 0.085 * m, 0.94, name, color=color, ha="right")
+        legend = [(name, color, "-") for name, color in zip(NAMES, COLORS, strict=True)]
+        legend += [
+            (data["subject"], "black", style)
+            for data, style in zip(sessions, MOUSE_STYLES, strict=True)
+        ]
+        for m, (name, color, style) in enumerate(legend):
+            figure.text(
+                0.4 + 0.15 * m,
+                0.955,
+                f"{name}" + (" (dashed)" if style == "--" else ""),
+                color=color,
+                ha="left",
+            )
         figure.text(
             0.5,
-            0.035,
-            "the flash before (dashed), the flash (solid)",
+            0.02,
+            "the flash before (dotted), the flash (solid)",
             color=VISUAL,
             ha="center",
             fontsize=6.5,
         )
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcd", letter_axes, strict=True):
+        for letter, axis in zip("ab", letter_axes, strict=True):
             edge = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 edge - 0.02,
-                axis.get_position().y1 + 0.025,
+                axis.get_position().y1 + 0.04,
                 letter,
                 fontweight="bold",
                 fontsize=10,
