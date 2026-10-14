@@ -863,7 +863,7 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 
 | Figure | Module | Content |
 | --- | --- | --- |
-| Main (one for each session) | `main_figure.py` | one trial, the kernels, the prediction, and what each regressor explains |
+| Main | `main_figure.py` | one trial, the kernels, and the prediction of the example unit (GRB006); the population and what each regressor explains, both sessions |
 | Flash kernels | `flash_kernels.py` | the flash kernel by gap class and by period (still, move): median kernels of the units that fire more and less after a flash, maps of all units, paired scatters; both sessions |
 | Flash by gap | `flash_by_gap.py` | observed and predicted rate around flashes at each gap, still and move; both sessions |
 | Still against move | `flash_by_period.py` | raw response and flash kernel in the two periods, both sessions |

@@ -4,7 +4,10 @@ Question: which variables of the task predict the spikes of V1 units, and how
 much does each one explain?
 
 Comparison: no new fits. The script reads one fit set (`--units`, `all` by
-default) of one session, after `glm fit` and `glm unique`.
+default) of each session of `SESSIONS`, after `glm fit` and `glm unique`.
+Panels a to c are the example unit of the first session (GRB006); panels d to
+g are each session, side by side. The tests are within each animal; the units
+of the two animals are not pooled.
 
 - Panel a (the task and the model): one held-out trial of the example unit,
   against time from the first flash. Flashes, the fixation (first flash to center
@@ -27,13 +30,14 @@ default) of one session, after `glm fit` and `glm unique`.
   trial comes from the cross-validation fold that did not train on it. A time
   bin is shown while at least `MIN_TRIAL_FRACTION` of the test trials have not
   reached the response port.
-- Panel d (population): cross-validated D² of each unit against its
+- Panels d and e (population, one for each animal): cross-validated D² of each unit against its
   bits/spike (the log-likelihood gain over the constant-rate model for each
   spike), with the units in three groups of equal size by firing rate
   (`figures._plot_bits_deviance_by_rate`). For the same bits/spike, a unit with
   a higher rate has a higher D². The histograms above and at the right are the
   distributions of the two measures over units, with their medians.
-- Panel e (what explains the spikes): for each regressor, the unique ΔD²
+- Panels f and g (what explains the spikes, one for each animal; the
+  order of the regressors is that of the first session): for each regressor, the unique ΔD²
   (filled; the D² that the model loses when that regressor is shuffled in time
   within each trial) and the maximal ΔD² (open; the D² of that regressor alone
   minus the D² with every regressor shuffled); median and interquartile range
@@ -47,7 +51,9 @@ default) of one session, after `glm fit` and `glm unique`.
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
 is the one that `results.example_unit_id` selects (unit 197 when it was fit).
-The sampling unit is the unit in panels d and e.
+The sampling unit is the unit in panels d to g. The script writes
+`main_figure.svg`, `main_figure_stats.json` (by session), and
+`main_figure_caption.md` in `--out`.
 
     uv run python -m thesis.ephys.analyses.glm.main_figure
 """
@@ -71,6 +77,7 @@ from thesis.ephys.analyses.glm.figures import (
     training_rate_and_deviance,
 )
 from thesis.ephys.analyses.glm.fit import load_unit_records
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.analyses.glm.results import FLASH_GAPS_MS
 from thesis.ephys.analyses.glm.unique_dev import MAXIMAL, RELIABLE_ALPHA, UNIQUE
@@ -114,8 +121,8 @@ bins. Each group of regressors adds a term to the log of the firing rate, so a
 kernel is a change in log rate (Δ log rate): a value of 0.7 is a rate two times
 as high. Colors are the same in all panels: visual (blue), task (orange),
 motion energy (green), spike history (red), and model prediction (purple).
-**a**, One held-out trial of the example unit (unit {unit}, {unit_rate:.0f}
-spikes/s), against time from the first flash. From the top: the events (the
+Panels a to c are the example unit of {subject}. **a**, One held-out trial of
+the example unit (unit {unit}, {unit_rate:.0f} spikes/s), against time from the first flash. From the top: the events (the
 flashes; the initiation, from the center-port entry to the first flash, in a
 light color; the fixation, from the first flash to the withdrawal from the
 center port; and the withdrawal); the first motion-energy PC of the video; the
@@ -130,14 +137,15 @@ spike-history kernel. **c**, Observed and
 predicted firing rate of the example unit over the {test_trials} held-out test
 trials, in {bin_ms}-ms bins. Each trial is predicted by a model that was not
 fit on it. A time bin is shown while at least half of the trials have not
-reached the response port. **d**, Cross-validated D² (deviance explained on
+reached the response port. **d, e**, Cross-validated D² (deviance explained on
 held-out trials, relative to a constant rate) against bits/spike for each of
-the {units} units. Small points are units, in three groups of equal size by
+the {units} units, one panel for each animal. Small points are units, in three groups of equal size by
 firing rate (a darker gray is a higher rate). In each group, the units are in bins of equal size by bits/spike;
 a large marker is the mean of a bin and the band is ±1 SEM. For the same
 bits/spike, a unit with a higher rate has a higher D². The histograms are the
-distributions over units (median D² {d2:.3f}, median {bits:.2f} bits/spike).
-**e**, What each regressor explains: the unique ΔD² (filled; the D² that the
+distributions over units (median D² {d2}; median bits/spike {bits}).
+**f, g**, What each regressor explains, in each animal (the order of the
+regressors is that of {subject}): the unique ΔD² (filled; the D² that the
 model loses when that regressor is shuffled in time within each trial) and the
 maximal ΔD² (open; the D² of that regressor alone). Points are the median and
 lines the interquartile range over units; the top row is the D² of the full
@@ -148,7 +156,8 @@ no effect gives about {alpha:.0%}). A regressor is in the model when it passes
 two tests over all units, each with a Holm correction for the {regressors}
 regressors: the unique ΔD² is above zero (one-sided Wilcoxon signed-rank test
 over units), and more units need the regressor than chance gives (one-sided
-binomial test against {alpha:.0%}; {minimum} units or more of {units}).
+binomial test against {alpha:.0%}; {minimum} units or more).
+The tests are within each animal; the units of the two animals are not pooled.
 {verdict}
 """
 
@@ -318,12 +327,21 @@ def inclusion_tests(records: list[dict]) -> dict[str, dict]:
     )
 
 
-def _plot_unique(axis, records: list[dict], tests: dict[str, dict]) -> None:
+def unique_order(records: list[dict], tests: dict[str, dict]) -> list[str]:
+    """Return the regressors in the order of their median unique ΔD²."""
+    return sorted(
+        tests,
+        key=lambda name: np.median([item["groups"][name][UNIQUE] for item in records]),
+    )
+
+
+def _plot_unique(
+    axis, records: list[dict], tests: dict[str, dict], order: list[str], labels: bool
+) -> None:
     """Unique (filled) and maximal (open) ΔD² of each regressor, over units."""
     values = lambda name, key: np.asarray(  # noqa: E731
         [item["groups"][name][key] for item in records]
     )
-    order = sorted(tests, key=lambda name: np.median(values(name, UNIQUE)))
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
         for key, offset, face in ((MAXIMAL, 0.17, "white"), (UNIQUE, -0.17, color)):
@@ -364,36 +382,61 @@ def _plot_unique(axis, records: list[dict], tests: dict[str, dict]) -> None:
     axis.set_xlim(FLOOR, 3e-1)
     axis.set_yticks(
         range(len(order) + 1),
-        [*(REGRESSORS[name][0] for name in order), r"full model ($D^2$)"],
+        [*(REGRESSORS[name][0] for name in order), r"full model ($D^2$)"]
+        if labels
+        else [],
     )
     for tick, name in zip(axis.get_yticklabels(), order, strict=False):
         tick.set_color(REGRESSORS[name][1])
     axis.set_xlabel(r"$\Delta D^2$" + "\n(filled: unique; open: maximal)")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
-    parser.add_argument("--units", type=cli._unit_set, default="all")
-    args = parser.parse_args()
-    fit_dir = cli.PoissonGLM(root=args.root).fit_dir(args.units)
-    with np.load(fit_dir / "figure_data.npz", allow_pickle=False) as saved:
-        data = {key: saved[key] for key in saved.files}
+def session_population(root: Path, unit_set: str) -> dict:
+    """Return the population measures and the inclusion tests of one session."""
+    fit_dir = cli.PoissonGLM(root=root).fit_dir(unit_set)
     final = load_unit_records(fit_dir / "checkpoints", "unit_*_final.json")
     selections = load_unit_records(fit_dir / "checkpoints", "unit_*_validation.json")
     records = load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
     rate, deviance = training_rate_and_deviance(final, selections)
-    bits = np.asarray([item["cross_validated_bits_per_spike"] for item in final])
+    tests = inclusion_tests(records)
+    return {
+        "subject": root.name.split("_")[0],
+        "units": len(final),
+        "rate": rate,
+        "deviance": deviance,
+        "bits": np.asarray([item["cross_validated_bits_per_spike"] for item in final]),
+        "records": records,
+        "tests": tests,
+        "failed": [
+            REGRESSORS[name][0]
+            for name in tests
+            if not tests[name]["passes_both_tests"]
+        ],
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--units", type=cli._unit_set, default="all")
+    args = parser.parse_args()
+    # The example unit is from the first session; the population panels are
+    # from each session.
+    fit_dir = cli.PoissonGLM(root=args.out / SESSIONS[0]).fit_dir(args.units)
+    with np.load(fit_dir / "figure_data.npz", allow_pickle=False) as saved:
+        data = {key: saved[key] for key in saved.files}
+    sessions = [session_population(args.out / name, args.units) for name in SESSIONS]
+    order = unique_order(sessions[0]["records"], sessions[0]["tests"])
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 9.4))
+        figure = plt.figure(figsize=(7.4, 12.6))
         top = figure.add_gridspec(
             1,
             2,
             left=0.14,
             right=0.985,
-            top=0.96,
-            bottom=0.615,
+            top=0.97,
+            bottom=0.713,
             wspace=0.3,
             width_ratios=(1, 1.5),
         )
@@ -408,73 +451,108 @@ def main() -> None:
         (prediction,) = (
             figure.add_subplot(cell)
             for cell in figure.add_gridspec(
-                1, 1, left=0.1, right=0.98, top=0.52, bottom=0.365
+                1, 1, left=0.1, right=0.98, top=0.642, bottom=0.526
             )
         )
-        bottom = figure.add_gridspec(
-            1,
-            2,
-            left=0.1,
-            right=0.93,
-            top=0.25,
-            bottom=0.06,
-            wspace=0.95,
-            width_ratios=(1, 1.05),
-        )
-        population, unique_axis = (figure.add_subplot(cell) for cell in bottom)
+        populations = [
+            figure.add_subplot(cell)
+            for cell in figure.add_gridspec(
+                1, 2, left=0.1, right=0.88, top=0.425, bottom=0.297, wspace=0.85
+            )
+        ]
+        unique_axes = [
+            figure.add_subplot(cell)
+            for cell in figure.add_gridspec(
+                1, 2, left=0.22, right=0.92, top=0.222, bottom=0.05, wspace=0.3
+            )
+        ]
 
         _plot_trial(trial_axes, data)
         _plot_kernels(kernel_axes, data)
         _plot_prediction(prediction, data)
-        _plot_population(population, bits, deviance, rate)
-        tests = inclusion_tests(records)
-        _plot_unique(unique_axis, records, tests)
-        for axis in (*trial_axes, *kernel_axes, unique_axis):
+        for k, (session, population, unique_axis) in enumerate(
+            zip(sessions, populations, unique_axes, strict=True)
+        ):
+            _plot_population(
+                population, session["bits"], session["deviance"], session["rate"]
+            )
+            _plot_unique(
+                unique_axis, session["records"], session["tests"], order, labels=k == 0
+            )
+            for axis in (population, unique_axis):
+                axis.text(
+                    0.5 if axis is unique_axis else 0.0,
+                    1.02 if axis is unique_axis else 1.45,
+                    f"{session['subject']} ({session['units']} units)",
+                    transform=axis.transAxes,
+                    ha="center" if axis is unique_axis else "left",
+                    fontsize=7.5,
+                )
+        for axis in (*trial_axes, *kernel_axes, *unique_axes):
             separate_axes(axis)
         for axis in trial_axes[:4]:
             axis.spines["bottom"].set_visible(False)
 
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        firsts = (trial_axes[0], kernel_axes[0], prediction, population, unique_axis)
-        for letter, axis in zip("abcde", firsts, strict=True):
-            left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
-            top_edge = axis.get_position().y1 + (0.05 if axis is population else 0.02)
+        firsts = (trial_axes[0], kernel_axes[0], prediction, *populations, *unique_axes)
+        for letter, axis in zip("abcdefg", firsts, strict=True):
+            box = axis.yaxis.get_tightbbox()
+            left = (
+                box.transformed(to_figure).x0
+                if box and axis is not unique_axes[1]
+                else axis.get_position().x0 - 0.03
+            )
+            top_edge = axis.get_position().y1 + (0.056 if axis in populations else 0.02)
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
-        output = save_figure(figure, fit_dir / "main_figure")
+        output = save_figure(figure, args.out / "main_figure")
     output.with_name("main_figure_stats.json").write_text(
         json.dumps(
             {
-                "units": len(records),
-                "units_above_chance_for_these_regressors": minimum_units(
-                    len(records), len(tests)
-                ),
-                "inclusion_tests": tests,
+                name: {
+                    "units": len(session["records"]),
+                    "units_above_chance_for_these_regressors": minimum_units(
+                        len(session["records"]), len(session["tests"])
+                    ),
+                    "inclusion_tests": session["tests"],
+                }
+                for name, session in zip(SESSIONS, sessions, strict=True)
             },
             indent=1,
         )
     )
-    failed = [
-        REGRESSORS[name][0] for name in tests if not tests[name]["passes_both_tests"]
-    ]
     scalars = json.loads((fit_dir / "figure_data.json").read_text())
+    each = lambda text: " and ".join(  # noqa: E731
+        text(session) + f" ({session['subject']})" for session in sessions
+    )
     output.with_name("main_figure_caption.md").write_text(
         CAPTION.format(
+            subject=sessions[0]["subject"],
             unit=scalars["example_unit_id"],
             unit_rate=scalars["example_unit_training_rate_spikes_s"],
             test_trials=scalars["test_trials"],
             bin_ms=RATE_BIN_MS,
-            units=len(final),
-            d2=np.median(deviance),
-            bits=np.median(bits),
+            units=each(lambda s: str(s["units"])),
+            d2=each(lambda s: f"{np.median(s['deviance']):.3f}"),
+            bits=each(lambda s: f"{np.median(s['bits']):.2f}"),
             floor=FLOOR,
             alpha=RELIABLE_ALPHA,
-            regressors=len(tests),
-            minimum=minimum_units(len(records), len(tests)),
-            verdict=(
-                "Every regressor passes both tests."
-                if not failed
-                else "Not passing both tests (n.s.): " + ", ".join(failed) + "."
+            regressors=len(sessions[0]["tests"]),
+            minimum=each(
+                lambda s: (
+                    f"{minimum_units(len(s['records']), len(s['tests']))} of {s['units']}"
+                )
+            ),
+            verdict=" ".join(
+                f"{s['subject']}: "
+                + (
+                    "every regressor passes both tests."
+                    if not s["failed"]
+                    else "not passing both tests (n.s.): "
+                    + ", ".join(s["failed"])
+                    + "."
+                )
+                for s in sessions
             ),
         )
     )
