@@ -35,9 +35,9 @@ paired: each unit has its real effect and its leak.
 - Statistics: two-sided Wilcoxon signed-rank test over units of the real
   effect minus the leak, and the Spearman correlation of the leak with the
   fixation level of the unit.
-- Figure: both mice in each axis (circles GRB006, triangles GRB064); small
-  markers are units, large markers the median with its bootstrap 95%
-  interval. a, the real flash × move part against the leak. b, real minus
+- Figure: the units of both mice pooled; the large marker is the pooled
+  median with its hierarchical-bootstrap 95% interval (mice, then units), and
+  the open circles the median of each mouse. a, the real flash × move part against the leak. b, real minus
   leak. c, the leak against the fixation level of the unit. A point outside
   `PART_LIMITS` is drawn at the limit; it is in the statistics, and the count
   is in the output. Each test is within one mouse.
@@ -80,13 +80,14 @@ from thesis.ephys.analyses.glm.results import (
 from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
-    ANIMAL_MARKERS,
     CONCEPT_COLORS,
     FIGURE_STYLE,
     REFERENCE_COLOR,
-    animal_points,
+    hierarchical_interval,
     label_panels,
     median_interval,
+    pooled_points,
+    pooled_strip,
     save_figure,
 )
 
@@ -399,66 +400,50 @@ def main() -> None:
                 )
             ),
         }
+    subjects = [item["subject"] for item in data]
+    stats["pooled, hierarchical bootstrap: flash × move part, real minus leak"] = (
+        hierarchical_interval([item["real"] - item["leak"] for item in data])
+    )
     visual, task = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             1, 3, figsize=(7.4, 2.7), layout="constrained", width_ratios=(1, 0.75, 1)
         )
         part_axis, rest_axis, level_axis = axes
-        for item in data:
-            animal_points(
-                part_axis,
-                np.clip(item["leak"], *PART_LIMITS),
-                np.clip(item["real"], *PART_LIMITS),
-                item["subject"],
-                visual,
-            )
-            animal_points(
-                level_axis,
-                item["level"],
-                np.clip(item["leak"], *PART_LIMITS),
-                item["subject"],
-                task,
-            )
         part_axis.plot(PART_LIMITS, PART_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
         part_axis.set(xlim=PART_LIMITS, ylim=PART_LIMITS, aspect="equal")
+        pooled_points(
+            part_axis,
+            [np.clip(item["leak"], *PART_LIMITS) for item in data],
+            [np.clip(item["real"], *PART_LIMITS) for item in data],
+            subjects,
+            visual,
+        )
+        level_axis.set_ylim(*PART_LIMITS)
+        pooled_points(
+            level_axis,
+            [item["level"] for item in data],
+            [np.clip(item["leak"], *PART_LIMITS) for item in data],
+            subjects,
+            task,
+        )
         part_axis.set_xlabel(
             "leak: flash × move part with\nno effect simulated (spikes/s)"
         )
         part_axis.set_ylabel("real flash × move part\n(spikes/s)")
-        rng = np.random.default_rng(0)
-        for position, item in enumerate(data):
-            rest = item["real"] - item["leak"]
-            marker = ANIMAL_MARKERS[item["subject"]]
-            rest_axis.scatter(
-                position + rng.uniform(-0.12, 0.12, len(rest)),
-                np.clip(rest, *PART_LIMITS),
-                s=9,
-                marker=marker,
-                color=visual,
-                alpha=0.3,
-                lw=0,
-            )
-            median, low, high = median_interval(rest)
-            rest_axis.errorbar(
-                position,
-                median,
-                yerr=[[median - low], [high - median]],
-                fmt=marker,
-                ms=6,
-                color=visual,
-                mec="white",
-                mew=0.6,
-                capsize=2,
-                zorder=4,
-            )
+        pooled_strip(
+            rest_axis,
+            0,
+            [np.clip(item["real"] - item["leak"], *PART_LIMITS) for item in data],
+            subjects,
+            visual,
+        )
         rest_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
-        rest_axis.set_xticks(range(len(data)), [item["subject"] for item in data])
-        rest_axis.set_xlim(-0.6, len(data) - 0.4)
+        rest_axis.set_xticks([])
+        rest_axis.set_xlim(-0.5, 0.9)
         rest_axis.set_ylim(*PART_LIMITS)
         rest_axis.set_ylabel("flash × move part,\nreal minus leak (spikes/s)")
         level_axis.axhline(0, color=REFERENCE_COLOR, lw=0.6)
-        level_axis.set_ylim(*PART_LIMITS)
         level_axis.set_xlabel("fixation level of the unit\n(Δ log rate)")
         level_axis.set_ylabel("leak (spikes/s)")
         label_panels(axes, x=-0.3, y=1.04)
