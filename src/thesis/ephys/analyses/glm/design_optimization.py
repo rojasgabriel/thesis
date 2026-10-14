@@ -30,15 +30,16 @@ unit is in two sets). The form of a term is chosen on these units; the
 importance of a regressor is tested on all units (`inclusion.py`). Each point
 is a unit, and the black line is the median. A point outside `DISPLAY_LIMIT`
 is drawn at the limit; it is in the statistics, and the count is in
-`design_optimization_stats.json`. The number under each form is its largest
-shared direction: the largest first canonical correlation between two task
-regressors of that design (`collinearity.largest_shared_direction`). It is in
-red when it is above the value of the design in use (`SHARED_TOLERANCE`).
+`design_optimization_stats.json`. The number under each form is the largest
+direction that the term of the panel, in that form, shares with another task
+regressor: the largest first canonical correlation of a pair of regressors
+with the term in it (`collinearity.shared_directions`; the pair is in the
+stats file). A form with no such term has no number. It is in red when it is
+above the largest value of all pairs of the design in use (`SHARED_TOLERANCE`).
 
 Rule for the form of a term: another form replaces the form in use when it
-(1) predicts reliably better on these units, and (2) is separable: it does
-not give the design a shared direction larger than the largest one of the
-design in use. Condition 2 keeps the kernels readable: a form that predicts
+(1) predicts reliably better on these units, and (2) is separable: the term in that form does not share a direction with
+another regressor that is larger than the largest one of the design in use. Condition 2 keeps the kernels readable: a form that predicts
 better because it covers the time of another term fails it. The mark over a form is a two-sided Wilcoxon
 signed-rank test of the differences against zero. Trials, alignment,
 baseline, and exclusions are those of `fit.py`. The sampling unit is the
@@ -72,37 +73,48 @@ from thesis.ephys.analyses.glm import (
     pc_grid,
     withdrawal_grid,
 )
-from thesis.ephys.analyses.glm.collinearity import largest_shared_direction
+from thesis.ephys.analyses.glm.collinearity import shared_directions
 from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
 from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
 
-# name of the grid: (its module, the form in use, color, x label)
+# name of the grid: (its module, the form in use, color, x label, and the starts
+# of the names of the regressors of that term in the design)
 GRIDS = {
     "gap_class_grid": (
         gap_class_grid,
         gap_class_grid.IN_USE,
         VISUAL,
         "flash kernels by gap from the flash before (ms)",
+        (dmat.FLASH_GAP, dmat.FLASH_COMMON),
     ),
     "flash_length_grid": (
         flash_length_grid,
         flash_length_grid.IN_USE,
         VISUAL,
         "length of the flash kernels (ms)",
+        ("flash", dmat.FLASH_COMMON),
     ),
-    "hold_grid": (hold_grid, hold_grid.IN_USE, TASK, "form of the fixation term"),
+    "hold_grid": (
+        hold_grid,
+        hold_grid.IN_USE,
+        TASK,
+        "form of the fixation term",
+        (dmat.HOLD, dmat.IN_PORT),
+    ),
     "withdrawal_grid": (
         withdrawal_grid,
         withdrawal_grid.IN_USE,
         TASK,
         "withdrawal kernel (ms from the center exit)",
+        ("withdrawal",),
     ),
-    "pc_grid": (pc_grid, pc_grid.IN_USE, MOTION, "number of motion-energy PCs"),
+    "pc_grid": (pc_grid, pc_grid.IN_USE, MOTION, "number of motion-energy PCs", ()),
     "drift_grid": (
         drift_grid,
         "4",
         DRIFT_COLOR,
         "session drift (number of raised cosines)",
+        (dmat.DRIFT,),
     ),
 }
 # Tick labels that differ from the name of the design in its grid.
@@ -135,8 +147,9 @@ is not separable: it shares a direction of {wide_shared:.2f} with the fixation
 kernel, against {limit:.2f} for the largest one in the design in use. **e**,
 Number of motion-energy PCs. {pc_sentence} **f**, Session drift. No drift is
 worse; more functions are not better. The number under each form is the
-largest first canonical correlation between two task regressors of that design
-(red: above the design in use). A form replaces the form in use when it
+largest first canonical correlation of the term of the panel, in that form,
+with another task regressor (red: above the largest value of the design in
+use). A form replaces the form in use when it
 predicts reliably better and is separable; no form does both. The importance of each regressor is tested on all units
 (main figure).
 """
@@ -161,8 +174,16 @@ def _pc_sentence(entry: dict) -> str:
     return f"{first} {second}{', and some are worse' if worse else ''}."
 
 
-def shared_direction(settings: dict, prepared: dict, trials) -> tuple[float, str, str]:
-    """Return the largest shared direction of two task regressors of one design."""
+def shared_direction(
+    settings: dict, terms: tuple[str, ...], prepared: dict, trials
+) -> tuple[float, str, str] | None:
+    """Return the largest direction that a term of one design shares with another.
+
+    `terms` are the starts of the names of the regressors of the term (all
+    regressors for an empty tuple). The value is the largest first canonical
+    correlation of a pair of task regressors with one of them in the pair,
+    with the names of the pair. None when the design has no such regressor.
+    """
     saved = {name: getattr(dmat, name) for name in settings}
     for name, value in settings.items():
         setattr(dmat, name, value)
@@ -177,7 +198,14 @@ def shared_direction(settings: dict, prepared: dict, trials) -> tuple[float, str
         cursor += item["columns"]
     columns = values[dmat._valid_bin_mask(prepared)]
     columns = (columns - columns.mean(0)) / columns.std(0)
-    return largest_shared_direction(columns.T @ columns / len(columns), groups)
+    pairs = shared_directions(columns.T @ columns / len(columns), groups)
+    names = list(groups)
+    own = np.asarray([name.startswith(terms) or not terms for name in names])
+    if not own.any():
+        return None
+    pairs = np.where(own[:, None] | own[None, :], pairs, np.nan)
+    first, second = np.unravel_index(np.nanargmax(pairs), pairs.shape)
+    return float(pairs[first, second]), names[first], names[second]
 
 
 def _stars(p: float) -> str:
@@ -192,11 +220,11 @@ def main() -> None:
     rng = np.random.default_rng(0)
     prepared = dmat._load_windows(cli.PoissonGLM(root=args.root).windows)
     trials = dmat._load_selected_trials(prepared)
-    limit = shared_direction({}, prepared, trials)[0] + SHARED_TOLERANCE
+    limit = shared_direction({}, (), prepared, trials)[0] + SHARED_TOLERANCE
     stats["largest_shared_direction_of_the_design_in_use"] = limit - SHARED_TOLERANCE
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(3, 2, figsize=(9.5, 9.6), layout="constrained")
-        for axis, (grid, (module, in_use, color, xlabel)) in zip(
+        for axis, (grid, (module, in_use, color, xlabel, terms)) in zip(
             axes.flat, GRIDS.items()
         ):
             path = args.root / grid / f"{grid}.json"
@@ -208,21 +236,29 @@ def main() -> None:
             entry = {"units": len(units), "form_in_use": in_use.replace("\n", " ")}
             # The designs of the grid module that have scores, in its order.
             names = [name for name in module.DESIGNS if name in scores]
+            shared_of = {}
             for position, name in enumerate(names):
                 # The task columns are the same for each number of PCs.
-                if isinstance(module.DESIGNS, dict):
-                    shared, first_name, second_name = shared_direction(
-                        module.DESIGNS[name], prepared, trials
-                    )
+                pair = (
+                    shared_direction(module.DESIGNS[name], terms, prepared, trials)
+                    if isinstance(module.DESIGNS, dict)
+                    else None
+                )
+                if pair:
                     axis.text(
                         position,
                         -DISPLAY_LIMIT * 1.2,
-                        f"{shared:.2f}",
+                        f"{pair[0]:.2f}",
                         ha="center",
                         fontsize=6,
-                        color="C3" if shared > limit else "0.4",
-                        fontweight="bold" if shared > limit else "normal",
+                        color="C3" if pair[0] > limit else "0.4",
+                        fontweight="bold" if pair[0] > limit else "normal",
                     )
+                    shared_of[name.replace("\n", " ")] = {
+                        "largest_shared_direction": pair[0],
+                        "between": list(pair[1:]),
+                        "separable": bool(pair[0] <= limit),
+                    }
                 if name == in_use:
                     axis.plot(position, 0, "o", mfc="white", mec=color, ms=6)
                     continue
@@ -258,12 +294,7 @@ def main() -> None:
                         np.sum(np.abs(change) > DISPLAY_LIMIT)
                     ),
                 }
-                if isinstance(module.DESIGNS, dict):
-                    entry[name.replace("\n", " ")] |= {
-                        "largest_shared_direction": shared,
-                        "between": [first_name, second_name],
-                        "separable": bool(shared <= limit),
-                    }
+            entry["shared_direction_of_the_term"] = shared_of
             stats[grid] = entry
             axis.axhline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
             axis.set_ylim(-DISPLAY_LIMIT * 1.3, DISPLAY_LIMIT * 1.18)
@@ -285,7 +316,9 @@ def main() -> None:
             units=first["units"],
             sets=first["units"] // 20,
             pc_sentence=_pc_sentence(stats["pc_grid"]),
-            wide_shared=stats["withdrawal_grid"]["±300"]["largest_shared_direction"],
+            wide_shared=stats["withdrawal_grid"]["shared_direction_of_the_term"][
+                "±300"
+            ]["largest_shared_direction"],
             limit=stats["largest_shared_direction_of_the_design_in_use"],
         )
     )

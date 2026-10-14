@@ -327,23 +327,27 @@ choices.
 - Rule for the form of a term. Another form replaces the form in use when it
   passes two tests on these units:
   1. Prediction: its validation D² is reliably higher (paired Wilcoxon).
-  2. Separability: it does not give the design a shared direction larger than
-     the largest one of the design in use. The shared direction of two
-     regressors is their first canonical correlation: the largest correlation
-     of a weighted sum of the columns of one with a weighted sum of the columns
-     of the other (`collinearity.largest_shared_direction`, on the task
-     columns). The design in use has 0.67 (flash × move with the fixation
-     kernel); the limit is that value plus 0.05.
+  2. Separability: the term in that form does not share a direction with
+     another regressor that is larger than the largest one of the design in
+     use. The shared direction of two regressors is their first canonical
+     correlation: the largest correlation of a weighted sum of the columns of
+     one with a weighted sum of the columns of the other
+     (`collinearity.shared_directions`, on the task columns). Panel c of
+     `collinearity.svg` gives it for each pair of the design in use. The
+     largest pair of task regressors is flash × move with the fixation kernel
+     (0.67 in GRB006, 0.64 in GRB064); the limit is 0.67 plus 0.05.
 - Test 2 keeps the kernels readable. A form can predict better because it
   covers the time of another term; the two terms then share the effect, and
   neither kernel can be read. That is the cause of the leak of the fixation
   level, which the pair at 0.67 already shows.
-- No form passes both tests, so each form stays. The withdrawal kernel from
-  300 ms before to 300 ms after the exit passes test 1 (+0.58%, 51 of 80
-  units, p = 0.010) and fails test 2: it shares a direction of 0.90 with the
-  fixation kernel, because it covers the end of the fixation. The kernel of
-  ±100 ms also fails test 2 (0.75) and does not predict better. All other
-  forms are separable (0.60 to 0.69) and do not predict better.
+- No form passes both tests, so each form stays. The withdrawal kernel in use
+  shares at most 0.38 with another regressor (flash × move). From 300 ms
+  before to 300 ms after the exit, it passes test 1 (+0.58%, 51 of 80 units,
+  p = 0.010) and fails test 2: it shares 0.90 with the fixation kernel,
+  because it covers the end of the fixation. The kernel of ±100 ms also fails
+  test 2 (0.75) and does not predict better. In all other forms the term
+  shares 0.69 or less (the number under each form in
+  `design_optimization.svg`; the pair is in `design_optimization_stats.json`).
 - Motion energy: 10 PCs are needed (none is worse), and more PCs do not help;
   100 and 200 are worse.
 - The design with one flash kernel has no flash × move × gap term: it is the

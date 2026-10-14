@@ -37,9 +37,17 @@ for each unit.
 - These are statistics of an ordinary fit. The model has an L2 penalty, which
   makes the weights more stable than these values say. The direct test of the
   weights is `kernel_reliability.py`.
+- Shared direction of two regressors (`shared_directions`): their first
+  canonical correlation, the largest correlation that a weighted sum of the
+  columns of one has with a weighted sum of the columns of the other. It is
+  the worst case for one pair, where the GVIF is an average over all the
+  directions of a regressor. The task and motion-energy columns are the same
+  for all units, so this matrix has one value for each session.
 - Figure: one row for each session. a, GVIF^(1/p) of each regressor in each
   unit (points; the line is the median). b, the condition indices of each
-  unit, sorted. The dashed lines are the usual limits.
+  unit, sorted. The dashed lines are the usual limits. c, the shared
+  direction of each pair of regressors (0, nothing shared; 1, one time course
+  that both can make).
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script writes `collinearity.svg` and
@@ -96,26 +104,26 @@ def _unit_correlation(spike_times: np.ndarray) -> np.ndarray:
     return columns.T @ columns / len(columns)
 
 
-def largest_shared_direction(
-    correlation: np.ndarray, groups: dict[str, slice]
-) -> tuple[float, str, str]:
-    """Return the largest first canonical correlation between two regressors.
+def shared_directions(correlation: np.ndarray, groups: dict[str, slice]) -> np.ndarray:
+    """Return the first canonical correlation of each pair of regressors.
 
-    It is the strongest direction that two regressors of a design share: 0 for
-    regressors that share nothing, 1 for two regressors where a weighted sum of
-    the columns of one is a weighted sum of the columns of the other.
+    It is the strongest direction that two regressors share: the largest
+    correlation that a weighted sum of the columns of one has with a weighted
+    sum of the columns of the other. 0 for regressors that share nothing, 1
+    when a time course can be made by both. The diagonal is NaN.
     """
-    best = (0.0, "", "")
     names = list(groups)
+    out = np.full((len(names), len(names)), np.nan)
     for index, first in enumerate(names):
-        for second in names[index + 1 :]:
+        for other in range(index + 1, len(names)):
+            second = names[other]
             own = correlation[groups[first], groups[first]]
-            other = correlation[groups[second], groups[second]]
+            rest = correlation[groups[second], groups[second]]
             cross = correlation[groups[first], groups[second]]
-            shared = np.linalg.solve(own, cross) @ np.linalg.solve(other, cross.T)
-            value = float(np.sqrt(max(np.linalg.eigvals(shared).real.max(), 0)))
-            best = max(best, (value, first, second))
-    return best
+            shared = np.linalg.solve(own, cross) @ np.linalg.solve(rest, cross.T)
+            value = np.sqrt(max(np.linalg.eigvals(shared).real.max(), 0))
+            out[index, other] = out[other, index] = value
+    return out
 
 
 def group_statistics(correlation: np.ndarray, groups: dict[str, slice]) -> dict:
@@ -168,12 +176,12 @@ def main() -> None:
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             len(SESSIONS),
-            2,
-            figsize=(9.5, 3.1 * len(SESSIONS)),
-            width_ratios=(2.2, 1),
+            3,
+            figsize=(14, 3.9 * len(SESSIONS)),
+            width_ratios=(2.0, 0.9, 1.9),
             layout="constrained",
         )
-        for (gvif_axis, index_axis), session in zip(axes, SESSIONS):
+        for (gvif_axis, index_axis, pair_axis), session in zip(axes, SESSIONS):
             model = cli.PoissonGLM(root=args.out / session)
             metadata = json.loads(model.design.with_suffix(".json").read_text())
             final = load_unit_records(
@@ -280,6 +288,44 @@ def main() -> None:
             index_axis.set_yticks([1, 3, 10, 30], ["1", "3", "10", "30"])
             index_axis.set_xlabel("dimension of the design, sorted")
             index_axis.set_ylabel("condition index")
+            # The task and motion-energy columns are the same for all units.
+            common = {
+                name: columns for name, columns in groups.items() if name != "history"
+            }
+            pairs = shared_directions(correlations[0], common)
+            labels = [REGRESSORS[name][0] for name in common]
+            pair_axis.imshow(pairs, cmap="Greys", vmin=0, vmax=1)
+            for (row, column), value in np.ndenumerate(pairs):
+                if np.isfinite(value):
+                    pair_axis.text(
+                        column,
+                        row,
+                        f"{value:.2f}"[1:] if value < 1 else "1",
+                        ha="center",
+                        va="center",
+                        fontsize=5.5,
+                        color="white" if value > 0.55 else "black",
+                    )
+            pair_axis.set_xticks(
+                range(len(labels)), labels, rotation=40, ha="right", fontsize=6
+            )
+            pair_axis.set_yticks(range(len(labels)), labels, fontsize=6)
+            for ticks in (pair_axis.get_xticklabels(), pair_axis.get_yticklabels()):
+                for tick, name in zip(ticks, common):
+                    tick.set_color(REGRESSORS[name][1])
+            pair_axis.spines[["left", "bottom"]].set_visible(False)
+            pair_axis.tick_params(length=0)
+            order = np.argsort(np.nan_to_num(pairs).ravel())[::-1][::2][:3]
+            entry["largest_shared_directions"] = [
+                {
+                    "between": [
+                        list(common)[i // len(common)],
+                        list(common)[i % len(common)],
+                    ],
+                    "value": float(pairs.ravel()[i]),
+                }
+                for i in order
+            ]
         label_panels(axes[0], x=-0.12, y=1.05)
         print(save_figure(figure, args.out / "collinearity"))
     (args.out / "collinearity.json").write_text(json.dumps(stats, indent=1))
