@@ -43,7 +43,8 @@ gaps and between periods are paired: each unit has a value in each condition.
   StimulusResponse; and the two-sided Wilcoxon signed-rank test of move minus
   still for each gap group. The traces are of all units of each kind, as
   above.
-- Both mice in each axis: solid lines GRB006, dashed lines GRB064.
+- The units of both mice are pooled in the traces (the title gives the units
+  and mice); the tests are within each mouse.
 
 Trials, alignment, and exclusions are those of `fit.py`. The sampling unit is
 the unit, and each test is within one mouse (`SESSIONS`); the units of the two
@@ -290,14 +291,22 @@ def session_traces(root: Path, unit_set: str) -> dict:
     }
 
 
-def _smooth(data: dict, k: int) -> np.ndarray:
-    """Return the smoothed mean trace of one kind: (condition, observed or model, bin)."""
-    has_data = data["has_data"]
-    # The bins after the end of a row have no data, so the smoothing uses only
-    # the bins of the row.
-    mean = data["trace"][data["kind"] == k].mean(0) * has_data[:, None, :]
-    return gaussian_filter1d(mean, SMOOTH_MS, axis=-1) / np.maximum(
-        gaussian_filter1d(has_data, SMOOTH_MS, axis=-1)[:, None, :], 1e-9
+def _smooth(sessions: list[dict], k: int) -> np.ndarray:
+    """Return the smoothed mean trace of one kind over the pooled units of all mice.
+
+    (condition, observed or model, bin). The bins after the end of a row have
+    no data, so each mouse counts only where its rows have data, and the
+    smoothing uses only those bins.
+    """
+    total = sum(
+        data["trace"][data["kind"] == k].sum(0) * data["has_data"][:, None, :]
+        for data in sessions
+    )
+    count = sum(
+        np.sum(data["kind"] == k) * data["has_data"][:, None, :] for data in sessions
+    )
+    return gaussian_filter1d(total, SMOOTH_MS, axis=-1) / np.maximum(
+        gaussian_filter1d(count, SMOOTH_MS, axis=-1), 1e-9
     )
 
 
@@ -307,7 +316,7 @@ def draw_block(figure, slot, sessions: list[dict], k: int):
     gaps, group, groups = first["gaps"], first["group"], first["groups"]
     if any(data["group_names"] != first["group_names"] for data in sessions):
         raise ValueError("The mice have different gap groups.")
-    smooth = [_smooth(data, k) for data in sessions]
+    smooth = _smooth(sessions, k)
     block = slot.subgridspec(groups, len(PERIODS), hspace=0.2, wspace=0.08)
     axes = np.empty((groups, len(PERIODS)), dtype=object)
     for g in range(groups):
@@ -316,13 +325,10 @@ def draw_block(figure, slot, sessions: list[dict], k: int):
             axes[g, p] = axis
             c = p * groups + g
             shortest = gaps[group == g].min()
-            for data, values, style in zip(sessions, smooth, MOUSE_STYLES, strict=True):
-                lags = data["trace_lags"]
-                drawn = lags < shortest + LAGS_MS[1]
-                for m, color in enumerate(COLORS):
-                    axis.plot(
-                        lags[drawn], values[c, m, drawn], color=color, lw=1.0, ls=style
-                    )
+            lags = first["trace_lags"]
+            drawn = lags < shortest + LAGS_MS[1]
+            for m, color in enumerate(COLORS):
+                axis.plot(lags[drawn], smooth[c, m, drawn], color=color, lw=1.0)
             axis.axvline(0, color=VISUAL, linestyle=":", linewidth=0.9)
             axis.axvline(shortest, color=VISUAL, linewidth=1.0)
             if np.ptp(gaps[group == g]) > 0:  # the later flashes of the group
@@ -358,8 +364,9 @@ def draw_block(figure, slot, sessions: list[dict], k: int):
         "time from the flash before (ms)",
         ha="center",
     )
-    counts = ", ".join(
-        f"{int(np.sum(data['kind'] == k))} {data['subject']}" for data in sessions
+    counts = (
+        f"{sum(int(np.sum(data['kind'] == k)) for data in sessions)} units,"
+        f" {len(sessions)} mice"
     )
     figure.text(
         axes[0, 0].get_position().x0,
@@ -384,19 +391,8 @@ def main() -> None:
         letter_axes = [
             draw_block(figure, outer[0, k], sessions, k) for k in range(len(KINDS))
         ]
-        legend = [(name, color, "-") for name, color in zip(NAMES, COLORS, strict=True)]
-        legend += [
-            (data["subject"], "black", style)
-            for data, style in zip(sessions, MOUSE_STYLES, strict=True)
-        ]
-        for m, (name, color, style) in enumerate(legend):
-            figure.text(
-                0.4 + 0.15 * m,
-                0.955,
-                f"{name}" + (" (dashed)" if style == "--" else ""),
-                color=color,
-                ha="left",
-            )
+        for m, (name, color) in enumerate(zip(NAMES, COLORS, strict=True)):
+            figure.text(0.8 + 0.1 * m, 0.955, name, color=color, ha="left")
         figure.text(
             0.5,
             0.02,

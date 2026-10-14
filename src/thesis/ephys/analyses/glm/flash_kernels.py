@@ -395,14 +395,14 @@ def main() -> None:
         )
         subjects = [gap["subject"] for gap in matched]
         for axis, k in zip(gap_axes[:2], range(2), strict=True):
+            peak_axes(axis)
             pooled_points(
                 axis,
-                [np.clip(g["peaks"][:, k, 0], *PEAK_AXIS_LIMITS) for g in matched],
-                [np.clip(g["peaks"][:, k, 1], *PEAK_AXIS_LIMITS) for g in matched],
+                [g["peaks"][:, k, 0] for g in matched],
+                [g["peaks"][:, k, 1] for g in matched],
                 subjects,
                 RATE_COLORS[k],
             )
-            peak_axes(axis)
             axis.set_xlabel(f"{RATES[k]} peak, 80+ ms gap\n(spikes/s)")
             axis.set_ylabel(f"{RATES[k]} peak,\n40 ms gap (spikes/s)")
         change_axis = gap_axes[2]

@@ -178,14 +178,14 @@ def main() -> None:
             1, 3, figsize=(7.4, 2.7), layout="constrained", width_ratios=(1, 1, 1.15)
         )
         for axis, k in zip(axes[:2], range(2), strict=True):
+            peak_axes(axis)
             pooled_points(
                 axis,
-                [np.clip(d["peaks"][:, k, 0], *PEAK_AXIS_LIMITS) for d in sessions],
-                [np.clip(d["peaks"][:, k, 1], *PEAK_AXIS_LIMITS) for d in sessions],
+                [d["peaks"][:, k, 0] for d in sessions],
+                [d["peaks"][:, k, 1] for d in sessions],
                 subjects,
                 COLORS[k],
             )
-            peak_axes(axis)
             axis.set_xlabel(f"{RATES[k]} peak, still\n(spikes/s)")
             axis.set_ylabel(f"{RATES[k]} peak, move (spikes/s)")
         change_axis = axes[2]

@@ -42,20 +42,20 @@ def median_interval(values, seed: int = 0) -> tuple[float, float, float]:
     return float(np.median(values)), float(low), float(high)
 
 
-# Axis of a peak rate (spikes/s): log above 1, linear from -1 to 1, so that a
-# peak at or below 0 (a baseline-corrected peak can be) is still drawn.
-PEAK_AXIS_LIMITS = (-10, 200)
-PEAK_AXIS_TICKS = (-10, -1, 0, 1, 10, 100)
+# Axis of a peak rate (spikes/s), log on both axes. A peak at or below the lower
+# limit (a baseline-corrected peak can be 0 or below) is not drawn; it stays in
+# the statistics, and the panel gives the count.
+PEAK_AXIS_LIMITS = (0.5, 200)
 
 
 def peak_axes(axis) -> None:
-    """Give a peak-against-peak scatter the same symmetric-log axes and the identity line."""
-    for name in ("x", "y"):
-        getattr(axis, f"set_{name}scale")("symlog", linthresh=1, linscale=0.5)
-        getattr(axis, f"set_{name}lim")(*PEAK_AXIS_LIMITS)
-        getattr(axis, f"set_{name}ticks")(
-            PEAK_AXIS_TICKS, [f"{tick:g}" for tick in PEAK_AXIS_TICKS]
-        )
+    """Give a peak-against-peak scatter the same log axes, limits, and ticks, and the identity line."""
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    axis.set_xlim(*PEAK_AXIS_LIMITS)
+    axis.set_ylim(*PEAK_AXIS_LIMITS)
+    axis.set_xticks([1, 10, 100], ["1", "10", "100"])
+    axis.set_yticks([1, 10, 100], ["1", "10", "100"])
     axis.plot(
         PEAK_AXIS_LIMITS, PEAK_AXIS_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--"
     )
@@ -128,7 +128,20 @@ def pooled_points(axis, xs, ys, subjects, color, seed: int = 0) -> None:
     axis.text(
         0.03,
         0.97,
-        f"{sum(len(x) for x in xs)} units, {len(xs)} mice",
+        f"{sum(len(x) for x in xs)} units, {len(xs)} mice"
+        + (
+            f"\n{hidden} not drawn (a peak\nbelow {axis.get_xlim()[0]:g} spikes/s)"
+            if (
+                hidden := int(
+                    sum(
+                        np.sum((x <= axis.get_xlim()[0]) | (y <= axis.get_ylim()[0]))
+                        for x, y in zip(xs, ys, strict=True)
+                    )
+                )
+            )
+            and axis.get_xscale() == "log"
+            else ""
+        ),
         transform=axis.transAxes,
         va="top",
         fontsize=6,
