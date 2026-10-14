@@ -403,7 +403,10 @@ def main() -> None:
         index_axis.set_yticks([1, 3, 10, 30], ["1", "3", "10", "30"])
         index_axis.set_xlabel("dimension of the\ndesign, sorted")
         index_axis.set_ylabel("condition index")
-        pairs = measures["shared_directions"]
+        # The matrix is symmetric: only the lower triangle is drawn.
+        pairs = np.where(
+            np.tri(len(names), k=-1, dtype=bool), measures["shared_directions"], np.nan
+        )[1:, :-1]
         pair_axis.imshow(pairs, cmap="Greys", vmin=0, vmax=1)
         for (row, column), value in np.ndenumerate(pairs):
             if np.isfinite(value):
@@ -413,21 +416,24 @@ def main() -> None:
                     f"{value:.2f}"[1:],
                     ha="center",
                     va="center",
-                    fontsize=3.8,
+                    fontsize=4.3,
                     color="white" if value > 0.55 else "black",
                 )
         labels = [REGRESSORS[name][0] for name in names]
         pair_axis.set_xticks(
-            range(len(labels)),
-            labels,
+            range(len(labels) - 1),
+            labels[:-1],
             rotation=40,
             ha="right",
             rotation_mode="anchor",
             fontsize=5.5,
         )
-        pair_axis.set_yticks(range(len(labels)), labels, fontsize=5.5)
-        for ticks in (pair_axis.get_xticklabels(), pair_axis.get_yticklabels()):
-            for tick, name in zip(ticks, names):
+        pair_axis.set_yticks(range(len(labels) - 1), labels[1:], fontsize=5.5)
+        for ticks, shown in (
+            (pair_axis.get_xticklabels(), names[:-1]),
+            (pair_axis.get_yticklabels(), names[1:]),
+        ):
+            for tick, name in zip(ticks, shown):
                 tick.set_color(REGRESSORS[name][1])
         pair_axis.spines[["left", "bottom"]].set_visible(False)
         pair_axis.tick_params(length=0)
