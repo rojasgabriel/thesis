@@ -141,7 +141,7 @@ LABELS = {
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
     "40 | 80 | 120 | 160+": "40, 80,\n120,\n160+",
-    "no\nfixation": "no\ninitiation\ncolumn",
+    "no\nfixation": "no\ninitiation",
     "penalty\n÷ 100": "weaker\npenalty",
 }
 DISPLAY_LIMIT = 0.006
@@ -268,8 +268,9 @@ def main() -> None:
     limit = largest + SHARED_TOLERANCE
     stats["largest_shared_direction_of_the_design_in_use"] = largest
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(9.5, 13.6), layout="constrained")
-        top, bottom = figure.subfigures(2, 1, height_ratios=(9.6, 4.0))
+        # The dpi is for the rasterized points; the text and the lines are vectors.
+        figure = plt.figure(figsize=(7.4, 10.0), layout="constrained", dpi=300)
+        top, bottom = figure.subfigures(2, 1, height_ratios=(6.9, 3.1))
         axes = top.subplots(3, 2)
         for axis, (grid, (module, in_use, color, xlabel, terms)) in zip(
             axes.flat, GRIDS.items()
@@ -317,10 +318,11 @@ def main() -> None:
                 axis.scatter(
                     position + rng.uniform(-0.22, 0.22, len(shown)),
                     shown,
-                    s=5,
+                    s=2.5,
                     color=color,
                     alpha=0.45,
                     lw=0,
+                    rasterized=True,  # 80 points for each form: keeps the file small
                 )
                 axis.hlines(
                     np.median(change), position - 0.32, position + 0.32, "black"
@@ -350,12 +352,15 @@ def main() -> None:
             axis.set_xticks(
                 range(len(names)),
                 [LABELS.get(name, name) for name in names],
-                fontsize=6.5,
+                fontsize=6,
             )
-            axis.set_xlabel(xlabel, color=color)
-            axis.set_ylabel(r"$D^2$ minus $D^2$ of the form in use")
+            axis.set_xlabel(xlabel, color=color, fontsize=7.5)
+            if axis in axes[:, 0]:  # one y label for each row
+                axis.set_ylabel(r"$D^2$ minus $D^2$" + "\nof the form in use")
+            axis.tick_params(labelsize=7)
+            axis.set_yticks([-0.005, 0, 0.005], ["−0.005", "0", "0.005"])
         gvif_axis, index_axis, pair_axis = bottom.subplots(
-            1, 3, width_ratios=(1.5, 0.75, 1.6)
+            1, 3, width_ratios=(1.35, 0.7, 1.5)
         )
         names = measures["regressors"].tolist()
         order = np.argsort(-np.median(measures["gvif"], 0))
@@ -364,10 +369,11 @@ def main() -> None:
             gvif_axis.scatter(
                 position + rng.uniform(-0.25, 0.25, len(values)),
                 values,
-                s=4,
+                s=2.5,
                 color=REGRESSORS[names[column]][1],
                 alpha=0.5,
                 lw=0,
+                rasterized=True,
             )
             gvif_axis.hlines(
                 np.median(values), position - 0.35, position + 0.35, "black"
@@ -383,13 +389,13 @@ def main() -> None:
             rotation=40,
             ha="right",
             rotation_mode="anchor",
-            fontsize=6,
+            fontsize=5.5,
         )
         for tick, column in zip(gvif_axis.get_xticklabels(), order):
             tick.set_color(REGRESSORS[names[column]][1])
         gvif_axis.set_ylabel("variance inflation,\n" + r"GVIF$^{1/p}$")
         for unit in measures["condition_indices"]:
-            index_axis.plot(unit, color="0.3", alpha=0.15, lw=0.6)
+            index_axis.plot(unit, color="0.3", alpha=0.15, lw=0.5, rasterized=True)
         for value in INDEX_LIMITS:
             index_axis.axhline(value, color=REFERENCE_COLOR, ls="--", lw=0.8)
         index_axis.set_yscale("log")
@@ -407,7 +413,7 @@ def main() -> None:
                     f"{value:.2f}"[1:],
                     ha="center",
                     va="center",
-                    fontsize=5,
+                    fontsize=3.8,
                     color="white" if value > 0.55 else "black",
                 )
         labels = [REGRESSORS[name][0] for name in names]
@@ -417,9 +423,9 @@ def main() -> None:
             rotation=40,
             ha="right",
             rotation_mode="anchor",
-            fontsize=6,
+            fontsize=5.5,
         )
-        pair_axis.set_yticks(range(len(labels)), labels, fontsize=6)
+        pair_axis.set_yticks(range(len(labels)), labels, fontsize=5.5)
         for ticks in (pair_axis.get_xticklabels(), pair_axis.get_yticklabels()):
             for tick, name in zip(ticks, names):
                 tick.set_color(REGRESSORS[name][1])
@@ -432,8 +438,8 @@ def main() -> None:
                 np.sum((measures["gvif"] > 12).any(1))
             ),
         }
-        label_panels(axes.flat, x=-0.16, y=1.04)
-        label_panels([None] * 6 + [gvif_axis, index_axis, pair_axis], x=-0.2, y=1.04)
+        label_panels(axes.flat, x=-0.2, y=1.04)
+        label_panels([None] * 6 + [gvif_axis, index_axis, pair_axis], x=-0.3, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
     first = stats[next(iter(GRIDS))]
     (args.root / "design_optimization_stats.json").write_text(
