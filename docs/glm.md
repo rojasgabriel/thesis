@@ -285,7 +285,7 @@ pass both tests in the two sessions).
 
 ## Form of each term in the final design, on 80 units
 
-The four grids were run on 4 sets of 20 units (`--samples 4`, 80 units) with
+The six grids were run on 4 sets of 20 units (`--samples 4`, 80 units) with
 the design of 12 regressors as the base (median validation D² 0.0800). Each
 row is a design against the form in use (paired over the 80 units, two-sided
 Wilcoxon). The results of the earlier base designs are in
@@ -302,22 +302,36 @@ choices.
 | | 12 | −0.35% | 31 | 0.071 |
 | | cubic spline | +0.21% | 45 | 0.14 |
 | Gap classes (in use: 40, 80+) | 1 kernel | −1.37% | 24 | 0.0002 |
-| | gap terms | +0.39% | 49 | 0.080 |
 | | 40, 80 to 120, 160+ | −0.20% | 35 | 0.21 |
 | | 40, 80, 120+ | −0.25% | 33 | 0.46 |
 | | 40, 80, 120, 160+ | −0.38% | 33 | 0.15 |
 | Fixation term (in use: log-spaced kernel) | none | −3.36% | 10 | 1e-10 |
 | | step from the center entry | −1.74% | 18 | 3e-7 |
 | | step from the first flash | −1.86% | 19 | 2e-7 |
-| | step and a kernel on the first flash | −0.02% | 39 | 0.42 |
 | | kernel, linear spacing | −0.59% | 21 | 9e-5 |
 | | kernel, 10 bases | −0.16% | 32 | 0.10 |
 | | kernel, no initiation column | 0.00% | 41 | 0.50 |
+| Withdrawal kernel (in use: 0 to 100 ms) | none | −0.78% | 25 | 0.0006 |
+| | ±100 ms around the exit | +0.05% | 43 | 0.60 |
+| | ±300 ms around the exit | +0.58% | 51 | 0.010 |
+| Motion-energy PCs (in use: 10) | none | −0.71% | 26 | 0.0009 |
+| | 25 | −0.14% | 37 | 0.76 |
+| | 50 | −0.36% | 35 | 0.30 |
+| | 100 | −1.87% | 26 | 0.001 |
+| | 200 | −5.66% | 12 | 2e-10 |
 
-- No other form is reliably better than the form in use, so each form stays.
-- The two designs with no gap classes (1 kernel, gap terms) have no flash ×
-  move × gap term: it is the product of the period and the class of the
-  shortest gaps.
+- No other form is reliably better than the form in use, with one exception,
+  so each form stays.
+- The exception: a withdrawal kernel from 300 ms before to 300 ms after the
+  exit predicts better (+0.58%, 51 of 80 units, p = 0.010). It is not used. It
+  covers the end of the fixation and the rise of the rate after the exit, so
+  with it the fixation kernel and the flash × move kernels cannot be read; it
+  is a second free time course at the exit, not a response to the withdrawal.
+  The cost is 0.6% of the explained deviance.
+- Motion energy: 10 PCs are needed (none is worse), and more PCs do not help;
+  100 and 200 are worse.
+- The design with one flash kernel has no flash × move × gap term: it is the
+  product of the period and the class of the shortest gaps.
 - The initiation column gives no gain on these 80 units. Its importance is
   tested on all units (16% need it in GRB006, 24% in GRB064).
 

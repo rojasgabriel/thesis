@@ -2,8 +2,9 @@
 
 Question: why does each term of the design have its form (the number of gap
 classes, the length of the flash kernels, the form of the fixation term, the
-form of the session drift)? This script makes no fit. It draws the results of
-the four design grids and writes the caption next to the figure.
+window of the withdrawal kernel, the number of motion-energy PCs, the form of
+the session drift)? This script makes no fit. It draws the results of the six
+design grids and writes the caption next to the figure.
 
 Comparison: each grid scores the design in use and the same design with one
 term in another form, on the same units. A panel shows, for each other form,
@@ -17,7 +18,11 @@ is relative to the constant-rate model, on the validation trials.
 - Panel c (`hold_grid.py`): no fixation term, a step, a step with a kernel on
   the first flash, and other forms of the kernel, against the log-spaced
   kernel in use.
-- Panel d (`drift_grid.py`): no session drift, more raised cosines, and a
+- Panel d (`withdrawal_grid.py`): no withdrawal kernel and kernels that also
+  cover the time before the exit, against the kernel of 0 to 100 ms in use.
+- Panel e (`pc_grid.py`): no motion energy and more PCs, against the 10 in
+  use.
+- Panel f (`drift_grid.py`): no session drift, more raised cosines, and a
   cubic spline, against the 4 raised cosines in use.
 
 Units: the sets of 20 units of the grids (`--samples 4` gives 80 units; no
@@ -54,8 +59,10 @@ from thesis.ephys.analyses.glm import (
     flash_length_grid,
     gap_class_grid,
     hold_grid,
+    pc_grid,
+    withdrawal_grid,
 )
-from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, TASK, VISUAL
+from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
 from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
 
 # name of the grid: (its module, the form in use, color, x label)
@@ -73,6 +80,13 @@ GRIDS = {
         "length of the flash kernels (ms)",
     ),
     "hold_grid": (hold_grid, hold_grid.IN_USE, TASK, "form of the fixation term"),
+    "withdrawal_grid": (
+        withdrawal_grid,
+        withdrawal_grid.IN_USE,
+        TASK,
+        "withdrawal kernel (ms from the center exit)",
+    ),
+    "pc_grid": (pc_grid, pc_grid.IN_USE, MOTION, "number of motion-energy PCs"),
     "drift_grid": (
         drift_grid,
         "4",
@@ -101,11 +115,35 @@ the differences against zero (n.s., p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01;
 One kernel for all flashes is worse than the two gap classes in use; more
 classes are not better. **b**, Length of the flash kernels. Longer kernels are
 not better than 150 ms. **c**, Form of the fixation term. No term and a step
-are worse than the kernel in use. **d**, Session drift. No drift is worse;
-more functions are not better. A form is not changed when no other form is
-reliably better. The importance of each regressor is tested on all units
+are worse than the kernel in use. **d**, Withdrawal kernel. No kernel is worse.
+A kernel from 300 ms before to 300 ms after the exit predicts better, and is
+not used: it also covers the end of the fixation and the rise of the rate
+after the exit, so the fixation kernel and the flash kernels after the exit
+cannot be read with it. **e**, Number of motion-energy PCs. {pc_sentence}
+**f**, Session drift. No drift is worse; more functions are not better. A form
+is not changed when no other form is reliably better; panel d has the one
+exception. The importance of each regressor is tested on all units
 (main figure).
 """
+
+
+def _pc_sentence(entry: dict) -> str:
+    """Say what the grid of the number of PCs shows, from its statistics."""
+    none = entry["0"]
+    more = [entry[name] for name in entry if name.isdigit() and int(name) > 10]
+    better = [e for e in more if e["wilcoxon_p"] < 0.05 and e["median_change"] > 0]
+    worse = [e for e in more if e["wilcoxon_p"] < 0.05 and e["median_change"] < 0]
+    first = (
+        "No motion energy is worse."
+        if none["wilcoxon_p"] < 0.05 and none["median_change"] < 0
+        else "No motion energy is not reliably worse on these units."
+    )
+    second = (
+        "More PCs are not better"
+        if not better
+        else f"{len(better)} of the larger numbers are reliably better"
+    )
+    return f"{first} {second}{', and some are worse' if worse else ''}."
 
 
 def _stars(p: float) -> str:
@@ -119,7 +157,7 @@ def main() -> None:
     stats = {}
     rng = np.random.default_rng(0)
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(2, 2, figsize=(9.5, 6.4), layout="constrained")
+        figure, axes = plt.subplots(3, 2, figsize=(9.5, 9.6), layout="constrained")
         for axis, (grid, (module, in_use, color, xlabel)) in zip(
             axes.flat, GRIDS.items()
         ):
@@ -185,7 +223,11 @@ def main() -> None:
         json.dumps(stats, indent=1)
     )
     (args.root / "design_optimization_caption.md").write_text(
-        CAPTION.format(units=first["units"], sets=first["units"] // 20)
+        CAPTION.format(
+            units=first["units"],
+            sets=first["units"] // 20,
+            pc_sentence=_pc_sentence(stats["pc_grid"]),
+        )
     )
     print(json.dumps(stats, indent=1))
 

@@ -31,6 +31,9 @@ from thesis.ephys.analyses.glm import cli, dmat, figures, fit
 from thesis.ephys.analyses.glm.grid import INPUTS
 
 COUNTS = (10, 25, 50, 100, 200)
+# The names of the scores, for `design_optimization.py`: "0" is no motion energy.
+DESIGNS = tuple(str(count) for count in (0, *COUNTS))
+IN_USE = "10"
 
 
 def run_grid(source: Path, output: Path, samples: int) -> dict[str, dict]:
