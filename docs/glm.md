@@ -502,6 +502,40 @@ exit. These are task periods, not a measure of locomotion.
 
 ## What causes the fixation effect
 
+### The fixation effect in both animals
+
+`hold_effect.py`, 2026-10-14. Each test is within one animal. GRB064 took no
+part in the design choices.
+
+| Measure | GRB006 (167 units) | GRB064 (76 units) |
+| --- | ---: | ---: |
+| Normalized rate before the first flash, last 200 ms of the fixation, 100 to 400 ms after the exit | 1.11, 0.64, 1.44 | 1.13, 0.64, 1.44 |
+| Fixation level of the descriptive model, median Δ log rate (units below 0) | −0.23 (86%) | −0.34 (84%) |
+| Level after the exit, median Δ log rate | +0.13 | +0.23 |
+| Units higher after the exit than in fixation | 148 of 167, p = 1e-21 | 65 of 76, p = 3e-10 |
+| Fixation kernel fit last (lower bound), median (units below 0) | −0.18 (90%), p = 1e-26 | −0.20 (89%), p = 1e-11 |
+| Stillness: center port over side port at the lowest motion energy | 0.78, p = 3e-7 | 0.84, p = 0.31 |
+| Response after the exit, more over less motion energy | 0.97, p = 0.54 | 0.98, p = 0.91 |
+| Fixation level against the unique ΔD² of the flash (Spearman) | ρ = −0.20, p = 0.01 | ρ = +0.18, p = 0.12 |
+
+- The effect replicates in GRB064. The raw rates are almost the same in the
+  two animals, and the model gives a level below 0 in most units of each.
+- In GRB064 the rate falls sooner after the first flash (at about 50 ms; at
+  about 90 ms in GRB006).
+- Two controls do not replicate in GRB064:
+  - Stillness: the center-port rate is not reliably lower than the side-port
+    rate at the same low motion energy. The side-port rate goes up with motion
+    energy, and the center-port rate does not. So in GRB064, stillness can
+    explain the low rate in the port. The camera view is different (bottom
+    view), so motion energy is not the same measure in the two animals.
+  - Which units: the relation of the fixation level to the flash response
+    (GRB006) is not in GRB064.
+- Display limits: panel e hides 2 units of GRB006 and 8 of GRB064 (the joint
+  level is below −1.6); panel d hides 0 and 1; panel h hides 1 and 3. All of
+  them are in the tests.
+
+### Tests of 2026-10-11 (GRB006)
+
 Tests of 2026-10-11 with no model (`matched_flashes.py`, 167 units, results in
 `matched_flashes.json`; panels g and h of the fixation-effect figure). The
 measures are the rate around a flash (−20 to 20 ms, the baseline) and after it
@@ -513,7 +547,7 @@ holds for other trials.
 | --- | --- | --- |
 | Slow adaptation to the train | The rate depends on the time in the train and the flashes, not on the exit | The effect ends in about 100 ms at the exit while the flashes continue, a kernel that goes on after the exit predicts worse, and the flash rate of the trial has no effect. Not tested at a matched time: see below |
 | Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
-| Stillness in the port | The same low rate at a side port with the same motion energy | No: 0.78 of the rate at a side port |
+| Stillness in the port | The same low rate at a side port with the same motion energy | No in GRB006: 0.78 of the rate at a side port. Not excluded in GRB064 (0.84, p = 0.31) |
 | A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully: units with a larger flash response are suppressed more (Spearman ρ = −0.41, p = 5e-8; −0.36 with rate and D² held), and the response changes more than the baseline for flashes after a long gap (+0.18 in log, p = 0.0003; 0.00 for short gaps) |
 | The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate is not lower from the center entry to the first flash |
 
@@ -867,7 +901,7 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 | Flash kernels | `flash_kernels.py` | the flash kernel by gap class and by period (still, move): median kernels of the units that fire more and less after a flash, maps of all units, paired scatters; both sessions |
 | Flash by gap | `flash_by_gap.py` | observed and predicted rate around flashes at each gap, still and move; both sessions |
 | Still against move | `flash_by_period.py` | raw response and flash kernel in the two periods, both sessions |
-| Fixation effect | `hold_effect.py` | two example units, the lower rate in the fixation, its end at the exit, and its controls |
+| Fixation effect | `hold_effect.py` | two example units (GRB006), the lower rate in the fixation, its end at the exit, and its controls; both sessions |
 | Design optimization (supplement) | `design_optimization.py`, `collinearity.py`, `parameter_recovery.py` | step 1: the six design grids on 80 units of GRB006, each with its test of prediction; step 2, in GRB006 and the held-out GRB064: the collinearity of the design in use (variance inflation, condition indices, shared direction of each pair of regressors) and the parameter recovery of each regressor |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
 | Checks of the model (supplement) | `model_checks.py` | single trials, held-out units (and the held-out animal GRB064), terms that are not in the model, calibration (both sessions), recovery of planted kernels |

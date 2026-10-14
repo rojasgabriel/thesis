@@ -7,7 +7,11 @@ entry, so the time after the center exit has the stimulus without the fixation.
 
 Comparison: the fixation (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
-comparison is paired: each unit has a value in both periods.
+comparison is paired: each unit has a value in both periods. Each test is
+within one animal (`SESSIONS`); the units of the two animals are not pooled.
+Panel a is GRB006. In panels b to e and h, solid lines and filled points are
+GRB006, and dashed lines and open points are GRB064. Panels f and g have one
+axis for each animal.
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
@@ -40,7 +44,8 @@ comparison is paired: each unit has a value in both periods.
   prediction (`two_step_levels`). The two-step value is a lower bound. Both are
   in-sample.
 - Panel f (control for stillness): raw rate against motion energy in the
-  center port and at a side port (`port_vs_stillness.py`).
+  center port and at a side port (`port_vs_stillness.py`). The two animals
+  have different camera views, so motion energy is not the same measure.
 - Panel g (control for the movement after the exit): the rate around a flash
   in the fixation, and around a flash after the exit with less and with more
   motion energy of the video (lower and upper half), from
@@ -64,13 +69,17 @@ predict reliably better than the withdrawal kernel (`docs/glm.md`).
 
 Units, trials, alignment (first flash), baseline, and exclusions are those of
 `fit.py`. Bins after the response entry are excluded. The sampling unit is the
-unit. The script writes `hold_effect.svg` and `hold_effect_stats.json` in the
-session directory.
+unit. The script writes `hold_effect.svg`, `hold_effect_stats.json` (by
+session), and `hold_effect_caption.md` in `--out`.
 
-    uv run python -m thesis.ephys.analyses.glm.hold_effect --units all
+    uv run python -m thesis.ephys.analyses.glm.hold_effect --fit --root <session>
+    uv run python -m thesis.ephys.analyses.glm.hold_effect
 
-Each fit of all units takes about 20 minutes; a fit that is there is not run
-again. Run `port_vs_stillness` and `matched_flashes` first.
+The first command fits the two variants of one session (about 20 minutes each
+for all units; a finished fit is not run again) and draws nothing. The second
+command makes no fit: it draws the figure from the fits of both sessions and
+stops with the command to run when a fit is missing. Run `port_vs_stillness`
+and `matched_flashes` for each session first.
 """
 
 from __future__ import annotations
@@ -98,6 +107,7 @@ from thesis.ephys.analyses.glm.fit import (
     load_unit_records,
     refit_final,
 )
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
@@ -110,50 +120,42 @@ from thesis.plotting import (
 )
 
 CAPTION = """\
-**V1 firing is lower during fixation and recovers at the withdrawal, while the
-flashes go on.** The fixation is the time from the first flash to the
-withdrawal from the center port. The flashes continue until the animal enters
-a response port, so the time after the withdrawal has the stimulus without the
-fixation. {units} units, one session. **a**, Spikes of two example units
-against time from the first flash (left) and from the withdrawal (right), with
-the trials sorted by the length of the fixation. The vertical line is the event
-at time 0; in the left panels the orange line is the withdrawal of each trial.
-Top: a unit with a lower rate in fixation. Bottom: a unit with a higher rate
-in fixation. **b**, Observation, with no model. Top: the fraction of trials
-with a flash in each 40 ms. Bottom: the firing rate, with the rate of each unit
-divided by its mean rate (mean and SEM over units). The rate is {before:.2f}
-before the first flash, {late:.2f} in the last 200 ms of the fixation, and
-{after_rate:.2f} from 100 to 400 ms after the withdrawal. **c**, The kernels
-of a descriptive model, as a change in log rate relative to the time before
-the first flash. This model is the GLM of the main figure with one change: a
-kernel from the withdrawal to the response entry in place of the 100-ms
-withdrawal kernel. Thin lines are units; the thick line and the band are the
-median and the interquartile range. **d**, The paired comparison. For each
-unit, the mean kernel value from {lo} to {hi} ms after the first flash against
-the mean over the same time after the withdrawal (error bars: SD over the 10
-cross-validation folds). Median Δ log rate {hold:.2f} in fixation (below zero
-in {hold_below:.0%} of the units) and {after:+.2f} after the withdrawal;
-higher after the withdrawal in {higher} of {units} units (two-sided Wilcoxon
-signed-rank test, p = {p:.1g}). {outside_d} units are outside the axis limits
-and are in the test. **e**, Control for the order of fitting. The level in
-fixation when all terms are fit together against the level when the fixation
-kernel is fit last, on what the other terms do not explain (a lower bound).
-Median {joint:.2f} and {two_step:.2f}; with the kernel fit last, the level is
-below zero in {two_below:.0%} of the units (p = {p_two:.1g}). {outside_e} units
-are outside the axis limits. **f**, Control for stillness. Raw firing rate
-against motion energy of the video, in the center port and at a side port.
-At the same low motion energy, the rate is lower in the center port (median
-ratio {still_ratio:.2f}, lower in {still_fraction:.0%} of the units,
-p = {still_p:.1g}).
-**g**, Control for the movement after the withdrawal. The firing rate
+**V1 firing changes during fixation and at the withdrawal, while the flashes
+go on.** The fixation is the time from the first flash to the withdrawal from
+the center port. The flashes continue until the animal enters a response port,
+so the time after the withdrawal has the stimulus without the fixation. Two
+animals: {units}. Each test is within one animal; the units of the two animals
+are not pooled. In b to e and h, solid lines and filled points are {subject};
+dashed lines and open points are {other}. **a**, Spikes of two example units of
+{subject} against time from the first flash (left) and from the withdrawal
+(right), with the trials sorted by the length of the fixation. The vertical
+line is the event at time 0; in the left panels the orange line is the
+withdrawal of each trial. Top: a unit with a lower rate in fixation. Bottom: a
+unit with a higher rate in fixation. **b**, Observation, with no model. Top:
+the fraction of trials with a flash in each 40 ms. Bottom: the firing rate,
+with the rate of each unit divided by its mean rate (mean and SEM over units).
+The rate is {before} before the first flash, {late} in the last 200 ms of the
+fixation, and {after_rate} from 100 to 400 ms after the withdrawal. **c**, The
+kernels of a descriptive model, as a change in log rate relative to the time
+before the first flash. This model is the GLM of the main figure with one
+change: a kernel from the withdrawal to the response entry in place of the
+100-ms withdrawal kernel. Thin lines are units; the thick lines and the bands
+are the median and the interquartile range. **d**, The paired comparison. For
+each unit, the mean kernel value from {lo} to {hi} ms after the first flash
+against the mean over the same time after the withdrawal (error bars: SD over
+the 10 cross-validation folds). {paired} {outside_d} **e**, Control for the
+order of fitting. The level in fixation when all terms are fit together
+against the level when the fixation kernel is fit last, on what the other
+terms do not explain (a lower bound). {two_step} {outside_e} **f**, Control
+for stillness. Raw firing rate against motion energy of the video, in the
+center port and at a side port, in each animal. {stillness} The two animals
+have different camera views, so motion energy is not the same measure in
+both. **g**, Control for the movement after the withdrawal. The firing rate
 around a flash in fixation, and around a flash after the withdrawal with less
 and with more motion energy of the video (lower and upper half; mean and SEM
-over units; the first flash of a trial is not used). The response after the
-withdrawal does not grow with motion energy (ratio of the response, more over
-less motion energy: {energy_ratio:.2f}, p = {energy_p:.1g}). **h**, The units
-with a larger flash response have a lower rate in fixation: the level in
-fixation against the unique ΔD² of the visual flash (Spearman ρ = {rho:.2f},
-p = {rho_p:.1g}; {outside_h} units are outside the axis limits).
+over units; the first flash of a trial is not used), in each animal. {energy}
+**h**, The level in fixation against the unique ΔD² of the visual flash.
+{relation} {outside_h}
 """
 ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
@@ -465,23 +467,46 @@ def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
-    parser.add_argument("--units", type=cli._unit_set, default="all")
-    args = parser.parse_args()
-    matched_path = args.root / "matched_flashes.npz"
-    if not matched_path.exists():
-        raise FileNotFoundError(f"{matched_path}: run `matched_flashes` first.")
-    with np.load(matched_path, allow_pickle=False) as data:
-        matched = {key: data[key] for key in data.files}
-    stillness_path = args.root / "port_vs_stillness.npz"
-    if not stillness_path.exists():
-        raise FileNotFoundError(f"{stillness_path}: run `port_vs_stillness` first.")
-    with np.load(stillness_path, allow_pickle=False) as data:
-        stillness = {key: data[key] for key in data.files}
-    kernels = kernel_values(fit_descriptive(args.root, args.units), args.units)
-    steps = two_step_levels(args.root, args.units)
+def _fits_done(root: Path, unit_set: str) -> bool:
+    """Return True when every stage of the fit in `root` finished for all units."""
+    checkpoints = cli.PoissonGLM(root=root).fit_dir(unit_set) / "checkpoints"
+    finals = len(list(checkpoints.glob("unit_*_final.json")))
+    return finals > 0 and finals >= len(
+        list(checkpoints.glob("unit_*_validation.json"))
+    )
+
+
+def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
+    """Return the measures of one session.
+
+    With `fit`, the descriptive model and the design with no fixation kernel
+    are fit when they are not there. Without it, nothing is fit: a missing or
+    unfinished fit raises an error with the command to run.
+    """
+    loaded = {}
+    for name, command in (
+        ("matched_flashes", "matched_flashes"),
+        ("port_vs_stillness", "port_vs_stillness"),
+    ):
+        path = root / f"{name}.npz"
+        if not path.exists():
+            raise FileNotFoundError(f"{path}: run `{command} --root {root}` first.")
+        with np.load(path, allow_pickle=False) as data:
+            loaded[name] = {key: data[key] for key in data.files}
+        loaded[f"{name}_json"] = json.loads(path.with_suffix(".json").read_text())
+    descriptive = root.with_name(root.name + ROOT_SUFFIX)
+    if fit:
+        descriptive = fit_descriptive(root, unit_set)
+        steps = two_step_levels(root, unit_set)
+    else:
+        cache = root / f"hold_two_step_{unit_set}.npz"
+        if not (_fits_done(descriptive, unit_set) and cache.exists()):
+            raise FileNotFoundError(
+                f"The fits of {root.name} are not finished. Run "
+                f"`hold_effect --fit --root {root} --units {unit_set}`."
+            )
+        steps = two_step_levels(root, unit_set)  # reads the cache
+    kernels = kernel_values(descriptive, unit_set)
     # Example units: the most suppressed and the most excited unit, each among
     # the units with a rate that makes its raster readable.
     ids, joint = steps["unit_ids"], steps["joint"]
@@ -489,11 +514,195 @@ def main() -> None:
     readable = (steps["rate"] >= SUPPRESSED_RATES[0]) & (
         steps["rate"] <= SUPPRESSED_RATES[1]
     )
+    readable = readable if readable.any() else active
     suppressed = int(ids[readable][np.argmin(joint[readable])])
     excited = int(ids[active][np.argmax(joint[active])])
-    rates = raw_rates(args.root, args.units, (suppressed, excited))
+    rates = raw_rates(root, unit_set, (suppressed, excited))
     hold, after = kernels[dmat.HOLD], kernels[AFTER]
-    before = float(rates["flash"][1][:, rates["flash"][0] < 0].mean())
+    limits = LEVEL_LIMITS
+    centers, values = rates["exit"]
+    matched = loaded["matched_flashes"]
+    stats = {
+        "units": len(hold["level"]),
+        "rate_before_first_flash": float(
+            rates["flash"][1][:, rates["flash"][0] < 0].mean()
+        ),
+        "rate_last_200_ms_of_hold": float(values[:, centers < 0].mean()),
+        "rate_100_to_400_ms_after_exit": float(
+            values[:, (centers > 100) & (centers < 400)].mean()
+        ),
+        "median_delta_log_rate_hold": float(np.median(hold["level"])),
+        "median_delta_log_rate_after_exit": float(np.median(after["level"])),
+        "fraction_units_hold_below_0": float(np.mean(hold["level"] < 0)),
+        "fraction_units_after_exit_below_0": float(np.mean(after["level"] < 0)),
+        "units_higher_after_exit": int(np.sum(after["level"] > hold["level"])),
+        "wilcoxon_p": float(wilcoxon(after["level"], hold["level"]).pvalue),
+        "units_outside_the_axis_limits_of_panel_d": int(
+            np.sum(
+                (np.minimum(hold["level"], after["level"]) < limits[0])
+                | (np.maximum(hold["level"], after["level"]) > limits[1])
+            )
+        ),
+        "example_units_suppressed_and_excited": [suppressed, excited],
+        "two_step": {
+            "median_delta_log_rate_joint": float(np.median(steps["joint"])),
+            "median_delta_log_rate_two_step": float(np.median(steps["two_step"])),
+            "fraction_units_two_step_below_0": float(np.mean(steps["two_step"] < 0)),
+            "wilcoxon_p_two_step_against_0": float(wilcoxon(steps["two_step"]).pvalue),
+            "units_outside_the_axis_limits_of_panel_e": int(
+                np.sum(
+                    (np.abs(steps["joint"]) > limits[1])
+                    | (np.abs(steps["two_step"]) > limits[1])
+                )
+            ),
+        },
+        "units_outside_the_axis_limits_of_panel_h": int(
+            np.sum(
+                (matched["fixation_level"] < limits[0])
+                | (matched["fixation_level"] > limits[1])
+            )
+        ),
+        "median_center_exit_ms_from_first_flash": rates["median_exit_ms"],
+    }
+    flashes = loaded["matched_flashes_json"]
+    return {
+        "subject": root.name.split("_")[0],
+        "kernels": kernels,
+        "steps": steps,
+        "rates": rates,
+        "stillness": loaded["port_vs_stillness"],
+        "matched": matched,
+        "examples": (suppressed, excited),
+        "stats": stats,
+        "least": loaded["port_vs_stillness_json"]["least_motion_group"],
+        "by_energy": flashes["after exit, lower against upper half of motion energy"][
+            "response, second / first group"
+        ],
+        "relation": flashes["fixation level against unique dD2, flash (Spearman)"],
+    }
+
+
+def _draw_examples(figure, examples, data: dict) -> list:
+    """Draw panel a: the rasters of the two example units; return its first axis."""
+    rates = data["rates"]
+    suppressed, excited = data["examples"]
+    exits = rates["sorted_exit_ms"]
+    trial_rows = np.arange(len(exits))
+    first = None
+    for row, (unit_id, label) in enumerate(
+        ((suppressed, "suppressed"), (excited, "excited"))
+    ):
+        for column, (name, limits) in enumerate(
+            (("flash", FLASH_WINDOW_MS), ("exit", EXIT_WINDOW_MS))
+        ):
+            axis = figure.add_subplot(examples[row, column])
+            spike_ms, rows = rates["rasters"][unit_id][name]
+            keep = (spike_ms >= limits[0]) & (spike_ms < limits[1])
+            axis.plot(
+                spike_ms[keep], rows[keep], "|", color=OBSERVED_COLOR, markersize=1.5
+            )
+            # The event at time 0, and in the left column the exit of each trial.
+            event = VISUAL if name == "flash" else TASK
+            axis.axvline(0, color=event, linewidth=0.8)
+            if name == "flash":
+                axis.plot(exits, trial_rows, color=TASK, linewidth=1)
+            axis.set_xlim(*limits)
+            axis.tick_params(labelbottom=False)
+            if column == 0:
+                axis.set_ylabel("trial, sorted\nby fixation length")
+                axis.text(
+                    0.01,
+                    1.02,
+                    f"{data['subject']}, unit {unit_id}, {label}",
+                    transform=axis.transAxes,
+                    va="bottom",
+                    fontsize=6.5,
+                )
+            else:
+                axis.tick_params(labelleft=False)
+            if row == 0:
+                axis.text(
+                    0.99,
+                    1.02,
+                    "first flash" if name == "flash" else "center exit",
+                    color=event,
+                    transform=axis.transAxes,
+                    ha="right",
+                    va="bottom",
+                    fontsize=6.5,
+                )
+            first = first or axis
+    return first
+
+
+def _draw_matched(axis, data: dict, labels: bool) -> None:
+    """Draw panel g for one animal: the rate around flashes in three conditions."""
+    matched = data["matched"]
+    lags = matched["lags_ms"]
+    reference = matched["rate__fixation against after exit, matched gap"]
+    by_energy = matched["rate__after exit, lower against upper half of motion energy"]
+    scale = reference.mean((0, 2))
+    used = scale > 0
+    curves = (
+        (reference[0], TASK, "still"),
+        (by_energy[0], "0.35", "move, less motion energy"),
+        (by_energy[1], MOTION, "move, more motion energy"),
+    )
+    # The labels are in the band between the curve of the fixation and the
+    # curves after the exit.
+    for (values, color, label), height in zip(curves, (0.14, 0.56, 0.48), strict=True):
+        values = gaussian_filter1d(values[used] / scale[used, None], 3, axis=-1)
+        mean, error = values.mean(0), sem(values, axis=0)
+        axis.plot(lags, mean, color=color)
+        axis.fill_between(
+            lags, mean - error, mean + error, color=color, alpha=0.25, lw=0
+        )
+        if labels:
+            axis.text(
+                0.03,
+                height,
+                label,
+                color=color,
+                transform=axis.transAxes,
+                va="top",
+                fontsize=6,
+            )
+    axis.axvline(0, color=VISUAL, linewidth=0.8)
+    axis.set_ylim(bottom=0)
+    axis.set_xlabel("time from flash (ms)")
+    axis.set_title(data["subject"], fontsize=7, loc="left")
+
+
+def _pair(sessions, text) -> str:
+    """Return one value for each session, as 'x (A) and y (B)'."""
+    return " and ".join(f"{text(s)} ({s['subject']})" for s in sessions)
+
+
+def _direction(p_value: float, ratio: float) -> str:
+    """Return the direction of a ratio as a word, or "not reliably different"."""
+    if p_value >= 0.05:
+        return "not reliably different"
+    return "higher" if ratio > 1 else "lower"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--units", type=cli._unit_set, default="all")
+    parser.add_argument(
+        "--fit",
+        action="store_true",
+        help="fit the variants of the session in --root; draw no figure",
+    )
+    parser.add_argument("--root", type=Path, default=None)
+    args = parser.parse_args()
+    if args.fit:
+        for root in [args.root] if args.root else [args.out / s for s in SESSIONS]:
+            session_effect(root, args.units, fit=True)
+        return
+    sessions = [session_effect(args.out / s, args.units, fit=False) for s in SESSIONS]
+    limits = LEVEL_LIMITS
+    styles = ("-", "--")
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 12.6))
@@ -501,94 +710,80 @@ def main() -> None:
             2, 2, left=0.11, right=0.97, top=0.9794, bottom=0.8349, hspace=0.25
         )
         top = figure.add_gridspec(
-            2,
-            2,
-            left=0.11,
-            right=0.97,
-            top=0.7895,
-            bottom=0.6492,
-            height_ratios=(1, 4),
+            2, 2, left=0.11, right=0.97, top=0.7895, bottom=0.6492, height_ratios=(1, 4)
         )
         middle = figure.add_gridspec(
             1, 2, left=0.11, right=0.97, top=0.5832, bottom=0.4635
         )
         bottom = figure.add_gridspec(
-            1, 3, left=0.11, right=0.88, top=0.3851, bottom=0.22, wspace=0.75
+            1, 4, left=0.11, right=0.86, top=0.385, bottom=0.25, wspace=0.9
         )
         last = figure.add_gridspec(
-            1, 2, left=0.11, right=0.9, top=0.15, bottom=0.045, wspace=1.25
+            1,
+            3,
+            left=0.11,
+            right=0.97,
+            top=0.165,
+            bottom=0.045,
+            wspace=0.6,
+            width_ratios=(1, 1, 1.1),
         )
-        panel_axes = []
-        # Panel a has the time axes of panels b and c: from the first flash
-        # (left) and from the center exit (right).
-        exits = rates["sorted_exit_ms"]
-        trial_rows = np.arange(len(exits))
-        for row, (unit_id, label) in enumerate(
-            ((suppressed, "suppressed"), (excited, "excited"))
-        ):
-            for column, (name, limits) in enumerate(
-                (("flash", FLASH_WINDOW_MS), ("exit", EXIT_WINDOW_MS))
-            ):
-                axis = figure.add_subplot(examples[row, column])
-                spike_ms, rows = rates["rasters"][unit_id][name]
-                keep = (spike_ms >= limits[0]) & (spike_ms < limits[1])
-                axis.plot(
-                    spike_ms[keep],
-                    rows[keep],
-                    "|",
-                    color=OBSERVED_COLOR,
-                    markersize=1.5,
-                )
-                # The event at time 0, and in the left column the exit of each trial.
-                event = VISUAL if name == "flash" else TASK
-                axis.axvline(0, color=event, linewidth=0.8)
-                if name == "flash":
-                    axis.plot(exits, trial_rows, color=TASK, linewidth=1)
-                axis.set_xlim(*limits)
-                axis.tick_params(labelbottom=False)
-                if column == 0:
-                    axis.set_ylabel("trial, sorted\nby fixation length")
-                    axis.text(
-                        0.01,
-                        1.02,
-                        f"unit {unit_id}, {label}",
-                        transform=axis.transAxes,
-                        va="bottom",
-                        fontsize=6.5,
-                    )
-                else:
-                    axis.tick_params(labelleft=False)
-                if row == 0:
-                    axis.text(
-                        0.99,
-                        1.02,
-                        "first flash" if name == "flash" else "center exit",
-                        color=event,
-                        transform=axis.transAxes,
-                        ha="right",
-                        va="bottom",
-                        fontsize=6.5,
-                    )
-                if row == 0 and column == 0:
-                    panel_axes.append(axis)
+        panel_axes = [_draw_examples(figure, examples, sessions[0])]
         shared = None
         for column, (name, xlabel) in enumerate(
             (("flash", "time from first flash (ms)"), ("exit", "time from center exit"))
         ):
-            slots, fraction = rates[f"{name}_fraction"]
+            xlabel += " (ms)" if name == "exit" else ""
             flash_axis = figure.add_subplot(top[0, column])
-            flash_axis.step(slots, fraction, where="post", color=VISUAL)
-            flash_axis.set_ylim(0, 1.05)
-            flash_axis.tick_params(labelbottom=False)
             axis = figure.add_subplot(top[1, column], sharex=flash_axis, sharey=shared)
             shared = shared or axis
-            centers, values = rates[name]
-            mean, error = values.mean(axis=0), sem(values, axis=0)
-            axis.fill_between(
-                centers, mean - error, mean + error, color=OBSERVED_COLOR, alpha=0.25
+            kernel_axis = figure.add_subplot(
+                middle[column], sharey=panel_axes[-1] if column else None
             )
-            axis.plot(centers, mean, color=OBSERVED_COLOR)
-            axis.set_xlabel(xlabel + (" (ms)" if name == "exit" else ""))
+            for data, style in zip(sessions, styles, strict=True):
+                rates = data["rates"]
+                slots, fraction = rates[f"{name}_fraction"]
+                flash_axis.step(slots, fraction, where="post", color=VISUAL, ls=style)
+                centers, values = rates[name]
+                mean, error = values.mean(axis=0), sem(values, axis=0)
+                axis.fill_between(
+                    centers,
+                    mean - error,
+                    mean + error,
+                    color=OBSERVED_COLOR,
+                    alpha=0.2,
+                    lw=0,
+                )
+                axis.plot(centers, mean, color=OBSERVED_COLOR, ls=style)
+                kernel = data["kernels"][dmat.HOLD if name == "flash" else AFTER]
+                shown = (
+                    kernel["times"]
+                    <= (FLASH_WINDOW_MS if column == 0 else EXIT_WINDOW_MS)[1]
+                )
+                times = kernel["times"][shown]
+                kernel_axis.plot(
+                    times,
+                    kernel["values"][:, shown].T,
+                    color="0.6",
+                    linewidth=0.3,
+                    alpha=0.2,
+                    zorder=1,
+                )
+                low, median, high = np.percentile(
+                    kernel["values"][:, shown], [25, 50, 75], axis=0
+                )
+                kernel_axis.fill_between(
+                    times, low, high, color=TASK, alpha=0.3, linewidth=0, zorder=2
+                )
+                kernel_axis.plot(
+                    times, median, color=TASK, linewidth=1.6, ls=style, zorder=3
+                )
+            flash_axis.set_ylim(0, 1.05)
+            flash_axis.tick_params(labelbottom=False)
+            axis.set_xlabel(xlabel)
+            kernel_axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+            kernel_axis.set_xlim(axis.get_xlim())
+            kernel_axis.set_xlabel(xlabel)
             if column == 0:
                 flash_axis.text(
                     0.3,
@@ -599,40 +794,15 @@ def main() -> None:
                     fontsize=6.5,
                 )
                 axis.set_ylabel("normalized firing rate")
+                axis.text(
+                    0.02,
+                    0.04,
+                    f"{sessions[0]['subject']} (solid)\n{sessions[1]['subject']} (dashed)",
+                    transform=axis.transAxes,
+                    fontsize=6.5,
+                )
                 panel_axes.append(flash_axis)
-            else:
-                flash_axis.tick_params(labelleft=False)
-                axis.tick_params(labelleft=False)
-
-            kernel_axis = figure.add_subplot(
-                middle[column], sharey=panel_axes[-1] if column else None
-            )
-            kernel = hold if name == "flash" else after
-            shown = (
-                kernel["times"]
-                <= (FLASH_WINDOW_MS if column == 0 else EXIT_WINDOW_MS)[1]
-            )
-            times = kernel["times"][shown]
-            kernel_axis.plot(
-                times,
-                kernel["values"][:, shown].T,
-                color="0.6",
-                linewidth=0.3,
-                alpha=0.3,
-                zorder=1,
-            )
-            low, median, high = np.percentile(
-                kernel["values"][:, shown], [25, 50, 75], axis=0
-            )
-            kernel_axis.fill_between(
-                times, low, high, color=TASK, alpha=0.45, linewidth=0, zorder=2
-            )
-            kernel_axis.plot(times, median, color=TASK, linewidth=1.6, zorder=3)
-            kernel_axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            kernel_axis.set_xlim(axis.get_xlim())
-            kernel_axis.set_xlabel(xlabel + (" (ms)" if name == "exit" else ""))
-            if column == 0:
-                kernel_axis.set_ylim(*LEVEL_LIMITS)
+                kernel_axis.set_ylim(*limits)
                 kernel_axis.set_ylabel(r"$\Delta$ log rate")
                 kernel_axis.text(
                     0.98,
@@ -654,110 +824,92 @@ def main() -> None:
                 )
                 panel_axes.append(kernel_axis)
             else:
+                flash_axis.tick_params(labelleft=False)
+                axis.tick_params(labelleft=False)
                 kernel_axis.tick_params(labelleft=False)
 
-        paired = figure.add_subplot(bottom[0])
-        paired.errorbar(
-            hold["level"],
-            after["level"],
-            xerr=hold["level_sd"],
-            yerr=after["level_sd"],
-            fmt="o",
-            color=TASK,
-            markersize=2.5,
-            elinewidth=0.4,
-            alpha=0.7,
-        )
-        limits = LEVEL_LIMITS
-        paired.plot(
-            limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
-        )
-        for line in (paired.axhline, paired.axvline):
-            line(0, color=REFERENCE_COLOR, linewidth=0.5)
-        paired.set_xlim(limits)
-        paired.set_ylim(limits)
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
+        paired = figure.add_subplot(bottom[0])
+        order_axis = figure.add_subplot(bottom[1])
+        relation = figure.add_subplot(last[2])
+        for data, face in zip(sessions, (TASK, "white"), strict=True):
+            hold, after = data["kernels"][dmat.HOLD], data["kernels"][AFTER]
+            paired.errorbar(
+                hold["level"],
+                after["level"],
+                xerr=hold["level_sd"],
+                yerr=after["level_sd"],
+                fmt="o",
+                color=TASK,
+                mfc=face,
+                markersize=2.5,
+                elinewidth=0.4,
+                alpha=0.7,
+            )
+            order_axis.plot(
+                data["steps"]["joint"],
+                data["steps"]["two_step"],
+                "o",
+                color=TASK,
+                mfc=face,
+                markersize=2.5,
+                alpha=0.7,
+            )
+            relation.plot(
+                np.maximum(data["matched"]["flash_unique"], UNIQUE_FLOOR),
+                data["matched"]["fixation_level"],
+                "o",
+                color=TASK,
+                mfc=face,
+                markersize=2.5,
+                alpha=0.7,
+            )
+        for axis in (paired, order_axis):
+            axis.plot(
+                limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
+            )
+            for line in (axis.axhline, axis.axvline):
+                line(0, color=REFERENCE_COLOR, linewidth=0.5)
+            axis.set_xlim(limits)
+            axis.set_ylim(limits)
         paired.set_xlabel(
             r"$\Delta$ log rate in fixation," + f"\n{window} from first flash"
         )
         paired.set_ylabel(r"$\Delta$ log rate after exit," + f"\n{window} from exit")
-        order_axis = figure.add_subplot(bottom[1])
-        order_axis.plot(
-            steps["joint"],
-            steps["two_step"],
-            "o",
-            color=TASK,
-            markersize=2.5,
-            alpha=0.7,
-        )
-        order_axis.plot(
-            limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
-        )
-        for line in (order_axis.axhline, order_axis.axvline):
-            line(0, color=REFERENCE_COLOR, linewidth=0.5)
-        order_axis.set_xlim(limits)
-        order_axis.set_ylim(limits)
         order_axis.set_xlabel(
             r"$\Delta$ log rate in fixation," + "\nall terms fit together"
         )
         order_axis.set_ylabel(
             r"$\Delta$ log rate in fixation," + "\nfixation kernel fit last"
         )
-        stillness_axis = figure.add_subplot(bottom[2])
-        port_vs_stillness.plot_rates(stillness_axis, stillness, states=(0, 2))
-        # Panel g: the response to a flash in the fixation and after the exit,
-        # and after the exit with less and with more motion energy.
-        flash_axis = figure.add_subplot(last[0])
-        lags = matched["lags_ms"]
-        reference = matched["rate__fixation against after exit, matched gap"]
-        by_energy = matched[
-            "rate__after exit, lower against upper half of motion energy"
-        ]
-        scale = reference.mean((0, 2))
-        used = scale > 0
-        curves = (
-            (reference[0], TASK, "still"),
-            (by_energy[0], "0.35", "move,\nless motion energy"),
-            (by_energy[1], MOTION, "move,\nmore motion energy"),
-        )
-        for (values, color, label), height in zip(
-            curves, (0.3, 0.98, 0.72), strict=True
-        ):
-            values = gaussian_filter1d(values[used] / scale[used, None], 3, axis=-1)
-            mean, error = values.mean(0), sem(values, axis=0)
-            flash_axis.plot(lags, mean, color=color)
-            flash_axis.fill_between(
-                lags, mean - error, mean + error, color=color, alpha=0.25, lw=0
+        stillness_axes = []
+        for k, data in enumerate(sessions):
+            axis = figure.add_subplot(
+                bottom[2 + k], sharey=stillness_axes[0] if k else None
             )
-            flash_axis.text(
-                1.02,
-                height,
-                label,
-                color=color,
-                transform=flash_axis.transAxes,
-                va="top",
-            )
-        flash_axis.axvline(0, color=VISUAL, linewidth=0.8)
-        flash_axis.set_ylim(bottom=0)
-        flash_axis.set_xlabel("time from flash (ms)")
-        flash_axis.set_ylabel("normalized firing rate")
-        # Panel h: units with a larger flash response have a lower fixation level.
-        relation = figure.add_subplot(last[1])
-        relation.scatter(
-            np.maximum(matched["flash_unique"], UNIQUE_FLOOR),
-            matched["fixation_level"],
-            s=6,
-            color=TASK,
-            alpha=0.7,
-            linewidths=0,
-        )
+            port_vs_stillness.plot_rates(axis, data["stillness"], states=(0, 2))
+            axis.set_title(data["subject"], fontsize=7, loc="left")
+            axis.set_xlabel("motion energy\n(percentile)")
+            if k:
+                axis.set_ylabel("")
+            else:  # the state labels are drawn once, at the right of the last axis
+                for text in list(axis.texts):
+                    text.remove()
+            stillness_axes.append(axis)
+        matched_axes = []
+        for k, data in enumerate(sessions):
+            axis = figure.add_subplot(last[k], sharey=matched_axes[0] if k else None)
+            _draw_matched(axis, data, labels=k == 0)
+            if not k:
+                axis.set_ylabel("normalized firing rate")
+            matched_axes.append(axis)
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         relation.set_xscale("log")
         relation.set_ylim(limits)
         relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
-        panel_axes += [paired, order_axis, stillness_axis, flash_axis, relation]
-        for axis in panel_axes[2:]:
+        panel_axes += [paired, order_axis, stillness_axes[0], matched_axes[0], relation]
+        for axis in (*panel_axes[2:], stillness_axes[1], matched_axes[1]):
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
@@ -770,92 +922,96 @@ def main() -> None:
                 fontweight="bold",
                 fontsize=10,
             )
-        output = save_figure(figure, args.root / "hold_effect")
+        output = save_figure(figure, args.out / "hold_effect")
 
-    outside = int(
-        np.sum(
-            (hold["level"] < limits[0])
-            | (hold["level"] > limits[1])
-            | (after["level"] < limits[0])
-            | (after["level"] > limits[1])
-        )
-    )
-    centers, values = rates["exit"]
-    stats = {
-        "units": len(hold["level"]),
-        "rate_before_first_flash": before,
-        "rate_last_200_ms_of_hold": float(values[:, centers < 0].mean()),
-        "rate_100_to_400_ms_after_exit": float(
-            values[:, (centers > 100) & (centers < 400)].mean()
-        ),
-        "median_delta_log_rate_hold": float(np.median(hold["level"])),
-        "median_delta_log_rate_after_exit": float(np.median(after["level"])),
-        "fraction_units_hold_below_0": float(np.mean(hold["level"] < 0)),
-        "fraction_units_after_exit_below_0": float(np.mean(after["level"] < 0)),
-        "units_higher_after_exit": int(np.sum(after["level"] > hold["level"])),
-        "wilcoxon_p": float(wilcoxon(after["level"], hold["level"]).pvalue),
-        "units_outside_the_axis_limits_of_panel_d": outside,
-        "example_units_suppressed_and_excited": [suppressed, excited],
-        "two_step": {
-            "median_delta_log_rate_joint": float(np.median(steps["joint"])),
-            "median_delta_log_rate_two_step": float(np.median(steps["two_step"])),
-            "fraction_units_two_step_below_0": float(np.mean(steps["two_step"] < 0)),
-            "wilcoxon_p_two_step_against_0": float(wilcoxon(steps["two_step"]).pvalue),
-            "units_outside_the_axis_limits_of_panel_e": int(
-                np.sum(
-                    (np.abs(steps["joint"]) > limits[1])
-                    | (np.abs(steps["two_step"]) > limits[1])
-                )
-            ),
-        },
-        "median_center_exit_ms_from_first_flash": rates["median_exit_ms"],
-    }
+    stats = {s: data["stats"] for s, data in zip(SESSIONS, sessions, strict=True)}
     output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
-    least = json.loads(stillness_path.with_suffix(".json").read_text())[
-        "least_motion_group"
-    ]
-    two = stats["two_step"]
-    flashes = json.loads(matched_path.with_suffix(".json").read_text())
-    by_energy = flashes["after exit, lower against upper half of motion energy"][
-        "response, second / first group"
-    ]
-    relation = flashes["fixation level against unique dD2, flash (Spearman)"]
+    first, other = sessions[0]["subject"], sessions[1]["subject"]
+    st = lambda data: data["stats"]  # noqa: E731
+    paired_text = " ".join(
+        f"{d['subject']}: median Δ log rate {st(d)['median_delta_log_rate_hold']:.2f}"
+        f" in fixation (below zero in {st(d)['fraction_units_hold_below_0']:.0%} of"
+        f" the units) and {st(d)['median_delta_log_rate_after_exit']:+.2f} after the"
+        f" withdrawal; higher after the withdrawal in"
+        f" {st(d)['units_higher_after_exit']} of {st(d)['units']} units (two-sided"
+        f" Wilcoxon signed-rank test, p = {st(d)['wilcoxon_p']:.1g})."
+        for d in sessions
+    )
+    two_text = " ".join(
+        f"{d['subject']}: median {st(d)['two_step']['median_delta_log_rate_joint']:.2f}"
+        f" and {st(d)['two_step']['median_delta_log_rate_two_step']:.2f}; with the"
+        f" kernel fit last, the level is below zero in"
+        f" {st(d)['two_step']['fraction_units_two_step_below_0']:.0%} of the units"
+        f" (p = {st(d)['two_step']['wilcoxon_p_two_step_against_0']:.1g})."
+        for d in sessions
+    )
+    stillness_text = (
+        "At the same low motion energy, the rate in the center port against the"
+        " rate at a side port is "
+        + "; ".join(
+            f"{_direction(d['least']['wilcoxon_p'], d['least']['median_center_over_side'])}"
+            f" in {d['subject']} (median ratio"
+            f" {d['least']['median_center_over_side']:.2f}, lower in"
+            f" {d['least']['fraction_units_lower_in_center_port']:.0%} of the units,"
+            f" p = {d['least']['wilcoxon_p']:.2g})"
+            for d in sessions
+        )
+        + "."
+    )
+    energy_text = (
+        "The response after the withdrawal, more over less motion energy: "
+        + "; ".join(
+            f"{d['by_energy']['median_ratio']:.2f} in {d['subject']} (p ="
+            f" {d['by_energy']['wilcoxon_p']:.2g})"
+            for d in sessions
+        )
+        + "."
+    )
+    relation_text = (
+        "Spearman correlation: "
+        + "; ".join(
+            f"ρ = {d['relation']['rho']:.2f}, p = {d['relation']['p']:.2g} in"
+            f" {d['subject']}"
+            for d in sessions
+        )
+        + "."
+    )
+
+    def outside(key: str) -> str:
+        return (
+            _pair(sessions, lambda d: str(_find(st(d), key)))
+            + " units are outside the axis limits and are in the tests."
+        )
+
     output.with_name("hold_effect_caption.md").write_text(
         CAPTION.format(
-            energy_ratio=by_energy["median_ratio"],
-            energy_p=by_energy["wilcoxon_p"],
-            rho=relation["rho"],
-            rho_p=relation["p"],
-            outside_h=int(
-                np.sum(
-                    (matched["fixation_level"] < limits[0])
-                    | (matched["fixation_level"] > limits[1])
-                )
+            units=_pair(sessions, lambda d: f"{st(d)['units']} units"),
+            subject=first,
+            other=other,
+            before=_pair(sessions, lambda d: f"{st(d)['rate_before_first_flash']:.2f}"),
+            late=_pair(sessions, lambda d: f"{st(d)['rate_last_200_ms_of_hold']:.2f}"),
+            after_rate=_pair(
+                sessions, lambda d: f"{st(d)['rate_100_to_400_ms_after_exit']:.2f}"
             ),
-            units=stats["units"],
-            before=stats["rate_before_first_flash"],
-            late=stats["rate_last_200_ms_of_hold"],
-            after_rate=stats["rate_100_to_400_ms_after_exit"],
             lo=LEVEL_MS[0],
             hi=LEVEL_MS[1],
-            hold=stats["median_delta_log_rate_hold"],
-            hold_below=stats["fraction_units_hold_below_0"],
-            after=stats["median_delta_log_rate_after_exit"],
-            higher=stats["units_higher_after_exit"],
-            p=stats["wilcoxon_p"],
-            outside_d=outside,
-            joint=two["median_delta_log_rate_joint"],
-            two_step=two["median_delta_log_rate_two_step"],
-            two_below=two["fraction_units_two_step_below_0"],
-            p_two=two["wilcoxon_p_two_step_against_0"],
-            outside_e=two["units_outside_the_axis_limits_of_panel_e"],
-            still_ratio=least["median_center_over_side"],
-            still_fraction=least["fraction_units_lower_in_center_port"],
-            still_p=least["wilcoxon_p"],
+            paired=paired_text,
+            outside_d=outside("units_outside_the_axis_limits_of_panel_d"),
+            two_step=two_text,
+            outside_e=outside("units_outside_the_axis_limits_of_panel_e"),
+            stillness=stillness_text,
+            energy=energy_text,
+            relation=relation_text,
+            outside_h=outside("units_outside_the_axis_limits_of_panel_h"),
         )
     )
     print(json.dumps(stats, indent=1))
     print(output)
+
+
+def _find(stats: dict, key: str):
+    """Return a value of the session statistics, also from the two-step block."""
+    return stats[key] if key in stats else stats["two_step"][key]
 
 
 if __name__ == "__main__":
