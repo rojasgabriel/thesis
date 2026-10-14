@@ -4,13 +4,17 @@ Question: why does each term of the design have its parameterization (the
 number of gap classes, the length of the flash kernels, the fixation term,
 the window of the withdrawal kernel, the number of motion-energy PCs, the
 session drift), and are the regressors of the resulting design collinear?
-This script makes no fit. It draws the results of the six design grids and
-of `collinearity.py`, and writes the caption next to the figure.
+This script makes no fit. It draws the results of the six design grids, of
+`collinearity.py`, and of `parameter_recovery.py`, and writes the caption next
+to the figure.
 
 The work has two steps. Step 1 (panels a to f): the parameterization of each
-term is chosen by prediction. Step 2 (panels g to i): the collinearity of
-the regressors of the resulting design is measured, because the weights can
-be read only when the regressors are not collinear.
+term is chosen by prediction, on GRB006 (`--root`). Step 2 (panels g to k):
+the collinearity of the regressors of the resulting design (g to i) and the
+parameter recovery of each regressor (j and k), because the weights can be
+read only when the model gives them back. Step 2 is shown in GRB006 and in
+GRB064 (the other session of `SESSIONS`), which took no part in step 1; the
+units of the two animals are not pooled.
 
 Comparison in step 1: each grid scores the design in use and the same design
 with one term in another parameterization, on the same units. A panel shows,
@@ -40,13 +44,21 @@ is drawn at the limit; it is in the statistics, and the count is in
 `design_optimization_stats.json`.
 
 - Panels g to i (`collinearity.py`): the collinearity of the design in use,
-  for the design of each unit of the session. g, the generalized variance
-  inflation factor of each regressor (points are units; the line is the
-  median; dashed lines at 5 and 10). h, the condition indices of each unit,
-  sorted (dashed lines at 10 and 30). i, the first canonical correlation of
-  each pair of regressors (lower triangle); for a pair with spike history,
-  the median over units. It shows which regressors share a direction; it has
-  no published limit.
+  for the design of each unit. g, the generalized variance inflation factor
+  of each regressor (points are units, GRB006 on the left and GRB064 on the
+  right of each regressor; the line is the median; dashed lines at 5 and 10).
+  h, the condition indices of each unit, sorted (dashed lines at 10 and 30).
+  i, the first canonical correlation of each pair of regressors (lower
+  triangle GRB006, upper triangle GRB064); for a pair with spike history, the
+  median over units. It shows which regressors share a direction; it has no
+  published limit.
+- Panels j and k (`parameter_recovery.py`): the recovery of each regressor
+  of the design in use. Spikes are simulated from the final refit of each
+  unit, the model is fit to them, and each recovered kernel is compared with
+  the true one. j, the agreement, 1 - |a - b|² / (|a|² + |b|²) (1 for equal
+  kernels); k, the size of the recovered kernel over the true size (1 is the
+  true size). Points are units, as in g; the line is the median. A point
+  outside `RECOVERY_LIMITS` is drawn at the limit; it is in the statistics.
 
 Rule for the parameterization of a term: another parameterization replaces
 the one in use when it predicts reliably better on these units. Published
@@ -56,7 +68,8 @@ and Welsch 1980).
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization
 
-Run the four grids first; this script stops if a result file is missing.
+Run the six grids, `collinearity`, and `parameter_recovery` first; this
+script stops if a result file is missing.
 """
 
 from __future__ import annotations
@@ -85,6 +98,7 @@ from thesis.ephys.analyses.glm.collinearity import (
     INDEX_LIMITS,
     VIF_LIMITS,
 )
+from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
 from thesis.ephys.analyses.glm.main_figure import (
     DRIFT_COLOR,
     MOTION,
@@ -138,6 +152,8 @@ LABELS = {
     "penalty\n÷ 100": "weaker\npenalty",
 }
 DISPLAY_LIMIT = 0.006
+# Axis limits of the recovery panels; a unit outside them is drawn at the limit.
+RECOVERY_LIMITS = {"agreement": (-0.5, 1.05), "size": (0, 2)}
 CAPTION = """\
 **Design optimization.** **a–f, The parameterization of each term**, chosen
 by prediction. Each panel compares the design in use with the same design
@@ -151,19 +167,33 @@ One kernel for all flashes is worse than the two gap classes in use; more
 classes are not better. **b**, Length of the flash kernels. Longer kernels are
 not better than 150 ms. **c**, Parameterization of the fixation term. No term and a step
 are worse than the kernel in use. **d**, Withdrawal kernel. No kernel is worse.
-A kernel from 300 ms before to 300 ms after the exit predicts better. **e**,
+A kernel from 300 ms before to 300 ms after the exit predicts better, but with
+it the fitted fixation level is recovered at {level_under_test} of its true size,
+against {level_in_use} with the kernel in use (median unit, {subject} and
+{held_out}; parameter recovery as in j and k), so the design keeps the kernel of
+0 to 100 ms. **e**,
 Number of motion-energy PCs. {pc_sentence} **f**, Session drift. No drift is
 worse; more functions are not better. The importance of each regressor is
 tested on all units (main figure). **g–i, Collinearity of the design in use**, for the design of
-each unit. **g**, The generalized variance inflation factor of each regressor,
+each unit, in {subject} (the animal of the choices in a to f) and in {held_out}
+(an animal that took no part in them). **g**, The generalized variance inflation factor of each regressor,
 as GVIF^(1/p) (points are units; the line is the median); the dashed lines
-are the usual limits of 5 and 10. The largest value is {gvif:.2f}. **h**, The
-condition indices of each unit, sorted; the dashed lines are 10 and 30. The
-largest is {index:.1f}. **i**, The first canonical correlation of each pair
+are the usual limits of 5 and 10. The largest value in either animal is
+{gvif:.2f}. **h**, The condition indices of each unit, sorted; the dashed lines
+are 10 and 30. The largest is {index:.1f}. **i**, The first canonical correlation of each pair
 of regressors: the largest correlation of a weighted sum of the columns of
 one with a weighted sum of the columns of the other (0, nothing shared; 1, a
-time course that both can make). For a pair with spike history, the median
-over units.
+time course that both can make). Lower triangle: {subject}; upper triangle:
+{held_out}. For a pair with spike history, the median over units. **j–k, Recovery of each regressor**: spikes are simulated from
+the fitted model of each unit ({simulations} simulations), the model is fit
+to them, and each recovered kernel is compared with the true one. **j**,
+Agreement, 1 − |a − b|² / (|a|² + |b|²): 1 for equal kernels, 0 for unrelated
+kernels. **k**, Size of the recovered kernel over the true size. Points are
+units (left: {subject}; right: {held_out}); the line is the median. Every
+regressor is recovered with a median agreement of {lowest_agreement:.2f} or more in both
+animals. The size of a whole kernel is near 1, but the level of the fixation
+kernel from 200 to 450 ms is recovered at {level_in_use} of its true size: the
+L2 penalty gives a part of it to the flash × move kernels (`leak_test.py`).
 """
 
 
@@ -196,15 +226,27 @@ def main() -> None:
     args = parser.parse_args()
     stats = {}
     rng = np.random.default_rng(0)
-    measures_path = args.root / "collinearity.npz"
-    if not measures_path.exists():
-        raise FileNotFoundError(f"{measures_path}: run `collinearity` first.")
-    with np.load(measures_path) as saved:
-        measures = {key: saved[key] for key in saved.files}
+    # Steps 2a and 2b: the design in use, in the animal of the choices and in the
+    # held-out animal (the other session of `SESSIONS`).
+    roots = [args.root] + [
+        args.root.parent / session for session in SESSIONS if session != args.root.name
+    ]
+    measures, recovered = [], []
+    for root in roots:
+        for name, store in (
+            ("collinearity", measures),
+            ("parameter_recovery", recovered),
+        ):
+            path = root / f"{name}.npz"
+            if not path.exists():
+                raise FileNotFoundError(f"{path}: run `{name}` first.")
+            with np.load(path) as saved:
+                store.append({key: saved[key] for key in saved.files})
+    subjects = [root.name.split("_")[0] for root in roots]
     with plt.rc_context(FIGURE_STYLE):
         # The dpi is for the rasterized points; the text and the lines are vectors.
-        figure = plt.figure(figsize=(7.4, 10.0), layout="constrained", dpi=300)
-        top, bottom = figure.subfigures(2, 1, height_ratios=(6.9, 3.1))
+        figure = plt.figure(figsize=(7.4, 12.4), layout="constrained", dpi=300)
+        top, bottom, recovery = figure.subfigures(3, 1, height_ratios=(6.9, 3.1, 2.4))
         axes = top.subplots(3, 2)
         for axis, (grid, (module, in_use, color, xlabel)) in zip(
             axes.flat, GRIDS.items()
@@ -271,40 +313,75 @@ def main() -> None:
         gvif_axis, index_axis, pair_axis = bottom.subplots(
             1, 3, width_ratios=(1.35, 0.7, 1.5)
         )
-        names = measures["regressors"].tolist()
-        order = np.argsort(-np.median(measures["gvif"], 0))
-        for position, column in enumerate(order):
-            values = measures["gvif"][:, column]
-            gvif_axis.scatter(
-                position + rng.uniform(-0.25, 0.25, len(values)),
-                values,
-                s=2.5,
-                color=REGRESSORS[names[column]][1],
-                alpha=0.5,
-                lw=0,
-                rasterized=True,
+        names = measures[0]["regressors"].tolist()
+        order = np.argsort(-np.median(measures[0]["gvif"], 0))
+
+        def by_regressor(axis, values_of, regressors, limits):
+            """Points of each unit for each regressor: one animal on each side."""
+            for side, values in zip((-0.2, 0.2), values_of):
+                for position, name in enumerate(regressors):
+                    column = values[name]
+                    axis.scatter(
+                        position + side + rng.uniform(-0.12, 0.12, len(column)),
+                        np.clip(column, *limits),
+                        s=2,
+                        color=REGRESSORS[name][1],
+                        alpha=0.55 if side < 0 else 0.25,
+                        lw=0,
+                        rasterized=True,
+                    )
+                    axis.hlines(
+                        np.median(column),
+                        position + side - 0.15,
+                        position + side + 0.15,
+                        "black",
+                        lw=1,
+                    )
+            axis.set_xticks(
+                range(len(regressors)),
+                [REGRESSORS[name][0] for name in regressors],
+                rotation=40,
+                ha="right",
+                rotation_mode="anchor",
+                fontsize=5.5,
             )
-            gvif_axis.hlines(
-                np.median(values), position - 0.35, position + 0.35, "black"
+            for tick, name in zip(axis.get_xticklabels(), regressors):
+                tick.set_color(REGRESSORS[name][1])
+            axis.set_title(
+                f"left: {subjects[0]}, right: {subjects[1]} (held out)",
+                fontsize=6,
+                loc="left",
             )
+
+        ordered = [names[column] for column in order]
+        by_regressor(
+            gvif_axis,
+            [
+                {n: m["gvif"][:, m["regressors"].tolist().index(n)] for n in ordered}
+                for m in measures
+            ],
+            ordered,
+            (0.9, 12),
+        )
         for value in VIF_LIMITS:
             gvif_axis.axhline(value, color=REFERENCE_COLOR, ls="--", lw=0.8)
         gvif_axis.set_yscale("log")
         gvif_axis.set_ylim(0.9, 12)
         gvif_axis.set_yticks([1, 2, 5, 10], ["1", "2", "5", "10"])
-        gvif_axis.set_xticks(
-            range(len(names)),
-            [REGRESSORS[names[column]][0] for column in order],
-            rotation=40,
-            ha="right",
-            rotation_mode="anchor",
-            fontsize=5.5,
-        )
-        for tick, column in zip(gvif_axis.get_xticklabels(), order):
-            tick.set_color(REGRESSORS[names[column]][1])
         gvif_axis.set_ylabel("variance inflation,\n" + r"GVIF$^{1/p}$")
-        for unit in measures["condition_indices"]:
-            index_axis.plot(unit, color="0.3", alpha=0.15, lw=0.5, rasterized=True)
+        for m, shade, subject in zip(measures, ("0.15", "0.6"), subjects):
+            for unit in m["condition_indices"]:
+                index_axis.plot(unit, color=shade, alpha=0.15, lw=0.5, rasterized=True)
+            index_axis.text(
+                0.97,
+                0.97 - 0.09 * (shade != "0.15"),
+                subject,
+                color=shade,
+                transform=index_axis.transAxes,
+                ha="right",
+                va="top",
+                fontsize=6,
+            )
         for value in INDEX_LIMITS:
             index_axis.axhline(value, color=REFERENCE_COLOR, ls="--", lw=0.8)
         index_axis.set_yscale("log")
@@ -312,10 +389,16 @@ def main() -> None:
         index_axis.set_yticks([1, 3, 10, 30], ["1", "3", "10", "30"])
         index_axis.set_xlabel("dimension of the\ndesign, sorted")
         index_axis.set_ylabel("condition index")
-        # The matrix is symmetric: only the lower triangle is drawn.
-        pairs = np.where(
-            np.tri(len(names), k=-1, dtype=bool), measures["shared_directions"], np.nan
-        )[1:, :-1]
+        # One animal in each triangle of the matrix of shared directions.
+        lower = measures[0]["shared_directions"]
+        upper = measures[1]["shared_directions"][
+            np.ix_(
+                [measures[1]["regressors"].tolist().index(n) for n in names],
+                [measures[1]["regressors"].tolist().index(n) for n in names],
+            )
+        ]
+        below = np.tri(len(names), k=-1, dtype=bool)
+        pairs = np.where(below, lower, np.where(below.T, upper, np.nan))
         pair_axis.imshow(pairs, cmap="Greys", vmin=0, vmax=1)
         for (row, column), value in np.ndenumerate(pairs):
             if np.isfinite(value):
@@ -325,38 +408,82 @@ def main() -> None:
                     f"{value:.2f}"[1:],
                     ha="center",
                     va="center",
-                    fontsize=4.3,
+                    fontsize=3.8,
                     color="white" if value > 0.55 else "black",
                 )
         labels = [REGRESSORS[name][0] for name in names]
         pair_axis.set_xticks(
-            range(len(labels) - 1),
-            labels[:-1],
+            range(len(labels)),
+            labels,
             rotation=40,
             ha="right",
             rotation_mode="anchor",
             fontsize=5.5,
         )
-        pair_axis.set_yticks(range(len(labels) - 1), labels[1:], fontsize=5.5)
-        for ticks, shown in (
-            (pair_axis.get_xticklabels(), names[:-1]),
-            (pair_axis.get_yticklabels(), names[1:]),
-        ):
-            for tick, name in zip(ticks, shown):
+        pair_axis.set_yticks(range(len(labels)), labels, fontsize=5.5)
+        for ticks in (pair_axis.get_xticklabels(), pair_axis.get_yticklabels()):
+            for tick, name in zip(ticks, names):
                 tick.set_color(REGRESSORS[name][1])
         pair_axis.spines[["left", "bottom"]].set_visible(False)
         pair_axis.tick_params(length=0)
+        pair_axis.set_title(
+            f"lower: {subjects[0]}, upper: {subjects[1]}", fontsize=6, loc="left"
+        )
         stats["collinearity"] = {
-            "largest_gvif_per_column": float(measures["gvif"].max()),
-            "largest_condition_index": float(measures["condition_indices"].max()),
-            "units_outside_the_gvif_axis_limits": int(
-                np.sum((measures["gvif"] > 12).any(1))
+            subject: {
+                "largest_gvif_per_column": float(m["gvif"].max()),
+                "largest_condition_index": float(m["condition_indices"].max()),
+                "units_outside_the_gvif_axis_limits": int(
+                    np.sum((m["gvif"] > 12).any(1))
+                ),
+            }
+            for subject, m in zip(subjects, measures)
+        }
+        agreement_axis, size_axis = recovery.subplots(1, 2)
+        kernels = recovered[0]["regressors"].tolist()
+        for axis, key, ylabel in (
+            (
+                agreement_axis,
+                "agreement",
+                "agreement of the recovered\nand the true kernel",
             ),
+            (size_axis, "size", "size of the recovered kernel\nover the true size"),
+        ):
+            by_regressor(
+                axis,
+                [
+                    {n: r[key][:, r["regressors"].tolist().index(n)] for n in kernels}
+                    for r in recovered
+                ],
+                kernels,
+                RECOVERY_LIMITS[key],
+            )
+            axis.axhline(1, color=REFERENCE_COLOR, ls="--", lw=0.8)
+            axis.set_ylim(*RECOVERY_LIMITS[key])
+            axis.set_ylabel(ylabel)
+        stats["recovery"] = {
+            subject: {
+                name: {
+                    "median_agreement": float(np.median(r["agreement"][:, i])),
+                    "median_size": float(np.median(r["size"][:, i])),
+                    "units_outside_the_axis_limits": int(
+                        np.sum(
+                            (r["agreement"][:, i] < RECOVERY_LIMITS["agreement"][0])
+                            | (r["size"][:, i] > RECOVERY_LIMITS["size"][1])
+                        )
+                    ),
+                }
+                for i, name in enumerate(r["regressors"].tolist())
+            }
+            for subject, r in zip(subjects, recovered)
         }
         label_panels(axes.flat, x=-0.2, y=1.04)
+        label_panels([None] * 9 + [agreement_axis, size_axis], x=-0.12, y=1.04)
         label_panels([None] * 6 + [gvif_axis, index_axis, pair_axis], x=-0.3, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
     first = stats[next(iter(GRIDS))]
+    # The test of the withdrawal kernel of ±300 ms, from `parameter_recovery`.
+    recovery = json.loads((args.root.parent / "parameter_recovery.json").read_text())
     (args.root / "design_optimization_stats.json").write_text(
         json.dumps(stats, indent=1)
     )
@@ -365,8 +492,28 @@ def main() -> None:
             units=first["units"],
             sets=first["units"] // 20,
             pc_sentence=_pc_sentence(stats["pc_grid"]),
-            gvif=stats["collinearity"]["largest_gvif_per_column"],
-            index=stats["collinearity"]["largest_condition_index"],
+            gvif=max(
+                v["largest_gvif_per_column"] for v in stats["collinearity"].values()
+            ),
+            simulations=recovery[SESSIONS[0]]["simulations"],
+            level_in_use=" and ".join(
+                f"{recovery[s]['fixation level, recovered over true (median)']['in_use']:.2f}"
+                for s in SESSIONS
+            ),
+            level_under_test=" and ".join(
+                f"{recovery[s]['fixation level, recovered over true (median)']['under_test']:.2f}"
+                for s in SESSIONS
+            ),
+            lowest_agreement=min(
+                v["median_agreement"]
+                for animal in stats["recovery"].values()
+                for v in animal.values()
+            ),
+            subject=subjects[0],
+            held_out=subjects[1],
+            index=max(
+                v["largest_condition_index"] for v in stats["collinearity"].values()
+            ),
         )
     )
     print(json.dumps(stats, indent=1))

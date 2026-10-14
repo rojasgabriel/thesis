@@ -120,13 +120,56 @@ def measures(result: dict, history_scale: np.ndarray) -> np.ndarray:
     return np.asarray(out)
 
 
-def _unit(job: dict) -> dict:
-    """Simulate one unit with no flash × move effect and fit the full model."""
+def simulate(
+    record: dict,
+    coefficients: np.ndarray,
+    mean: np.ndarray,
+    scale: np.ndarray,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Simulate the spikes of one unit from a set of weights of its model.
+
+    `coefficients` are weights for the design of the fit (`_SHARED["common"]`
+    and the spike history); `mean` and `scale` are those of the history
+    columns of the real spikes. The rate of a bin uses the history of the
+    simulated spikes in the window of the trial, and is limited to
+    `MAX_COUNT`. Returns the counts (trial × bin), the scaled history columns
+    of the simulated spikes, and their scale.
+    """
     prepared, valid, common, metadata = (
         _SHARED[key] for key in ("prepared", "valid", "common", "metadata")
     )
     alignments, centers = prepared["alignments"], prepared["relative_centers"]
     grid = (len(alignments), len(centers))
+    width = int(metadata["base_columns"]) + int(record["components"])
+    drive = (
+        float(record["intercept"])
+        + np.asarray(common[:, :width]) @ coefficients[:width]
+    ).reshape(grid)
+    # The history of a bin: the basis at the lags of 1 to 100 bins before it.
+    basis = dmat.spike_history_basis().basis
+    weights = coefficients[width:] / scale
+    offset = -(mean / scale) @ coefficients[width:]
+    counts = np.zeros(grid, dtype=int)
+    for t in range(grid[1]):
+        past = counts[:, max(0, t - len(basis)) : t][:, ::-1]
+        history = (past @ basis[: past.shape[1]]) @ weights + offset
+        rate = np.minimum(np.exp(drive[:, t] + history), MAX_COUNT)
+        counts[:, t] = rng.poisson(rate)
+    bin_times = alignments[:, None] + centers[None, :]
+    spikes = np.sort(np.repeat(bin_times.ravel(), counts.ravel()))
+    scaled, _, simulated_scale = dmat.training_zscore(
+        dmat.build_unit_history(alignments, spikes), valid
+    )
+    return counts, scaled, simulated_scale
+
+
+def _unit(job: dict) -> dict:
+    """Simulate one unit with no flash × move effect and fit the full model."""
+    prepared, valid, common, metadata = (
+        _SHARED[key] for key in ("prepared", "valid", "common", "metadata")
+    )
+    alignments = prepared["alignments"]
     record = job["record"]
     width = int(metadata["base_columns"]) + int(record["components"])
     coefficients = np.asarray(record["coefficients"], dtype=float)
@@ -137,26 +180,10 @@ def _unit(job: dict) -> dict:
     groups = block_slices(metadata, int(record["components"]))
     for name in REMOVED:
         null[groups[name]] = 0
-    drive = (
-        float(record["intercept"]) + np.asarray(common[:, :width]) @ null[:width]
-    ).reshape(grid)
-    # The history of a bin: the basis at the lags of 1 to 100 bins before it.
-    basis = dmat.spike_history_basis().basis
-    weights = null[width:] / scale
-    offset = -(mean / scale) @ null[width:]
-    bin_times = alignments[:, None] + centers[None, :]
     rng = np.random.default_rng(SEED + job["unit_id"])
     fits = []
     for _ in range(SIMULATIONS):
-        counts = np.zeros(grid, dtype=int)
-        for t in range(grid[1]):
-            past = counts[:, max(0, t - len(basis)) : t][:, ::-1]
-            history = (past @ basis[: past.shape[1]]) @ weights + offset
-            rate = np.minimum(np.exp(drive[:, t] + history), MAX_COUNT)
-            counts[:, t] = rng.poisson(rate)
-        spikes = np.sort(np.repeat(bin_times.ravel(), counts.ravel()))
-        simulated = dmat.build_unit_history(alignments, spikes)
-        scaled, _, simulated_scale = dmat.training_zscore(simulated, valid)
+        counts, scaled, simulated_scale = simulate(record, null, mean, scale, rng)
         design = dmat._design_with_history(common, scaled, width, valid)
         model = fit_poisson_at_alpha(design, counts.ravel()[valid], job["alpha"])
         result = {"components": record["components"], "coefficients": model.coef_}
