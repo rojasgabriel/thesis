@@ -70,10 +70,12 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
+    PEAK_AXIS_LIMITS,
     REFERENCE_COLOR,
     hierarchical_interval,
     label_panels,
     median_interval,
+    peak_axes,
     pooled_points,
     pooled_strip,
     save_figure,
@@ -82,7 +84,7 @@ from thesis.plotting import (
 INTERACTION = (dmat.FLASH_AFTER_EXIT, dmat.FLASH_MOVE_GAP)
 RATES = ("observed", "model", "model, no flash × move")
 COLORS = (OBSERVED_COLOR, MODEL_COLOR, "0.55")
-PEAK_LIMITS = (-15, 110)
+PEAK_LIMITS = PEAK_AXIS_LIMITS
 CHANGE_LIMITS = (-25, 95)
 
 
@@ -178,13 +180,12 @@ def main() -> None:
         for axis, k in zip(axes[:2], range(2), strict=True):
             pooled_points(
                 axis,
-                [np.clip(d["peaks"][:, k, 0], *PEAK_LIMITS) for d in sessions],
-                [np.clip(d["peaks"][:, k, 1], *PEAK_LIMITS) for d in sessions],
+                [np.clip(d["peaks"][:, k, 0], *PEAK_AXIS_LIMITS) for d in sessions],
+                [np.clip(d["peaks"][:, k, 1], *PEAK_AXIS_LIMITS) for d in sessions],
                 subjects,
                 COLORS[k],
             )
-            axis.plot(PEAK_LIMITS, PEAK_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
-            axis.set(xlim=PEAK_LIMITS, ylim=PEAK_LIMITS, aspect="equal")
+            peak_axes(axis)
             axis.set_xlabel(f"{RATES[k]} peak, still\n(spikes/s)")
             axis.set_ylabel(f"{RATES[k]} peak, move (spikes/s)")
         change_axis = axes[2]

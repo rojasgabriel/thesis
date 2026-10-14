@@ -42,6 +42,26 @@ def median_interval(values, seed: int = 0) -> tuple[float, float, float]:
     return float(np.median(values)), float(low), float(high)
 
 
+# Axis of a peak rate (spikes/s): log above 1, linear from -1 to 1, so that a
+# peak at or below 0 (a baseline-corrected peak can be) is still drawn.
+PEAK_AXIS_LIMITS = (-10, 200)
+PEAK_AXIS_TICKS = (-10, -1, 0, 1, 10, 100)
+
+
+def peak_axes(axis) -> None:
+    """Give a peak-against-peak scatter the same symmetric-log axes and the identity line."""
+    for name in ("x", "y"):
+        getattr(axis, f"set_{name}scale")("symlog", linthresh=1, linscale=0.5)
+        getattr(axis, f"set_{name}lim")(*PEAK_AXIS_LIMITS)
+        getattr(axis, f"set_{name}ticks")(
+            PEAK_AXIS_TICKS, [f"{tick:g}" for tick in PEAK_AXIS_TICKS]
+        )
+    axis.plot(
+        PEAK_AXIS_LIMITS, PEAK_AXIS_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--"
+    )
+    axis.set_aspect("equal")
+
+
 def hierarchical_interval(groups, seed: int = 0) -> dict:
     """Return the pooled median with a hierarchical-bootstrap 95% interval and p.
 
@@ -90,17 +110,29 @@ def pooled_points(axis, xs, ys, subjects, color, seed: int = 0) -> None:
         lw=0,
         zorder=2,
     )
-    for x, y, subject in zip(xs, ys, subjects, strict=True):
+    # The label of the higher median goes up and the lower one down.
+    rank = np.argsort(np.argsort([np.median(y) for y in ys]))
+    for k, (x, y, subject) in enumerate(zip(xs, ys, subjects, strict=True)):
         mx, my = np.median(x), np.median(y)
         axis.scatter(mx, my, s=22, facecolor="white", edgecolor=color, lw=1, zorder=3)
+        # One line for each mouse, so that close medians keep legible names.
         axis.annotate(
             subject,
             (mx, my),
-            xytext=(4, 3),
+            xytext=(12, 9 if rank[k] == len(ys) - 1 else -13),
             textcoords="offset points",
             color=color,
             fontsize=5.5,
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
         )
+    axis.text(
+        0.03,
+        0.97,
+        f"{sum(len(x) for x in xs)} units, {len(xs)} mice",
+        transform=axis.transAxes,
+        va="top",
+        fontsize=6,
+    )
     fx, fy = hierarchical_interval(xs, seed), hierarchical_interval(ys, seed)
     axis.errorbar(
         fx["median"],
@@ -141,7 +173,11 @@ def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) 
         zorder=2,
     )
     stats = hierarchical_interval(groups, seed)
-    for median, subject in zip(stats["median_of_each_mouse"], subjects, strict=True):
+    medians = stats["median_of_each_mouse"]
+    # The label of the higher median goes up and the lower one down, so that
+    # close medians keep legible names.
+    rank = np.argsort(np.argsort(medians))
+    for median, subject, place in zip(medians, subjects, rank, strict=True):
         axis.scatter(
             position + 0.25,
             median,
@@ -154,10 +190,11 @@ def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) 
         axis.annotate(
             subject,
             (position + 0.25, median),
-            xytext=(4, -2),
+            xytext=(8, 7 if place == len(medians) - 1 else -9),
             textcoords="offset points",
             color=color,
             fontsize=5.5,
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
         )
     low, high = stats["interval_95"]
     axis.errorbar(

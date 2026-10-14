@@ -63,13 +63,15 @@ from thesis.ephys.analyses.glm import cli, dmat, peaks
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.results import flash_kernel_at, flash_kernel_levels
 from thesis.plotting import (
-    ANIMAL_MARKERS,
     FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
+    PEAK_AXIS_LIMITS,
     REFERENCE_COLOR,
-    animal_points,
-    median_interval,
+    hierarchical_interval,
+    peak_axes,
+    pooled_points,
+    pooled_strip,
     save_figure,
 )
 
@@ -113,7 +115,7 @@ OTHER_COLOR = "0.7"
 # The matched peak (`peaks.py`): the observed rate and the model rate.
 RATES = ("observed", "model")
 RATE_COLORS = (OBSERVED_COLOR, MODEL_COLOR)
-PEAK_LIMITS = (-10, 40)
+PEAK_LIMITS = PEAK_AXIS_LIMITS
 
 
 def _paired(first: np.ndarray, second: np.ndarray) -> dict:
@@ -259,46 +261,32 @@ def gap_flashes(trials) -> list[tuple[np.ndarray, np.ndarray]]:
     return [(rows[~short], times[~short]), (rows[short], times[short])]
 
 
-def draw_curves(axes, sessions: list[dict]) -> None:
-    """Draw the median kernel of each kind of unit, by gap, for both mice."""
+def draw_curves(axes, pooled: dict) -> None:
+    """Draw the median kernel of each kind of unit, by gap, over the pooled units."""
     index = {name: position for position, name in enumerate(CONDITIONS)}
+    fixation_mean = _mean_of(pooled["response"], FIXATION)
     for axis, (kind, sign) in zip(
         axes, (("fire more", 1), ("fire less", -1)), strict=True
     ):
         color = KIND_COLORS[kind]
-        for data, style in zip(sessions, ("-", "--"), strict=True):
-            fixation_mean = _mean_of(data["response"], FIXATION)
-            members = sign * fixation_mean > KIND_LIMIT
-            for name, shade in zip(FIXATION, (0.45, 1.0), strict=True):
-                axis.plot(
-                    data["lags"],
-                    np.median(data["kernel"][members, index[name]], 0),
-                    color=color,
-                    alpha=shade,
-                    ls=style,
-                )
+        members = sign * fixation_mean > KIND_LIMIT
+        for name, shade in zip(FIXATION, (0.45, 1.0), strict=True):
+            axis.plot(
+                pooled["lags"],
+                np.median(pooled["kernel"][members, index[name]], 0),
+                color=color,
+                alpha=shade,
+            )
         axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         axis.set_xlabel("time from flash (ms)")
-        counts = ", ".join(
-            f"{int((sign * _mean_of(d['response'], FIXATION) > KIND_LIMIT).sum())}"
-            f" {d['subject']}"
-            for d in sessions
-        )
         axis.set_title(
-            f"{kind} after a flash ({counts} units)",
+            f"{kind} after a flash ({int(members.sum())} units)",
             color=color,
             fontsize=6.5,
             loc="left",
         )
     axes[0].set_ylabel(r"median flash kernel" + "\n" + r"($\Delta$ log rate)")
-    for row, (text, shade) in enumerate(
-        (
-            ("40 ms gap", 0.45),
-            ("80+ ms gap", 1.0),
-            (f"{sessions[0]['subject']} solid,", 1.0),
-            (f"{sessions[1]['subject']} dashed", 1.0),
-        )
-    ):
+    for row, (text, shade) in enumerate((("40 ms gap", 0.45), ("80+ ms gap", 1.0))):
         axes[0].text(
             0.03,
             0.96 - 0.1 * row,
@@ -342,11 +330,7 @@ def draw_maps(figure, slot, data: dict, first: bool) -> list:
         if position:
             axis.tick_params(labelleft=False)
         else:
-            axis.set_ylabel(
-                f"{data['subject']}: unit, sorted by\nits mean response when still"
-                if first
-                else f"{data['subject']}: unit"
-            )
+            axis.set_ylabel("unit, sorted by its\nmean response when still")
         axes.append(axis)
     return axes
 
@@ -385,82 +369,66 @@ def main() -> None:
                 ),
             },
         }
+    stats["pooled, hierarchical bootstrap: 40 ms minus 80+ ms gap (spikes/s)"] = {
+        rate: hierarchical_interval(
+            [g["peaks"][:, k, 1] - g["peaks"][:, k, 0] for g in matched]
+        )
+        for k, rate in enumerate(RATES)
+    }
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 8.4))
         outer = figure.add_gridspec(3, 1, height_ratios=(0.9, 1.6, 1.05), hspace=0.55)
+        pooled = {
+            "lags": sessions[0]["lags"],
+            "kernel": np.concatenate([d["kernel"] for d in sessions]),
+            "response": np.concatenate([d["response"] for d in sessions]),
+        }
         curve_axes = outer[0].subgridspec(1, 2, wspace=0.25).subplots(sharey=True)
-        draw_curves(curve_axes, sessions)
-        halves = outer[1].subgridspec(1, 2, wspace=0.2)
-        map_groups = [
-            draw_maps(figure, halves[k], data, first=k == 0)
-            for k, data in enumerate(sessions)
-        ]
+        draw_curves(curve_axes, pooled)
+        map_axes = draw_maps(figure, outer[1], pooled, first=True)
         bar = figure.colorbar(
-            map_groups[-1][0].images[0],
-            ax=[axis for group in map_groups for axis in group],
-            fraction=0.015,
-            pad=0.015,
+            map_axes[0].images[0], ax=map_axes, fraction=0.015, pad=0.015
         )
         bar.set_label(r"flash kernel ($\Delta$ log rate)")
-        peak_axes = (
+        gap_axes = (
             outer[2].subgridspec(1, 3, wspace=0.55, width_ratios=(1, 1, 1.1)).subplots()
         )
-        for axis, k in zip(peak_axes[:2], range(2), strict=True):
-            for gap in matched:
-                values = np.clip(gap["peaks"][:, k], *PEAK_LIMITS)
-                animal_points(
-                    axis, values[:, 0], values[:, 1], gap["subject"], RATE_COLORS[k]
-                )
-            axis.plot(PEAK_LIMITS, PEAK_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
-            axis.set(xlim=PEAK_LIMITS, ylim=PEAK_LIMITS, aspect="equal")
+        subjects = [gap["subject"] for gap in matched]
+        for axis, k in zip(gap_axes[:2], range(2), strict=True):
+            pooled_points(
+                axis,
+                [np.clip(g["peaks"][:, k, 0], *PEAK_AXIS_LIMITS) for g in matched],
+                [np.clip(g["peaks"][:, k, 1], *PEAK_AXIS_LIMITS) for g in matched],
+                subjects,
+                RATE_COLORS[k],
+            )
+            peak_axes(axis)
             axis.set_xlabel(f"{RATES[k]} peak, 80+ ms gap\n(spikes/s)")
             axis.set_ylabel(f"{RATES[k]} peak,\n40 ms gap (spikes/s)")
-        change_axis = peak_axes[2]
-        rng = np.random.default_rng(0)
-        for gap, side in zip(matched, (-0.17, 0.17), strict=True):
-            change = gap["peaks"][:, :, 1] - gap["peaks"][:, :, 0]
-            marker = ANIMAL_MARKERS[gap["subject"]]
-            for k in range(2):
-                change_axis.scatter(
-                    k + side + rng.uniform(-0.07, 0.07, len(change)),
-                    change[:, k],
-                    s=9,
-                    marker=marker,
-                    color=RATE_COLORS[k],
-                    alpha=0.3,
-                    lw=0,
-                )
-                median, low, high = median_interval(change[:, k])
-                change_axis.errorbar(
-                    k + side,
-                    median,
-                    yerr=[[median - low], [high - median]],
-                    fmt=marker,
-                    ms=6,
-                    color=RATE_COLORS[k],
-                    mec="white",
-                    mew=0.6,
-                    capsize=2,
-                    zorder=4,
-                )
+        change_axis = gap_axes[2]
+        for k in range(2):
+            pooled_strip(
+                change_axis,
+                k,
+                [g["peaks"][:, k, 1] - g["peaks"][:, k, 0] for g in matched],
+                subjects,
+                RATE_COLORS[k],
+            )
         change_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
         change_axis.set_xticks(range(2), list(RATES))
         for tick, color in zip(change_axis.get_xticklabels(), RATE_COLORS, strict=True):
             tick.set_color(color)
-        change_axis.set_xlim(-0.6, 1.6)
+        change_axis.set_xlim(-0.5, 1.8)
         change_axis.set_ylabel("peak, 40 ms minus\n80+ ms gap (spikes/s)")
         change_axis.set_title(
-            "  ".join(
-                f"{'○' if ANIMAL_MARKERS[g['subject']] == 'o' else '△'} {g['subject']}"
-                for g in matched
-            ),
+            f"{sum(len(g['peaks']) for g in matched)} units, {len(matched)} mice",
             fontsize=6.5,
             loc="left",
         )
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        lettered = (*curve_axes, *(group[0] for group in map_groups), *peak_axes)
-        for letter, axis in zip("abcdefg", lettered, strict=True):
+        lettered = (*curve_axes, map_axes[0], *gap_axes)
+        for letter, axis in zip("abcdef", lettered, strict=True):
             box = axis.yaxis.get_tightbbox()
             edge = (
                 box.transformed(to_figure).x0 if box else axis.get_position().x0 - 0.01
