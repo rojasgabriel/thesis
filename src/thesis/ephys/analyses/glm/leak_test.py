@@ -71,6 +71,7 @@ from thesis.ephys.analyses.glm.fit import (
     load_unit_records,
 )
 from thesis.ephys.analyses.glm.flash_by_period import SESSIONS, paired_flashes
+from thesis.ephys.analyses.glm.hold_effect import LEVEL_MS as HOLD_LEVEL_MS
 from thesis.ephys.analyses.glm.results import (
     fitted_kernels,
     flash_kernel_at,
@@ -93,7 +94,8 @@ SIMULATIONS = 3
 SEED = 0
 MAX_COUNT = 0.5
 RESPONSE_MS = (40, 100)
-LEVEL_MS = (200, 450)
+# The window of the fixation level: the one of the fixation figure.
+LEVEL_MS = HOLD_LEVEL_MS
 MIN_LEVEL = 0.1
 GAPS_MS = {"80+ ms gap": 100, "40 ms gap": 40}
 REMOVED = (dmat.FLASH_AFTER_EXIT, dmat.FLASH_MOVE_GAP)

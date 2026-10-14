@@ -214,7 +214,15 @@ def _slopes(rate: np.ndarray, frames: np.ndarray) -> dict:
     }
 
 
-def plot_rates(axis, data: dict, states=(0, 1, 2)) -> None:
+def plot_rates(
+    axis,
+    data: dict,
+    states=(0, 1, 2),
+    marker: str = "o",
+    linestyle: str = "-",
+    labels: bool = True,
+    shift: float = 0.0,
+) -> None:
     """Draw rate against motion-energy group for the states in `states` (indices of `STATES`)."""
     rate = data["rate"]
     for index, (name, color) in enumerate(zip(STATES, STATE_COLORS, strict=True)):
@@ -224,16 +232,19 @@ def plot_rates(axis, data: dict, states=(0, 1, 2)) -> None:
         low, median, high = np.nanpercentile(rate[:, index, used], [25, 50, 75], axis=0)
         positions = np.flatnonzero(used)
         axis.errorbar(
-            positions + 0.06 * (index - 1),
+            positions + 0.06 * (index - 1) + shift,
             median,
             yerr=(median - low, high - median),
             color=color,
-            marker="o",
+            marker=marker,
+            linestyle=linestyle,
             markersize=3.5,
             linewidth=1.2,
             elinewidth=0.7,
             capsize=1.5,
         )
+        if not labels:
+            continue
         axis.text(  # outside the axis, so the axis ends at the data
             GROUPS - 0.7,
             median[-1] + (0.09, -0.09, 0)[(index + 2) % 3],

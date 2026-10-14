@@ -10,8 +10,8 @@ center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Each test is
 within one animal (`SESSIONS`); the units of the two animals are not pooled.
 Panel a is GRB006. In panels b to e and h, solid lines and filled points are
-GRB006, and dashed lines and open points are GRB064. Panels f and g have one
-axis for each animal.
+GRB006, and dashed lines and open points are GRB064. Panels f and g have both mice in
+one axis (circles and solid lines GRB006, triangles and dashed lines GRB064).
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
@@ -115,6 +115,7 @@ from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
+    ANIMAL_MARKERS,
     CONCEPT_COLORS,
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -650,8 +651,8 @@ def _draw_examples(figure, examples, data: dict) -> list:
     return first
 
 
-def _draw_matched(axis, data: dict, labels: bool) -> None:
-    """Draw panel g for one animal: the rate around flashes in three conditions."""
+def _draw_matched(axis, data: dict, labels: bool, style: str = "-") -> None:
+    """Draw panel g for one mouse: the rate around flashes in three conditions."""
     matched = data["matched"]
     lags = matched["lags_ms"]
     reference = matched["rate__fixation against after exit, matched gap"]
@@ -668,9 +669,9 @@ def _draw_matched(axis, data: dict, labels: bool) -> None:
     for (values, color, label), height in zip(curves, (0.14, 0.56, 0.48), strict=True):
         values = gaussian_filter1d(values[used] / scale[used, None], 3, axis=-1)
         mean, error = values.mean(0), sem(values, axis=0)
-        axis.plot(lags, mean, color=color)
+        axis.plot(lags, mean, color=color, ls=style)
         axis.fill_between(
-            lags, mean - error, mean + error, color=color, alpha=0.25, lw=0
+            lags, mean - error, mean + error, color=color, alpha=0.2, lw=0
         )
         if labels:
             axis.text(
@@ -685,7 +686,6 @@ def _draw_matched(axis, data: dict, labels: bool) -> None:
     axis.axvline(0, color=VISUAL, linewidth=0.8)
     axis.set_ylim(bottom=0)
     axis.set_xlabel("time from flash (ms)")
-    axis.set_title(data["subject"], fontsize=7, loc="left")
 
 
 def _pair(sessions, text) -> str:
@@ -731,17 +731,10 @@ def main() -> None:
             1, 2, left=0.11, right=0.97, top=0.5832, bottom=0.4635
         )
         bottom = figure.add_gridspec(
-            1, 4, left=0.11, right=0.86, top=0.385, bottom=0.25, wspace=0.9
+            1, 3, left=0.11, right=0.86, top=0.385, bottom=0.25, wspace=0.8
         )
         last = figure.add_gridspec(
-            1,
-            3,
-            left=0.11,
-            right=0.97,
-            top=0.165,
-            bottom=0.045,
-            wspace=0.6,
-            width_ratios=(1, 1, 1.1),
+            1, 2, left=0.11, right=0.97, top=0.165, bottom=0.045, wspace=0.45
         )
         panel_axes = [_draw_examples(figure, examples, sessions[0])]
         shared = None
@@ -847,7 +840,7 @@ def main() -> None:
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
         paired = figure.add_subplot(bottom[0])
         order_axis = figure.add_subplot(bottom[1])
-        relation = figure.add_subplot(last[2])
+        relation = figure.add_subplot(last[1])
         for data, face in zip(sessions, (TASK, "white"), strict=True):
             hold, after = data["kernels"][dmat.HOLD], data["kernels"][AFTER]
             paired.errorbar(
@@ -898,34 +891,38 @@ def main() -> None:
         order_axis.set_ylabel(
             r"$\Delta$ log rate in fixation," + "\nfixation kernel fit last"
         )
-        stillness_axes = []
+        # Panels f and g: both mice in one axis (`ANIMAL_MARKERS`, solid and dashed).
+        stillness_axis = figure.add_subplot(bottom[2])
         for k, data in enumerate(sessions):
-            axis = figure.add_subplot(
-                bottom[2 + k], sharey=stillness_axes[0] if k else None
+            port_vs_stillness.plot_rates(
+                stillness_axis,
+                data["stillness"],
+                states=(0, 2),
+                marker=ANIMAL_MARKERS[data["subject"]],
+                linestyle=styles[k],
+                labels=k == len(sessions) - 1,
+                shift=0.1 * (k - 0.5),
             )
-            port_vs_stillness.plot_rates(axis, data["stillness"], states=(0, 2))
-            axis.set_title(data["subject"], fontsize=7, loc="left")
-            axis.set_xlabel("motion energy\n(percentile)")
-            if k:
-                axis.set_ylabel("")
-            else:  # the state labels are drawn once, at the right of the last axis
-                for text in list(axis.texts):
-                    text.remove()
-            stillness_axes.append(axis)
-        matched_axes = []
+        stillness_axis.set_xlabel("motion energy\n(percentile)")
+        matched_axis = figure.add_subplot(last[0])
         for k, data in enumerate(sessions):
-            axis = figure.add_subplot(last[k], sharey=matched_axes[0] if k else None)
-            _draw_matched(axis, data, labels=k == 0)
-            if not k:
-                axis.set_ylabel("normalized firing rate")
-            matched_axes.append(axis)
+            _draw_matched(matched_axis, data, labels=k == 0, style=styles[k])
+        matched_axis.set_ylabel("normalized firing rate")
+        matched_axis.text(
+            0.98,
+            0.03,
+            f"{sessions[0]['subject']} solid, {sessions[1]['subject']} dashed",
+            transform=matched_axis.transAxes,
+            ha="right",
+            fontsize=6,
+        )
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         relation.set_xscale("log")
         relation.set_ylim(limits)
         relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
-        panel_axes += [paired, order_axis, stillness_axes[0], matched_axes[0], relation]
-        for axis in (*panel_axes[2:], stillness_axes[1], matched_axes[1]):
+        panel_axes += [paired, order_axis, stillness_axis, matched_axis, relation]
+        for axis in panel_axes[2:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
