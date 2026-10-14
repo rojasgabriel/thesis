@@ -45,8 +45,10 @@ gaps and between periods are paired: each unit has a value in each condition.
   flash before.
 
 Trials, alignment, and exclusions are those of `fit.py`. The sampling unit is
-the unit. The script writes `flash_by_gap.svg` and `flash_by_gap.json` in the
-session directory (`--root`). Run `flash_kernels` first.
+the unit, and each test is within one animal (`SESSIONS`); the units of the two
+animals are not pooled. Panels a and b are GRB006 and c and d are GRB064. The
+script writes `flash_by_gap.svg` and `flash_by_gap.json` (by session) in
+`--out`. Run `flash_kernels` first.
 
     uv run python -m thesis.ephys.analyses.glm.flash_by_gap
 """
@@ -71,7 +73,7 @@ from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     load_unit_records,
 )
-from thesis.ephys.analyses.glm.flash_kernels import KIND_LIMIT
+from thesis.ephys.analyses.glm.flash_kernels import KIND_LIMIT, SESSIONS
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -129,13 +131,10 @@ def _window_mean(values: np.ndarray, lags: np.ndarray, limits) -> np.ndarray:
     return values[..., (lags >= limits[0]) & (lags < limits[1])].mean(-1)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
-    parser.add_argument("--units", type=cli._unit_set, default="all")
-    args = parser.parse_args()
-    model = cli.PoissonGLM(root=args.root)
-    kernel_path = args.root / "flash_kernels.npz"
+def session_traces(root: Path, unit_set: str) -> dict:
+    """Return the mean traces of each unit of one session, and the statistics."""
+    model = cli.PoissonGLM(root=root)
+    kernel_path = root / "flash_kernels.npz"
     if not kernel_path.exists():
         raise FileNotFoundError(f"{kernel_path}: run `flash_kernels` first.")
     with np.load(kernel_path) as saved:
@@ -191,13 +190,13 @@ def main() -> None:
         stability_param_id=0,
         include_metrics=False,
     )
-    units = units.iloc[analysis_unit_indices(units, args.units)]
+    units = units.iloc[analysis_unit_indices(units, unit_set)]
     metadata = json.loads(model.design.with_suffix(".json").read_text())
     common = np.load(model.design, mmap_mode="r", allow_pickle=False)
     final = {
         int(item["unit_id"]): item
         for item in load_unit_records(
-            model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
+            model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
         )
     }
     out = {key: [] for key in ("trace", "before", "response", "kind")}
@@ -278,84 +277,105 @@ def main() -> None:
             }
         stats[kind_name] = entry
 
-    has_data = (flashes_in_bin > 0).astype(float)
+    return {
+        "subject": root.name.split("_")[0],
+        "trace": trace,
+        "kind": kind,
+        "gaps": gaps,
+        "group": group,
+        "groups": groups,
+        "group_names": group_names,
+        "trace_lags": trace_lags,
+        "has_data": (flashes_in_bin > 0).astype(float),
+        "stats": stats,
+    }
+
+
+def draw_block(figure, slot, data: dict, k: int):
+    """Draw the rows of one kind of unit in one session; return the top-left axis."""
+    trace, kind, gaps, group = data["trace"], data["kind"], data["gaps"], data["group"]
+    groups, group_names = data["groups"], data["group_names"]
+    trace_lags, has_data = data["trace_lags"], data["has_data"]
+    # The bins after the end of a row have no data, so the smoothing uses
+    # only the bins of the row. (condition, observed or model, bin)
+    mean = trace[kind == k].mean(0) * has_data[:, None, :]
+    smooth = gaussian_filter1d(mean, SMOOTH_MS, axis=-1) / np.maximum(
+        gaussian_filter1d(has_data, SMOOTH_MS, axis=-1)[:, None, :], 1e-9
+    )
+    block = slot.subgridspec(groups, len(PERIODS), hspace=0.2, wspace=0.08)
+    axes = np.empty((groups, len(PERIODS)), dtype=object)
+    for g in range(groups):
+        for p in range(len(PERIODS)):
+            axis = figure.add_subplot(block[g, p], sharex=axes[0, 0], sharey=axes[0, 0])
+            axes[g, p] = axis
+            c = p * groups + g
+            shortest = gaps[group == g].min()
+            drawn = trace_lags < shortest + LAGS_MS[1]
+            for m, color in enumerate(COLORS):
+                axis.plot(trace_lags[drawn], smooth[c, m, drawn], color=color, lw=1.0)
+            axis.axvline(0, color=VISUAL, linestyle="--", linewidth=0.8)
+            axis.axvline(shortest, color=VISUAL, linewidth=1.0)
+            if np.ptp(gaps[group == g]) > 0:  # the later flashes of the group
+                axis.axvspan(
+                    shortest, gaps[group == g].max(), color=VISUAL, alpha=0.08, lw=0
+                )
+            axis.tick_params(labelbottom=g == groups - 1, labelleft=p == 0)
+            if p == 0:
+                axis.text(
+                    0.98,
+                    0.93,
+                    f"{group_names[g]} ms gap",
+                    transform=axis.transAxes,
+                    va="top",
+                    ha="right",
+                    fontsize=6,
+                )
+            if g == 0:
+                axis.text(
+                    0.5,
+                    1.05,
+                    PERIODS[p],
+                    transform=axis.transAxes,
+                    va="bottom",
+                    ha="center",
+                    fontsize=7,
+                )
+    axes[0, 0].set_xlim(-TRACE_BEFORE_MS, trace_lags[-1] + 10)
+    axes[groups // 2, 0].set_ylabel("normalized firing rate")
+    figure.text(
+        (axes[-1, 0].get_position().x0 + axes[-1, -1].get_position().x1) / 2,
+        axes[-1, 0].get_position().y0 - 0.04,
+        "time from the flash before (ms)",
+        ha="center",
+    )
+    figure.text(
+        axes[0, 0].get_position().x0,
+        axes[0, 0].get_position().y1 + 0.028,
+        f"{data['subject']}, {KINDS[k]} ({int(np.sum(kind == k))})",
+        fontsize=7.5,
+    )
+    return axes[0, 0]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--units", type=cli._unit_set, default="all")
+    args = parser.parse_args()
+    sessions = [session_traces(args.out / session, args.units) for session in SESSIONS]
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 5.6))
-        outer = figure.add_gridspec(1, len(KINDS), wspace=0.22)
-        letter_axes = []
-        for k in range(len(KINDS)):
-            # The bins after the end of a row have no data, so the smoothing uses
-            # only the bins of the row. (condition, observed or model, bin)
-            mean = trace[kind == k].mean(0) * has_data[:, None, :]
-            smooth = gaussian_filter1d(mean, SMOOTH_MS, axis=-1) / np.maximum(
-                gaussian_filter1d(has_data, SMOOTH_MS, axis=-1)[:, None, :], 1e-9
-            )
-            block = outer[k].subgridspec(groups, len(PERIODS), hspace=0.2, wspace=0.08)
-            axes = np.empty((groups, len(PERIODS)), dtype=object)
-            for g in range(groups):
-                for p in range(len(PERIODS)):
-                    axis = figure.add_subplot(
-                        block[g, p], sharex=axes[0, 0], sharey=axes[0, 0]
-                    )
-                    axes[g, p] = axis
-                    c = p * groups + g
-                    shortest = gaps[group == g].min()
-                    drawn = trace_lags < shortest + LAGS_MS[1]
-                    for m, color in enumerate(COLORS):
-                        axis.plot(
-                            trace_lags[drawn], smooth[c, m, drawn], color=color, lw=1.0
-                        )
-                    axis.axvline(0, color=VISUAL, linestyle="--", linewidth=0.8)
-                    axis.axvline(shortest, color=VISUAL, linewidth=1.0)
-                    if np.ptp(gaps[group == g]) > 0:  # the later flashes of the group
-                        axis.axvspan(
-                            shortest,
-                            gaps[group == g].max(),
-                            color=VISUAL,
-                            alpha=0.08,
-                            lw=0,
-                        )
-                    axis.tick_params(labelbottom=g == groups - 1, labelleft=p == 0)
-                    if p == 0:
-                        axis.text(
-                            0.98,
-                            0.93,
-                            f"{group_names[g]} ms gap",
-                            transform=axis.transAxes,
-                            va="top",
-                            ha="right",
-                            fontsize=6,
-                        )
-                    if g == 0:
-                        axis.text(
-                            0.5,
-                            1.05,
-                            PERIODS[p],
-                            transform=axis.transAxes,
-                            va="bottom",
-                            ha="center",
-                            fontsize=7,
-                        )
-            axes[0, 0].set_xlim(-TRACE_BEFORE_MS, trace_lags[-1] + 10)
-            axes[groups // 2, 0].set_ylabel("normalized firing rate")
-            figure.text(
-                (axes[-1, 0].get_position().x0 + axes[-1, -1].get_position().x1) / 2,
-                axes[-1, 0].get_position().y0 - 0.075,
-                "time from the flash before (ms)",
-                ha="center",
-            )
-            figure.text(
-                axes[0, 0].get_position().x0,
-                axes[0, 0].get_position().y1 + 0.055,
-                KINDS[k],
-                fontsize=7.5,
-            )
-            letter_axes.append(axes[0, 0])
+        figure = plt.figure(figsize=(7.4, 10.6))
+        outer = figure.add_gridspec(len(SESSIONS), len(KINDS), wspace=0.22, hspace=0.32)
+        letter_axes = [
+            draw_block(figure, outer[row, k], data, k)
+            for row, data in enumerate(sessions)
+            for k in range(len(KINDS))
+        ]
         for m, (name, color) in enumerate(zip(NAMES, COLORS, strict=True)):
-            figure.text(0.84 + 0.085 * m, 0.955, name, color=color, ha="right")
+            figure.text(0.84 + 0.085 * m, 0.94, name, color=color, ha="right")
         figure.text(
             0.5,
-            0.005,
+            0.035,
             "the flash before (dashed), the flash (solid)",
             color=VISUAL,
             ha="center",
@@ -363,17 +383,20 @@ def main() -> None:
         )
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("ab", letter_axes, strict=True):
+        for letter, axis in zip("abcd", letter_axes, strict=True):
             edge = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 edge - 0.02,
-                axis.get_position().y1 + 0.05,
+                axis.get_position().y1 + 0.025,
                 letter,
                 fontweight="bold",
                 fontsize=10,
             )
-        print(save_figure(figure, args.root / "flash_by_gap"))
-    output = args.root / "flash_by_gap.json"
+        print(save_figure(figure, args.out / "flash_by_gap"))
+    stats = {
+        session: data["stats"] for session, data in zip(SESSIONS, sessions, strict=True)
+    }
+    output = args.out / "flash_by_gap.json"
     output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 

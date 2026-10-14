@@ -70,6 +70,7 @@ from thesis.ephys.analyses.glm.flash_kernels import (
     KIND_LIMIT,
     OTHER_COLOR,
     PAIRS,
+    SESSIONS,
 )
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
@@ -80,7 +81,6 @@ from thesis.plotting import (
     save_figure,
 )
 
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20260916_132939")
 RESPONSE_MS = (40, 100)
 MIN_RATE = 1.0
 BOOTSTRAPS = 500
