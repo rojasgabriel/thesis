@@ -32,8 +32,9 @@ unit has one kernel of each regressor from each half.
   b, the agreement of each kernel regressor in each unit (points, GRB006 on
   the left and GRB064 on the right of each regressor; the line is the
   median). A point below `DISPLAY_FLOOR` is drawn at the floor; it is in the
-  statistics, and the count is in the output. c (GRB006) and d (GRB064), the
-  response of each unit in one half against the other half.
+  statistics, and the count is in the output. c, the response of each unit in
+  one half against the other half, both mice in each axis (circles GRB006,
+  triangles GRB064).
 
 Units (`--units`), trials, alignment (first flash), baseline, and exclusions
 are those of `fit.py`. The sampling unit is the unit, and each measure is
@@ -71,7 +72,13 @@ from thesis.ephys.analyses.glm.inclusion import ALPHA
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS
 from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID, fitted_kernels
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
+from thesis.plotting import (
+    ANIMAL_MARKERS,
+    FIGURE_STYLE,
+    REFERENCE_COLOR,
+    label_panels,
+    save_figure,
+)
 
 RESPONSE_MS = (40, 100)
 DISPLAY_FLOOR = -0.5
@@ -222,29 +229,41 @@ def kernel_times() -> dict[str, np.ndarray]:
     return times
 
 
-def draw_responses(figure, axes, arrays: dict, names: list, subject: str) -> dict:
-    """Draw the response of each unit in the two halves; return the hidden counts."""
-    outside = {}
+def draw_responses(axes, saved: list[dict], names: list, subjects: list) -> list:
+    """Draw the response of each unit in the two halves, both mice in each axis.
+
+    Returns, for each mouse, the number of its units outside the axis limits.
+    """
+    outside = [{} for _ in saved]
     for ax, name in zip(axes, names):
         label, color = REGRESSORS[name]
-        first, second = arrays[f"response__{name}"]
-        needs = arrays[f"needs__{name}"]
-        ax.scatter(first[~needs], second[~needs], s=5, color="0.75", lw=0)
-        ax.scatter(first[needs], second[needs], s=5, color=color, lw=0)
-        limits = np.percentile(np.concatenate((first, second)), [1, 99])
+        values = [arrays[f"response__{name}"] for arrays in saved]
+        limits = np.percentile(np.concatenate([v.ravel() for v in values]), [1, 99])
+        for k, (arrays, (first, second)) in enumerate(zip(saved, values, strict=True)):
+            needs = arrays[f"needs__{name}"]
+            marker = ANIMAL_MARKERS[subjects[k]]
+            for members, shade in ((~needs, "0.75"), (needs, color)):
+                ax.scatter(
+                    first[members],
+                    second[members],
+                    s=6,
+                    marker=marker,
+                    color=shade,
+                    lw=0,
+                )
+            outside[k][name] = int(
+                np.sum(
+                    (np.minimum(first, second) < limits[0])
+                    | (np.maximum(first, second) > limits[1])
+                )
+            )
         ax.plot(limits, limits, color=REFERENCE_COLOR, lw=0.8, ls="--")
         ax.set_xlim(limits)
         ax.set_ylim(limits)
         ax.set_aspect("equal")
         ax.set_title(label, color=color, fontsize=7)
         ax.tick_params(labelsize=6)
-        outside[name] = int(
-            np.sum(
-                (np.minimum(first, second) < limits[0])
-                | (np.maximum(first, second) > limits[1])
-            )
-        )
-    axes[0].set_ylabel(f"{subject}: response,\nodd trials (Δ log rate)")
+    axes[0].set_ylabel("response, odd trials\n(Δ log rate)")
     return outside
 
 
@@ -284,8 +303,8 @@ def main() -> None:
     example = unit_ids.index(EXAMPLE_UNIT_ID) if EXAMPLE_UNIT_ID in unit_ids else 0
     rng = np.random.default_rng(0)
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(11, 8.6), layout="constrained")
-        rows = figure.subfigures(4, 1, height_ratios=(1, 1.05, 0.8, 0.8))
+        figure = plt.figure(figsize=(11, 7.0), layout="constrained")
+        rows = figure.subfigures(3, 1, height_ratios=(1, 1.05, 0.85))
         top = rows[0].subplots(1, len(kernels))
         for ax, name in zip(top, kernels):
             label, color = REGRESSORS[name]
@@ -343,16 +362,22 @@ def main() -> None:
             fontsize=7,
             loc="left",
         )
-        bottoms = []
-        for row, values_of, subject, name in zip(rows[2:], saved, subjects, SESSIONS):
-            axes = row.subplots(1, len(names))
-            outside = draw_responses(figure, axes, values_of, names, subject)
-            for regressor, count in outside.items():
+        axes = rows[2].subplots(1, len(names))
+        for k, (counts, name) in enumerate(
+            zip(draw_responses(axes, saved, names, subjects), SESSIONS, strict=True)
+        ):
+            for regressor, count in counts.items():
                 stats[name][regressor]["units_outside_the_axis_limits"] = count
-            bottoms.append(axes[0])
-        rows[3].supxlabel("response, even trials (Δ log rate)", fontsize=9)
+        rows[2].supxlabel(
+            "response, even trials (Δ log rate); "
+            + ", ".join(
+                f"{'circles' if ANIMAL_MARKERS[s] == 'o' else 'triangles'} {s}"
+                for s in subjects
+            ),
+            fontsize=8,
+        )
         label_panels([top[0], middle], x=-0.02, y=1.08)
-        label_panels([None, None, *bottoms], x=-0.75, y=1.2)
+        label_panels([None, None, axes[0]], x=-1.05, y=1.2)
         print(save_figure(figure, args.out / "kernel_reliability"))
     (args.out / "kernel_reliability.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
