@@ -1,54 +1,47 @@
-"""Show the flash kernels of every unit, by the gap from the flash before and by period.
+"""Show the flash kernels of every unit, and the flash response at the two gaps.
 
-Question: how does the response of V1 units to a flash, as the model has it,
-depend on the gap from the flash before and on the period of the trial (the
-fixation or the time after the center exit)?
+Question: how does the response of V1 units to a flash depend on the gap from
+the flash before? (The period, still against move, is in `flash_by_period.py`,
+with the same matched measure.)
 
-Comparison: the flash kernel of each unit in four conditions, from the final
-refit. No new fit. The comparisons are paired: each unit has a kernel in each
-condition.
+Comparison: no new fit. The comparisons are paired: each unit has a value in
+each condition. Each test is within one mouse (`SESSIONS`); the units of the
+two mice are not pooled. Both mice are in each axis: solid lines and circles
+GRB006, dashed lines and triangles GRB064.
 
 - Kernel of a condition (`results.flash_kernel_at`): the flash kernel of the
   gap class of that condition, plus the flash × move kernel at the value of
-  the period. Conditions (`CONDITIONS`): a flash in the fixation (still) and after the center exit
-  (move), in each of the two gap classes. The flash × move × gap kernel is
-  added at the product of the centered period and the centered gap class.
-- Panels a and b (the two kinds of unit): the median kernel over the units
-  that fire more after a flash (a) and that fire less (b). Left: a flash in
-  the fixation in the two gap classes. Right: a flash in the fixation and
-  after the exit in the class of the longer gaps, with the quartiles as bands. Here the kind of a
-  unit is from its mean response over the two conditions in the fixation
-  (above `KIND_LIMIT` or below -`KIND_LIMIT`), so the sign of the curves is by
-  selection; the panels show the shape.
-- Panel c (every unit): one map for each condition, with one row for each unit
-  and the same order of units in all maps (by the mean response over the
-  two conditions in the fixation). The units do not have one kind of
-  response, so a median curve over all units is near zero and is not shown.
-  The color scale stops at ±`COLOR_LIMIT`; larger values have the color of
-  the limit.
-- Response of a unit: the mean of its kernel from `RESPONSE_MS`.
-- Panel d (gap): the response at a longer gap against the response at the
-  40 ms gap when still, one point for each unit. Panels e and f (period):
-  the response in move against the response when still, at a longer gap (e)
-  and at the 40 ms gap (f). Error bars
-  are the SD over the 10 cross-validation folds, in both directions. A point
-  outside `AXIS_LIMITS` is not drawn; it is in the statistics, and the number
-  of those points is in the output.
-- Statistics: two-sided Wilcoxon signed-rank test of the paired difference
-  over all units, and over the units that fire more (response above
-  `KIND_LIMIT`) and fire less (below -`KIND_LIMIT`) apart, because a change
-  that makes every response larger has opposite signs in the two kinds. The
-  kind of a unit comes from conditions that are not in the pair (`PAIRS`): a
-  kind from one of the two compared responses makes that response more extreme
-  by selection alone.
+  the period. Conditions (`CONDITIONS`): a flash in the fixation (still) and
+  after the center exit (move), in each of the two gap classes. The flash ×
+  move × gap kernel is added at the product of the centered period and the
+  centered gap class.
+- Panels a and b: the median kernel, when still, at the 40 ms gap (light) and
+  the 80+ ms gap (dark), over the units that fire more after a flash (a) and
+  that fire less (b). The kind of a unit is from its mean kernel response over
+  the two still conditions (above `KIND_LIMIT` or below -`KIND_LIMIT`; the
+  response is the mean of the kernel from `RESPONSE_MS`), so the sign of the
+  curves is by selection; the panels show the shape.
+- Panels c and d (every unit, one map for each mouse, because the units
+  differ): the kernel in each condition, one row for each unit, in the same
+  order in all maps of a mouse (by the mean response when still). The color
+  scale stops at ±`COLOR_LIMIT`.
+- Panels e to g (the gap, with the matched measure of `peaks.py`): the peak of
+  the excited units (StimulusResponse) after flashes in the fixation at the
+  80+ ms gap and at the 40 ms gap (not the first flash of a trial), for the
+  observed rate (e) and the model rate (f), and 40 ms minus 80+ ms in both
+  (g). The baseline is the 80+ ms rate from `peaks.BASELINE_MS`. Small markers
+  are units; large markers the median with its bootstrap 95% interval. A
+  point outside `PEAK_LIMITS` is not drawn; it is in the statistics, and the
+  count is in the output.
+- Statistics: two-sided Wilcoxon signed-rank tests of the paired difference.
+  For the kernels (in the output), also for the units that fire more and that
+  fire less apart, with the kind from conditions outside the pair (`PAIRS`).
 
 Units (`--units`), trials, alignment (first flash), baseline, and exclusions
-are those of `fit.py`. The sampling unit is the unit, and each test is within
-one animal (`SESSIONS`); the units of the two animals are not pooled. Panels
-a and b, c and d, g to i are GRB006; the others are GRB064, in the same
-order. The script writes `flash_kernels.svg` and `flash_kernels.json` (by
-session) in `--out`, and `flash_kernels.npz` (the response of each unit) in
-each session directory.
+are those of `fit.py`. The sampling unit is the unit. The script writes
+`flash_kernels.svg` and `flash_kernels.json` (by session) in `--out`, and
+`flash_kernels.npz` (the kernel response of each unit) in each session
+directory.
 
     uv run python -m thesis.ephys.analyses.glm.flash_kernels
 """
@@ -66,10 +59,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import wilcoxon
 
-from thesis.ephys.analyses.glm import cli, dmat
+from thesis.ephys.analyses.glm import cli, dmat, peaks
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.results import flash_kernel_at, flash_kernel_levels
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, save_figure
+from thesis.plotting import (
+    ANIMAL_MARKERS,
+    FIGURE_STYLE,
+    MODEL_COLOR,
+    OBSERVED_COLOR,
+    REFERENCE_COLOR,
+    animal_points,
+    median_interval,
+    save_figure,
+)
 
 # The sessions of the figure, one row of panels for each. Each test is within one
 # animal; the units of the two animals are not pooled.
@@ -108,6 +110,10 @@ AXIS_LIMITS = (-1.2, 1.6)
 # The two kinds of unit, in the colors of the two ends of the map of panel c.
 KIND_COLORS = {"fire more": "#b2182b", "fire less": "#2166ac"}
 OTHER_COLOR = "0.7"
+# The matched peak (`peaks.py`): the observed rate and the model rate.
+RATES = ("observed", "model")
+RATE_COLORS = (OBSERVED_COLOR, MODEL_COLOR)
+PEAK_LIMITS = (-10, 40)
 
 
 def _paired(first: np.ndarray, second: np.ndarray) -> dict:
@@ -224,78 +230,85 @@ def session_kernels(root: Path, unit_set: str) -> dict:
     }
 
 
-def draw_curves(figure, slot, data: dict, legend: bool) -> list:
-    """Draw the median kernel of each kind of unit; return the first axis of each kind."""
-    lags, kernel = data["lags"], data["kernel"]
-    index = {name: position for position, name in enumerate(CONDITIONS)}
-    fixation_mean = _mean_of(data["response"], FIXATION)
-    curves = slot.subgridspec(1, 4, wspace=0.12)
-    axes = []
-    for k, (kind, members) in enumerate(
-        (
-            ("fire more", fixation_mean > KIND_LIMIT),
-            ("fire less", fixation_mean < -KIND_LIMIT),
+def gap_flashes(trials) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Return the trial rows and times of the flashes of each gap class, still.
+
+    Flashes in the fixation whose window (`peaks.BASELINE_MS[0]` to
+    `peaks.PEAK_MS[1]`) is in the fixation, except the first flash of a trial
+    (it has no gap). The 80+ ms gap class first: it is the reference of the
+    baseline.
+    """
+    before_s, after_s = -peaks.BASELINE_MS[0] / 1000, peaks.PEAK_MS[1] / 1000
+    rows, times, short = [], [], []
+    for row, (flashes, entry, leave) in enumerate(
+        zip(
+            trials["stim_pulse_times_s"],
+            trials["center_entry_s"],
+            trials["center_exit_s"],
+            strict=True,
         )
     ):
+        flashes = np.asarray(flashes, dtype=float)
+        gaps = np.diff(flashes, prepend=-np.inf)
+        keep = (flashes - before_s >= entry) & (flashes + after_s <= leave)
+        keep &= np.isfinite(gaps)
+        rows.append(np.full(int(keep.sum()), row))
+        times.append(flashes[keep])
+        short.append(gaps[keep] < dmat.FLASH_GAP_EDGES_S[0])
+    rows, times, short = (np.concatenate(values) for values in (rows, times, short))
+    return [(rows[~short], times[~short]), (rows[short], times[short])]
+
+
+def draw_curves(axes, sessions: list[dict]) -> None:
+    """Draw the median kernel of each kind of unit, by gap, for both mice."""
+    index = {name: position for position, name in enumerate(CONDITIONS)}
+    for axis, (kind, sign) in zip(
+        axes, (("fire more", 1), ("fire less", -1)), strict=True
+    ):
         color = KIND_COLORS[kind]
-        by_gap = figure.add_subplot(curves[2 * k], sharey=axes[0] if axes else None)
-        by_period = figure.add_subplot(curves[2 * k + 1], sharey=by_gap)
-        for name, shade in zip(FIXATION, (0.5, 1.0), strict=True):
-            by_gap.plot(
-                lags,
-                np.median(kernel[members, index[name]], 0),
-                color=color,
-                alpha=shade,
-            )
-        for name, style in zip(PAIRS["period"][:2], ("-", "--"), strict=True):
-            values = kernel[members, index[name]]
-            low, median, high = np.percentile(values, [25, 50, 75], axis=0)
-            by_period.plot(lags, median, color=color, linestyle=style)
-            by_period.fill_between(lags, low, high, color=color, alpha=0.1, lw=0)
-        for axis in (by_gap, by_period):
-            axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-            axis.set_xlabel("time from flash (ms)")
-            axis.tick_params(labelleft=not axes and axis is by_gap)
-        by_gap.text(
-            0.03 if k == 0 else 0.97,
-            0.03 if k == 0 else 0.97,
-            f"{kind} after a flash\n{int(members.sum())} units",
+        for data, style in zip(sessions, ("-", "--"), strict=True):
+            fixation_mean = _mean_of(data["response"], FIXATION)
+            members = sign * fixation_mean > KIND_LIMIT
+            for name, shade in zip(FIXATION, (0.45, 1.0), strict=True):
+                axis.plot(
+                    data["lags"],
+                    np.median(data["kernel"][members, index[name]], 0),
+                    color=color,
+                    alpha=shade,
+                    ls=style,
+                )
+        axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+        axis.set_xlabel("time from flash (ms)")
+        counts = ", ".join(
+            f"{int((sign * _mean_of(d['response'], FIXATION) > KIND_LIMIT).sum())}"
+            f" {d['subject']}"
+            for d in sessions
+        )
+        axis.set_title(
+            f"{kind} after a flash ({counts} units)",
             color=color,
-            transform=by_gap.transAxes,
-            ha="left" if k == 0 else "right",
-            va="bottom" if k == 0 else "top",
+            fontsize=6.5,
+            loc="left",
+        )
+    axes[0].set_ylabel(r"median flash kernel" + "\n" + r"($\Delta$ log rate)")
+    for row, (text, shade) in enumerate(
+        (
+            ("40 ms gap", 0.45),
+            ("80+ ms gap", 1.0),
+            (f"{sessions[0]['subject']} solid,", 1.0),
+            (f"{sessions[1]['subject']} dashed", 1.0),
+        )
+    ):
+        axes[0].text(
+            0.03,
+            0.96 - 0.1 * row,
+            text,
+            color="black",
+            alpha=shade,
+            transform=axes[0].transAxes,
+            va="top",
             fontsize=6,
         )
-        if not axes:
-            by_gap.set_ylabel(
-                f"{data['subject']}\nmedian flash kernel\n" + r"($\Delta$ log rate)"
-            )
-        if legend and not axes:
-            for row, (name, shade) in enumerate(
-                zip(("40 ms gap", "80+ ms gap"), (0.5, 1.0), strict=True)
-            ):
-                by_gap.text(
-                    0.03,
-                    1.12 - 0.105 * row,
-                    name,
-                    color="black",
-                    alpha=shade,
-                    transform=by_gap.transAxes,
-                    va="top",
-                    fontsize=6,
-                )
-            for row, label in enumerate(("still", "move (dashed)")):
-                by_period.text(
-                    0.03,
-                    1.12 - 0.105 * row,
-                    label,
-                    color="black",
-                    transform=by_period.transAxes,
-                    va="top",
-                    fontsize=6,
-                )
-        axes.append(by_gap)
-    return axes
 
 
 def draw_maps(figure, slot, data: dict, first: bool) -> list:
@@ -338,47 +351,11 @@ def draw_maps(figure, slot, data: dict, first: bool) -> list:
     return axes
 
 
-def draw_pairs(figure, slot, data: dict) -> list:
-    """Draw the paired responses of `PAIRS`, one point for each unit."""
-    response, spread = data["response"], data["spread"]
-    index = {name: position for position, name in enumerate(CONDITIONS)}
-    pairs = slot.subgridspec(1, 3, wspace=0.75)
-    axes = []
-    for position, (first, second, kind_from) in enumerate(PAIRS.values()):
-        axis = figure.add_subplot(pairs[position])
-        x, y = response[:, index[first]], response[:, index[second]]
-        # The kind of a unit comes from the conditions outside the pair.
-        reference = _mean_of(response, kind_from)
-        for members, color in (
-            (np.abs(reference) <= KIND_LIMIT, OTHER_COLOR),
-            (reference > KIND_LIMIT, KIND_COLORS["fire more"]),
-            (reference < -KIND_LIMIT, KIND_COLORS["fire less"]),
-        ):
-            axis.errorbar(
-                x[members],
-                y[members],
-                xerr=spread[members, index[first]],
-                yerr=spread[members, index[second]],
-                fmt="o",
-                color=color,
-                ms=2.5,
-                elinewidth=0.4,
-                alpha=0.8,
-            )
-        axis.plot(AXIS_LIMITS, AXIS_LIMITS, color=REFERENCE_COLOR, ls="--", lw=0.8)
-        for line in (axis.axhline, axis.axvline):
-            line(0, color=REFERENCE_COLOR, linewidth=0.6)
-        axis.set_xlim(AXIS_LIMITS)
-        axis.set_ylim(AXIS_LIMITS)
-        axis.set_aspect("equal")
-        axis.set_xlabel(f"response, {first}")
-        axis.set_ylabel(
-            f"{data['subject']}: response,\n{second}"
-            if position == 0
-            else f"response,\n{second}"
-        )
-        axes.append(axis)
-    return axes
+def gap_peaks(out: Path, session: str, unit_set: str) -> dict:
+    """Return the matched peaks of the excited units at the two gaps, still."""
+    model = cli.PoissonGLM(root=out / session)
+    trials = dmat._load_selected_trials(dmat._load_windows(model.windows))
+    return peaks.session_peaks(out / session, unit_set, gap_flashes(trials))
 
 
 def main() -> None:
@@ -387,17 +364,33 @@ def main() -> None:
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     sessions = [session_kernels(args.out / session, args.units) for session in SESSIONS]
+    matched = [gap_peaks(args.out, session, args.units) for session in SESSIONS]
+    stats = {}
+    for session, data, gap in zip(SESSIONS, sessions, matched, strict=True):
+        change = gap["peaks"][:, :, 1] - gap["peaks"][:, :, 0]  # 40 minus 80+
+        stats[session] = {
+            "kernels": data["stats"],
+            "matched peak (spikes/s), 40 ms minus 80+ ms gap, still": {
+                "flashes": gap["events"],
+                **{
+                    rate: _paired(gap["peaks"][:, k, 0], gap["peaks"][:, k, 1])
+                    for k, rate in enumerate(RATES)
+                },
+                "model minus observed change": _paired(change[:, 0], change[:, 1]),
+                "units_outside_the_peak_axis": int(
+                    np.sum(
+                        (gap["peaks"][:, :2] < PEAK_LIMITS[0])
+                        | (gap["peaks"][:, :2] > PEAK_LIMITS[1])
+                    )
+                ),
+            },
+        }
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.2, 10.4))
-        outer = figure.add_gridspec(
-            5, 1, height_ratios=(0.8, 0.8, 1.7, 1, 1), hspace=0.7
-        )
-        curve_axes = [
-            axis
-            for row, data in enumerate(sessions)
-            for axis in draw_curves(figure, outer[row], data, legend=row == 0)
-        ]
-        halves = outer[2].subgridspec(1, 2, wspace=0.2)
+        figure = plt.figure(figsize=(7.4, 8.4))
+        outer = figure.add_gridspec(3, 1, height_ratios=(0.9, 1.6, 1.05), hspace=0.55)
+        curve_axes = outer[0].subgridspec(1, 2, wspace=0.25).subplots(sharey=True)
+        draw_curves(curve_axes, sessions)
+        halves = outer[1].subgridspec(1, 2, wspace=0.2)
         map_groups = [
             draw_maps(figure, halves[k], data, first=k == 0)
             for k, data in enumerate(sessions)
@@ -409,16 +402,66 @@ def main() -> None:
             pad=0.015,
         )
         bar.set_label(r"flash kernel ($\Delta$ log rate)")
-        pair_axes = [
-            axis
-            for row, data in enumerate(sessions)
-            for axis in draw_pairs(figure, outer[3 + row], data)
-        ]
+        peak_axes = (
+            outer[2].subgridspec(1, 3, wspace=0.55, width_ratios=(1, 1, 1.1)).subplots()
+        )
+        for axis, k in zip(peak_axes[:2], range(2), strict=True):
+            for gap in matched:
+                values = np.clip(gap["peaks"][:, k], *PEAK_LIMITS)
+                animal_points(
+                    axis, values[:, 0], values[:, 1], gap["subject"], RATE_COLORS[k]
+                )
+            axis.plot(PEAK_LIMITS, PEAK_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
+            axis.set(xlim=PEAK_LIMITS, ylim=PEAK_LIMITS, aspect="equal")
+            axis.set_xlabel(f"{RATES[k]} peak, 80+ ms gap\n(spikes/s)")
+            axis.set_ylabel(f"{RATES[k]} peak,\n40 ms gap (spikes/s)")
+        change_axis = peak_axes[2]
+        rng = np.random.default_rng(0)
+        for gap, side in zip(matched, (-0.17, 0.17), strict=True):
+            change = gap["peaks"][:, :, 1] - gap["peaks"][:, :, 0]
+            marker = ANIMAL_MARKERS[gap["subject"]]
+            for k in range(2):
+                change_axis.scatter(
+                    k + side + rng.uniform(-0.07, 0.07, len(change)),
+                    change[:, k],
+                    s=9,
+                    marker=marker,
+                    color=RATE_COLORS[k],
+                    alpha=0.3,
+                    lw=0,
+                )
+                median, low, high = median_interval(change[:, k])
+                change_axis.errorbar(
+                    k + side,
+                    median,
+                    yerr=[[median - low], [high - median]],
+                    fmt=marker,
+                    ms=6,
+                    color=RATE_COLORS[k],
+                    mec="white",
+                    mew=0.6,
+                    capsize=2,
+                    zorder=4,
+                )
+        change_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
+        change_axis.set_xticks(range(2), list(RATES))
+        for tick, color in zip(change_axis.get_xticklabels(), RATE_COLORS, strict=True):
+            tick.set_color(color)
+        change_axis.set_xlim(-0.6, 1.6)
+        change_axis.set_ylabel("peak, 40 ms minus\n80+ ms gap (spikes/s)")
+        change_axis.set_title(
+            "  ".join(
+                f"{'○' if ANIMAL_MARKERS[g['subject']] == 'o' else '△'} {g['subject']}"
+                for g in matched
+            ),
+            fontsize=6.5,
+            loc="left",
+        )
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        lettered = (*curve_axes, *(group[0] for group in map_groups), *pair_axes)
-        for letter, axis in zip("abcdefghijkl", lettered, strict=True):
-            box = axis.yaxis.get_tightbbox()  # None for an axis with no tick labels
+        lettered = (*curve_axes, *(group[0] for group in map_groups), *peak_axes)
+        for letter, axis in zip("abcdefg", lettered, strict=True):
+            box = axis.yaxis.get_tightbbox()
             edge = (
                 box.transformed(to_figure).x0 if box else axis.get_position().x0 - 0.01
             )
@@ -430,9 +473,6 @@ def main() -> None:
                 fontsize=10,
             )
         print(save_figure(figure, args.out / "flash_kernels"))
-    stats = {
-        session: data["stats"] for session, data in zip(SESSIONS, sessions, strict=True)
-    }
     output = args.out / "flash_kernels.json"
     output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
