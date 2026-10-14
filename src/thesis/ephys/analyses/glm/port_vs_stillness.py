@@ -34,6 +34,11 @@ the rate against motion energy with `plot_rates`.
 - Paired test: each unit's rate in the center port against its rate at the
   side port, in the group with the least motion energy (two-sided Wilcoxon
   signed-rank test).
+- Slope test: the slope of each unit's rate over the motion-energy groups, in
+  the center port and at the side port (two-sided Wilcoxon signed-rank tests
+  of each slope against zero and of the difference of the two). If the low
+  rate in the port were the low rate of a still animal, the rate in the port
+  would go up with motion energy as it does at the side port.
 - Prediction of the stillness account: if stillness caused the suppression,
   the units that movement excites most would be the most suppressed. Spearman
   correlation, over units, of the spike count's correlation with motion energy
@@ -170,8 +175,43 @@ def summarize(data: dict) -> dict:
             "spearman_rho": float(relation.statistic),
             "p": float(relation.pvalue),
         },
+        "slope_against_motion_energy_group": _slopes(rate, data["frames"]),
     }
     return summary
+
+
+def _slopes(rate: np.ndarray, frames: np.ndarray) -> dict:
+    """Return the slope of each unit's rate over the motion-energy groups, by port.
+
+    The slope is the least-squares line over the groups with `MIN_FRAMES` or
+    more frames (rate per group). Two-sided Wilcoxon signed-rank tests: each
+    slope against zero, and the side-port slope against the center-port slope.
+    """
+    slopes = {}
+    for state, name in ((0, "center port"), (2, "side port")):
+        groups = np.flatnonzero(frames[state] >= MIN_FRAMES)
+        slopes[name] = np.asarray(
+            [
+                np.polyfit(groups[np.isfinite(row)], row[np.isfinite(row)], 1)[0]
+                for row in rate[:, state, groups]
+            ]
+        )
+    difference = slopes["side port"] - slopes["center port"]
+    return {
+        **{
+            name: {
+                "median": float(np.median(values)),
+                "wilcoxon_p": float(wilcoxon(values).pvalue),
+            }
+            for name, values in slopes.items()
+        },
+        "side minus center": {
+            "median": float(np.median(difference)),
+            "units_higher_at_side_port": int(np.sum(difference > 0)),
+            "units": len(difference),
+            "wilcoxon_p": float(wilcoxon(difference).pvalue),
+        },
+    }
 
 
 def plot_rates(axis, data: dict, states=(0, 1, 2)) -> None:

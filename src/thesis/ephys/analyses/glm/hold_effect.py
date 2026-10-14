@@ -42,10 +42,14 @@ axis for each animal.
   terms fit together) against its level in a two-step fit: the design with no
   fixation kernel first, then the fixation kernel alone on top of that fixed
   prediction (`two_step_levels`). The two-step value is a lower bound. Both are
-  in-sample.
+  in-sample. The axis is `ORDER_LIMITS`; a unit with a two-step value beyond
+  `NO_ESTIMATE` has no estimate (its fit with no penalty did not converge). It
+  is listed in the output and stays in the rank test. Thin unit lines in panel
+  c are the first animal only.
 - Panel f (control for stillness): raw rate against motion energy in the
-  center port and at a side port (`port_vs_stillness.py`). The two animals
-  have different camera views, so motion energy is not the same measure.
+  center port and at a side port (`port_vs_stillness.py`), with its slope test.
+  The two animals have different camera views, so motion energy is not the
+  same measure.
 - Panel g (control for the movement after the exit): the rate around a flash
   in the fixation, and around a flash after the exit with less and with more
   motion energy of the video (lower and upper half), from
@@ -139,14 +143,15 @@ fixation, and {after_rate} from 100 to 400 ms after the withdrawal. **c**, The
 kernels of a descriptive model, as a change in log rate relative to the time
 before the first flash. This model is the GLM of the main figure with one
 change: a kernel from the withdrawal to the response entry in place of the
-100-ms withdrawal kernel. Thin lines are units; the thick lines and the bands
-are the median and the interquartile range. **d**, The paired comparison. For
+100-ms withdrawal kernel. Thin lines are the units of {subject}; the thick lines and the
+bands are the median and the interquartile range. **d**, The paired comparison. For
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
 the 10 cross-validation folds). {paired} {outside_d} **e**, Control for the
 order of fitting. The level in fixation when all terms are fit together
 against the level when the fixation kernel is fit last, on what the other
-terms do not explain (a lower bound). {two_step} {outside_e} **f**, Control
+terms do not explain (a lower bound). {two_step} {outside_e} {no_estimate}
+**f**, Control
 for stillness. Raw firing rate against motion energy of the video, in the
 center port and at a side port, in each animal. {stillness} The two animals
 have different camera views, so motion energy is not the same measure in
@@ -170,6 +175,11 @@ AFTER_BASES = 8
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
 LEVEL_LIMITS = (-1.6, 1.6)
+# Panel e: a wider axis, so that only the units with no two-step estimate are
+# outside it. A two-step value beyond `NO_ESTIMATE` is a fit with no penalty
+# that did not converge (a unit with very few spikes in fixation).
+ORDER_LIMITS = (-2.5, 1.6)
+NO_ESTIMATE = 3.0
 UNIQUE_FLOOR = 1e-4  # panel h: a smaller unique ΔD² is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
@@ -551,10 +561,14 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
             "wilcoxon_p_two_step_against_0": float(wilcoxon(steps["two_step"]).pvalue),
             "units_outside_the_axis_limits_of_panel_e": int(
                 np.sum(
-                    (np.abs(steps["joint"]) > limits[1])
-                    | (np.abs(steps["two_step"]) > limits[1])
+                    (np.minimum(steps["joint"], steps["two_step"]) < ORDER_LIMITS[0])
+                    | (np.maximum(steps["joint"], steps["two_step"]) > ORDER_LIMITS[1])
                 )
             ),
+            "units_with_no_two_step_estimate": [
+                int(unit)
+                for unit in steps["unit_ids"][np.abs(steps["two_step"]) > NO_ESTIMATE]
+            ],
         },
         "units_outside_the_axis_limits_of_panel_h": int(
             np.sum(
@@ -575,6 +589,7 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
         "examples": (suppressed, excited),
         "stats": stats,
         "least": loaded["port_vs_stillness_json"]["least_motion_group"],
+        "slope": loaded["port_vs_stillness_json"]["slope_against_motion_energy_group"],
         "by_energy": flashes["after exit, lower against upper half of motion energy"][
             "response, second / first group"
         ],
@@ -761,14 +776,15 @@ def main() -> None:
                     <= (FLASH_WINDOW_MS if column == 0 else EXIT_WINDOW_MS)[1]
                 )
                 times = kernel["times"][shown]
-                kernel_axis.plot(
-                    times,
-                    kernel["values"][:, shown].T,
-                    color="0.6",
-                    linewidth=0.3,
-                    alpha=0.2,
-                    zorder=1,
-                )
+                if style == styles[0]:  # the units of the first animal only
+                    kernel_axis.plot(
+                        times,
+                        kernel["values"][:, shown].T,
+                        color="0.6",
+                        linewidth=0.3,
+                        alpha=0.3,
+                        zorder=1,
+                    )
                 low, median, high = np.percentile(
                     kernel["values"][:, shown], [25, 50, 75], axis=0
                 )
@@ -864,14 +880,14 @@ def main() -> None:
                 markersize=2.5,
                 alpha=0.7,
             )
-        for axis in (paired, order_axis):
+        for axis, shown in ((paired, limits), (order_axis, ORDER_LIMITS)):
             axis.plot(
-                limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
+                shown, shown, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
             )
             for line in (axis.axhline, axis.axvline):
                 line(0, color=REFERENCE_COLOR, linewidth=0.5)
-            axis.set_xlim(limits)
-            axis.set_ylim(limits)
+            axis.set_xlim(shown)
+            axis.set_ylim(shown)
         paired.set_xlabel(
             r"$\Delta$ log rate in fixation," + f"\n{window} from first flash"
         )
@@ -956,7 +972,17 @@ def main() -> None:
             f" p = {d['least']['wilcoxon_p']:.2g})"
             for d in sessions
         )
-        + "."
+        + ". Over all motion-energy groups, the rate at a side port goes up with"
+        " motion energy and the rate in the center port does not: the slope of"
+        " each unit over the groups is higher at the side port in "
+        + "; ".join(
+            f"{d['slope']['side minus center']['units_higher_at_side_port']} of"
+            f" {d['slope']['side minus center']['units']} units of {d['subject']}"
+            f" (p = {d['slope']['side minus center']['wilcoxon_p']:.1g})"
+            for d in sessions
+        )
+        + ". So the low rate in the port is not only the low rate of a still"
+        " animal."
     )
     energy_text = (
         "The response after the withdrawal, more over less motion energy: "
@@ -999,6 +1025,17 @@ def main() -> None:
             outside_d=outside("units_outside_the_axis_limits_of_panel_d"),
             two_step=two_text,
             outside_e=outside("units_outside_the_axis_limits_of_panel_e"),
+            no_estimate=(
+                "Units with no two-step estimate (the fit with no penalty did not"
+                " converge, because the unit has very few spikes in fixation): "
+                + _pair(
+                    sessions,
+                    lambda d: str(
+                        len(st(d)["two_step"]["units_with_no_two_step_estimate"])
+                    ),
+                )
+                + "; they are outside the axis and in the rank test."
+            ),
             stillness=stillness_text,
             energy=energy_text,
             relation=relation_text,

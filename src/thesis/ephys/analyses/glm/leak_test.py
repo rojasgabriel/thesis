@@ -37,11 +37,11 @@ paired: each unit has its real effect and its leak.
   it is in the statistics, and the count is in the output.
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
-The sampling unit is the unit. The script writes `leak_test.svg` and
-`leak_test.json` in `figures/glm/`, and `leak_test.npz` in each session
-directory.
+The sampling unit is the unit. With `--refit`, the script simulates and
+refits each unit and writes `leak_test.json` in `--out` and `leak_test.npz` in
+each session directory. It then draws `leak_test.svg` from the `.npz` files.
 
-    uv run python -m thesis.ephys.analyses.glm.leak_test
+    uv run python -m thesis.ephys.analyses.glm.leak_test [--refit]
 """
 
 from __future__ import annotations
@@ -201,95 +201,110 @@ def _unit(job: dict) -> dict:
     }
 
 
+def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> dict:
+    """Simulate and refit each unit of one session; write `leak_test.npz`."""
+    model = cli.PoissonGLM(root=out / session)
+    subject, _, name = session.partition("_")
+    final = load_unit_records(
+        model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
+    )
+    table = fetch_unit_table(
+        subject,
+        name,
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
+    spikes = dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))
+    jobs = [
+        {
+            "unit_id": int(item["unit_id"]),
+            "record": item,
+            "alpha": float(item["alpha"]),
+            "spike_times": np.asarray(spikes[int(item["unit_id"])], dtype=float),
+        }
+        for item in final
+    ]
+    with Pool(workers, _load, (model.windows, model.design)) as pool:
+        units = pool.map(_unit, jobs)
+    real = np.asarray([unit["real"] for unit in units])  # (unit, measure)
+    leaks = np.asarray([unit["leak"] for unit in units])
+    leak = leaks.mean(1)
+    simulated_level = np.asarray([unit["simulated_level"] for unit in units])
+    entry = {"units": len(units), "simulations": SIMULATIONS}
+    for index, gap in enumerate(GAPS_MS):
+        rest = real[:, index] - leak[:, index]
+        both = np.column_stack((real[:, index], leak[:, index]))
+        entry[gap] = {
+            "median_real_move_minus_still": float(np.median(real[:, index])),
+            "median_leak": float(np.median(leak[:, index])),
+            "units_with_leak_above_0": int(np.sum(leak[:, index] > 0)),
+            "leak_wilcoxon_p": float(wilcoxon(leak[:, index]).pvalue),
+            "median_real_minus_leak": float(np.median(rest)),
+            "units_with_real_above_leak": int(np.sum(rest > 0)),
+            "real_minus_leak_wilcoxon_p": float(wilcoxon(rest).pvalue),
+            "spearman_leak_and_fixation_level": float(
+                spearmanr(leak[:, index], simulated_level)[0]
+            ),
+            "units_outside_the_axis_limits": int(
+                np.sum((both < AXIS_LIMITS[0]).any(1) | (both > AXIS_LIMITS[1]).any(1))
+            ),
+        }
+    entry["fixation level"] = {
+        "median_simulated": float(np.median(simulated_level)),
+        "median_refit": float(np.median(leak[:, 2])),
+        # For the units with a level: the ratio has no meaning near 0.
+        "median_refit_over_simulated": float(
+            np.median(
+                (leak[:, 2] / simulated_level)[np.abs(simulated_level) > MIN_LEVEL]
+            )
+        ),
+    }
+    entry["median_spikes_simulated_over_real"] = float(
+        np.median([unit["spikes_simulated_over_real"] for unit in units])
+    )
+    np.savez(
+        out / session / "leak_test.npz",
+        unit_ids=np.asarray([unit["unit_id"] for unit in units]),
+        measures=np.asarray([*GAPS_MS, "fixation level"]),
+        real=real,
+        leak=leaks,
+        simulated_level=simulated_level,
+    )
+    return entry
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("figures/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument(
+        "--refit",
+        action="store_true",
+        help="simulate and refit each unit again before the figure",
+    )
     args = parser.parse_args()
-    stats = {}
+    if args.refit:
+        stats = {
+            session: simulate_session(args.out, session, args.units, args.workers)
+            for session in SESSIONS
+        }
+        (args.out / "leak_test.json").write_text(json.dumps(stats, indent=1))
     visual, task = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
-            len(SESSIONS), 3, figsize=(8.6, 2.9 * len(SESSIONS)), layout="constrained"
+            len(SESSIONS), 3, figsize=(7.4, 2.5 * len(SESSIONS)), layout="constrained"
         )
         for row_axes, session in zip(axes, SESSIONS):
-            model = cli.PoissonGLM(root=args.out / session)
-            subject, _, name = session.partition("_")
-            final = load_unit_records(
-                model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
-            )
-            table = fetch_unit_table(
-                subject,
-                name,
-                unit_criteria_id=1,
-                stability_param_id=0,
-                include_metrics=False,
-            )
-            spikes = dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))
-            jobs = [
-                {
-                    "unit_id": int(item["unit_id"]),
-                    "record": item,
-                    "alpha": float(item["alpha"]),
-                    "spike_times": np.asarray(
-                        spikes[int(item["unit_id"])], dtype=float
-                    ),
-                }
-                for item in final
-            ]
-            with Pool(args.workers, _load, (model.windows, model.design)) as pool:
-                units = pool.map(_unit, jobs)
-            real = np.asarray([unit["real"] for unit in units])  # (unit, measure)
-            leaks = np.asarray([unit["leak"] for unit in units])
+            subject = session.split("_")[0]
+            path = args.out / session / "leak_test.npz"
+            if not path.exists():
+                raise FileNotFoundError(f"{path}: run with --refit first.")
+            with np.load(path) as saved:
+                real, leaks = saved["real"], saved["leak"]
+                simulated_level = saved["simulated_level"]
             leak, spread = leaks.mean(1), leaks.std(1)
-            simulated_level = np.asarray([unit["simulated_level"] for unit in units])
-            entry = {"units": len(units), "simulations": SIMULATIONS}
-            for index, gap in enumerate(GAPS_MS):
-                rest = real[:, index] - leak[:, index]
-                both = np.column_stack((real[:, index], leak[:, index]))
-                entry[gap] = {
-                    "median_real_move_minus_still": float(np.median(real[:, index])),
-                    "median_leak": float(np.median(leak[:, index])),
-                    "units_with_leak_above_0": int(np.sum(leak[:, index] > 0)),
-                    "leak_wilcoxon_p": float(wilcoxon(leak[:, index]).pvalue),
-                    "median_real_minus_leak": float(np.median(rest)),
-                    "units_with_real_above_leak": int(np.sum(rest > 0)),
-                    "real_minus_leak_wilcoxon_p": float(wilcoxon(rest).pvalue),
-                    "spearman_leak_and_fixation_level": float(
-                        spearmanr(leak[:, index], simulated_level)[0]
-                    ),
-                    "units_outside_the_axis_limits": int(
-                        np.sum(
-                            (both < AXIS_LIMITS[0]).any(1)
-                            | (both > AXIS_LIMITS[1]).any(1)
-                        )
-                    ),
-                }
-            entry["fixation level"] = {
-                "median_simulated": float(np.median(simulated_level)),
-                "median_refit": float(np.median(leak[:, 2])),
-                # For the units with a level: the ratio has no meaning near 0.
-                "median_refit_over_simulated": float(
-                    np.median(
-                        (leak[:, 2] / simulated_level)[
-                            np.abs(simulated_level) > MIN_LEVEL
-                        ]
-                    )
-                ),
-            }
-            entry["median_spikes_simulated_over_real"] = float(
-                np.median([unit["spikes_simulated_over_real"] for unit in units])
-            )
-            stats[session] = entry
-            np.savez(
-                args.out / session / "leak_test.npz",
-                unit_ids=np.asarray([unit["unit_id"] for unit in units]),
-                measures=np.asarray([*GAPS_MS, "fixation level"]),
-                real=real,
-                leak=leaks,
-                simulated_level=simulated_level,
-            )
             style = {"fmt": "o", "ms": 2.5, "elinewidth": 0.4, "alpha": 0.8}
             for ax, (index, gap) in zip(row_axes, enumerate(GAPS_MS)):
                 ax.errorbar(
@@ -321,8 +336,6 @@ def main() -> None:
             level_axis.set_ylabel("leak, 80+ ms gap")
         label_panels(axes[0], x=-0.3, y=1.05)
         print(save_figure(figure, args.out / "leak_test"))
-    (args.out / "leak_test.json").write_text(json.dumps(stats, indent=1))
-    print(json.dumps(stats, indent=1))
 
 
 if __name__ == "__main__":

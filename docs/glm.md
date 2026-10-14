@@ -490,6 +490,13 @@ exit. These are task periods, not a measure of locomotion.
 - GRB064: the raw response is higher in move, and the response to the flash
   alone does not change. So the two animals do not agree on a larger flash
   response in move.
+- The raw data show the same difference, with no model (`matched_flashes.py`,
+  flashes after a long gap, matched for time and gap): after the exit, the
+  response goes up more than the baseline in GRB006 (+0.18 in log, p = 3e-4)
+  and much less than the baseline in GRB064 (−0.75, 8 of 65 units above 0,
+  p = 1e-9). So the opposite sign is in the data, not only in the model. No
+  direction of the flash × move effect is reported until a third animal is
+  fit.
 - Check of the model: the final refit predicts the raw change in GRB006
   (median +0.60; predicted over observed response, summed over units, 0.99
   still and 0.99 move). In GRB064 it predicts too large a change (+0.57
@@ -523,16 +530,23 @@ part in the design choices.
 - In GRB064 the rate falls sooner after the first flash (at about 50 ms; at
   about 90 ms in GRB006).
 - Two controls do not replicate in GRB064:
-  - Stillness: the center-port rate is not reliably lower than the side-port
-    rate at the same low motion energy. The side-port rate goes up with motion
-    energy, and the center-port rate does not. So in GRB064, stillness can
-    explain the low rate in the port. The camera view is different (bottom
-    view), so motion energy is not the same measure in the two animals.
+  - Stillness, lowest motion-energy group only: the center-port rate is not
+    reliably lower than the side-port rate (0.84, p = 0.31). But over all
+    groups, the side-port rate goes up with motion energy and the center-port
+    rate does not, in both animals (slope higher at the side port in 125 of
+    167 units, p = 8e-11, and 58 of 76 units, p = 5e-6;
+    `port_vs_stillness.py`). In GRB064 the center-port rate is lower than the
+    side-port rate in the three higher groups (p = 0.001 to 7e-6). So the low
+    rate in the port is not only the rate of a still animal. The camera view is
+    different (bottom view), so motion energy is not the same measure in the
+    two animals.
   - Which units: the relation of the fixation level to the flash response
     (GRB006) is not in GRB064.
-- Display limits: panel e hides 2 units of GRB006 and 8 of GRB064 (the joint
-  level is below −1.6); panel d hides 0 and 1; panel h hides 1 and 3. All of
-  them are in the tests.
+- Panel e: 1 unit of GRB006 and 3 of GRB064 have no two-step estimate (the
+  fit with no penalty does not converge, because the unit has very few spikes
+  in fixation; values from −9 to −24 738). They are outside the axis
+  (−2.5 to 1.6) and in the rank test; the median does not change without
+  them. Panel d hides 0 and 1 units, panel h 1 and 3. All are in the tests.
 
 ### Tests of 2026-10-11 (GRB006)
 
@@ -547,7 +561,7 @@ holds for other trials.
 | --- | --- | --- |
 | Slow adaptation to the train | The rate depends on the time in the train and the flashes, not on the exit | The effect ends in about 100 ms at the exit while the flashes continue, a kernel that goes on after the exit predicts worse, and the flash rate of the trial has no effect. Not tested at a matched time: see below |
 | Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
-| Stillness in the port | The same low rate at a side port with the same motion energy | No in GRB006: 0.78 of the rate at a side port. Not excluded in GRB064 (0.84, p = 0.31) |
+| Stillness in the port | The same low rate at a side port with the same motion energy, and the same rise with motion energy | No, in both animals: the side-port rate goes up with motion energy and the center-port rate does not (p = 8e-11 and 5e-6). At the lowest motion energy alone: 0.78 of the side-port rate in GRB006, 0.84 (p = 0.31) in GRB064 |
 | A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully, and the two animals differ. Units with a larger flash response are suppressed more in GRB006 (Spearman ρ = −0.20, p = 0.01; the earlier design gave −0.41), not in GRB064 (ρ = +0.18, p = 0.12). For flashes after a long gap, the response changes more than the baseline in GRB006 (+0.18 in log, p = 0.0003) and much less in GRB064 (−0.75, 8 of 65 units above 0, p = 1e-9); for short gaps, no difference in either (0.00 and −0.03) |
 | The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate is not lower from the center entry to the first flash |
 
@@ -638,17 +652,21 @@ holds for other trials.
   the index after the exit (ρ = −0.05 and −0.11). So the side preference is a
   signal of the movement or of the place of the animal, not of the view of the
   stimulus. Limit: the window with the stimulus off is later in the movement.
-- The most probable explanation with these data: the rate is low while the
-  animal holds in the center port with the stimulus on, and it goes up when
-  the animal leaves, with or without the stimulus. The suppression starts
-  about 80 ms after the first flash and not at the center entry. It is larger
-  in units with a larger flash response. It does not follow motion energy
-  after the exit, and it is not stillness. So it is a state of the trial
-  (holding in the port during the stimulus) that lowers the rate of units
-  with a visual response, and that ends with the exit. Slow adaptation, the
+- The most probable explanation with these data, in both animals: the rate
+  is low while the animal holds in the center port with the stimulus on, and
+  it goes up when the animal leaves, with or without the stimulus. It does not
+  follow motion energy after the exit. It is not only stillness: at a side
+  port the rate goes up with motion energy, and in the center port it does not
+  (slope test, p = 8e-11 and 5e-6). So it is a state of the trial (holding in
+  the port during the stimulus) that ends with the exit. Slow adaptation, the
   view of the stimulus, and a gain that grows with movement are less
-  probable. Not known: what starts it at the first flash, and what the side
-  preference of single units after the exit is.
+  probable.
+- Only in GRB006: the suppression starts about 80 ms after the first flash and
+  not at the center entry, and it is larger in units with a larger flash
+  response. GRB064 shows neither (the rate falls before 50 ms, and ρ = +0.18
+  for the flash response). So "units with a visual response" is not part of
+  the explanation. Not known: what starts it, and what the side preference of
+  single units after the exit is.
 
 ## Collinearity of the regressors
 
