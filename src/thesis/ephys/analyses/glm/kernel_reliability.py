@@ -29,12 +29,12 @@ unit has one kernel of each regressor from each half.
 - Each measure is given for all units and for the units that need the
   regressor (unique ΔD² above 0 over the folds, the test of `inclusion.py`).
 - Figure: a, the kernels of the example unit of GRB006 from the two halves.
-  b, the agreement of each kernel regressor in each unit (points, GRB006 on
-  the left and GRB064 on the right of each regressor; the line is the
-  median). A point below `DISPLAY_FLOOR` is drawn at the floor; it is in the
+  b, the agreement of each kernel regressor in each unit, the units of both
+  mice pooled; the black marker is the median of the units that need the
+  regressor with its hierarchical-bootstrap 95% interval, and the open
+  circles the median of each mouse. A point below `DISPLAY_FLOOR` is drawn at the floor; it is in the
   statistics, and the count is in the output. c, the response of each unit in
-  one half against the other half, both mice in each axis (circles GRB006,
-  triangles GRB064).
+  one half against the other half, the units of both mice pooled.
 
 Units (`--units`), trials, alignment (first flash), baseline, and exclusions
 are those of `fit.py`. The sampling unit is the unit, and each measure is
@@ -73,9 +73,9 @@ from thesis.ephys.analyses.glm.main_figure import REGRESSORS
 from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID, fitted_kernels
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
-    ANIMAL_MARKERS,
     FIGURE_STYLE,
     REFERENCE_COLOR,
+    hierarchical_interval,
     label_panels,
     save_figure,
 )
@@ -241,13 +241,11 @@ def draw_responses(axes, saved: list[dict], names: list, subjects: list) -> list
         limits = np.percentile(np.concatenate([v.ravel() for v in values]), [1, 99])
         for k, (arrays, (first, second)) in enumerate(zip(saved, values, strict=True)):
             needs = arrays[f"needs__{name}"]
-            marker = ANIMAL_MARKERS[subjects[k]]
             for members, shade in ((~needs, "0.75"), (needs, color)):
                 ax.scatter(
                     first[members],
                     second[members],
                     s=6,
-                    marker=marker,
                     color=shade,
                     lw=0,
                 )
@@ -328,37 +326,57 @@ def main() -> None:
             fontsize=6.5,
         )
         middle = rows[1].subplots()
+        stats["pooled agreement, units that need the regressor"] = {}
         for position, name in enumerate(kernels):
             label, color = REGRESSORS[name]
-            for side, values_of in zip((-0.2, 0.2), saved):
-                agree = values_of[f"agreement__{name}"]
-                values = np.maximum(agree, DISPLAY_FLOOR)
-                needs = values_of[f"needs__{name}"]
-                x = position + side + rng.uniform(-0.12, 0.12, len(values))
-                middle.scatter(x[~needs], values[~needs], s=5, color="0.75", lw=0)
+            agree = [values_of[f"agreement__{name}"] for values_of in saved]
+            needs = [values_of[f"needs__{name}"] for values_of in saved]
+            pooled, pooled_needs = np.concatenate(agree), np.concatenate(needs)
+            x = position + rng.uniform(-0.15, 0.15, len(pooled))
+            shown = np.maximum(pooled, DISPLAY_FLOOR)
+            middle.scatter(
+                x[~pooled_needs], shown[~pooled_needs], s=5, color="0.75", lw=0
+            )
+            middle.scatter(
+                x[pooled_needs], shown[pooled_needs], s=5, color=color, alpha=0.6, lw=0
+            )
+            # The median of the units that need it: pooled, with the
+            # hierarchical-bootstrap 95% interval, and of each mouse (bars).
+            summary = hierarchical_interval(
+                [a[n] for a, n in zip(agree, needs, strict=True)]
+            )
+            low, high = summary["interval_95"]
+            middle.errorbar(
+                position + 0.28,
+                summary["median"],
+                yerr=[[summary["median"] - low], [high - summary["median"]]],
+                fmt="o",
+                ms=4,
+                color="black",
+                capsize=2,
+                zorder=4,
+            )
+            for median in summary["median_of_each_mouse"]:
                 middle.scatter(
-                    x[needs],
-                    values[needs],
-                    s=5,
-                    color=color,
-                    alpha=1 if side < 0 else 0.5,
-                    lw=0,
+                    position + 0.4,
+                    median,
+                    s=14,
+                    facecolor="white",
+                    edgecolor="black",
+                    lw=0.8,
+                    zorder=4,
                 )
-                middle.hlines(
-                    np.median(agree[needs]),
-                    position + side - 0.15,
-                    position + side + 0.15,
-                    color="black",
-                    lw=1.5,
-                )
+            stats["pooled agreement, units that need the regressor"][name] = summary
         middle.axhline(0, color=REFERENCE_COLOR, lw=0.8, ls="--")
         middle.set_xticks(range(len(kernels)), [REGRESSORS[n][0] for n in kernels])
         for tick, name in zip(middle.get_xticklabels(), kernels):
             tick.set_color(REGRESSORS[name][1])
         middle.set_ylabel("agreement of the two halves\n(1 = equal kernels)")
         middle.set_title(
-            f"left: {subjects[0]}, right: {subjects[1]}. Color: units that need the "
-            "regressor; gray: other units; line: median of the units that need it",
+            f"{sum(len(v['unit_ids']) for v in saved)} units, {len(saved)} mice."
+            " Color: units that need the regressor; gray: other units. Black: the"
+            " median of the units that need it, with its 95% interval; open circles:"
+            " the median of each mouse",
             fontsize=7,
             loc="left",
         )
@@ -369,12 +387,7 @@ def main() -> None:
             for regressor, count in counts.items():
                 stats[name][regressor]["units_outside_the_axis_limits"] = count
         rows[2].supxlabel(
-            "response, even trials (Δ log rate); "
-            + ", ".join(
-                f"{'circles' if ANIMAL_MARKERS[s] == 'o' else 'triangles'} {s}"
-                for s in subjects
-            ),
-            fontsize=8,
+            "response, even trials (Δ log rate); units of both mice", fontsize=8
         )
         label_panels([top[0], middle], x=-0.02, y=1.08)
         label_panels([None, None, axes[0]], x=-1.05, y=1.2)
