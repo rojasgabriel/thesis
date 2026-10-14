@@ -96,6 +96,28 @@ def _unit_correlation(spike_times: np.ndarray) -> np.ndarray:
     return columns.T @ columns / len(columns)
 
 
+def largest_shared_direction(
+    correlation: np.ndarray, groups: dict[str, slice]
+) -> tuple[float, str, str]:
+    """Return the largest first canonical correlation between two regressors.
+
+    It is the strongest direction that two regressors of a design share: 0 for
+    regressors that share nothing, 1 for two regressors where a weighted sum of
+    the columns of one is a weighted sum of the columns of the other.
+    """
+    best = (0.0, "", "")
+    names = list(groups)
+    for index, first in enumerate(names):
+        for second in names[index + 1 :]:
+            own = correlation[groups[first], groups[first]]
+            other = correlation[groups[second], groups[second]]
+            cross = correlation[groups[first], groups[second]]
+            shared = np.linalg.solve(own, cross) @ np.linalg.solve(other, cross.T)
+            value = float(np.sqrt(max(np.linalg.eigvals(shared).real.max(), 0)))
+            best = max(best, (value, first, second))
+    return best
+
+
 def group_statistics(correlation: np.ndarray, groups: dict[str, slice]) -> dict:
     """Return the collinearity statistics of one design."""
     size = len(correlation)

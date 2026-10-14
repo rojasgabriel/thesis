@@ -30,7 +30,16 @@ unit is in two sets). The form of a term is chosen on these units; the
 importance of a regressor is tested on all units (`inclusion.py`). Each point
 is a unit, and the black line is the median. A point outside `DISPLAY_LIMIT`
 is drawn at the limit; it is in the statistics, and the count is in
-`design_optimization_stats.json`. The mark over a form is a two-sided Wilcoxon
+`design_optimization_stats.json`. The number under each form is its largest
+shared direction: the largest first canonical correlation between two task
+regressors of that design (`collinearity.largest_shared_direction`). It is in
+red when it is above the value of the design in use (`SHARED_TOLERANCE`).
+
+Rule for the form of a term: another form replaces the form in use when it
+(1) predicts reliably better on these units, and (2) is separable: it does
+not give the design a shared direction larger than the largest one of the
+design in use. Condition 2 keeps the kernels readable: a form that predicts
+better because it covers the time of another term fails it. The mark over a form is a two-sided Wilcoxon
 signed-rank test of the differences against zero. Trials, alignment,
 baseline, and exclusions are those of `fit.py`. The sampling unit is the
 unit.
@@ -55,6 +64,7 @@ from scipy.stats import wilcoxon
 
 from thesis.ephys.analyses.glm import (
     cli,
+    dmat,
     drift_grid,
     flash_length_grid,
     gap_class_grid,
@@ -62,6 +72,7 @@ from thesis.ephys.analyses.glm import (
     pc_grid,
     withdrawal_grid,
 )
+from thesis.ephys.analyses.glm.collinearity import largest_shared_direction
 from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
 from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
 
@@ -104,6 +115,9 @@ LABELS = {
     "penalty\n÷ 100": "weaker\npenalty",
 }
 DISPLAY_LIMIT = 0.006
+# A form is separable when its largest shared direction is not above that of
+# the design in use, with this tolerance.
+SHARED_TOLERANCE = 0.05
 CAPTION = """\
 **The form of each term of the design.** Each panel compares the design in use
 with the same design where one term has another form, on {units} units ({sets}
@@ -116,13 +130,14 @@ One kernel for all flashes is worse than the two gap classes in use; more
 classes are not better. **b**, Length of the flash kernels. Longer kernels are
 not better than 150 ms. **c**, Form of the fixation term. No term and a step
 are worse than the kernel in use. **d**, Withdrawal kernel. No kernel is worse.
-A kernel from 300 ms before to 300 ms after the exit predicts better, and is
-not used: it also covers the end of the fixation and the rise of the rate
-after the exit, so the fixation kernel and the flash kernels after the exit
-cannot be read with it. **e**, Number of motion-energy PCs. {pc_sentence}
-**f**, Session drift. No drift is worse; more functions are not better. A form
-is not changed when no other form is reliably better; panel d has the one
-exception. The importance of each regressor is tested on all units
+A kernel from 300 ms before to 300 ms after the exit predicts better, but it
+is not separable: it shares a direction of {wide_shared:.2f} with the fixation
+kernel, against {limit:.2f} for the largest one in the design in use. **e**,
+Number of motion-energy PCs. {pc_sentence} **f**, Session drift. No drift is
+worse; more functions are not better. The number under each form is the
+largest first canonical correlation between two task regressors of that design
+(red: above the design in use). A form replaces the form in use when it
+predicts reliably better and is separable; no form does both. The importance of each regressor is tested on all units
 (main figure).
 """
 
@@ -146,6 +161,25 @@ def _pc_sentence(entry: dict) -> str:
     return f"{first} {second}{', and some are worse' if worse else ''}."
 
 
+def shared_direction(settings: dict, prepared: dict, trials) -> tuple[float, str, str]:
+    """Return the largest shared direction of two task regressors of one design."""
+    saved = {name: getattr(dmat, name) for name in settings}
+    for name, value in settings.items():
+        setattr(dmat, name, value)
+    try:
+        values, manifest = dmat.build_task_design(prepared["alignments"], trials)
+    finally:
+        for name, value in saved.items():
+            setattr(dmat, name, value)
+    groups, cursor = {}, 0
+    for item in manifest:
+        groups[item["name"]] = slice(cursor, cursor + item["columns"])
+        cursor += item["columns"]
+    columns = values[dmat._valid_bin_mask(prepared)]
+    columns = (columns - columns.mean(0)) / columns.std(0)
+    return largest_shared_direction(columns.T @ columns / len(columns), groups)
+
+
 def _stars(p: float) -> str:
     return "n.s." if p >= 0.05 else "*" * (1 + (p < 0.01) + (p < 0.001))
 
@@ -156,6 +190,10 @@ def main() -> None:
     args = parser.parse_args()
     stats = {}
     rng = np.random.default_rng(0)
+    prepared = dmat._load_windows(cli.PoissonGLM(root=args.root).windows)
+    trials = dmat._load_selected_trials(prepared)
+    limit = shared_direction({}, prepared, trials)[0] + SHARED_TOLERANCE
+    stats["largest_shared_direction_of_the_design_in_use"] = limit - SHARED_TOLERANCE
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(3, 2, figsize=(9.5, 9.6), layout="constrained")
         for axis, (grid, (module, in_use, color, xlabel)) in zip(
@@ -171,6 +209,20 @@ def main() -> None:
             # The designs of the grid module that have scores, in its order.
             names = [name for name in module.DESIGNS if name in scores]
             for position, name in enumerate(names):
+                # The task columns are the same for each number of PCs.
+                if isinstance(module.DESIGNS, dict):
+                    shared, first_name, second_name = shared_direction(
+                        module.DESIGNS[name], prepared, trials
+                    )
+                    axis.text(
+                        position,
+                        -DISPLAY_LIMIT * 1.2,
+                        f"{shared:.2f}",
+                        ha="center",
+                        fontsize=6,
+                        color="C3" if shared > limit else "0.4",
+                        fontweight="bold" if shared > limit else "normal",
+                    )
                 if name == in_use:
                     axis.plot(position, 0, "o", mfc="white", mec=color, ms=6)
                     continue
@@ -206,9 +258,15 @@ def main() -> None:
                         np.sum(np.abs(change) > DISPLAY_LIMIT)
                     ),
                 }
+                if isinstance(module.DESIGNS, dict):
+                    entry[name.replace("\n", " ")] |= {
+                        "largest_shared_direction": shared,
+                        "between": [first_name, second_name],
+                        "separable": bool(shared <= limit),
+                    }
             stats[grid] = entry
             axis.axhline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
-            axis.set_ylim(-DISPLAY_LIMIT * 1.05, DISPLAY_LIMIT * 1.18)
+            axis.set_ylim(-DISPLAY_LIMIT * 1.3, DISPLAY_LIMIT * 1.18)
             axis.set_xticks(
                 range(len(names)),
                 [LABELS.get(name, name) for name in names],
@@ -218,7 +276,7 @@ def main() -> None:
             axis.set_ylabel(r"$D^2$ minus $D^2$ of the form in use")
         label_panels(axes.flat, x=-0.16, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
-    first = next(iter(stats.values()))
+    first = stats[next(iter(GRIDS))]
     (args.root / "design_optimization_stats.json").write_text(
         json.dumps(stats, indent=1)
     )
@@ -227,6 +285,8 @@ def main() -> None:
             units=first["units"],
             sets=first["units"] // 20,
             pc_sentence=_pc_sentence(stats["pc_grid"]),
+            wide_shared=stats["withdrawal_grid"]["±300"]["largest_shared_direction"],
+            limit=stats["largest_shared_direction_of_the_design_in_use"],
         )
     )
     print(json.dumps(stats, indent=1))
