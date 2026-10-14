@@ -106,7 +106,13 @@ from thesis.ephys.analyses.glm.main_figure import (
     TASK,
     VISUAL,
 )
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
+from thesis.plotting import (
+    FIGURE_STYLE,
+    REFERENCE_COLOR,
+    hierarchical_interval,
+    label_panels,
+    save_figure,
+)
 
 # name of the grid: (its module, the parameterization in use, color, x label)
 GRIDS = {
@@ -317,25 +323,47 @@ def main() -> None:
         order = np.argsort(-np.median(measures[0]["gvif"], 0))
 
         def by_regressor(axis, values_of, regressors, limits):
-            """Points of each unit for each regressor: one animal on each side."""
-            for side, values in zip((-0.2, 0.2), values_of):
-                for position, name in enumerate(regressors):
-                    column = values[name]
+            """Units of both mice pooled for each regressor, with the medians.
+
+            Black: the pooled median with its hierarchical-bootstrap 95%
+            interval. Open circles: the median of the first mouse (left) and
+            of the held-out mouse (right).
+            """
+            for position, name in enumerate(regressors):
+                groups = [values[name] for values in values_of]
+                column = np.concatenate(groups)
+                axis.scatter(
+                    position - 0.1 + rng.uniform(-0.15, 0.15, len(column)),
+                    np.clip(column, *limits),
+                    s=2,
+                    color=REGRESSORS[name][1],
+                    alpha=0.45,
+                    lw=0,
+                    rasterized=True,
+                )
+                summary = hierarchical_interval(groups)
+                low, high = np.clip(summary["interval_95"], *limits)
+                median = np.clip(summary["median"], *limits)
+                axis.errorbar(
+                    position + 0.15,
+                    median,
+                    yerr=[[median - low], [high - median]],
+                    fmt="o",
+                    ms=3,
+                    color="black",
+                    elinewidth=0.8,
+                    capsize=1.5,
+                    zorder=4,
+                )
+                for k, mouse in enumerate(summary["median_of_each_mouse"]):
                     axis.scatter(
-                        position + side + rng.uniform(-0.12, 0.12, len(column)),
-                        np.clip(column, *limits),
-                        s=2,
-                        color=REGRESSORS[name][1],
-                        alpha=0.55 if side < 0 else 0.25,
-                        lw=0,
-                        rasterized=True,
-                    )
-                    axis.hlines(
-                        np.median(column),
-                        position + side - 0.15,
-                        position + side + 0.15,
-                        "black",
-                        lw=1,
+                        position + 0.27 + 0.1 * k,
+                        np.clip(mouse, *limits),
+                        s=8,
+                        facecolor="white",
+                        edgecolor="black",
+                        lw=0.6,
+                        zorder=4,
                     )
             axis.set_xticks(
                 range(len(regressors)),
@@ -348,8 +376,11 @@ def main() -> None:
             for tick, name in zip(axis.get_xticklabels(), regressors):
                 tick.set_color(REGRESSORS[name][1])
             axis.set_title(
-                f"left: {subjects[0]}, right: {subjects[1]} (held out)",
-                fontsize=6,
+                f"units of both mice; open circles: median of {subjects[0]} (left)"
+                f" and {subjects[1]}, held out (right)"
+                if axis is not gvif_axis
+                else "units of both mice; circles as in j",
+                fontsize=5.5,
                 loc="left",
             )
 
@@ -369,19 +400,18 @@ def main() -> None:
         gvif_axis.set_ylim(0.9, 12)
         gvif_axis.set_yticks([1, 2, 5, 10], ["1", "2", "5", "10"])
         gvif_axis.set_ylabel("variance inflation,\n" + r"GVIF$^{1/p}$")
-        for m, shade, subject in zip(measures, ("0.15", "0.6"), subjects):
+        for m in measures:
             for unit in m["condition_indices"]:
-                index_axis.plot(unit, color=shade, alpha=0.15, lw=0.5, rasterized=True)
-            index_axis.text(
-                0.97,
-                0.97 - 0.09 * (shade != "0.15"),
-                subject,
-                color=shade,
-                transform=index_axis.transAxes,
-                ha="right",
-                va="top",
-                fontsize=6,
-            )
+                index_axis.plot(unit, color="0.3", alpha=0.12, lw=0.5, rasterized=True)
+        index_axis.text(
+            0.97,
+            0.97,
+            f"{sum(len(m['condition_indices']) for m in measures)} units, {len(measures)} mice",
+            transform=index_axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=6,
+        )
         for value in INDEX_LIMITS:
             index_axis.axhline(value, color=REFERENCE_COLOR, ls="--", lw=0.8)
         index_axis.set_yscale("log")
