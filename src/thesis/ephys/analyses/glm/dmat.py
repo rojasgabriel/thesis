@@ -158,6 +158,11 @@ TRIAL_TIME_WINDOW_S = 1.5
 TRIAL_TIME_BASES = 6
 CHOICE_KERNEL_TERM = False
 CHOICE_KERNEL = "choice_kernel"
+# - Previous outcome: +1 if the last trial with a response was rewarded, -1 if
+#   not, over the whole window of the trial (0 before the first response of
+#   the session). `unique_dev.py` shuffles it over trials.
+PREVIOUS_OUTCOME_COLUMN = False
+PREVIOUS_OUTCOME = "previous_outcome"
 CHOICE_KERNEL_S = (-0.3, 0.6)
 CHOICE_KERNEL_BASES = 9
 HOLD = "hold"
@@ -648,6 +653,21 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "response, up to the center exit, else 0",
             }
         )
+    if PREVIOUS_OUTCOME_COLUMN:
+        outcome = np.nan_to_num(trials["last_outcome"].to_numpy(dtype=float))[:, None]
+        values = np.column_stack(
+            (values, np.repeat(outcome, times.shape[1], axis=1).ravel())
+        )
+        manifest.append(
+            {
+                "name": PREVIOUS_OUTCOME,
+                "group": "task",
+                "events": int(np.count_nonzero(outcome)),
+                "columns": 1,
+                "coding": "+1 (rewarded) or -1 (not) for the last trial with a "
+                "response, over the whole window, else 0",
+            }
+        )
     if SESSION_DRIFT:
         drift = session_drift_columns(np.asarray(alignments, dtype=float))
         values = np.column_stack((values, np.repeat(drift, times.shape[1], axis=0)))
@@ -799,6 +819,12 @@ def _load_selected_trials(prepared: dict):
     trials = build_trial_table(
         metadata["subject_name"], metadata["session_name"], include_frames=False
     )
+    # The outcome of the last trial with a response before this one: +1 rewarded,
+    # -1 not; from the full table, so that early withdrawals are skipped.
+    responded = trials["response"].isin((-1, 1))
+    trials = trials.assign(
+        last_outcome=np.where(trials["rewarded"] == 1, 1.0, -1.0)
+    ).assign(last_outcome=lambda t: t["last_outcome"].where(responded).ffill().shift(1))
     trials = trials.iloc[prepared["selected_rows"]].reset_index(drop=True)
     if not np.array_equal(trials["trial_num"], prepared["selected_trial_numbers"]):
         raise ValueError("Prepared and live trial selections differ.")
@@ -949,6 +975,7 @@ def _common_design_is_current(output: Path) -> bool:
             (FIXATION, 1, FIXATION_COLUMN),
             (SIDE, 1, SIDE_COLUMN),
             (PREVIOUS_SIDE, 1, PREVIOUS_SIDE_COLUMN),
+            (PREVIOUS_OUTCOME, 1, PREVIOUS_OUTCOME_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
             (TIME_IN_TRIAL, TRIAL_TIME_BASES, TIME_IN_TRIAL_TERM),
             (FLASH_RATE, TRIAL_TIME_BASES, FLASH_RATE_TERM),

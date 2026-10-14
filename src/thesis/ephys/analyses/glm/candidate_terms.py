@@ -55,6 +55,7 @@ CANDIDATES = {
     "TIME_IN_TRIAL_TERM": dmat.TIME_IN_TRIAL,
     "FLASH_RATE_TERM": dmat.FLASH_RATE,
     "CHOICE_KERNEL_TERM": dmat.CHOICE_KERNEL,
+    "PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME,
 }
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4

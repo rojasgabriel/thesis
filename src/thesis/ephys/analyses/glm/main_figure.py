@@ -110,6 +110,7 @@ REGRESSORS = {
     "time_in_trial": ("time in trial", TASK),
     "flash_rate": ("flash rate × time", VISUAL),
     "choice_kernel": ("choice kernel", TASK),
+    "previous_outcome": ("previous outcome", TASK),
 }
 
 CAPTION = """\

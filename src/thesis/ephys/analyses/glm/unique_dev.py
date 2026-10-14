@@ -44,6 +44,7 @@ from thesis.ephys.analyses.glm.dmat import (
     DRIFT,
     FLASH_RATE,
     HISTORY_COLUMNS,
+    PREVIOUS_OUTCOME,
     PREVIOUS_SIDE,
     SIDE,
     _design_with_history,
@@ -64,7 +65,7 @@ from thesis.ephys.analyses.glm.fit import (
 from thesis.ephys.units import fetch_unit_table
 
 # The regressors that are a variable of the trial, shuffled over trials.
-OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, FLASH_RATE, CHOICE_KERNEL)
+OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, FLASH_RATE, CHOICE_KERNEL, PREVIOUS_OUTCOME)
 # The name of the shuffle rule, saved in each record.
 SHUFFLE_RULE = "trial variables over trials, 2026-10-14"
 
