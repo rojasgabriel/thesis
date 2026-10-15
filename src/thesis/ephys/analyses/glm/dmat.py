@@ -19,6 +19,7 @@ from trial table plus video to fit-ready inputs.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -174,6 +175,13 @@ TURN_DIRECTION_S = 0.6
 TURN_DIRECTION_BASES = 6
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
+# `THESIS_GLM_TERMS` switches terms on for a whole run, also in the worker
+# processes, which import this module again: a comma-separated list of the
+# switch names above, for example "TIME_IN_TRIAL_TERM,TURN_DIRECTION_TERM".
+for _switch in filter(None, os.environ.get("THESIS_GLM_TERMS", "").split(",")):
+    if globals().get(_switch) is not False:
+        raise ValueError(f"THESIS_GLM_TERMS: {_switch} is not a switch of the design.")
+    globals()[_switch] = True
 HOLD = "hold"
 HISTORY_COLUMNS = 10
 

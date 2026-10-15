@@ -25,6 +25,11 @@ from thesis.ephys.analyses.glm.dmat import (
     FLASH_MOVE_GAP,
     HISTORY_COLUMNS,
     HOLD,
+    TIME_IN_TRIAL,
+    TRIAL_TIME_WINDOW_S,
+    TURN_DIRECTION,
+    TURN_DIRECTION_S,
+    _bumps,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
@@ -91,6 +96,11 @@ def fitted_trial_contributions(
     return contributions, linear_predictor, expected_count
 
 
+# State blocks with several columns: raised cosines over this time (s) from
+# the first flash or the center exit, built in `dmat.build_task_design`.
+SPREAD_STATES = {TIME_IN_TRIAL: TRIAL_TIME_WINDOW_S, TURN_DIRECTION: TURN_DIRECTION_S}
+
+
 def fitted_kernels(
     result: dict, design_metadata: dict, history_scale: np.ndarray
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -116,6 +126,15 @@ def fitted_kernels(
     for item in design_metadata["task_manifest"]:
         name = item["name"]
         stop = cursor + int(item["columns"])
+        if name in SPREAD_STATES:  # raised cosines over a time from an event
+            seconds = np.linspace(0, SPREAD_STATES[name], 200)
+            kernels[name] = (
+                1000 * seconds,
+                _bumps(seconds / SPREAD_STATES[name], stop - cursor)
+                @ weights[cursor:stop],
+            )
+            cursor = stop
+            continue
         if name not in bases:  # a state column: one weight, shown as a step
             kernels[name] = (np.asarray([0.0, 1.0]), np.repeat(weights[cursor], 2))
             cursor = stop
