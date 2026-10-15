@@ -17,7 +17,7 @@ movement of that specific trial.
 
 A shuffle permutes design rows among the valid bins of each trial. A block
 that is a variable of the trial (`OVER_TRIALS`: drift, the previous side, the
-side of the response, the flash-rate category, the choice kernel) is instead
+side of the response, the turn direction, the previous outcome) is instead
 taken from another trial at the same bin (`trial_swap_permutation`), because a
 shuffle inside the trial keeps its value there. All columns of a block move
 together. One permutation (`SHUFFLE_SEED`) is shared by all
@@ -40,13 +40,12 @@ import numpy as np
 from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
-    CHOICE_KERNEL,
     DRIFT,
-    FLASH_RATE,
     HISTORY_COLUMNS,
     PREVIOUS_OUTCOME,
     PREVIOUS_SIDE,
     SIDE,
+    TURN_DIRECTION,
     _design_with_history,
     _load_windows,
     build_unit_history,
@@ -65,7 +64,7 @@ from thesis.ephys.analyses.glm.fit import (
 from thesis.ephys.units import fetch_unit_table
 
 # The regressors that are a variable of the trial, shuffled over trials.
-OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, FLASH_RATE, CHOICE_KERNEL, PREVIOUS_OUTCOME)
+OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, TURN_DIRECTION, PREVIOUS_OUTCOME)
 # The name of the shuffle rule, saved in each record.
 SHUFFLE_RULE = "trial variables over trials, 2026-10-14"
 
@@ -263,7 +262,7 @@ def _block_task(job: dict) -> dict:
 
         def shuffle_of(name):
             # A variable of the trial (drift, the previous side, the side of the
-            # response, the flash-rate category) is shuffled over trials. A
+            # response, the turn direction, the previous outcome) is shuffled over trials. A
             # shuffle inside a trial keeps its sign there, so it would test only
             # when the column turns on, not the variable.
             return between if name in OVER_TRIALS else within

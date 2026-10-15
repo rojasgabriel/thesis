@@ -139,32 +139,41 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # units need it in the two sessions).
 FLASH_MOVE_GAP_TERM = True
 FLASH_MOVE_GAP = "flash_move_gap"
-# Candidate terms, off in the model in use. The residual checks of 2026-10-13
-# (`residual_checks.py`, GRB006) found three kinds of structure that the model
-# leaves: over the time in the trial, by the flash rate, and in the time course
-# of the choice. `candidate_terms.py` tests them with the inclusion rule.
+# Candidate terms, off in the model in use. `candidate_terms.py` tests them with
+# the inclusion rule (decided with Gabriel, 2026-10-15).
 # - Time in trial: `TRIAL_TIME_BASES` raised cosines over the time from the
-#   first flash, 0 to `TRIAL_TIME_WINDOW_S`; 0 outside.
-# - Flash rate: the same bases times the category of the trial (+1 above the
-#   category boundary, -1 below it, 0 at it).
-# - Choice kernel: the side of the response (+1 right, -1 left) times
-#   `CHOICE_KERNEL_BASES` raised cosines over `CHOICE_KERNEL_S` around the
-#   center exit; 0 outside. It adds a time course to the choice column.
-TIME_IN_TRIAL_TERM = False
-TIME_IN_TRIAL = "time_in_trial"
-FLASH_RATE_TERM = False
-FLASH_RATE = "flash_rate"
-TRIAL_TIME_WINDOW_S = 1.5
-TRIAL_TIME_BASES = 6
-CHOICE_KERNEL_TERM = False
-CHOICE_KERNEL = "choice_kernel"
+#   first flash, 0 to `TRIAL_TIME_WINDOW_S`; 0 outside. From the residual
+#   checks of 2026-10-13.
+# - Accumulated evidence: the number of flashes of the trial up to the bin,
+#   minus its expected value for the rate of the trial. A trial with rate N has
+#   N flashes in 25 slots of `FLASH_SLOT_S`; the first slot always has one, and
+#   the other N - 1 go to random slots of the other 24. So the expected count
+#   when k of those 24 slots have started is 1 + (N - 1) k / 24. The term is 0
+#   before the first flash and varies only by the random placement, so it is
+#   separable from the rate, the category, and the choice. It tests whether
+#   V1 carries the accumulated flashes on top of the 150-ms flash kernels.
+# - Turn direction: the side of the response (+1 right, -1 left) times
+#   `TURN_DIRECTION_BASES` raised cosines from the center exit to
+#   `TURN_DIRECTION_S` after it; 0 outside. A direction-specific movement
+#   signal, which motion energy cannot carry; it adds a time course to the
+#   choice column after the exit. Nothing before the exit, where the side is
+#   confounded with the stimulus.
 # - Previous outcome: +1 if the last trial with a response was rewarded, -1 if
 #   not, over the whole window of the trial (0 before the first response of
 #   the session). `unique_dev.py` shuffles it over trials.
+TIME_IN_TRIAL_TERM = False
+TIME_IN_TRIAL = "time_in_trial"
+TRIAL_TIME_WINDOW_S = 1.5
+TRIAL_TIME_BASES = 6
+ACCUMULATED_EVIDENCE_TERM = False
+ACCUMULATED_EVIDENCE = "accumulated_evidence"
+STIMULUS_SLOTS = 25
+TURN_DIRECTION_TERM = False
+TURN_DIRECTION = "turn_direction"
+TURN_DIRECTION_S = 0.6
+TURN_DIRECTION_BASES = 6
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
-CHOICE_KERNEL_S = (-0.3, 0.6)
-CHOICE_KERNEL_BASES = 9
 HOLD = "hold"
 HISTORY_COLUMNS = 10
 
@@ -492,6 +501,26 @@ def _bumps(position: np.ndarray, count: int) -> np.ndarray:
     return np.where(np.abs(distance) < 1, 0.5 * (1 + np.cos(np.pi * distance)), 0.0)
 
 
+def accumulated_evidence(trials, times: np.ndarray, first: np.ndarray) -> np.ndarray:
+    """Return the flashes up to each bin minus their expected number (trial x bin).
+
+    `times` are the bin times (trial x bin) and `first` the first flash of each
+    trial. See `ACCUMULATED_EVIDENCE` for the expected number.
+    """
+    out = np.zeros(times.shape)
+    for row, (flashes, rate) in enumerate(
+        zip(trials["stim_pulse_times_s"], trials["visual_stim_rate_hz"], strict=True)
+    ):
+        flashes = np.sort(np.asarray(flashes, dtype=float))
+        flashes = flashes[flashes >= first[row] - 1e-6]
+        since = times[row] - first[row]
+        count = np.searchsorted(flashes - first[row], since, side="right")
+        started = np.clip(np.floor(since / FLASH_SLOT_S), 0, STIMULUS_SLOTS - 1)
+        expected = 1 + (float(rate) - 1) * started / (STIMULUS_SLOTS - 1)
+        out[row] = np.where(since >= 0, count - expected, 0.0)
+    return out
+
+
 def session_drift_columns(trial_times: np.ndarray) -> np.ndarray:
     """Return the drift columns of each trial: smooth bumps over the session.
 
@@ -682,15 +711,18 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             }
         )
     since_first = times - np.asarray(alignments, dtype=float)[:, None]
-    over_trial = _bumps(since_first / TRIAL_TIME_WINDOW_S, TRIAL_TIME_BASES)
-    category = np.sign(
-        trials["visual_stim_rate_hz"].to_numpy(dtype=float)
-        - trials["category_boundary_hz"].to_numpy(dtype=float)
+    in_window = (since_first >= 0) & (since_first <= TRIAL_TIME_WINDOW_S)
+    over_trial = (
+        _bumps(since_first / TRIAL_TIME_WINDOW_S, TRIAL_TIME_BASES)
+        * in_window[..., None]
     )
     since_exit = times - trials["center_exit_s"].to_numpy(dtype=float)[:, None]
-    around_exit = _bumps(
-        (since_exit - CHOICE_KERNEL_S[0]) / np.ptp(CHOICE_KERNEL_S), CHOICE_KERNEL_BASES
+    after_exit = (since_exit >= 0) & (since_exit <= TURN_DIRECTION_S)
+    turn = (
+        _bumps(since_exit / TURN_DIRECTION_S, TURN_DIRECTION_BASES)
+        * after_exit[..., None]
     )
+    side = np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None, None]
     for name, used, block, coding in (
         (
             TIME_IN_TRIAL,
@@ -700,19 +732,22 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "from the first flash",
         ),
         (
-            FLASH_RATE,
-            FLASH_RATE_TERM,
-            category[:, None, None] * over_trial,
-            "the time-in-trial bases times the category (+1 above the boundary, "
-            "-1 below, 0 at it)",
+            ACCUMULATED_EVIDENCE,
+            ACCUMULATED_EVIDENCE_TERM,
+            accumulated_evidence(trials, times, np.asarray(alignments, dtype=float))[
+                ..., None
+            ]
+            if ACCUMULATED_EVIDENCE_TERM
+            else None,
+            "flashes up to the bin minus 1 + (N - 1) k / 24 (N flashes, k of the 24 "
+            "random slots started); 0 before the first flash",
         ),
         (
-            CHOICE_KERNEL,
-            CHOICE_KERNEL_TERM,
-            np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None, None]
-            * around_exit,
-            f"+1 (right) or -1 (left) times {CHOICE_KERNEL_BASES} raised cosines "
-            f"over {CHOICE_KERNEL_S[0]} to {CHOICE_KERNEL_S[1]} s from the center exit",
+            TURN_DIRECTION,
+            TURN_DIRECTION_TERM,
+            side * turn,
+            f"+1 (right) or -1 (left) times {TURN_DIRECTION_BASES} raised cosines "
+            f"from the center exit to {TURN_DIRECTION_S} s after it",
         ),
     ):
         if used:
@@ -978,8 +1013,8 @@ def _common_design_is_current(output: Path) -> bool:
             (PREVIOUS_OUTCOME, 1, PREVIOUS_OUTCOME_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
             (TIME_IN_TRIAL, TRIAL_TIME_BASES, TIME_IN_TRIAL_TERM),
-            (FLASH_RATE, TRIAL_TIME_BASES, FLASH_RATE_TERM),
-            (CHOICE_KERNEL, CHOICE_KERNEL_BASES, CHOICE_KERNEL_TERM),
+            (ACCUMULATED_EVIDENCE, 1, ACCUMULATED_EVIDENCE_TERM),
+            (TURN_DIRECTION, TURN_DIRECTION_BASES, TURN_DIRECTION_TERM),
             (IN_PORT, 1, IN_PORT_COLUMN),
         )
         if used

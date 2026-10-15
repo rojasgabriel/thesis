@@ -49,12 +49,13 @@ from thesis.ephys.units import fetch_unit_table
 # Fourth run ("_flash_move_candidates"): flash × move × gap and flash × motion
 # energy, together.
 # Fifth run ("_flash_move_gap"): flash × move × gap.
-# Sixth run: the three kinds of structure that the residual checks found.
+# Sixth run: time in trial, accumulated evidence, turn direction, and the
+# previous outcome (2026-10-15).
 ROOT_SUFFIX = "_residual_candidates"
 CANDIDATES = {
     "TIME_IN_TRIAL_TERM": dmat.TIME_IN_TRIAL,
-    "FLASH_RATE_TERM": dmat.FLASH_RATE,
-    "CHOICE_KERNEL_TERM": dmat.CHOICE_KERNEL,
+    "ACCUMULATED_EVIDENCE_TERM": dmat.ACCUMULATED_EVIDENCE,
+    "TURN_DIRECTION_TERM": dmat.TURN_DIRECTION,
     "PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME,
 }
 # The units of the design choices: the sets of 20 units of the grids.

@@ -108,8 +108,8 @@ REGRESSORS = {
     "video": ("motion energy", MOTION),
     "session_drift": ("session drift", DRIFT_COLOR),
     "time_in_trial": ("time in trial", TASK),
-    "flash_rate": ("flash rate × time", VISUAL),
-    "choice_kernel": ("choice kernel", TASK),
+    "accumulated_evidence": ("accumulated evidence", VISUAL),
+    "turn_direction": ("turn direction", TASK),
     "previous_outcome": ("previous outcome", TASK),
 }
 
