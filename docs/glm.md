@@ -656,16 +656,19 @@ holds for other trials.
     already below that middle level before 40 ms, so the measure gave the
     start of its search and not a time of the drop. The −30 ms is not a
     result.
-- The side preference of single units does not need the stimulus (2026-10-12,
-  both sessions, no model; scratch run). Side index of a unit: (right − left)
-  / (right + left) of its rate. After the exit, about half of the units have
-  an index above 0.2 in size (51% in GRB006, 50% in GRB064; split-half
-  Spearman ρ = 0.82 and 0.77). The index with the stimulus on (100 ms after
-  the exit to the last flash) agrees with the index with the stimulus off
-  (150 ms after the last flash to the response entry, in the dark): ρ = 0.51
-  in GRB006 and 0.57 in GRB064, against a limit of about 0.7 and 0.8 from the
-  split-half values. In the fixation the index is small and has no relation to
-  the index after the exit (ρ = −0.05 and −0.11). So the side preference is a
+- The side preference of single units does not need the stimulus (2026-10-15,
+  `side_preference.py`, both sessions, no model, with the corrected response
+  entries of GRB064; panel k of `hold_effect.svg`). Side index of a unit:
+  (right − left) / (right + left) of its rate. With the stimulus on after the
+  exit (100 ms after the exit to 100 ms after the last flash), about half of
+  the units have an index above 0.2 in size (51% of 168 units in GRB006, 54%
+  of 78 in GRB064; split-half Spearman ρ = 0.86 in both). The index with the
+  stimulus on agrees with the index with the stimulus off (150 ms after the
+  last flash to the response entry, in the dark; split-half ρ = 0.57 and
+  0.72): ρ = 0.51 in GRB006 and 0.60 in GRB064, against a limit of about 0.70
+  and 0.79 from the split-half values (the geometric mean of the two). In the
+  fixation the index is small and has no relation to the index after the exit
+  (ρ = −0.05 and −0.12). So the side preference is a
   signal of the movement or of the place of the animal, not of the view of the
   stimulus. Limit: the window with the stimulus off is later in the movement.
 - The most probable explanation with these data, in both animals: the rate
