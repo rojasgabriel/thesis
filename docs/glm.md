@@ -563,7 +563,7 @@ holds for other trials.
 | Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
 | Stillness in the port | The same low rate at a side port with the same motion energy, and the same rise with motion energy | No, in both animals: the side-port rate goes up with motion energy and the center-port rate does not (p = 8e-11 and 5e-6). At the lowest motion energy alone: 0.78 of the side-port rate in GRB006, 0.84 (p = 0.31) in GRB064 |
 | A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully, and the two animals differ. Units with a larger flash response are suppressed more in GRB006 (Spearman ρ = −0.20, p = 0.01; the earlier design gave −0.41), not in GRB064 (ρ = +0.18, p = 0.12). For flashes after a long gap, the response changes more than the baseline in GRB006 (+0.18 in log, p = 0.0003) and much less in GRB064 (−0.75, 8 of 65 units above 0, p = 1e-9); for short gaps, no difference in either (0.00 and −0.03) |
-| The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate is not lower from the center entry to the first flash |
+| The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate already falls from the center entry to the first flash, with no stimulus (0.95 of the rate before the entry in GRB006, 0.70 in GRB064) |
 
 - The matched-time test is not possible in this session. The fixation has
   almost the same length in all trials (1st to 95th percentile: 488 to
@@ -625,21 +625,37 @@ holds for other trials.
   percentile: 455 to 747 ms), so the matched-time test is not possible there
   either; the early withdrawals are what separates the exit from the time in
   the train.
-- What starts the suppression (2026-10-12, observed population rate in 10 ms
-  bins, no model; scratch run, not in the repository). The time from the
-  center entry to the first flash differs between trials (26 to 99 ms in
-  GRB006), so the trials were cut in two halves by that time (medians 36 and
-  73 ms).
-  - GRB006 (168 units, 295 trials): the drop is locked to the first flash. It
-    comes 85 ms after the first flash in both halves (difference 0 ms, 95%
-    interval −10 to 0). From the center entry it comes at 125 and 155 ms
-    (difference +30 ms, interval 30 to 50), which is the difference in the
-    time of the first flash.
-  - GRB064 (78 units, 239 trials): not clear. The rate goes down slowly from
-    about 200 ms before the first flash, so this measure of the time of the
-    drop does not work there. The drop is the same in early-withdrawal and
-    completed trials (rate from 120 to 250 ms over the rate before: 0.50 and
-    0.51).
+- Does the drop start before the stimulus? (2026-10-15,
+  `suppression_onset.py`, no model; panel e of `hold_effect.svg`.) The time
+  from the center entry to the first flash differs between trials (5th to
+  95th percentile 26 to 99 ms in GRB006, 31 to 106 ms in GRB064). In the
+  trials with a long delay (the upper half; median 73 and 83 ms), the rate of
+  each unit from 20 ms after the entry to the first flash (the port with no
+  stimulus; median window 53 and 63 ms) is compared with its rate 250 to
+  100 ms before the entry, paired over units. For scale, the rate 180 to
+  290 ms after the first flash over the same rate before the entry is the full
+  drop.
+
+  | Mouse | Units, long-delay trials | Entry to first flash, over before entry | 180–290 ms after the first flash, over before entry |
+  | --- | --- | --- | --- |
+  | GRB006 | 166, 148 | 0.95 (lower in 101 units, p = 0.002) | 0.59 |
+  | GRB064 | 75, 120 | 0.70 (lower in 58 units, p = 4e-8) | 0.47 |
+
+  On a log scale, about 10% of the full drop comes before the first flash in
+  GRB006 and about half in GRB064. So the drop does not need the stimulus to
+  start, and in GRB064 a large part of it comes with the entry. Two-sided
+  Wilcoxon signed-rank tests of the log ratio; the units share the trials.
+  Limit: the population rate also goes down slowly in the 100 ms before the
+  entry, while the animal comes to the port, so a part of the drop may follow
+  the approach and not the entry. The trial table has no measure of the
+  approach that could separate them.
+  - This replaces the time of the drop (2026-10-12): the first time after
+    40 ms at which the smoothed rate is below the middle of its levels before
+    and late. It gave 0 ms (GRB006) and −30 ms (GRB064) for the shift of the
+    long against the short delays from the entry. In GRB064 the rate was
+    already below that middle level before 40 ms, so the measure gave the
+    start of its search and not a time of the drop. The −30 ms is not a
+    result.
 - The side preference of single units does not need the stimulus (2026-10-12,
   both sessions, no model; scratch run). Side index of a unit: (right − left)
   / (right + left) of its rate. After the exit, about half of the units have
@@ -661,12 +677,14 @@ holds for other trials.
   the port during the stimulus) that ends with the exit. Slow adaptation, the
   view of the stimulus, and a gain that grows with movement are less
   probable.
-- Only in GRB006: the suppression starts about 80 ms after the first flash and
-  not at the center entry, and it is larger in units with a larger flash
-  response. GRB064 shows neither (the rate falls before 50 ms, and ρ = +0.18
-  for the flash response). So "units with a visual response" is not part of
-  the explanation. Not known: what starts it, and what the side preference of
-  single units after the exit is.
+- Only in GRB006: most of the suppression comes after the first flash (about
+  90% on a log scale), and it is larger in units with a larger flash response.
+  In GRB064 about half of the drop comes between the entry and the first
+  flash, and ρ = +0.18 for the flash response. So "units with a visual
+  response" is not part of the explanation, and the drop starts with the
+  entry into the port (or the approach to it) in both mice, with a part that
+  follows the first flash. Not known: what starts it, and what the side
+  preference of single units after the exit is.
 
 ## Collinearity of the regressors
 
