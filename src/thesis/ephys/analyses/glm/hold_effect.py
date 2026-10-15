@@ -44,8 +44,8 @@ signal after the exit is.
   number is in `hold_effect_stats.json`.
 - Panel e (does the drop start before the stimulus?), from
   `suppression_onset.py`, no model. Left: the population rate of the trials
-  with a short and a long delay from the center entry to the first flash,
-  aligned to the center entry; the units of both mice are pooled as the mean
+  with a long delay from the center entry to the first flash (the upper half
+  of the delays), aligned to the center entry; the units of both mice are pooled as the mean
   of the two mice weighted by their units. Right: in the long delays, the rate
   of each unit from `ENTRY_LAG_MS` after the entry to the first flash, and in
   `LATE_MS` after the first flash, over its rate before the entry (the gray
@@ -177,9 +177,9 @@ bands are the median and the interquartile range. **d**, The paired comparison. 
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
 the 10 cross-validation folds). {paired} {outside_d} **e**, Does the drop
-start before the stimulus? Left: the population rate, with no model, of trials
-with a short and a long delay from the center entry to the first flash,
-aligned to the center entry. Right: {onset} **f**, Does the rise at the
+start before the stimulus? Left: the population rate, with no model, of the
+trials with a long delay from the center entry to the first flash (the upper
+half of the delays), aligned to the center entry. Right: {onset} **f**, Does the rise at the
 withdrawal need the stimulus? The rate around the withdrawal in completed
 trials, where the flashes go on, and in early withdrawals, where they stop
 ({exit_subject}, mean and SEM over units). {exit} **g**, Control for the
@@ -230,7 +230,6 @@ EXIT_NAME = "exit_without_stimulus"
 SIDE_NAME = "side_preference"
 # Only this session has early withdrawals.
 EXIT_SESSION = SESSIONS[1]
-DELAY_COLORS = {"short delay": "0.6", "long delay": OBSERVED_COLOR}
 ONSET_WINDOW_MS = (-250, 290)
 
 
@@ -702,20 +701,17 @@ def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
     time = np.asarray(results[0]["time_ms"])
     shown = (time >= ONSET_WINDOW_MS[0]) & (time <= ONSET_WINDOW_MS[1])
     trace = figure.add_subplot(slots[0])
-    for (delay, color), height in zip(DELAY_COLORS.items(), (0.2, 0.08), strict=True):
-        # The units of both mice pooled: the mean of the mice, weighted by units.
-        rate = np.average(
-            [
-                data["aligned to the center entry"]["mean_rate"][delay]
-                for data in results
-            ],
-            axis=0,
-            weights=weights,
-        )
-        trace.plot(time[shown], rate[shown], color=color, lw=1)
-        trace.text(
-            0.03, height, delay, color=color, transform=trace.transAxes, fontsize=5.5
-        )
+    # The units of both mice pooled: the mean of the mice, weighted by units.
+    rate = np.average(
+        [
+            data["aligned to the center entry"]["mean_rate"]["long delay"]
+            for data in results
+        ],
+        axis=0,
+        weights=weights,
+    )
+    trace.plot(time[shown], rate[shown], color=OBSERVED_COLOR, lw=1)
+    trace.set_title("long delays", fontsize=6, loc="left")
     # The two windows of the test, and the median first flash of the long delays.
     for limits in (
         onset.BEFORE_ENTRY_MS,
