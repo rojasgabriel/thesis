@@ -42,13 +42,15 @@ signal after the exit is.
   directions. Two-sided Wilcoxon signed-rank test of the two values. Points
   outside `LEVEL_LIMITS` are not drawn; they are in the statistics, and their
   number is in `hold_effect_stats.json`.
-- Panel e (what starts the drop): the population rate, no model, of the
-  trials with a short and a long delay from the center entry to the first
-  flash, aligned to the first flash (left) and to the center entry (right),
-  from `suppression_onset.py`. The units of both mice are pooled as the mean
-  of the two mice weighted by their units. A drop that follows the first flash
-  has the same time from the first flash in both delays. The shift of the
-  drop (long minus short) of each mouse is in the panel.
+- Panel e (does the drop start before the stimulus?), from
+  `suppression_onset.py`, no model. Left: the population rate of the trials
+  with a short and a long delay from the center entry to the first flash,
+  aligned to the center entry; the units of both mice are pooled as the mean
+  of the two mice weighted by their units. Right: in the long delays, the rate
+  of each unit from `ENTRY_LAG_MS` after the entry to the first flash, and in
+  `LATE_MS` after the first flash, over its rate before the entry (the gray
+  bands of the left panel; log axis). A ratio below 1 before the flash is a
+  drop with no stimulus.
 - Panel f (does the rise at the exit need the stimulus?): the rate around the
   center exit in completed trials (the flashes go on) and in early
   withdrawals (the flashes stop), mean and SEM over units, from
@@ -124,6 +126,7 @@ from scipy.stats import sem, wilcoxon
 from sklearn.linear_model import PoissonRegressor
 
 from thesis.ephys.analyses import exit_without_stimulus
+from thesis.ephys.analyses import suppression_onset as onset
 from thesis.ephys.analyses.glm import cli, dmat, port_vs_stillness
 from thesis.ephys.analyses.glm.fit import (
     analysis_unit_indices,
@@ -143,6 +146,7 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     peak_axes,
     pooled_points,
+    pooled_strip,
     save_figure,
     separate_axes,
 )
@@ -172,10 +176,10 @@ change: a kernel from the withdrawal to the response entry in place of the
 bands are the median and the interquartile range. **d**, The paired comparison. For
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
-the 10 cross-validation folds). {paired} {outside_d} **e**, What starts the
-drop. The population rate, with no model, of trials with a short and a long
-delay from the center entry to the first flash, aligned to the first flash
-(left) and to the center entry (right). {onset} **f**, Does the rise at the
+the 10 cross-validation folds). {paired} {outside_d} **e**, Does the drop
+start before the stimulus? Left: the population rate, with no model, of trials
+with a short and a long delay from the center entry to the first flash,
+aligned to the center entry. Right: {onset} **f**, Does the rise at the
 withdrawal need the stimulus? The rate around the withdrawal in completed
 trials, where the flashes go on, and in early withdrawals, where they stop
 ({exit_subject}, mean and SEM over units). {exit} **g**, Control for the
@@ -227,7 +231,7 @@ SIDE_NAME = "side_preference"
 # Only this session has early withdrawals.
 EXIT_SESSION = SESSIONS[1]
 DELAY_COLORS = {"short delay": "0.6", "long delay": OBSERVED_COLOR}
-ONSET_WINDOW_MS = (-200, 290)
+ONSET_WINDOW_MS = (-250, 290)
 
 
 def after_exit_basis() -> dmat.BasisFunction:
@@ -691,58 +695,68 @@ def _draw_examples(figure, examples, data: dict) -> list:
     return first
 
 
-def _draw_onset(figure, slots, results: list[dict]) -> list:
-    """Draw panel e: the population rate of short and long delays, from the first
-    flash and from the center entry; return the two axes."""
+def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
+    """Draw panel e: the population rate from the center entry, and the paired
+    test of the drop before the first flash; return the axes and its statistics."""
     weights = np.array([data["units"] for data in results], dtype=float)
     time = np.asarray(results[0]["time_ms"])
     shown = (time >= ONSET_WINDOW_MS[0]) & (time <= ONSET_WINDOW_MS[1])
-    axes = []
-    for slot, (key, event, color) in zip(
-        slots,
+    trace = figure.add_subplot(slots[0])
+    for (delay, color), height in zip(DELAY_COLORS.items(), (0.2, 0.08), strict=True):
+        # The units of both mice pooled: the mean of the mice, weighted by units.
+        rate = np.average(
+            [
+                data["aligned to the center entry"]["mean_rate"][delay]
+                for data in results
+            ],
+            axis=0,
+            weights=weights,
+        )
+        trace.plot(time[shown], rate[shown], color=color, lw=1)
+        trace.text(
+            0.03, height, delay, color=color, transform=trace.transAxes, fontsize=5.5
+        )
+    # The two windows of the test, and the median first flash of the long delays.
+    for limits in (
+        onset.BEFORE_ENTRY_MS,
         (
-            ("aligned to the first flash", "first flash", VISUAL),
-            ("aligned to the center entry", "center entry", TASK),
+            onset.ENTRY_LAG_MS,
+            np.median([d["median_delay_ms_short_and_long"][1] for d in results]),
         ),
-        strict=True,
     ):
-        axis = figure.add_subplot(slot, sharey=axes[0] if axes else None)
-        for delay, line_color in DELAY_COLORS.items():
-            # The units of both mice pooled: the mean of the mice, weighted by units.
-            rate = np.average(
-                [data[key]["mean_rate"][delay] for data in results],
-                axis=0,
-                weights=weights,
+        trace.axvspan(*limits, color=REFERENCE_COLOR, alpha=0.25, lw=0)
+    trace.axvline(0, color=TASK, lw=0.8)
+    trace.set_xlabel("time from center entry (ms)")
+    trace.set_ylabel("normalized\nfiring rate")
+    strip = figure.add_subplot(slots[1])
+    subjects = [data["subject"] for data in results]
+    summary = {}
+    for position, (key, label) in enumerate(
+        (
+            ("entry to first flash over before entry", "entry to\nfirst flash"),
+            (
+                "late over before entry",
+                f"{onset.LATE_MS[0]}-{onset.LATE_MS[1]} ms\nafter flash",
+            ),
+        )
+    ):
+        groups = []
+        for data in results:
+            ratio = np.asarray(
+                data["long-delay trials"]["ratio_by_unit"][key], dtype=float
             )
-            axis.plot(time[shown], rate[shown], color=line_color, lw=1)
-        axis.axvline(0, color=color, lw=0.8)
-        axis.set_xlabel(f"time from {event} (ms)")
-        shift = "\n".join(
-            f"{data['subject']}: {data[key]['long minus short']['drop_ms']:+.0f} ms"
-            for data in results
+            groups.append(np.log2(ratio[np.isfinite(ratio) & (ratio > 0)]))
+        summary[key] = pooled_strip(
+            strip, position, groups, subjects, TASK if position else OBSERVED_COLOR
         )
-        axis.text(
-            0.98,
-            0.98,
-            f"drop, long − short:\n{shift}",
-            transform=axis.transAxes,
-            ha="right",
-            va="top",
-            fontsize=5.5,
-        )
-        axes.append(axis)
-    axes[0].set_ylabel("normalized\nfiring rate")
-    for (delay, line_color), height in zip(DELAY_COLORS.items(), (0.2, 0.08)):
-        axes[1].text(
-            0.03,
-            height,
-            delay,
-            color=line_color,
-            transform=axes[1].transAxes,
-            fontsize=5.5,
-        )
-    axes[1].tick_params(labelleft=False)
-    return axes
+    strip.axhline(0, color=REFERENCE_COLOR, lw=0.8)
+    strip.set_xticks([0, 1], ["entry to\nfirst flash", "late\nfixation"])
+    strip.set_xlim(-0.5, 1.7)
+    strip.set_ylim(-3, 2)
+    strip.set_yticks([-3, -2, -1, 0, 1, 2], ["1/8", "1/4", "1/2", "1", "2", "4"])
+    strip.set_ylabel("rate over rate\nbefore entry")
+    strip.set_title("long delays", fontsize=6, loc="left")
+    return [trace, strip], summary
 
 
 def _draw_exit(axis, result: dict) -> None:
@@ -1017,7 +1031,9 @@ def main() -> None:
 
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
         paired = figure.add_subplot(grid[0][0])
-        onset_axes = _draw_onset(figure, (grid[0][1], grid[0][2]), raw[ONSET_NAME])
+        onset_axes, onset_stats = _draw_onset(
+            figure, (grid[0][1], grid[0][2]), raw[ONSET_NAME]
+        )
         exit_axis = figure.add_subplot(grid[1][0])
         _draw_exit(exit_axis, raw[EXIT_NAME][0])
         order_axis = figure.add_subplot(grid[1][1])
@@ -1147,6 +1163,9 @@ def main() -> None:
 
     stats = {s: data["stats"] for s, data in zip(SESSIONS, sessions, strict=True)}
     stats["side index (panel k)"] = side_stats
+    stats["log2 rate over the rate before the entry, long delays (panel e)"] = (
+        onset_stats
+    )
     output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
     first, other = sessions[0]["subject"], sessions[1]["subject"]
     st = lambda data: data["stats"]  # noqa: E731
@@ -1210,20 +1229,21 @@ def main() -> None:
     )
 
     onset_text = (
-        "Shift of the drop, long minus short delay (bootstrap 95% interval over"
-        " trials): "
+        "in the long delays, the rate of each unit from"
+        f" {onset.ENTRY_LAG_MS} ms after the entry to the first flash, over its"
+        f" rate {-onset.BEFORE_ENTRY_MS[0]} to {-onset.BEFORE_ENTRY_MS[1]} ms"
+        " before the entry (gray bands in the left panel), and the same for"
+        f" {onset.LATE_MS[0]} to {onset.LATE_MS[1]} ms after the first flash: "
         + "; ".join(
-            f"{d['subject']}: {d[k]['long minus short']['drop_ms']:+.0f} ms"
-            f" [{d[k]['long minus short']['interval_95'][0]:+.0f},"
-            f" {d[k]['long minus short']['interval_95'][1]:+.0f}] from the {event}"
+            f"{d['subject']}: median {e['entry to first flash over before entry']['median_ratio']:.2f}"
+            f" before the flash (lower in {e['entry to first flash over before entry']['units_lower']}"
+            f" of {e['entry to first flash over before entry']['units']} units, two-sided"
+            f" Wilcoxon signed-rank test, p = {e['entry to first flash over before entry']['wilcoxon_p']:.1g})"
+            f" and {e['late over before entry']['median_ratio']:.2f} late"
             for d in raw[ONSET_NAME]
-            for k, event in (
-                ("aligned to the first flash", "first flash"),
-                ("aligned to the center entry", "center entry"),
-            )
+            for e in [d["long-delay trials"]]
         )
-        + ". A drop that follows the first flash has a shift of 0 from the first"
-        " flash and a positive shift from the center entry."
+        + "."
     )
     exit_result = raw[EXIT_NAME][0]
     exit_text = (
