@@ -8,10 +8,15 @@ entry, so the time after the center exit has the stimulus without the fixation.
 Comparison: the fixation (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Panel a is
-GRB006. In panels b to h the units of both mice (`SESSIONS`) are pooled
-(standard practice); in d, e, and h the large marker is the pooled median
-with its hierarchical-bootstrap 95% interval (mice, then units), and the open
-circles are the median of each mouse. The tests are within each mouse.
+GRB006 and panel f is GRB064 (the only session with early withdrawals). In
+the other panels the units of both mice (`SESSIONS`) are pooled (standard
+practice); in d, g, j, and k the large marker is the pooled median with its
+hierarchical-bootstrap 95% interval (mice, then units), and the open circles
+are the median of each mouse. The tests are within each mouse.
+
+Panels a to d observe and characterize the effect, e and f ask what starts
+and ends it, g to i are controls, and j and k ask which units and what the
+signal after the exit is.
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
@@ -37,7 +42,18 @@ circles are the median of each mouse. The tests are within each mouse.
   directions. Two-sided Wilcoxon signed-rank test of the two values. Points
   outside `LEVEL_LIMITS` are not drawn; they are in the statistics, and their
   number is in `hold_effect_stats.json`.
-- Panel e (control for the order of fitting): does the fixation kernel take
+- Panel e (what starts the drop): the population rate, no model, of the
+  trials with a short and a long delay from the center entry to the first
+  flash, aligned to the first flash (left) and to the center entry (right),
+  from `suppression_onset.py`. The units of both mice are pooled as the mean
+  of the two mice weighted by their units. A drop that follows the first flash
+  has the same time from the first flash in both delays. The shift of the
+  drop (long minus short) of each mouse is in the panel.
+- Panel f (does the rise at the exit need the stimulus?): the rate around the
+  center exit in completed trials (the flashes go on) and in early
+  withdrawals (the flashes stop), mean and SEM over units, from
+  `exit_without_stimulus.py`.
+- Panel g (control for the order of fitting): does the fixation kernel take
   variance from the other terms? Each unit's fixation level in the main model (all
   terms fit together) against its level in a two-step fit: the design with no
   fixation kernel first, then the fixation kernel alone on top of that fixed
@@ -45,11 +61,11 @@ circles are the median of each mouse. The tests are within each mouse.
   in-sample. The axis is `ORDER_LIMITS`; a unit with a two-step value beyond
   `NO_ESTIMATE` has no estimate (its fit with no penalty did not converge). It
   is listed in the output and stays in the rank test.
-- Panel f (control for stillness): raw rate against motion energy in the
+- Panel h (control for stillness): raw rate against motion energy in the
   center port and at a side port (`port_vs_stillness.py`), with its slope test.
   The two animals have different camera views, so motion energy is not the
   same measure.
-- Panel g (control for the movement after the exit): the rate around a flash
+- Panel i (control for the movement after the exit): the rate around a flash
   in the fixation, and around a flash after the exit with less and with more
   motion energy of the video (lower and upper half), from
   `matched_flashes.py`. The first flash of a trial is not used. The rate of a
@@ -58,11 +74,16 @@ circles are the median of each mouse. The tests are within each mouse.
   the exit are matched for the time from the first flash, the gap from the
   flash before, and the time from the exit. The fixation is not matched to
   them for time: the fixation has almost the same length in all trials.
-- Panel h (which units): each unit's fixation level (mean of its fixation
+- Panel j (which units): each unit's fixation level (mean of its fixation
   kernel over `LEVEL_MS`, main model) against the unique ΔD² of its visual
   flash regressor. A value below `UNIQUE_FLOOR` is drawn there, and a level
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
+- Panel k (the side signal after the exit): the side index of each unit,
+  (right − left) / (right + left), with the stimulus on against with the
+  stimulus off after the exit, from `side_preference.py` (all units of the
+  unit table, so more units than the GLM fits). The Spearman correlations
+  and the split-half limits are in `hold_effect_stats.json`.
 
 The descriptive model and the design with no fixation kernel are fit here (`glm
 fit` stages, with cross-validation) in the directories with the suffixes
@@ -82,7 +103,8 @@ The first command fits the two variants of one session (about 20 minutes each
 for all units; a finished fit is not run again) and draws nothing. The second
 command makes no fit: it draws the figure from the fits of both sessions and
 stops with the command to run when a fit is missing. Run `port_vs_stillness`
-and `matched_flashes` for each session first.
+and `matched_flashes` for each session, and `suppression_onset`,
+`exit_without_stimulus`, and `side_preference`, first.
 """
 
 from __future__ import annotations
@@ -101,6 +123,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.stats import sem, wilcoxon
 from sklearn.linear_model import PoissonRegressor
 
+from thesis.ephys.analyses import exit_without_stimulus
 from thesis.ephys.analyses.glm import cli, dmat, port_vs_stillness
 from thesis.ephys.analyses.glm.fit import (
     analysis_unit_indices,
@@ -118,6 +141,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
+    peak_axes,
     pooled_points,
     save_figure,
     separate_axes,
@@ -128,8 +152,8 @@ CAPTION = """\
 go on.** The fixation is the time from the first flash to the withdrawal from
 the center port. The flashes continue until the animal enters a response port,
 so the time after the withdrawal has the stimulus without the fixation. Two
-mice: {units}. In b to h the units of both mice are pooled; in d, e, and h
-the large marker is the pooled median with its hierarchical-bootstrap 95%
+mice: {units}. Except in a and f, the units of both mice are pooled; in d, g,
+j, and k the large marker is the pooled median with its hierarchical-bootstrap 95%
 interval (the mice, then the units of each), and the open circles are the
 median of each mouse ({subject} and {other}). The tests are within each mouse. **a**, Spikes of two example units of
 {subject} against time from the first flash (left) and from the withdrawal
@@ -148,20 +172,28 @@ change: a kernel from the withdrawal to the response entry in place of the
 bands are the median and the interquartile range. **d**, The paired comparison. For
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
-the 10 cross-validation folds). {paired} {outside_d} **e**, Control for the
+the 10 cross-validation folds). {paired} {outside_d} **e**, What starts the
+drop. The population rate, with no model, of trials with a short and a long
+delay from the center entry to the first flash, aligned to the first flash
+(left) and to the center entry (right). {onset} **f**, Does the rise at the
+withdrawal need the stimulus? The rate around the withdrawal in completed
+trials, where the flashes go on, and in early withdrawals, where they stop
+({exit_subject}, mean and SEM over units). {exit} **g**, Control for the
 order of fitting. The level in fixation when all terms are fit together
 against the level when the fixation kernel is fit last, on what the other
 terms do not explain (a lower bound). {two_step} {outside_e} {no_estimate}
-**f**, Control
+**h**, Control
 for stillness. Raw firing rate against motion energy of the video, in the
-center port and at a side port, in each animal. {stillness} The two animals
+center port and at a side port. {stillness} The two animals
 have different camera views, so motion energy is not the same measure in
-both. **g**, Control for the movement after the withdrawal. The firing rate
+both. **i**, Control for the movement after the withdrawal. The firing rate
 around a flash in fixation, and around a flash after the withdrawal with less
 and with more motion energy of the video (lower and upper half; mean and SEM
-over units; the first flash of a trial is not used), in each animal. {energy}
-**h**, The level in fixation against the unique ΔD² of the visual flash.
-{relation} {outside_h}
+over units; the first flash of a trial is not used). {energy}
+**j**, The level in fixation against the unique ΔD² of the visual flash.
+{relation} {outside_j} **k**, The side index of each unit after the
+withdrawal, (right − left) / (right + left), with the stimulus on against with
+it off (all units of the unit table). {side}
 """
 ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
@@ -176,18 +208,26 @@ AFTER_BASES = 8
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
 LEVEL_LIMITS = (-1.6, 1.6)
-# Panel e: a wider axis, so that only the units with no two-step estimate are
+# Panel g: a wider axis, so that only the units with no two-step estimate are
 # outside it. A two-step value beyond `NO_ESTIMATE` is a fit with no penalty
 # that did not converge (a unit with very few spikes in fixation).
 ORDER_LIMITS = (-2.5, 1.6)
 NO_ESTIMATE = 3.0
-UNIQUE_FLOOR = 1e-4  # panel h: a smaller unique ΔD² is drawn here
+UNIQUE_FLOOR = 1e-4  # panel j: a smaller unique ΔD² is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
 EXIT_WINDOW_MS = (-200, 500)
 TASK, VISUAL = CONCEPT_COLORS["task"], CONCEPT_COLORS["visual"]
 MOTION = CONCEPT_COLORS["motion energy"]
+# The raw analyses of panels e, f, and k (no model), in `figures/<name>/<session>/`.
+ONSET_NAME = "suppression_onset"
+EXIT_NAME = "exit_without_stimulus"
+SIDE_NAME = "side_preference"
+# Only this session has early withdrawals.
+EXIT_SESSION = SESSIONS[1]
+DELAY_COLORS = {"short delay": "0.6", "long delay": OBSERVED_COLOR}
+ONSET_WINDOW_MS = (-200, 290)
 
 
 def after_exit_basis() -> dmat.BasisFunction:
@@ -560,7 +600,7 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
             "median_delta_log_rate_two_step": float(np.median(steps["two_step"])),
             "fraction_units_two_step_below_0": float(np.mean(steps["two_step"] < 0)),
             "wilcoxon_p_two_step_against_0": float(wilcoxon(steps["two_step"]).pvalue),
-            "units_outside_the_axis_limits_of_panel_e": int(
+            "units_outside_the_axis_limits_of_panel_g": int(
                 np.sum(
                     (np.minimum(steps["joint"], steps["two_step"]) < ORDER_LIMITS[0])
                     | (np.maximum(steps["joint"], steps["two_step"]) > ORDER_LIMITS[1])
@@ -571,7 +611,7 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
                 for unit in steps["unit_ids"][np.abs(steps["two_step"]) > NO_ESTIMATE]
             ],
         },
-        "units_outside_the_axis_limits_of_panel_h": int(
+        "units_outside_the_axis_limits_of_panel_j": int(
             np.sum(
                 (matched["fixation_level"] < limits[0])
                 | (matched["fixation_level"] > limits[1])
@@ -625,7 +665,7 @@ def _draw_examples(figure, examples, data: dict) -> list:
             axis.set_xlim(*limits)
             axis.tick_params(labelbottom=False)
             if column == 0:
-                axis.set_ylabel("trial, sorted\nby fixation length")
+                axis.set_ylabel("trial")
                 axis.text(
                     0.01,
                     1.02,
@@ -651,8 +691,138 @@ def _draw_examples(figure, examples, data: dict) -> list:
     return first
 
 
+def _draw_onset(figure, slots, results: list[dict]) -> list:
+    """Draw panel e: the population rate of short and long delays, from the first
+    flash and from the center entry; return the two axes."""
+    weights = np.array([data["units"] for data in results], dtype=float)
+    time = np.asarray(results[0]["time_ms"])
+    shown = (time >= ONSET_WINDOW_MS[0]) & (time <= ONSET_WINDOW_MS[1])
+    axes = []
+    for slot, (key, event, color) in zip(
+        slots,
+        (
+            ("aligned to the first flash", "first flash", VISUAL),
+            ("aligned to the center entry", "center entry", TASK),
+        ),
+        strict=True,
+    ):
+        axis = figure.add_subplot(slot, sharey=axes[0] if axes else None)
+        for delay, line_color in DELAY_COLORS.items():
+            # The units of both mice pooled: the mean of the mice, weighted by units.
+            rate = np.average(
+                [data[key]["mean_rate"][delay] for data in results],
+                axis=0,
+                weights=weights,
+            )
+            axis.plot(time[shown], rate[shown], color=line_color, lw=1)
+        axis.axvline(0, color=color, lw=0.8)
+        axis.set_xlabel(f"time from {event} (ms)")
+        shift = "\n".join(
+            f"{data['subject']}: {data[key]['long minus short']['drop_ms']:+.0f} ms"
+            for data in results
+        )
+        axis.text(
+            0.98,
+            0.98,
+            f"drop, long − short:\n{shift}",
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=5.5,
+        )
+        axes.append(axis)
+    axes[0].set_ylabel("normalized\nfiring rate")
+    for (delay, line_color), height in zip(DELAY_COLORS.items(), (0.2, 0.08)):
+        axes[1].text(
+            0.03,
+            height,
+            delay,
+            color=line_color,
+            transform=axes[1].transAxes,
+            fontsize=5.5,
+        )
+    axes[1].tick_params(labelleft=False)
+    return axes
+
+
+def _draw_exit(axis, result: dict) -> None:
+    """Draw panel f: the rate around the center exit with and without the stimulus."""
+    time = np.asarray(result["time_from_exit_ms"])
+    for (name, label), height in zip(
+        exit_without_stimulus.LABELS.items(), (0.98, 0.8), strict=True
+    ):
+        color = exit_without_stimulus.COLORS[name]
+        mean = np.asarray(result[name]["mean_normalized_rate"])
+        error = np.asarray(result[name]["sem_normalized_rate"])
+        axis.plot(time, mean, color=color)
+        axis.fill_between(
+            time, mean - error, mean + error, color=color, alpha=0.25, lw=0
+        )
+        axis.text(
+            0.03,
+            height,
+            label,
+            color=color,
+            transform=axis.transAxes,
+            va="top",
+            fontsize=5.5,
+        )
+    axis.axvline(0, color=TASK, linewidth=0.8)
+    axis.set_ylim(bottom=0)
+    axis.set_xlabel("time from center exit (ms)")
+    axis.set_ylabel("normalized firing rate")
+    axis.text(
+        0.98,
+        0.02,
+        f"{result['subject']}, {result['units']} units",
+        transform=axis.transAxes,
+        ha="right",
+        fontsize=5.5,
+    )
+
+
+def _draw_side(axis, results: list[dict]) -> dict:
+    """Draw panel k: the side index of each unit with the stimulus on and off."""
+    pairs = []
+    for data in results:
+        on, off = (
+            np.asarray(data[window]["index_by_unit"], dtype=float)
+            for window in ("stimulus on", "stimulus off")
+        )
+        used = np.isfinite(on) & np.isfinite(off)
+        pairs.append((on[used], off[used]))
+    for line in (axis.axhline, axis.axvline):
+        line(0, color=REFERENCE_COLOR, linewidth=0.5)
+    peak_axes(axis, limits=(-1, 1))
+    axis.set_xticks([-1, 0, 1], ["−1", "0", "1"])
+    axis.set_yticks([-1, 0, 1], ["−1", "0", "1"])
+    pooled_points(
+        axis,
+        [on for on, _ in pairs],
+        [off for _, off in pairs],
+        [data["subject"] for data in results],
+        OBSERVED_COLOR,
+    )
+    axis.set_xlabel("side index after exit,\nstimulus on")
+    axis.set_ylabel("side index after exit,\nstimulus off")
+    return {
+        data["subject"]: {
+            key: data[key]
+            for key in (
+                "stimulus on against stimulus off",
+                "stimulus on against fixation",
+            )
+        }
+        | {
+            f"split half, {window}": data[window]["split_half"]
+            for window in ("stimulus on", "stimulus off")
+        }
+        for data in results
+    }
+
+
 def _draw_matched(axis, data: dict, labels: bool, style: str = "-") -> None:
-    """Draw panel g for one mouse: the rate around flashes in three conditions."""
+    """Draw panel i: the rate around flashes in three conditions."""
     matched = data["matched"]
     lags = matched["lags_ms"]
     reference = matched["rate__fixation against after exit, matched gap"]
@@ -664,9 +834,9 @@ def _draw_matched(axis, data: dict, labels: bool, style: str = "-") -> None:
         (by_energy[0], "0.35", "move, less motion energy"),
         (by_energy[1], MOTION, "move, more motion energy"),
     )
-    # The labels are in the band between the curve of the fixation and the
-    # curves after the exit.
-    for (values, color, label), height in zip(curves, (0.14, 0.56, 0.48), strict=True):
+    # The labels after the exit are in the band between the curves; the label of
+    # the fixation is below its curve.
+    for (values, color, label), height in zip(curves, (0.33, 0.56, 0.48), strict=True):
         values = gaussian_filter1d(values[used] / scale[used, None], 3, axis=-1)
         mean, error = values.mean(0), sem(values, axis=0)
         axis.plot(lags, mean, color=color, ls=style)
@@ -718,25 +888,35 @@ def main() -> None:
     sessions = [session_effect(args.out / s, args.units, fit=False) for s in SESSIONS]
     limits = LEVEL_LIMITS
 
+    raw = {
+        name: [
+            json.loads((args.out.parent / name / session / f"{name}.json").read_text())
+            for session in (SESSIONS if name != EXIT_NAME else [EXIT_SESSION])
+        ]
+        for name in (ONSET_NAME, EXIT_NAME, SIDE_NAME)
+    }
+
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 12.6))
-        examples = figure.add_gridspec(
-            2, 2, left=0.11, right=0.97, top=0.9794, bottom=0.8349, hspace=0.25
+        figure = plt.figure(figsize=(7.4, 10.4))
+        rows = figure.add_gridspec(
+            5,
+            1,
+            left=0.09,
+            right=0.98,
+            top=0.98,
+            bottom=0.05,
+            height_ratios=(1.5, 1.35, 1.9, 1.9, 1.9),
+            hspace=0.55,
         )
-        top = figure.add_gridspec(
-            2, 2, left=0.11, right=0.97, top=0.7895, bottom=0.6492, height_ratios=(1, 4)
+        examples = rows[0].subgridspec(2, 2, hspace=0.25, wspace=0.08)
+        # A narrow empty column keeps the letter of c away from b.
+        top = rows[1].subgridspec(
+            2, 5, height_ratios=(1, 4), width_ratios=(1, 1, 0.12, 1, 1), wspace=0.3
         )
-        middle = figure.add_gridspec(
-            1, 2, left=0.11, right=0.97, top=0.5832, bottom=0.4635
-        )
-        bottom = figure.add_gridspec(
-            1, 3, left=0.11, right=0.86, top=0.385, bottom=0.25, wspace=0.8
-        )
-        last = figure.add_gridspec(
-            1, 2, left=0.11, right=0.97, top=0.165, bottom=0.045, wspace=0.45
-        )
+        grid = [rows[k].subgridspec(1, 3, wspace=0.62) for k in (2, 3, 4)]
         panel_axes = [_draw_examples(figure, examples, sessions[0])]
         shared = None
+        kernel_axes = []
         for column, (name, xlabel) in enumerate(
             (("flash", "time from first flash (ms)"), ("exit", "time from center exit"))
         ):
@@ -745,8 +925,9 @@ def main() -> None:
             axis = figure.add_subplot(top[1, column], sharex=flash_axis, sharey=shared)
             shared = shared or axis
             kernel_axis = figure.add_subplot(
-                middle[column], sharey=panel_axes[-1] if column else None
+                top[1, 3 + column], sharey=kernel_axes[0] if column else None
             )
+            kernel_axes.append(kernel_axis)
             # The units of both mice pooled (standard practice).
             slots, _ = sessions[0]["rates"][f"{name}_fraction"]
             fraction = np.mean(
@@ -790,18 +971,20 @@ def main() -> None:
                 flash_axis.text(
                     0.3,
                     0.75,
-                    "fraction of trials with a flash",
+                    "fraction of trials\nwith a flash",
                     color=VISUAL,
                     transform=flash_axis.transAxes,
-                    fontsize=6.5,
+                    fontsize=6,
                 )
-                axis.set_ylabel("normalized firing rate")
+                axis.set_ylabel("normalized\nfiring rate")
                 axis.text(
-                    0.02,
-                    0.04,
+                    0.98,
+                    0.96,
                     f"{len(values)} units, {len(sessions)} mice",
                     transform=axis.transAxes,
-                    fontsize=6.5,
+                    ha="right",
+                    va="top",
+                    fontsize=6,
                 )
                 panel_axes.append(flash_axis)
                 kernel_axis.set_ylim(*limits)
@@ -814,15 +997,17 @@ def main() -> None:
                     transform=kernel_axis.transAxes,
                     ha="right",
                     va="top",
+                    fontsize=6,
                 )
                 kernel_axis.text(
                     0.98,
-                    0.86,
-                    "median and IQR",
+                    0.84,
+                    "median, IQR",
                     color=TASK,
                     transform=kernel_axis.transAxes,
                     ha="right",
                     va="top",
+                    fontsize=6,
                 )
                 panel_axes.append(kernel_axis)
             else:
@@ -831,9 +1016,15 @@ def main() -> None:
                 kernel_axis.tick_params(labelleft=False)
 
         window = f"{LEVEL_MS[0]} to {LEVEL_MS[1]} ms"
-        paired = figure.add_subplot(bottom[0])
-        order_axis = figure.add_subplot(bottom[1])
-        relation = figure.add_subplot(last[1])
+        paired = figure.add_subplot(grid[0][0])
+        onset_axes = _draw_onset(figure, (grid[0][1], grid[0][2]), raw[ONSET_NAME])
+        exit_axis = figure.add_subplot(grid[1][0])
+        _draw_exit(exit_axis, raw[EXIT_NAME][0])
+        order_axis = figure.add_subplot(grid[1][1])
+        stillness_axis = figure.add_subplot(grid[1][2])
+        matched_axis = figure.add_subplot(grid[2][0])
+        relation = figure.add_subplot(grid[2][1])
+        side_axis = figure.add_subplot(grid[2][2])
         subjects = [data["subject"] for data in sessions]
         holds = [data["kernels"][dmat.HOLD] for data in sessions]
         afters = [data["kernels"][AFTER] for data in sessions]
@@ -895,8 +1086,7 @@ def main() -> None:
         order_axis.set_ylabel(
             r"$\Delta$ log rate in fixation," + "\nfixation kernel fit last"
         )
-        # Panels f and g: the units of both mice pooled.
-        stillness_axis = figure.add_subplot(bottom[2])
+        # Panels h and i: the units of both mice pooled.
         port_vs_stillness.plot_rates(
             stillness_axis,
             {
@@ -906,7 +1096,6 @@ def main() -> None:
             states=(0, 2),
         )
         stillness_axis.set_xlabel("motion energy\n(percentile in each mouse)")
-        matched_axis = figure.add_subplot(last[0])
         keys = (
             "rate__fixation against after exit, matched gap",
             "rate__after exit, lower against upper half of motion energy",
@@ -930,16 +1119,26 @@ def main() -> None:
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
-        panel_axes += [paired, order_axis, stillness_axis, matched_axis, relation]
-        for axis in panel_axes[2:]:
+        side_stats = _draw_side(side_axis, raw[SIDE_NAME])
+        panel_axes += [
+            paired,
+            onset_axes[0],
+            exit_axis,
+            order_axis,
+            stillness_axis,
+            matched_axis,
+            relation,
+            side_axis,
+        ]
+        for axis in panel_axes[2:] + onset_axes[1:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefgh", panel_axes, strict=True):
+        for letter, axis in zip("abcdefghijk", panel_axes, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,
-                axis.get_position().y1 + 0.015,
+                axis.get_position().y1 + 0.012,
                 letter,
                 fontweight="bold",
                 fontsize=10,
@@ -947,6 +1146,7 @@ def main() -> None:
         output = save_figure(figure, args.out / "hold_effect")
 
     stats = {s: data["stats"] for s, data in zip(SESSIONS, sessions, strict=True)}
+    stats["side index (panel k)"] = side_stats
     output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
     first, other = sessions[0]["subject"], sessions[1]["subject"]
     st = lambda data: data["stats"]  # noqa: E731
@@ -1009,6 +1209,50 @@ def main() -> None:
         + "."
     )
 
+    onset_text = (
+        "Shift of the drop, long minus short delay (bootstrap 95% interval over"
+        " trials): "
+        + "; ".join(
+            f"{d['subject']}: {d[k]['long minus short']['drop_ms']:+.0f} ms"
+            f" [{d[k]['long minus short']['interval_95'][0]:+.0f},"
+            f" {d[k]['long minus short']['interval_95'][1]:+.0f}] from the {event}"
+            for d in raw[ONSET_NAME]
+            for k, event in (
+                ("aligned to the first flash", "first flash"),
+                ("aligned to the center entry", "center entry"),
+            )
+        )
+        + ". A drop that follows the first flash has a shift of 0 from the first"
+        " flash and a positive shift from the center entry."
+    )
+    exit_result = raw[EXIT_NAME][0]
+    exit_text = (
+        "After over before the withdrawal: "
+        + "; ".join(
+            f"{name}, median ratio {exit_result[name]['after / before exit']['median_ratio']:.2f}"
+            f" (p = {exit_result[name]['after / before exit']['wilcoxon_p']:.1g})"
+            for name in ("completed", "early withdrawal")
+        )
+        + "; early withdrawal over completed after the withdrawal, median ratio"
+        f" {exit_result['early withdrawal / completed, after exit']['median_ratio']:.2f}"
+        f" (p = {exit_result['early withdrawal / completed, after exit']['wilcoxon_p']:.2g})."
+    )
+    side_text = (
+        "Spearman correlation of the index with the stimulus on and off: "
+        + "; ".join(
+            f"ρ = {v['stimulus on against stimulus off']['rho']:.2f} in {subject}"
+            f" (split-half limits {v['split half, stimulus on']['rho']:.2f} and"
+            f" {v['split half, stimulus off']['rho']:.2f})"
+            for subject, v in side_stats.items()
+        )
+        + ". With the stimulus on against in fixation: "
+        + "; ".join(
+            f"ρ = {v['stimulus on against fixation']['rho']:.2f} in {subject}"
+            for subject, v in side_stats.items()
+        )
+        + "."
+    )
+
     def outside(key: str) -> str:
         return (
             _pair(sessions, lambda d: str(_find(st(d), key)))
@@ -1030,7 +1274,10 @@ def main() -> None:
             paired=paired_text,
             outside_d=outside("units_outside_the_axis_limits_of_panel_d"),
             two_step=two_text,
-            outside_e=outside("units_outside_the_axis_limits_of_panel_e"),
+            onset=onset_text,
+            exit_subject=raw[EXIT_NAME][0]["subject"],
+            exit=exit_text,
+            outside_e=outside("units_outside_the_axis_limits_of_panel_g"),
             no_estimate=(
                 "Units with no two-step estimate (the fit with no penalty did not"
                 " converge, because the unit has very few spikes in fixation): "
@@ -1045,7 +1292,8 @@ def main() -> None:
             stillness=stillness_text,
             energy=energy_text,
             relation=relation_text,
-            outside_h=outside("units_outside_the_axis_limits_of_panel_h"),
+            outside_j=outside("units_outside_the_axis_limits_of_panel_j"),
+            side=side_text,
         )
     )
     print(json.dumps(stats, indent=1))
