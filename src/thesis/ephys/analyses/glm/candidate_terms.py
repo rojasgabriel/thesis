@@ -38,6 +38,7 @@ import numpy as np
 
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices, load_unit_records
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.hold_effect import _fit_variant
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.units import fetch_unit_table
@@ -93,13 +94,19 @@ def main() -> None:
         stability_param_id=0,
         include_metrics=False,
     )
-    selection = {
-        int(table.iloc[row]["unit_id"])
-        for sample in range(SELECTION_SETS)
-        for row in analysis_unit_indices(
-            table, "sample" + (str(sample) if sample else "")
-        )
-    }
+    # The design choices used units of the first session only; in another
+    # session no unit was used.
+    selection = (
+        {
+            int(table.iloc[row]["unit_id"])
+            for sample in range(SELECTION_SETS)
+            for row in analysis_unit_indices(
+                table, "sample" + (str(sample) if sample else "")
+            )
+        }
+        if args.root.name == SESSIONS[0]
+        else set()
+    )
     held_out = np.asarray([int(item["unit_id"]) not in selection for item in records])
     stats = {"units": len(records), "held_out_units": int(held_out.sum())}
     # Every regressor of the design (the broad group "task" is their sum).
