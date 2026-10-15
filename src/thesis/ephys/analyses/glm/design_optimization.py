@@ -1,20 +1,27 @@
-"""Draw the design optimization of the V1 GLM in one figure.
+"""Draw the design optimization and the checks of the V1 GLM in one figure.
 
-Question: why does each term of the design have its parameterization (the
-number of gap classes, the length of the flash kernels, the fixation term,
-the window of the withdrawal kernel, the number of motion-energy PCs, the
-session drift), and are the regressors of the resulting design collinear?
-This script makes no fit. It draws the results of the six design grids, of
-`collinearity.py`, and of `parameter_recovery.py`, and writes the caption next
-to the figure.
+Question: can the model and its weights be trusted? Why does each term of the
+design have its parameterization (the number of gap classes, the length of
+the flash kernels, the fixation term, the window of the withdrawal kernel, the
+number of motion-energy PCs, the session drift); are the regressors of the
+resulting design collinear; does a fit give back known weights and the same
+weights from two halves of the trials; and how much of the flash × move effect
+does the fit make with no such effect in the data? This script makes no fit.
+It draws the results of the six design grids, of `collinearity.py`,
+`parameter_recovery.py`, `kernel_reliability.py`, and `leak_test.py`, and
+writes the caption next to the figure.
 
 The work has two steps. Step 1 (panels a to f): the parameterization of each
 term is chosen by prediction, on GRB006 (`--root`). Step 2 (panels g to k):
 the collinearity of the regressors of the resulting design (g to i) and the
 parameter recovery of each regressor (j and k), because the weights can be
 read only when the model gives them back. Step 2 is shown in GRB006 and in
-GRB064 (the other session of `SESSIONS`), which took no part in step 1; the
-units of the two animals are not pooled.
+GRB064 (the other session of `SESSIONS`), which took no part in step 1. In
+step 2 the units of both mice are pooled; the black marker is the pooled
+median with its hierarchical-bootstrap 95% interval (mice, then units), and
+the open circles are the median of each mouse. Step 3 (panels l to o): the
+stability of the weights over trials (l) and the leak of the fixation level
+into the flash × move kernels (m to o), in the same two mice.
 
 Comparison in step 1: each grid scores the design in use and the same design
 with one term in another parameterization, on the same units. A panel shows,
@@ -60,6 +67,20 @@ is drawn at the limit; it is in the statistics, and the count is in
   true size). Points are units, as in g; the line is the median. A point
   outside `RECOVERY_LIMITS` is drawn at the limit; it is in the statistics.
 
+- Panel l (`kernel_reliability.py`): each unit is fit on the even and on the
+  odd trials, with the penalty of its final refit. The agreement of the two
+  kernels of each regressor, as in j, for the units that need the regressor
+  (unique ΔD² above 0 over the folds). A point below the axis is drawn at the
+  limit; the count is in the output.
+- Panels m to o (`leak_test.py`): spikes are simulated from the final refit
+  of each unit with the flash × move weights set to 0, and the full model is
+  fit to them. The leak is the flash × move part of the move − still peak of
+  that fit (the matched peak measure of `peaks.py`, as in
+  `flash_by_period.py`; the excited units). m, the real part against the
+  leak; n, real minus leak (two-sided Wilcoxon signed-rank test in each
+  mouse); o, the leak against the fixation level of the unit. A point outside
+  `PART_LIMITS` is drawn at the limit; it is in the statistics.
+
 Rule for the parameterization of a term: another parameterization replaces
 the one in use when it predicts reliably better on these units. Published
 limits for step 2: a generalized variance inflation factor (as GVIF^(1/p),
@@ -68,8 +89,9 @@ and Welsch 1980).
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization
 
-Run the six grids, `collinearity`, and `parameter_recovery` first; this
-script stops if a result file is missing.
+Run the six grids, `collinearity`, `parameter_recovery`, `kernel_reliability
+--refit`, and `leak_test --refit` first; this script stops if a result file is
+missing.
 """
 
 from __future__ import annotations
@@ -92,6 +114,7 @@ from thesis.ephys.analyses.glm import (
     gap_class_grid,
     hold_grid,
     pc_grid,
+    peaks,
     withdrawal_grid,
 )
 from thesis.ephys.analyses.glm.collinearity import (
@@ -99,6 +122,7 @@ from thesis.ephys.analyses.glm.collinearity import (
     VIF_LIMITS,
 )
 from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
+from thesis.ephys.analyses.glm.leak_test import PART_LIMITS
 from thesis.ephys.analyses.glm.main_figure import (
     DRIFT_COLOR,
     MOTION,
@@ -111,6 +135,8 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     hierarchical_interval,
     label_panels,
+    pooled_points,
+    pooled_strip,
     save_figure,
 )
 
@@ -199,7 +225,14 @@ units (left: {subject}; right: {held_out}); the line is the median. Every
 regressor is recovered with a median agreement of {lowest_agreement:.2f} or more in both
 animals. The size of a whole kernel is near 1, but the level of the fixation
 kernel from 200 to 450 ms is recovered at {level_in_use} of its true size: the
-L2 penalty gives a part of it to the flash × move kernels (`leak_test.py`).
+L2 penalty gives a part of it to the flash × move kernels (m to o). **l–o,
+Stability and leak.** **l**, Agreement of the kernels fit on the even and on the
+odd trials of each unit, for the units that need the regressor (as in j).
+Every regressor has a median agreement of {lowest_half:.2f} or more. **m**, The
+flash × move part of the move − still flash peak (spikes/s; the excited units)
+in the real fit against the leak: the same part in fits to spikes simulated
+with no flash × move effect. **n**, Real minus leak. {leak} **o**, The leak
+against the fixation level of the unit.
 """
 
 
@@ -237,11 +270,13 @@ def main() -> None:
     roots = [args.root] + [
         args.root.parent / session for session in SESSIONS if session != args.root.name
     ]
-    measures, recovered = [], []
+    measures, recovered, halves, leaks = [], [], [], []
     for root in roots:
         for name, store in (
             ("collinearity", measures),
             ("parameter_recovery", recovered),
+            ("kernel_reliability", halves),
+            ("leak_test", leaks),
         ):
             path = root / f"{name}.npz"
             if not path.exists():
@@ -251,8 +286,10 @@ def main() -> None:
     subjects = [root.name.split("_")[0] for root in roots]
     with plt.rc_context(FIGURE_STYLE):
         # The dpi is for the rasterized points; the text and the lines are vectors.
-        figure = plt.figure(figsize=(7.4, 12.4), layout="constrained", dpi=300)
-        top, bottom, recovery = figure.subfigures(3, 1, height_ratios=(6.9, 3.1, 2.4))
+        figure = plt.figure(figsize=(7.4, 13.6), layout="constrained", dpi=300)
+        top, bottom, recovery, leak_row = figure.subfigures(
+            4, 1, height_ratios=(6.2, 3.0, 2.5, 2.2)
+        )
         axes = top.subplots(3, 2)
         for axis, (grid, (module, in_use, color, xlabel)) in zip(
             axes.flat, GRIDS.items()
@@ -375,14 +412,6 @@ def main() -> None:
             )
             for tick, name in zip(axis.get_xticklabels(), regressors):
                 tick.set_color(REGRESSORS[name][1])
-            axis.set_title(
-                f"units of both mice; open circles: median of {subjects[0]} (left)"
-                f" and {subjects[1]}, held out (right)"
-                if axis is not gvif_axis
-                else "units of both mice; circles as in j",
-                fontsize=5.5,
-                loc="left",
-            )
 
         ordered = [names[column] for column in order]
         by_regressor(
@@ -469,7 +498,7 @@ def main() -> None:
             }
             for subject, m in zip(subjects, measures)
         }
-        agreement_axis, size_axis = recovery.subplots(1, 2)
+        agreement_axis, size_axis, half_axis = recovery.subplots(1, 3)
         kernels = recovered[0]["regressors"].tolist()
         for axis, key, ylabel in (
             (
@@ -507,8 +536,120 @@ def main() -> None:
             }
             for subject, r in zip(subjects, recovered)
         }
+        # Panel l: the agreement of the kernels fit on the even and on the odd
+        # trials (`kernel_reliability.py`), for the units that need the regressor.
+        stable = [n for n in REGRESSORS if f"agreement__{n}" in halves[0]]
+        by_regressor(
+            half_axis,
+            [
+                {n: h[f"agreement__{n}"][h[f"needs__{n}"]] for n in stable}
+                for h in halves
+            ],
+            stable,
+            RECOVERY_LIMITS["agreement"],
+        )
+        gvif_axis.set_title(
+            "units of both mice; circles as in j", fontsize=5.5, loc="left"
+        )
+        agreement_axis.set_title(
+            f"units of both mice; open circles: median of {subjects[0]} (left) and"
+            f" {subjects[1]}, held out (right); same in k and l",
+            fontsize=5.5,
+            loc="left",
+        )
+        half_axis.axhline(1, color=REFERENCE_COLOR, ls="--", lw=0.8)
+        half_axis.set_ylim(*RECOVERY_LIMITS["agreement"])
+        half_axis.set_ylabel("agreement of the kernels\nof even and odd trials")
+        stats["split halves, units that need the regressor"] = {
+            name: {
+                subject: {
+                    "units": int(h[f"needs__{name}"].sum()),
+                    "median_agreement": float(
+                        np.median(h[f"agreement__{name}"][h[f"needs__{name}"]])
+                    ),
+                    "units_below_the_axis": int(
+                        np.sum(
+                            h[f"agreement__{name}"][h[f"needs__{name}"]]
+                            < RECOVERY_LIMITS["agreement"][0]
+                        )
+                    ),
+                }
+                for subject, h in zip(subjects, halves, strict=True)
+            }
+            for name in stable
+        }
+        # Panels m to o: the leak (`leak_test.py`), in the matched peak measure
+        # of the excited units, as in `flash_by_period.py`.
+        part_axis, rest_axis, level_axis = leak_row.subplots(
+            1, 3, width_ratios=(1, 0.6, 1)
+        )
+        parts = []
+        for root, leak in zip(roots, leaks, strict=True):
+            subject, _, session = root.name.partition("_")
+            excited = np.isin(
+                leak["unit_ids"], list(peaks.excited_units(subject, session))
+            )
+            parts.append(
+                {
+                    "real": leak["real_part"][excited],
+                    "leak": leak["leak_part"][excited].mean(1),
+                    "level": leak["simulated_level"][excited],
+                }
+            )
+        part_axis.plot(PART_LIMITS, PART_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
+        part_axis.set(xlim=PART_LIMITS, ylim=PART_LIMITS, aspect="equal")
+        pooled_points(
+            part_axis,
+            [np.clip(p["leak"], *PART_LIMITS) for p in parts],
+            [np.clip(p["real"], *PART_LIMITS) for p in parts],
+            subjects,
+            VISUAL,
+        )
+        part_axis.set_xlabel(
+            "leak: flash × move part with\nno effect simulated (spikes/s)"
+        )
+        part_axis.set_ylabel("real flash × move part\n(spikes/s)")
+        stats["leak, flash × move part, real minus leak (spikes/s)"] = pooled_strip(
+            rest_axis,
+            0,
+            [np.clip(p["real"] - p["leak"], *PART_LIMITS) for p in parts],
+            subjects,
+            VISUAL,
+        ) | {
+            subject: {
+                "units": len(p["real"]),
+                "median": float(np.median(p["real"] - p["leak"])),
+                "wilcoxon_p": float(wilcoxon(p["real"] - p["leak"]).pvalue),
+                "units_outside_the_axis": int(
+                    np.sum(
+                        (np.minimum(p["real"], p["leak"]) < PART_LIMITS[0])
+                        | (np.maximum(p["real"], p["leak"]) > PART_LIMITS[1])
+                    )
+                ),
+            }
+            for subject, p in zip(subjects, parts, strict=True)
+        }
+        rest_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
+        rest_axis.set_xticks([])
+        rest_axis.set_xlim(-0.5, 0.9)
+        rest_axis.set_ylim(*PART_LIMITS)
+        rest_axis.set_ylabel("flash × move part,\nreal minus leak (spikes/s)")
+        level_axis.set_ylim(*PART_LIMITS)
+        pooled_points(
+            level_axis,
+            [p["level"] for p in parts],
+            [np.clip(p["leak"], *PART_LIMITS) for p in parts],
+            subjects,
+            TASK,
+        )
+        level_axis.axhline(0, color=REFERENCE_COLOR, lw=0.6)
+        level_axis.set_xlabel("fixation level of the unit\n(Δ log rate)")
+        level_axis.set_ylabel("leak (spikes/s)")
         label_panels(axes.flat, x=-0.2, y=1.04)
-        label_panels([None] * 9 + [agreement_axis, size_axis], x=-0.12, y=1.04)
+        label_panels(
+            [None] * 9 + [agreement_axis, size_axis, half_axis], x=-0.2, y=1.04
+        )
+        label_panels([None] * 12 + [part_axis, rest_axis, level_axis], x=-0.3, y=1.04)
         label_panels([None] * 6 + [gvif_axis, index_axis, pair_axis], x=-0.3, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
     first = stats[next(iter(GRIDS))]
@@ -544,6 +685,22 @@ def main() -> None:
             index=max(
                 v["largest_condition_index"] for v in stats["collinearity"].values()
             ),
+            lowest_half=min(
+                mouse["median_agreement"]
+                for entry in stats[
+                    "split halves, units that need the regressor"
+                ].values()
+                for mouse in entry.values()
+            ),
+            leak="; ".join(
+                f"{subject}: median {entry['median']:+.1f} spikes/s"
+                f" ({entry['units']} units, p = {entry['wilcoxon_p']:.2g})"
+                for subject, entry in stats[
+                    "leak, flash × move part, real minus leak (spikes/s)"
+                ].items()
+                if subject in subjects
+            )
+            + ".",
         )
     )
     print(json.dumps(stats, indent=1))
