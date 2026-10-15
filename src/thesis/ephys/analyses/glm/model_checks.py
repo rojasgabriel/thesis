@@ -9,8 +9,9 @@ Question: can the fitted model be trusted? Five checks, with no new fit.
   one Poisson draw (`PREDICTION_SEED`).
 - Panels d and e (units that took no part in the design choices): every design
   choice was made on the 80 units of the 4 sets of 20 units of the grids
-  (`SELECTION_SETS`). Panel d: cross-validated
-  D² of those selection units and of all other (held-out) units. Panel e: the
+  (`SELECTION_SETS`). Panel d: cross-validated D² (on held-out trials, for
+  every unit) of the units used for the design choices and of all other
+  units (not used). Panel e: the
   unique ΔD² of each regressor in the two groups. The groups are not paired;
   the mark is a two-sided Mann-Whitney U test. The open box is the other
   session of `SESSIONS` (GRB064), an animal that took no part in the design
@@ -108,12 +109,14 @@ is not in the model. **b**, Spikes drawn from
 the predicted rate of the same trials (one Poisson draw). Each trial is
 predicted by a model that was not fit on it, with the observed spike history.
 **c**, Observed and predicted rate of those trials in 10-ms bins. **d–e, Units
-that took no part in the design choices.** Every design choice was made on
-{selection} units (selection). **d**, Cross-validated D² of the selection units
-and of the {held_out} other units (held out): median {d2_sel:.3f} and
+that took no part in the design choices.** Every D² here is cross-validated:
+each trial is predicted by a fit that did not see it. Every design choice was
+made on {selection} units of {subject} (used for design choices). **d**,
+Cross-validated D² of those units and of the {held_out} other units of
+{subject} (not used): median {d2_sel:.3f} and
 {d2_out:.3f} (two-sided Mann-Whitney U test, p = {p_d2:.2f}). The open box is
-{other} ({other_units} units, median {d2_other:.3f}), an animal that took no part
-in the design choices; it has no test, because a difference between animals
+{other} ({other_units} units, median {d2_other:.3f}), a mouse whose units were all
+not used for the design choices; it has no test, because a difference between animals
 has other causes. **e**, The unique ΔD² of each regressor in the three groups
 (Mann-Whitney U test of the two groups of {subject} for each regressor; the
 smallest p is {p_unique:.2f}). **f, Terms that are not in the
@@ -286,6 +289,7 @@ def main() -> None:
     other_root = args.root.parent / next(s for s in SESSIONS if s != args.root.name)
     other = cli.PoissonGLM(root=other_root)
     other_subject = other_root.name.split("_")[0]
+    subject = args.root.name.split("_")[0]
     other_final = load_unit_records(
         other.fit_dir("all") / "checkpoints", "unit_*_final.json"
     )
@@ -341,9 +345,9 @@ def main() -> None:
         full.set_xticks(
             (0, 1, 2),
             (
-                f"selection\n({chosen.sum()})",
-                f"held out\n({(~chosen).sum()})",
-                f"{other_subject}\n({len(other_final)})",
+                f"{subject}, used for\ndesign choices ({chosen.sum()})",
+                f"{subject},\nnot used ({(~chosen).sum()})",
+                f"{other_subject},\nnot used ({len(other_final)})",
             ),
             fontsize=6,
         )
@@ -399,7 +403,7 @@ def main() -> None:
         parts.text(
             0.98,
             0.95,
-            "selection",
+            "used for design choices",
             color=colors[0],
             transform=parts.transAxes,
             ha="right",
@@ -408,7 +412,7 @@ def main() -> None:
         parts.text(
             0.98,
             0.85,
-            "held out",
+            "not used",
             color=colors[1],
             transform=parts.transAxes,
             ha="right",
