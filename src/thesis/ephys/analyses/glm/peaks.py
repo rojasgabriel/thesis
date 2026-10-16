@@ -35,7 +35,13 @@ STIM_RESPONSE_PARAM_ID = 0
 
 
 def excited_units(subject: str, session: str) -> set[int]:
-    """Return the units with the "excited" classification of StimulusResponse."""
+    """Return the stable units with the "excited" classification of StimulusResponse.
+
+    Stable: the units of `fetch_unit_table` with quality criteria 1 and
+    stability 0, the unit rule of the GLM. StimulusResponse itself has no
+    stability filter (28 and 21 excited units in GRB006 and GRB064, against 23
+    and 15 stable ones).
+    """
     from labdata_plugin.schema import StimulusResponse
 
     query = {
@@ -45,7 +51,15 @@ def excited_units(subject: str, session: str) -> set[int]:
         "stim_response_param_id": STIM_RESPONSE_PARAM_ID,
         "response_type": "excited",
     }
-    return {int(unit) for unit in (StimulusResponse.Unit & query).fetch("unit_id")}
+    stable = fetch_unit_table(
+        subject,
+        session,
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )["unit_id"].astype(int)
+    excited = {int(unit) for unit in (StimulusResponse.Unit & query).fetch("unit_id")}
+    return excited & set(stable)
 
 
 def peaks(trace: np.ndarray) -> np.ndarray:
