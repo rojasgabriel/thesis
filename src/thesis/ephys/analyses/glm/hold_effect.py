@@ -8,8 +8,7 @@ entry, so the time after the center exit has the stimulus without the fixation.
 Comparison: the fixation (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Panel a is
-GRB006 and panel f is GRB064 (the only session with early withdrawals). In
-the other panels the units of both mice (`SESSIONS`) are pooled (standard
+GRB006. In the other panels the units of both mice (`SESSIONS`) are pooled (standard
 practice); in d, g, and j the large marker is the pooled median with its
 hierarchical-bootstrap 95% interval (mice, then units), and the open circles
 are the median of each mouse. The tests are within each mouse.
@@ -58,8 +57,8 @@ and ends it, g to i are controls, and j asks which units.
   its own first flash.
 - Panel f (does the rise at the exit need the stimulus?): the rate around the
   center exit in completed trials (the flashes go on) and in early
-  withdrawals (the flashes stop), mean and SEM over units, from
-  `exit_without_stimulus.py`.
+  withdrawals (the flashes stop), mean and SEM over the units of both mice,
+  from `exit_without_stimulus.py`.
 - Panel g (control for the order of fitting): does the fixation kernel take
   variance from the other terms? Each unit's fixation level in the main model (all
   terms fit together) against its level in a two-step fit: the design with no
@@ -182,7 +181,7 @@ trials with a short and a long delay from the center entry to the first flash
 bars above are the 5th to 95th percentile of the first flash of each half. Right: {onset} **f**, Does the rise at the
 withdrawal need the stimulus? The rate around the withdrawal in completed
 trials, where the flashes go on, and in early withdrawals, where they stop
-({exit_subject}, mean and SEM over units). {exit} **g**, Control for the
+(units of both mice pooled, mean and SEM over units). {exit} **g**, Control for the
 order of fitting. The level in fixation when all terms are fit together
 against the level when the fixation kernel is fit last, on what the other
 terms do not explain (a lower bound). {two_step} {outside_e} {no_estimate}
@@ -226,8 +225,6 @@ MOTION = CONCEPT_COLORS["motion energy"]
 # The raw analyses of panels e and f (no model), in `figures/<name>/<session>/`.
 ONSET_NAME = "suppression_onset"
 EXIT_NAME = "exit_without_stimulus"
-# Only this session has early withdrawals.
-EXIT_SESSION = SESSIONS[1]
 ONSET_WINDOW_MS = (-250, 290)
 
 
@@ -809,15 +806,23 @@ def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
     return [trace, strip], summary
 
 
-def _draw_exit(axis, result: dict) -> None:
-    """Draw panel f: the rate around the center exit with and without the stimulus."""
-    time = np.asarray(result["time_from_exit_ms"])
-    for (name, label), height in zip(
-        exit_without_stimulus.LABELS.items(), (0.98, 0.8), strict=True
-    ):
+def _draw_exit(axis, results: list[dict]) -> None:
+    """Draw panel f: the rate around the center exit with and without the stimulus.
+
+    The units of the mice are pooled: mean and SEM over all units.
+    """
+    time = np.asarray(results[0]["time_from_exit_ms"])
+    # Short labels, so that they stay to the left of the exit.
+    labels = {
+        "completed": "completed:\nflashes go on",
+        "early withdrawal": "early\nwithdrawal:\nflashes stop",
+    }
+    for (name, label), height in zip(labels.items(), (0.98, 0.8), strict=True):
         color = exit_without_stimulus.COLORS[name]
-        mean = np.asarray(result[name]["mean_normalized_rate"])
-        error = np.asarray(result[name]["sem_normalized_rate"])
+        rates = np.concatenate(
+            [np.asarray(r[name]["normalized_rate_by_unit"]) for r in results]
+        )
+        mean, error = rates.mean(0), rates.std(0, ddof=1) / np.sqrt(len(rates))
         axis.plot(time, mean, color=color)
         axis.fill_between(
             time, mean - error, mean + error, color=color, alpha=0.25, lw=0
@@ -838,7 +843,7 @@ def _draw_exit(axis, result: dict) -> None:
     axis.text(
         0.98,
         0.02,
-        f"{result['subject']}, {result['units']} units",
+        f"{sum(r['units'] for r in results)} units, {len(results)} mice",
         transform=axis.transAxes,
         ha="right",
         fontsize=5.5,
@@ -915,7 +920,7 @@ def main() -> None:
     raw = {
         name: [
             json.loads((args.out.parent / name / session / f"{name}.json").read_text())
-            for session in (SESSIONS if name != EXIT_NAME else [EXIT_SESSION])
+            for session in SESSIONS
         ]
         for name in (ONSET_NAME, EXIT_NAME)
     }
@@ -1045,7 +1050,7 @@ def main() -> None:
             figure, (grid[0][1], grid[0][2]), raw[ONSET_NAME]
         )
         exit_axis = figure.add_subplot(grid[1][0])
-        _draw_exit(exit_axis, raw[EXIT_NAME][0])
+        _draw_exit(exit_axis, raw[EXIT_NAME])
         order_axis = figure.add_subplot(grid[1][1])
         stillness_axis = figure.add_subplot(grid[1][2])
         matched_axis = figure.add_subplot(grid[2][0])
@@ -1251,17 +1256,20 @@ def main() -> None:
         )
         + "."
     )
-    exit_result = raw[EXIT_NAME][0]
     exit_text = (
-        "After over before the withdrawal: "
+        "Each mouse, two-sided Wilcoxon signed-rank tests over units: "
         + "; ".join(
-            f"{name}, median ratio {exit_result[name]['after / before exit']['median_ratio']:.2f}"
-            f" (p = {exit_result[name]['after / before exit']['wilcoxon_p']:.1g})"
-            for name in ("completed", "early withdrawal")
+            f"{r['subject']} ({r['early withdrawal']['trials']} early withdrawals),"
+            f" after over before the exit {r['completed']['after / before exit']['median_ratio']:.2f}"
+            f" in completed trials (p = {r['completed']['after / before exit']['wilcoxon_p']:.1g})"
+            f" and {r['early withdrawal']['after / before exit']['median_ratio']:.2f} in early"
+            f" withdrawals (p = {r['early withdrawal']['after / before exit']['wilcoxon_p']:.1g});"
+            " after the exit, early withdrawal over completed"
+            f" {r['early withdrawal / completed, after exit']['median_ratio']:.2f}"
+            f" (p = {r['early withdrawal / completed, after exit']['wilcoxon_p']:.2g})"
+            for r in raw[EXIT_NAME]
         )
-        + "; early withdrawal over completed after the withdrawal, median ratio"
-        f" {exit_result['early withdrawal / completed, after exit']['median_ratio']:.2f}"
-        f" (p = {exit_result['early withdrawal / completed, after exit']['wilcoxon_p']:.2g})."
+        + "."
     )
 
     # The fixation level is shrunk by the L2 penalty (`parameter_recovery.py`, on
@@ -1302,7 +1310,6 @@ def main() -> None:
             outside_d=outside("units_outside_the_axis_limits_of_panel_d"),
             two_step=two_text,
             onset=onset_text,
-            exit_subject=raw[EXIT_NAME][0]["subject"],
             exit=exit_text,
             outside_e=outside("units_outside_the_axis_limits_of_panel_g"),
             no_estimate=(

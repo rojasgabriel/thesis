@@ -180,6 +180,8 @@ def main() -> None:
             ),
             "mean_normalized_rate": values.mean(0).tolist(),
             "sem_normalized_rate": sem(values, axis=0).tolist(),
+            # One row for each unit, for figures that pool the units of mice.
+            "normalized_rate_by_unit": values.tolist(),
             "median_rate_before_exit": float(np.median(level[name][0])),
             "median_rate_after_exit": float(np.median(level[name][1])),
             "after / before exit": _paired(*level[name]),
