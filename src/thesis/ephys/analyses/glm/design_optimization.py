@@ -171,7 +171,8 @@ from a grid; panel h tests it. **e**, Number of motion-energy PCs.
 better. Panels a to f ran on the design of 2026-10-13; panels g and h on the
 design in use (2026-10-15). **g**, End of the fixation kernel (12 cosines;
 after the end the kernel keeps its last value to the exit), against 0.7 s.
-{hold_window_sentence} **h**, The basis of the response period and turn
+{hold_window_sentence} The kernel stays at 0.7 s: past it, few trials give data,
+and the kernel to 0.95 s was not stable after 700 ms in split halves. **h**, The basis of the response period and turn
 direction, against 8 cosines to 1.3 s; "withdrawal 0–100" is the term at the
 exit of 2026-10-13 in place of the response period. {exit_sentence} The
 importance of each regressor is tested on all units (main figure).
@@ -197,6 +198,10 @@ def _pc_sentence(entry: dict) -> str:
     return f"{first} {second}{', and some are worse' if worse else ''}."
 
 
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def _others_sentence(entry: dict, labels: dict[str, str]) -> str:
     """Say which other forms of a grid are reliably better or worse."""
     names = [n for n in entry if isinstance(entry[n], dict)]
@@ -212,11 +217,9 @@ def _others_sentence(entry: dict, labels: dict[str, str]) -> str:
     ]
     parts = []
     if worse:
-        parts.append(f"{', '.join(worse)} {'is' if len(worse) == 1 else 'are'} worse")
+        parts.append(f"{_and(worse)} {'is' if len(worse) == 1 else 'are'} worse")
     if better:
-        parts.append(
-            f"{', '.join(better)} {'is' if len(better) == 1 else 'are'} better"
-        )
+        parts.append(f"{_and(better)} {'is' if len(better) == 1 else 'are'} better")
     if not parts:
         return "No other form is reliably different."
     rest = (
@@ -224,7 +227,8 @@ def _others_sentence(entry: dict, labels: dict[str, str]) -> str:
         if len(worse) + len(better) == len(names)
         else "; the others are not reliably different"
     )
-    return "; ".join(parts).capitalize() + rest + "."
+    text = "; ".join(parts) + rest + "."
+    return text[0].upper() + text[1:]
 
 
 def _stars(p: float) -> str:

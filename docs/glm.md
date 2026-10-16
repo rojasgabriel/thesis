@@ -330,9 +330,11 @@ pass both tests in the two sessions).
 
 The six grids were run on 4 sets of 20 units (`--samples 4`, 80 units) with
 the design of 2026-10-13 (12 regressors) as the base (median validation D²
-0.0800). The design of 2026-10-15 was not run on the grids: its new forms (the
-fixation kernel to 0.7 s, the response period and turn direction to 1.3 s)
-come from the behavior (see "Design"). The withdrawal-kernel rows are for a
+0.0800). The new forms of the design of 2026-10-15 (the fixation kernel to
+0.7 s, the response period and turn direction to 1.3 s) come from the
+behavior (see "Design"); two more grids test them on that design
+(`hold_window_grid.py`, `exit_grid.py`; the last rows of the table). The
+withdrawal-kernel rows are for a
 term that the response period has replaced; they show that the model needs a
 term at the exit and that a term that starts before the exit takes the
 fixation level. Each
@@ -368,6 +370,13 @@ choices.
 | | 50 | −0.36% | 35 | 0.30 |
 | | 100 | −1.87% | 26 | 0.001 |
 | | 200 | −5.66% | 12 | 2e-10 |
+| End of the fixation kernel, design of 2026-10-15 (in use: 0.7 s) | 0.5 s | +0.08% | 46 | 0.12 |
+| | 0.95 s | +0.20% | 49 | 0.063 |
+| Exit basis, design of 2026-10-15 (in use: 8 cosines to 1.3 s) | withdrawal kernel 0 to 100 ms in place of the response period | −1.00% | 15 | 2e-7 |
+| | to 1.0 s | −0.07% | 37 | 0.31 |
+| | to 1.6 s | −0.10% | 35 | 0.59 |
+| | 6 cosines | −0.24% | 25 | 0.021 |
+| | 10 cosines | −0.05% | 38 | 0.32 |
 
 - The design is made in two steps.
   1. The parameterization of each term is chosen by prediction: another
@@ -412,6 +421,11 @@ choices.
     firing rate"). The level of the fixation kernel is recovered at 0.66
     (GRB006) and 0.84 (GRB064) of its size: the leak of "Leak of the fixation
     level". So the fitted fixation level is a lower bound.
+- The forms of 2026-10-15 hold: no other end of the fixation kernel or of the
+  exit basis predicts reliably better. The response period predicts better
+  than the withdrawal kernel that it replaced (+1.0%, 65 of 80 units). The
+  kernel to 0.95 s is not reliably better (p = 0.063) and was not stable after
+  700 ms in split halves, so the kernel stays at 0.7 s.
 - Motion energy: 10 PCs are needed (none is worse), and more PCs do not help;
   100 and 200 are worse.
 - The design with one flash kernel has no flash × move × gap term: it is the
@@ -998,7 +1012,7 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 | Flash by gap | `flash_by_gap.py` | observed and predicted rate around flashes at each gap, still and move; both sessions |
 | Still against move | `flash_by_period.py` | the matched peak in the two periods: observed, model, and model with no flash × move; both sessions |
 | Fixation effect | `hold_effect.py` | two example units (GRB006), the lower rate in the fixation, its onset, its end at the exit, and its controls; both sessions |
-| Design choices (supplement) | `design_optimization.py` | the six design grids on 80 units of GRB006, each with its test of prediction |
+| Design choices (supplement) | `design_optimization.py` | the eight design grids on 80 units of GRB006, each with its test of prediction |
 | Can the weights be read? (supplement) | `model_trust.py` | collinearity, parameter recovery, split halves, and the leak, for the design in use; both sessions |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
 | Checks of the model (supplement) | `model_checks.py` | single trials, held-out units (and the held-out animal GRB064), terms that are not in the model, calibration (both sessions), recovery of planted kernels |
