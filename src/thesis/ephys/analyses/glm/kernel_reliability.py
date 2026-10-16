@@ -150,10 +150,7 @@ def fit_session(subject: str, session: str, unit_set: str, workers: int) -> None
     ]
     with Pool(workers, _load, (model.windows, model.design)) as pool:
         fits = pool.map(_fit_halves, jobs)
-    bases = dmat.task_temporal_bases()
-    history_ms = 1 + 1000 * dmat.spike_history_basis().basis_time
-    times = {name: 1000 * basis.basis_time for name, basis in bases.items()}
-    times["history"] = history_ms
+    times = kernel_times()
     # Session drift is not compared: its columns are set by the trials of the fit.
     names = [
         key[:-3] for key in fits[0] if key.endswith("__0") and key[:-3] != dmat.DRIFT
@@ -225,6 +222,14 @@ def kernel_times() -> dict[str, np.ndarray]:
         name: 1000 * basis.basis_time
         for name, basis in dmat.task_temporal_bases().items()
     }
+    # The response period and turn direction are kernels on the exit basis.
+    exit_ms = 1000 * dmat.exit_basis().basis_time
+    for name, used in (
+        (dmat.RESPONSE_PERIOD, dmat.RESPONSE_PERIOD_TERM),
+        (dmat.TURN_DIRECTION, dmat.TURN_DIRECTION_TERM),
+    ):
+        if used:
+            times[name] = exit_ms
     times["history"] = 1 + 1000 * dmat.spike_history_basis().basis_time
     return times
 
