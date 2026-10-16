@@ -10,13 +10,12 @@ center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Panel a is
 GRB006 and panel f is GRB064 (the only session with early withdrawals). In
 the other panels the units of both mice (`SESSIONS`) are pooled (standard
-practice); in d, g, j, and k the large marker is the pooled median with its
+practice); in d, g, and j the large marker is the pooled median with its
 hierarchical-bootstrap 95% interval (mice, then units), and the open circles
 are the median of each mouse. The tests are within each mouse.
 
 Panels a to d observe and characterize the effect, e and f ask what starts
-and ends it, g to i are controls, and j and k ask which units and what the
-signal after the exit is.
+and ends it, g to i are controls, and j asks which units.
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
@@ -86,11 +85,6 @@ signal after the exit is.
   flash regressor. A value below `UNIQUE_FLOOR` is drawn there, and a level
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
-- Panel k (the side signal after the exit): the side index of each unit,
-  (right − left) / (right + left), with the stimulus on against with the
-  stimulus off after the exit, from `side_preference.py` (all units of the
-  unit table, so more units than the GLM fits). The Spearman correlations
-  and the split-half limits are in `hold_effect_stats.json`.
 
 The descriptive model and the design with no fixation kernel are fit here (`glm
 fit` stages, with cross-validation) in the directories with the suffixes
@@ -149,7 +143,6 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
-    peak_axes,
     pooled_points,
     pooled_strip,
     save_figure,
@@ -162,7 +155,7 @@ go on.** The fixation is the time from the first flash to the withdrawal from
 the center port. The flashes continue until the animal enters a response port,
 so the time after the withdrawal has the stimulus without the fixation. Two
 mice: {units}. Except in a and f, the units of both mice are pooled; in d, g,
-j, and k the large marker is the pooled median with its hierarchical-bootstrap 95%
+and j the large marker is the pooled median with its hierarchical-bootstrap 95%
 interval (the mice, then the units of each), and the open circles are the
 median of each mouse ({subject} and {other}). The tests are within each mouse. **a**, Spikes of two example units of
 {subject} against time from the first flash (left) and from the withdrawal
@@ -201,9 +194,7 @@ around a flash in fixation, and around a flash after the withdrawal with less
 and with more motion energy of the video (lower and upper half; mean and SEM
 over units; the first flash of a trial is not used). {energy}
 **j**, The level in fixation against the unique ΔD² of the visual flash.
-{relation} {outside_j} **k**, The side index of each unit after the
-withdrawal, (right − left) / (right + left), with the stimulus on against with
-it off (all units of the unit table). {side}
+{relation} {outside_j}
 """
 ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
@@ -231,10 +222,9 @@ EXIT_WINDOW_MS = (-200, 500)
 TASK, VISUAL = CONCEPT_COLORS["task"], CONCEPT_COLORS["visual"]
 DELAY_COLORS = {"short delay": "0.6", "long delay": OBSERVED_COLOR}
 MOTION = CONCEPT_COLORS["motion energy"]
-# The raw analyses of panels e, f, and k (no model), in `figures/<name>/<session>/`.
+# The raw analyses of panels e and f (no model), in `figures/<name>/<session>/`.
 ONSET_NAME = "suppression_onset"
 EXIT_NAME = "exit_without_stimulus"
-SIDE_NAME = "side_preference"
 # Only this session has early withdrawals.
 EXIT_SESSION = SESSIONS[1]
 ONSET_WINDOW_MS = (-250, 290)
@@ -848,46 +838,6 @@ def _draw_exit(axis, result: dict) -> None:
     )
 
 
-def _draw_side(axis, results: list[dict]) -> dict:
-    """Draw panel k: the side index of each unit with the stimulus on and off."""
-    pairs = []
-    for data in results:
-        on, off = (
-            np.asarray(data[window]["index_by_unit"], dtype=float)
-            for window in ("stimulus on", "stimulus off")
-        )
-        used = np.isfinite(on) & np.isfinite(off)
-        pairs.append((on[used], off[used]))
-    for line in (axis.axhline, axis.axvline):
-        line(0, color=REFERENCE_COLOR, linewidth=0.5)
-    peak_axes(axis, limits=(-1, 1))
-    axis.set_xticks([-1, 0, 1], ["−1", "0", "1"])
-    axis.set_yticks([-1, 0, 1], ["−1", "0", "1"])
-    pooled_points(
-        axis,
-        [on for on, _ in pairs],
-        [off for _, off in pairs],
-        [data["subject"] for data in results],
-        OBSERVED_COLOR,
-    )
-    axis.set_xlabel("side index after exit,\nstimulus on")
-    axis.set_ylabel("side index after exit,\nstimulus off")
-    return {
-        data["subject"]: {
-            key: data[key]
-            for key in (
-                "stimulus on against stimulus off",
-                "stimulus on against fixation",
-            )
-        }
-        | {
-            f"split half, {window}": data[window]["split_half"]
-            for window in ("stimulus on", "stimulus off")
-        }
-        for data in results
-    }
-
-
 def _draw_matched(axis, data: dict, labels: bool, style: str = "-") -> None:
     """Draw panel i: the rate around flashes in three conditions."""
     matched = data["matched"]
@@ -960,7 +910,7 @@ def main() -> None:
             json.loads((args.out.parent / name / session / f"{name}.json").read_text())
             for session in (SESSIONS if name != EXIT_NAME else [EXIT_SESSION])
         ]
-        for name in (ONSET_NAME, EXIT_NAME, SIDE_NAME)
+        for name in (ONSET_NAME, EXIT_NAME)
     }
 
     with plt.rc_context(FIGURE_STYLE):
@@ -1093,7 +1043,6 @@ def main() -> None:
         stillness_axis = figure.add_subplot(grid[1][2])
         matched_axis = figure.add_subplot(grid[2][0])
         relation = figure.add_subplot(grid[2][1])
-        side_axis = figure.add_subplot(grid[2][2])
         subjects = [data["subject"] for data in sessions]
         holds = [data["kernels"][dmat.HOLD] for data in sessions]
         afters = [data["kernels"][AFTER] for data in sessions]
@@ -1188,7 +1137,6 @@ def main() -> None:
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
         relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
-        side_stats = _draw_side(side_axis, raw[SIDE_NAME])
         panel_axes += [
             paired,
             onset_axes[0],
@@ -1197,13 +1145,12 @@ def main() -> None:
             stillness_axis,
             matched_axis,
             relation,
-            side_axis,
         ]
         for axis in panel_axes[2:] + onset_axes[1:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefghijk", panel_axes, strict=True):
+        for letter, axis in zip("abcdefghij", panel_axes, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,
@@ -1215,7 +1162,6 @@ def main() -> None:
         output = save_figure(figure, args.out / "hold_effect")
 
     stats = {s: data["stats"] for s, data in zip(SESSIONS, sessions, strict=True)}
-    stats["side index (panel k)"] = side_stats
     stats["log2 rate over the rate before the entry, long delays (panel e)"] = (
         onset_stats
     )
@@ -1310,21 +1256,6 @@ def main() -> None:
         f" {exit_result['early withdrawal / completed, after exit']['median_ratio']:.2f}"
         f" (p = {exit_result['early withdrawal / completed, after exit']['wilcoxon_p']:.2g})."
     )
-    side_text = (
-        "Spearman correlation of the index with the stimulus on and off: "
-        + "; ".join(
-            f"ρ = {v['stimulus on against stimulus off']['rho']:.2f} in {subject}"
-            f" (split-half limits {v['split half, stimulus on']['rho']:.2f} and"
-            f" {v['split half, stimulus off']['rho']:.2f})"
-            for subject, v in side_stats.items()
-        )
-        + ". With the stimulus on against in fixation: "
-        + "; ".join(
-            f"ρ = {v['stimulus on against fixation']['rho']:.2f} in {subject}"
-            for subject, v in side_stats.items()
-        )
-        + "."
-    )
 
     def outside(key: str) -> str:
         return (
@@ -1366,7 +1297,6 @@ def main() -> None:
             energy=energy_text,
             relation=relation_text,
             outside_j=outside("units_outside_the_axis_limits_of_panel_j"),
-            side=side_text,
         )
     )
     print(json.dumps(stats, indent=1))
