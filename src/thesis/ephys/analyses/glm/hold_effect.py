@@ -175,7 +175,7 @@ change: a kernel from the withdrawal to the response entry in place of the
 bands are the median and the interquartile range. **d**, The paired comparison. For
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
-the 10 cross-validation folds). {paired} {outside_d} **e**, Does the drop
+the 10 cross-validation folds). {paired} {outside_d} {bias} **e**, Does the drop
 start before the stimulus? Left: the population rate, with no model, of the
 trials with a short and a long delay from the center entry to the first flash
 (the lower and upper half of the delays), aligned to the center entry; the
@@ -1264,6 +1264,21 @@ def main() -> None:
         f" (p = {exit_result['early withdrawal / completed, after exit']['wilcoxon_p']:.2g})."
     )
 
+    # The fixation level is shrunk by the L2 penalty (`parameter_recovery.py`, on
+    # the model of the main figure).
+    recovery = json.loads((args.out / "parameter_recovery.json").read_text())
+    bias_text = (
+        "These levels are lower bounds: in the model of the main figure, spikes"
+        " simulated with a known fixation level give it back at "
+        + " and ".join(
+            f"{recovery[s]['fixation level, recovered over true (median)']['in_use']:.2f}"
+            for s in SESSIONS
+        )
+        + " of its true size (median unit, "
+        + " and ".join(s.split("_")[0] for s in SESSIONS)
+        + "), because the penalty gives a part of it to the terms after the exit."
+    )
+
     def outside(key: str) -> str:
         return (
             _pair(sessions, lambda d: str(_find(st(d), key)))
@@ -1283,6 +1298,7 @@ def main() -> None:
             lo=LEVEL_MS[0],
             hi=LEVEL_MS[1],
             paired=paired_text,
+            bias=bias_text,
             outside_d=outside("units_outside_the_axis_limits_of_panel_d"),
             two_step=two_text,
             onset=onset_text,

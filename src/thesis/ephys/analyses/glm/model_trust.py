@@ -77,8 +77,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import wilcoxon
 
-from thesis.ephys.analyses.glm import peaks
+from thesis.ephys.analyses.glm import cli, peaks
 from thesis.ephys.analyses.glm.collinearity import INDEX_LIMITS, VIF_LIMITS
+from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
 from thesis.ephys.analyses.glm.kernel_reliability import agreement, kernel_times
 from thesis.ephys.analyses.glm.leak_test import PART_LIMITS
@@ -95,6 +96,9 @@ from thesis.plotting import (
 
 # Axis limits of the recovery panels; a unit outside them is drawn at the limit.
 RECOVERY_LIMITS = {"agreement": (-0.5, 1.05), "size": (0, 2)}
+# Spike history is read only in units with this rate or more (spikes/s): in
+# slower units few spikes are close enough together to fit it.
+HISTORY_MIN_RATE = 5.0
 # The fixation kernel after this time (ms from the first flash) is reached by
 # few trials (the exit comes by about 700 ms in 95% of trials of both mice).
 FIXATION_TAIL_MS = 700
@@ -116,13 +120,15 @@ weights**: spikes are simulated from the fitted model of each unit
 kernel is compared with the true one. **d**, Agreement, 1 − |a − b|² / (|a|² +
 |b|²): 1 for equal kernels, 0 for unrelated kernels. **e**, Size of the
 recovered kernel over the true size. Every regressor is recovered with a
-median agreement of {lowest_agreement:.2f} or more in both animals. The level
-of the fixation kernel is recovered at {level_in_use} of its true size: the L2
-penalty gives a part of it to the flash × move kernels (g–i). **f, The same
+median agreement of {lowest_agreement:.2f} or more in both animals. Spike
+history depends on the firing rate: {history_recovery}. The level of the
+fixation kernel is recovered at {level_in_use} of its true size, so the fitted
+level is a lower bound: the L2 penalty gives a part of it to the terms after
+the exit (the response period and flash × move). **f, The same
 weights from independent trials**: each unit is fit on the even and on the
 odd trials, and the two kernels are compared, for the units that need the
 regressor. Every regressor has a median agreement of {lowest_half:.2f} or
-more. {tail} **g–i, The flash × move effect that the fit makes with none in
+more. {tail} {history_halves} **g–i, The flash × move effect that the fit makes with none in
 the data.** **g**, The flash × move part of the move − still flash peak
 (spikes/s; the excited units) in the real fit against the leak: the same part
 in fits to spikes simulated with no flash × move effect. **h**, Real minus
@@ -381,6 +387,45 @@ def main() -> None:
             }
             for name in stable
         }
+        # Spike history by firing rate (`HISTORY_MIN_RATE`).
+        rates = [
+            {
+                int(item["unit_id"]): 1000 * float(item["fit_mean_count"])
+                for item in load_unit_records(
+                    cli.PoissonGLM(root=root).fit_dir("all") / "checkpoints",
+                    "unit_*_final.json",
+                )
+            }
+            for root in roots
+        ]
+        by_rate = {}
+        for subject, rate, rec, half in zip(
+            subjects, rates, recovered, halves, strict=True
+        ):
+            fast = np.asarray(
+                [rate[int(u)] >= HISTORY_MIN_RATE for u in rec["unit_ids"]]
+            )
+            column = rec["regressors"].tolist().index("history")
+            fast_halves = np.asarray(
+                [rate[int(u)] >= HISTORY_MIN_RATE for u in half["unit_ids"]]
+            )
+            agree = half["agreement__history"]
+            by_rate[subject] = {
+                "units_at_or_above": int(fast.sum()),
+                "units_below": int((~fast).sum()),
+                "recovery_agreement_at_or_above": float(
+                    np.median(rec["agreement"][fast, column])
+                ),
+                "recovery_agreement_below": float(
+                    np.median(rec["agreement"][~fast, column])
+                ),
+                "recovery_size_at_or_above": float(
+                    np.median(rec["size"][fast, column])
+                ),
+                "halves_agreement_at_or_above": float(np.median(agree[fast_halves])),
+                "halves_agreement_below": float(np.median(agree[~fast_halves])),
+            }
+        stats[f"spike history by rate ({HISTORY_MIN_RATE:g} spikes/s)"] = by_rate
         # Panels m to o: the leak (`leak_test.py`), in the matched peak measure
         # of the excited units, as in `flash_by_period.py`.
         part_axis, rest_axis, level_axis = leak_row.subplots(
@@ -501,6 +546,23 @@ def main() -> None:
                 for animal in stats["recovery"].values()
                 for v in animal.values()
             ),
+            history_recovery=" and ".join(
+                f"median agreement {v['recovery_agreement_at_or_above']:.2f} in the"
+                f" {v['units_at_or_above']} units of {subject} with"
+                f" {HISTORY_MIN_RATE:g} spikes/s or more (size"
+                f" {v['recovery_size_at_or_above']:.2f}), against"
+                f" {v['recovery_agreement_below']:.2f} in the {v['units_below']} slower"
+                " units"
+                for subject, v in by_rate.items()
+            ),
+            history_halves="Spike history between halves: "
+            + " and ".join(
+                f"{v['halves_agreement_at_or_above']:.2f} at {HISTORY_MIN_RATE:g}"
+                f" spikes/s or more and {v['halves_agreement_below']:.2f} below"
+                f" ({subject})"
+                for subject, v in by_rate.items()
+            )
+            + "; history is read only in the faster units.",
             level_in_use=" and ".join(
                 f"{recovery_stats[s]['fixation level, recovered over true (median)']['in_use']:.2f}"
                 for s in SESSIONS
