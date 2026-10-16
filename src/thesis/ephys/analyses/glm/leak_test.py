@@ -241,7 +241,8 @@ def _unit(job: dict) -> dict:
     null = coefficients.copy()
     groups = block_slices(metadata, int(record["components"]))
     for name in REMOVED:
-        null[groups[name]] = 0
+        if name in groups:  # a term that the design in use has
+            null[groups[name]] = 0
     rng = np.random.default_rng(SEED + job["unit_id"])
     fits, leak_parts = [], []
     for _ in range(SIMULATIONS):
