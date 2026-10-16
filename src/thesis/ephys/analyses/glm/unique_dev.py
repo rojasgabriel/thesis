@@ -16,10 +16,14 @@ energy in a trial, so this value is the part of the unique ΔD² that needs the
 movement of that specific trial.
 
 A shuffle permutes design rows among the valid bins of each trial. A block
-that is a variable of the trial (`OVER_TRIALS`: drift, the previous side, the
-side of the response, the turn direction, the previous outcome) is instead
-taken from another trial at the same bin (`trial_swap_permutation`), because a
-shuffle inside the trial keeps its value there. All columns of a block move
+that is a variable of the trial (`OVER_TRIALS`: drift, the previous outcome) is
+instead taken from another trial at the same bin (`trial_swap_permutation`),
+because a shuffle inside the trial keeps its value there. A block that is a
+side (±1) on a time course of the trial itself (`SIGN_OVER_TRIALS`: the previous
+side, the side of the response, the turn direction) keeps its own rows and
+takes the sign of the other trial: taking the rows of the other trial would
+also move a time course that is aligned to the events of that trial, and
+test the timing and not the side (2026-10-16). All columns of a block move
 together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
 three broad groups (task, video, history) and each regressor of the design
@@ -64,9 +68,12 @@ from thesis.ephys.analyses.glm.fit import (
 from thesis.ephys.units import fetch_unit_table
 
 # The regressors that are a variable of the trial, shuffled over trials.
-OVER_TRIALS = (DRIFT, PREVIOUS_SIDE, SIDE, TURN_DIRECTION, PREVIOUS_OUTCOME)
+OVER_TRIALS = (DRIFT, PREVIOUS_OUTCOME)
+# The regressors that are a side (±1) on a time course of the trial: the sign
+# is shuffled over trials, the time course stays.
+SIGN_OVER_TRIALS = (PREVIOUS_SIDE, SIDE, TURN_DIRECTION)
 # The name of the shuffle rule, saved in each record.
-SHUFFLE_RULE = "trial variables over trials, 2026-10-14"
+SHUFFLE_RULE = "trial variables over trials, sides by sign, 2026-10-16"
 
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
@@ -208,6 +215,18 @@ def _block_task(job: dict) -> dict:
     within = _SHARED["within_trial"]
     between = _SHARED["between_trials"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
+    # For a side on a time course: +1 or -1 in each row, so that a trial keeps
+    # its block and takes the side of its partner in `between`.
+    trials = len(prepared["alignments"])
+    bins = len(between) // trials
+    partner = between.reshape(trials, bins)[:, 0] // bins
+    flips = {}
+    for name in SIGN_OVER_TRIALS:
+        if name in groups:
+            block = np.asarray(common[:, groups[name]]).reshape(trials, bins, -1)
+            side = np.sign(block.sum((1, 2)))
+            side[side == 0] = 1
+            flips[name] = np.repeat(side[partner] * side, bins)
     complete_folds, trial_specific = [], []
     for fold_index, (fold, alpha) in enumerate(
         _scored_folds(counts, _SHARED["partitions"], job["alphas"]), start=1
@@ -249,7 +268,12 @@ def _block_task(job: dict) -> dict:
             else:
                 source = history[:, columns.start - width : columns.stop - width]
             for matrix, rows in ((fit_design, fit_rows), (test_design, test_rows)):
-                matrix[:, columns] = source[rows if mapping is None else mapping[rows]]
+                if isinstance(mapping, tuple):  # ("sign", +1 or -1 in each row)
+                    matrix[:, columns] = source[rows] * mapping[1][rows, None]
+                else:
+                    matrix[:, columns] = source[
+                        rows if mapping is None else mapping[rows]
+                    ]
 
         # Control: motion energy of another trial at the same time in the trial.
         if "video" in order:
@@ -265,6 +289,8 @@ def _block_task(job: dict) -> dict:
             # response, the turn direction, the previous outcome) is shuffled over trials. A
             # shuffle inside a trial keeps its sign there, so it would test only
             # when the column turns on, not the variable.
+            if name in flips:
+                return ("sign", flips[name])
             return between if name in OVER_TRIALS else within
 
         for name in blocks:

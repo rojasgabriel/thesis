@@ -17,7 +17,8 @@ check. Units (all 20 spikes/s baseline, 1 ms bins):
 
 - 101: flash only, with a 2 ms refractory history.
 - 102: motion-energy PC 1 only.
-- 103: withdrawal only.
+- 103: a bump just after the withdrawal only (recovered by the withdrawal
+  kernel, or by the response period when the design has no withdrawal kernel).
 - 104: constant rate, no history (null unit).
 - 105: stimulus during hold only: a drop of the rate from the first flash to
   the withdrawal.
@@ -66,6 +67,8 @@ PC_COUNTS = (2, 5)
 FLASH_PEAK_S = 0.04
 FLASH_GAIN = 1.5
 ADAPT_GAIN = -0.6  # flash kernel scale after a flash in the last 50 ms (centered)
+# The term of the design that recovers the bump after the exit.
+EXIT_TERM = "withdrawal" if dmat.WITHDRAWAL_KERNEL else dmat.RESPONSE_PERIOD
 WITHDRAWAL_PEAK_S = 0.05
 WITHDRAWAL_GAIN = 1.5
 VIDEO_GAIN = 0.4
@@ -124,11 +127,14 @@ def synthetic_trials(rng: np.random.Generator) -> pd.DataFrame:
             {
                 "trial_num": index + 1,
                 "response": 1 if index % 2 else -1,
+                "rewarded": int(rng.random() < 0.8),
                 "early_withdrawal": 0,
                 "stim_pulse_times_s": flashes.tolist(),
                 "center_entry_s": first - rng.uniform(0.03, 0.1),
                 "center_exit_s": exit_s,
-                "response_port_entry_s": exit_s + rng.uniform(0.3, 0.8),
+                # Out to past the exit basis (1.3 s), as in the real sessions;
+                # a shorter range leaves its last cosines with no data.
+                "response_port_entry_s": exit_s + rng.uniform(0.3, 1.4),
             }
         )
     table = pd.DataFrame(rows)
@@ -439,7 +445,9 @@ def main() -> None:
                 _correlation(short_v - long_v, truth) > 0.7,
             )
         if "withdrawal" in effects:
-            exit_t, exit_v = kernels["withdrawal"]
+            # The design has no withdrawal kernel from 2026-10-15: the response
+            # period, on the exit basis, covers the time after the exit.
+            exit_t, exit_v = kernels[EXIT_TERM]
             truth = withdrawal_kernel(exit_t / 1000)
             check(
                 f"{unit_id} withdrawal kernel r>0.9", _correlation(exit_v, truth) > 0.9
@@ -473,7 +481,7 @@ def main() -> None:
         drivers = {
             "flash": dmat.flash_gap_names(),
             "video": ["video"],
-            "withdrawal": ["withdrawal"],
+            "withdrawal": [EXIT_TERM],
             "hold": [dmat.HOLD],
         }
         if len(effects - {"history"}) == 1:
