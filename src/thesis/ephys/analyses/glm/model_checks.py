@@ -2,9 +2,9 @@
 
 Question: can the fitted model be trusted? Five checks, with no new fit.
 
-- Panels a to c (single trials): observed spikes of the example unit on the
-  held-out test trials, spikes drawn from the predicted rate of the same
-  trials, and both rates in 10-ms bins. The prediction of a trial comes from
+- Panels a to c (single trials): observed spikes of the example unit of each
+  mouse (left GRB006, right GRB064) on the held-out test trials, spikes drawn
+  from the predicted rate of the same trials, and both rates in 10-ms bins. The prediction of a trial comes from
   the cross-validation fold that did not train on it. The predicted spikes are
   one Poisson draw (`PREDICTION_SEED`).
 - Panels d and e (units that took no part in the design choices): every design
@@ -17,10 +17,13 @@ Question: can the fitted model be trusted? Five checks, with no new fit.
   session of `SESSIONS` (GRB064), an animal that took no part in the design
   choices; it has no test, because a difference between animals has other
   causes.
-- Panel f (terms that are not in the model): for each candidate term, the D²
-  that it adds to the final refit of a unit (in-sample), and the same with
-  shuffled labels (`residual_checks.py`). The comparison is paired over units;
-  the mark is a two-sided Wilcoxon signed-rank test.
+- Panel f (terms that are not in the model): `candidate_terms.py` adds the
+  candidate terms of `candidate_terms.CANDIDATES` to the design together and
+  fits all units; the panel shows the unique ΔD² of each candidate in each
+  mouse (filled GRB006, open GRB064) and whether it passes the inclusion rule
+  of `inclusion.py` (unique ΔD² above 0, two-sided Wilcoxon signed-rank test,
+  and more units that need it than chance gives, binomial test; Holm
+  correction over the regressors of that design).
 
 - Panel g (calibration): is the predicted rate correct where it is low and
   where it is high? For each unit, the held-out 1-ms bins are sorted by the
@@ -45,7 +48,7 @@ trial in panels a to c.
     uv run python -m thesis.ephys.analyses.glm.model_checks
 
 Run `glm fit` and `glm unique` with `--units all`,
-`residual_checks --units all`, and `synthetic_check --out
+`candidate_terms` for each session, and `synthetic_check --out
 figures/glm/synthetic_check`, first. The script writes `model_checks.svg` and
 `model_checks_stats.json` in the session directory.
 """
@@ -61,9 +64,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import mannwhitneyu, wilcoxon
+from scipy.stats import mannwhitneyu
 
 from thesis.ephys.analyses.glm import cli, dmat, fit
+from thesis.ephys.analyses.glm.candidate_terms import CANDIDATES
+from thesis.ephys.analyses.glm.candidate_terms import ROOT_SUFFIX as CANDIDATE_SUFFIX
 from thesis.ephys.analyses.glm.design_optimization import _stars
 from thesis.ephys.analyses.glm.figures import draw_prediction
 from thesis.ephys.analyses.glm.fit import load_unit_records
@@ -92,19 +97,11 @@ SYNTHETIC_KERNELS = {
     "fixation": 350,
     "withdrawal": 100,
 }
-# Candidate terms of `residual_checks.py`, with their labels.
-CHECKS = {
-    "session drift": "session\ndrift",
-    "time in trial": "time in\ntrial",
-    "flash rate": "flash\nrate",
-    "side, before withdrawal": "side,\nbefore\nwithdrawal",
-    "side, after withdrawal": "side,\nafter\nwithdrawal",
-}
 
 CAPTION = """\
 **Checks of the GLM.** No new fit is made for this figure. **a–c, Single
-trials.** **a**, Observed spikes of the example unit (unit {unit}) on the
-held-out test trials; light gray is the time after the response entry, which
+trials** of an example unit of each mouse (left: {subject} unit {unit}; right:
+{other} unit {other_unit}). **a**, Observed spikes on the held-out test trials; light gray is the time after the response entry, which
 is not in the model. **b**, Spikes drawn from
 the predicted rate of the same trials (one Poisson draw). Each trial is
 predicted by a model that was not fit on it, with the observed spike history.
@@ -120,11 +117,11 @@ not used for the design choices; it has no test, because a difference between an
 has other causes. **e**, The unique ΔD² of each regressor in the three groups
 (Mann-Whitney U test of the two groups of {subject} for each regressor; the
 smallest p is {p_unique:.2f}). **f, Terms that are not in the
-model.** The D² that each candidate term adds to the fitted model of a unit,
-and the same with shuffled labels ({units} units, paired; two-sided Wilcoxon
-signed-rank test). The largest median gain is {largest:.4f} ({largest_name}),
-against {shuffled:.4f} with shuffled labels; no term is in the model because
-each gain is small next to the D² of the model. **g, Calibration.** For each
+model.** The candidate terms are added to the design together and every unit
+is fit; the panel shows the unique ΔD² of each (filled: {subject}; open:
+{other}). Marks: the term passes the inclusion rule in that mouse (unique ΔD²
+above 0, two-sided Wilcoxon signed-rank test, and more units that need it than
+chance gives, binomial test; Holm correction). {candidates} **g, Calibration.** For each
 unit, the held-out 1-ms bins are sorted by the predicted rate and cut in
 {groups} groups of equal size. The line is the observed rate over the
 predicted rate in each group (median and interquartile range over units of
@@ -261,18 +258,15 @@ def main() -> None:
             table, "sample" + (str(sample) if sample else "")
         )
     }
-    residual_path = fit_dir / "residual_checks.json"
     data_path = fit_dir / "figure_data.npz"
     if not (final and selection and len(unique) == len(final)):
         raise FileNotFoundError("Run `glm fit` and `glm unique` for all units.")
-    for path in (residual_path, data_path):
-        if not path.exists():
-            raise FileNotFoundError(path)
+    if not data_path.exists():
+        raise FileNotFoundError(data_path)
     chosen = np.asarray([int(item["unit_id"]) in selection for item in final])
     deviance = np.asarray(
         [item["cross_validated_deviance_explained"] for item in final]
     )
-    residual = json.loads(residual_path.read_text())["units"]
     data = np.load(data_path, allow_pickle=False)
     example = json.loads((fit_dir / "figure_data.json").read_text())["example_unit_id"]
     observed, conditional = data["prediction_observed"], data["conditional"]
@@ -290,6 +284,7 @@ def main() -> None:
     other = cli.PoissonGLM(root=other_root)
     other_subject = other_root.name.split("_")[0]
     subject = args.root.name.split("_")[0]
+    subject_name = subject
     other_final = load_unit_records(
         other.fit_dir("all") / "checkpoints", "unit_*_final.json"
     )
@@ -300,18 +295,47 @@ def main() -> None:
         [item["cross_validated_deviance_explained"] for item in other_final]
     )
     other_ratio = calibration(other)
+    other_dir = other.fit_dir("all")
+    other_data = np.load(other_dir / "figure_data.npz", allow_pickle=False)
+    other_example = json.loads((other_dir / "figure_data.json").read_text())[
+        "example_unit_id"
+    ]
+    stats["example_unit_id_other"] = int(other_example)
+    # The candidate test of each mouse: the unique ΔD² of each unit and the
+    # inclusion tests (`candidate_terms.py`).
+    candidates = {}
+    for root, name in ((args.root, subject), (other_root, other_subject)):
+        tested = json.loads(
+            (root / f"candidate_terms{CANDIDATE_SUFFIX}.json").read_text()
+        )
+        records = load_unit_records(
+            cli.PoissonGLM(root=root.with_name(root.name + CANDIDATE_SUFFIX)).fit_dir(
+                "all"
+            )
+            / "checkpoints"
+            / "unique",
+            "unit_*.json",
+        )
+        candidates[name] = {
+            term: (
+                np.asarray([item["groups"][term][UNIQUE] for item in records]),
+                tested[term],
+            )
+            for term in CANDIDATES.values()
+        }
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 9.2))
         trials = figure.add_gridspec(
             3,
-            1,
+            2,
             left=0.11,
             right=0.5,
-            top=0.96,
+            top=0.95,
             bottom=0.30,
             height_ratios=(1, 1, 1.1),
             hspace=0.22,
+            wspace=0.12,
         )
         right = figure.add_gridspec(
             3,
@@ -323,14 +347,42 @@ def main() -> None:
             height_ratios=(0.8, 1.25, 1.1),
             hspace=0.62,
         )
-        trial_axes = [figure.add_subplot(trials[0])]
+        trial_axes = [figure.add_subplot(trials[0, 0])]
         trial_axes += [
-            figure.add_subplot(trials[row], sharex=trial_axes[0]) for row in (1, 2)
+            figure.add_subplot(trials[row, 0], sharex=trial_axes[0]) for row in (1, 2)
         ]
         draw_prediction(
             trial_axes, data["relative_times"], observed, predicted, conditional, valid
         )
-        for axis in trial_axes[:2]:
+        other_axes = [figure.add_subplot(trials[0, 1])]
+        other_axes += [
+            figure.add_subplot(trials[row, 1], sharex=other_axes[0]) for row in (1, 2)
+        ]
+        other_observed = other_data["prediction_observed"]
+        other_valid = other_data["test_valid"]
+        other_predicted = np.zeros_like(other_observed, dtype=int)
+        other_predicted[other_valid] = np.random.default_rng(
+            PREDICTION_SEED + int(other_example)
+        ).poisson(other_data["conditional"][other_valid])
+        draw_prediction(
+            other_axes,
+            other_data["relative_times"],
+            other_observed,
+            other_predicted,
+            other_data["conditional"],
+            other_valid,
+        )
+        for axis in other_axes:
+            axis.set_ylabel("")
+        # The labels of the rates are in the right panel only, clear of the data.
+        for text in list(trial_axes[2].texts):
+            text.remove()
+        for axis, name, unit_id in (
+            (trial_axes[0], subject_name, example),
+            (other_axes[0], other_subject, other_example),
+        ):
+            axis.set_title(f"{name}, unit {unit_id}", fontsize=6.5, loc="left")
+        for axis in (*trial_axes[:2], *other_axes[:2]):
             axis.tick_params(labelbottom=False)
 
         colors = (OBSERVED_COLOR, HELD_OUT_COLOR)
@@ -429,36 +481,53 @@ def main() -> None:
         )
 
         left_out = figure.add_subplot(right[2])
-        for position, name in enumerate(CHECKS):
-            real = np.asarray([item[name] for item in residual])
-            shuffled = np.asarray([item[f"{name} shuffle"] for item in residual])
+        terms = list(CANDIDATES.values())
+        for position, term in enumerate(terms):
+            (values, tested), (other_values, other_tested) = (
+                candidates[name][term] for name in (subject, other_subject)
+            )
             _boxes(
                 left_out,
-                (real, shuffled),
+                (values, other_values),
                 (position - 0.19, position + 0.19),
-                colors,
+                (OBSERVED_COLOR, HELD_OUT_COLOR),
+                fill=(True, False),
             )
-            p_value = float(wilcoxon(real, shuffled).pvalue)
-            _mark(left_out, position, p_value)
-            stats[f"term not in the model, {name}"] = {
-                "median": float(np.median(real)),
-                "median_shuffled": float(np.median(shuffled)),
-                "units_above_shuffled": int(np.sum(real > shuffled)),
-                "units": len(real),
-                "wilcoxon_p": p_value,
+            for shift, entry in ((-0.19, tested), (0.19, other_tested)):
+                left_out.text(
+                    position + shift,
+                    1.0,
+                    "pass" if entry["passes_both_tests"] else "fail",
+                    transform=left_out.get_xaxis_transform(),
+                    ha="center",
+                    va="bottom",
+                    fontsize=5.5,
+                )
+            stats[f"candidate term, {term}"] = {
+                name: {
+                    "median_unique": float(np.median(candidates[name][term][0])),
+                    **{
+                        key: candidates[name][term][1][key]
+                        for key in (
+                            "units_that_need_it",
+                            "fraction_units_that_need_it",
+                            "gain_wilcoxon_p_holm",
+                            "units_binomial_p_holm",
+                            "passes_both_tests",
+                        )
+                    },
+                }
+                for name in (subject, other_subject)
             }
-        left_out.set_xticks(range(len(CHECKS)), list(CHECKS.values()), fontsize=5.5)
-        left_out.set_ylabel(r"$\Delta D^2$ of a term" + "\nthat is not in the model")
-        left_out.text(
-            0.55, 0.82, "real", color=colors[0], transform=left_out.transAxes, va="top"
+        left_out.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
+        left_out.set_xticks(
+            range(len(terms)),
+            [REGRESSORS[term][0].replace(" ", "\n", 1) for term in terms],
+            fontsize=5.5,
         )
-        left_out.text(
-            0.55,
-            0.72,
-            "shuffled labels",
-            color=colors[1],
-            transform=left_out.transAxes,
-            va="top",
+        left_out.set_xlim(-0.6, len(terms) - 0.4)
+        left_out.set_ylabel(
+            r"unique $\Delta D^2$ of a term" + "\nthat is not in the model"
         )
 
         # Planted and recovered kernels of the synthetic unit with every effect.
@@ -545,14 +614,26 @@ def main() -> None:
 
     output.with_name("model_checks_stats.json").write_text(json.dumps(stats, indent=1))
     unique = [v for k, v in stats.items() if k.startswith("unique dD2")]
-    terms = {
-        k.split(", ", 1)[1]: v
-        for k, v in stats.items()
-        if k.startswith("term not in the model")
+    passed = {
+        term: [
+            name
+            for name, entry in stats[f"candidate term, {term}"].items()
+            if entry["passes_both_tests"]
+        ]
+        for term in CANDIDATES.values()
     }
-    largest = max(terms, key=lambda name: terms[name]["median"])
+    candidate_text = (
+        "Pass in both mice: "
+        + ", ".join(
+            REGRESSORS[term][0] for term, names in passed.items() if len(names) == 2
+        )
+        + ". Fail in both: "
+        + ", ".join(REGRESSORS[term][0] for term, names in passed.items() if not names)
+        + ". A term that passes goes into the model only after the collinearity and"
+        " parameter-recovery checks of a design with it."
+    )
     ratios = stats["calibration, observed / predicted by group"]["median"]
-    units = terms[largest]["units"]
+    units = len(final)
     output.with_name("model_checks_caption.md").write_text(
         CAPTION.format(
             unit=stats["example_unit_id"],
@@ -562,10 +643,8 @@ def main() -> None:
             d2_out=stats["cross-validated D2"]["median_held_out"],
             p_d2=stats["cross-validated D2"]["mann_whitney_p"],
             p_unique=min(item["mann_whitney_p"] for item in unique),
-            units=units,
-            largest=terms[largest]["median"],
-            largest_name=largest,
-            shuffled=terms[largest]["median_shuffled"],
+            candidates=candidate_text,
+            other_unit=stats["example_unit_id_other"],
             groups=CALIBRATION_GROUPS,
             cal_low=min(ratios),
             cal_high=max(ratios),
