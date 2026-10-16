@@ -457,7 +457,7 @@ def _plot_kernels(axes, data) -> None:
         )
     by_period.set_xlabel("time from\nflash (ms)")
     hold.plot(data["kern_t__hold"], data["kern_v__hold"], color=TASK)
-    hold.set_xlabel("time in fixation,\nfrom first flash (ms)")
+    hold.set_xlabel("time from\nfirst flash (ms)")
     # After the exit: the response period plus or minus turn direction, the
     # term of a right and of a left turn.
     times = data["kern_t__response_period"]
