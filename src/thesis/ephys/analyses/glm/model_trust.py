@@ -33,25 +33,24 @@ right: GRB064). The tests are within each mouse.
   + |k|^2) (1 for equal kernels, 0 for unrelated, below 0 for opposite); e,
   the size |k'| / |k|. A point outside `RECOVERY_LIMITS` is drawn at the
   limit; it is in the statistics.
-- Split halves (f and g, `kernel_reliability.py`): variance of the fit on
-  real data, with no truth. Each unit is fit on the even and on the odd
-  trials, with the penalty of its final refit. f, the agreement of the two
-  kernels of each regressor (as in d), for the units that need the regressor
-  (unique ΔD² above 0 over the folds; for other units the kernel is near 0
-  and the agreement has no meaning). g, the one value of the fixation kernel
-  that `hold_effect.py` reads, its mean over `LEVEL_MS`, in the two halves,
-  for the units that need the fixation kernel, with the Spearman correlation
-  in each mouse. A point outside `LEVEL_LIMITS` is drawn at the limit.
-- Leak (h to j, `leak_test.py`): a bias of one result. A flash kernel summed
+- Split halves (f, `kernel_reliability.py`): variance of the fit on real
+  data, with no truth. Each unit is fit on the even and on the odd trials,
+  with the penalty of its final refit. f, the agreement of the two kernels of
+  each regressor (as in d), for the units that need the regressor (unique ΔD²
+  above 0 over the folds; for other units the kernel is near 0 and the
+  agreement has no meaning). The fixation kernel is also given before and
+  after `FIXATION_TAIL_MS`: its time axis runs to the longest fixation, and
+  only a few trials reach its end.
+- Leak (g to i, `leak_test.py`): a bias of one result. A flash kernel summed
   over the flash train after the exit is close to a level, so the L2 penalty
   can give part of the rate step at the exit to the flash × move kernels and
   make a flash × move effect from nothing. Spikes are simulated from the
   final refit of each unit with the flash × move weights set to 0, and the
   full model is fit to them. The leak is the flash × move part of the move −
   still peak of that fit, in the matched peak measure of `flash_by_period.py`
-  (`peaks.py`; the excited units). h, the real part against the leak; i, real
+  (`peaks.py`; the excited units). g, the real part against the leak; h, real
   minus leak (two-sided Wilcoxon signed-rank test in each mouse, and the
-  hierarchical bootstrap); j, the leak against the fixation level of the unit.
+  hierarchical bootstrap); i, the leak against the fixation level of the unit.
   A point outside `PART_LIMITS` is drawn at the limit; it is in the
   statistics.
 
@@ -76,13 +75,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import spearmanr, wilcoxon
+from scipy.stats import wilcoxon
 
 from thesis.ephys.analyses.glm import peaks
 from thesis.ephys.analyses.glm.collinearity import INDEX_LIMITS, VIF_LIMITS
 from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
-from thesis.ephys.analyses.glm.hold_effect import LEVEL_LIMITS, LEVEL_MS
-from thesis.ephys.analyses.glm.kernel_reliability import kernel_times
+from thesis.ephys.analyses.glm.kernel_reliability import agreement, kernel_times
 from thesis.ephys.analyses.glm.leak_test import PART_LIMITS
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS, TASK, VISUAL
 from thesis.plotting import (
@@ -90,7 +88,6 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     hierarchical_interval,
     label_panels,
-    peak_axes,
     pooled_points,
     pooled_strip,
     save_figure,
@@ -98,6 +95,9 @@ from thesis.plotting import (
 
 # Axis limits of the recovery panels; a unit outside them is drawn at the limit.
 RECOVERY_LIMITS = {"agreement": (-0.5, 1.05), "size": (0, 2)}
+# The fixation kernel after this time (ms from the first flash) is reached by
+# few trials (the exit comes by about 700 ms in 95% of trials of both mice).
+FIXATION_TAIL_MS = 700
 CAPTION = """\
 **Can the weights of the model be read?** The design in use, in {subject} and
 in {held_out} (an animal that took no part in the design choices). Units of
@@ -118,17 +118,15 @@ kernel is compared with the true one. **d**, Agreement, 1 − |a − b|² / (|a|
 recovered kernel over the true size. Every regressor is recovered with a
 median agreement of {lowest_agreement:.2f} or more in both animals. The level
 of the fixation kernel is recovered at {level_in_use} of its true size: the L2
-penalty gives a part of it to the flash × move kernels (h–j). **f–g, The same
+penalty gives a part of it to the flash × move kernels (g–i). **f, The same
 weights from independent trials**: each unit is fit on the even and on the
-odd trials. **f**, Agreement of the two kernels, for the units that need the
+odd trials, and the two kernels are compared, for the units that need the
 regressor. Every regressor has a median agreement of {lowest_half:.2f} or
-more. **g**, The fixation level that the fixation figure reads ({lo} to {hi}
-ms after the first flash) in the two halves. {level_halves} **h–j, The flash ×
-move effect that the fit makes with none in the data.** **h**, The flash ×
-move part of the move − still flash peak (spikes/s; the excited units) in the
-real fit against the leak: the same part in fits to spikes simulated with no
-flash × move effect. **i**, Real minus leak. {leak} **j**, The leak against the
-fixation level of the unit.
+more. {tail} **g–i, The flash × move effect that the fit makes with none in
+the data.** **g**, The flash × move part of the move − still flash peak
+(spikes/s; the excited units) in the real fit against the leak: the same part
+in fits to spikes simulated with no flash × move effect. **h**, Real minus
+leak. {leak} **i**, The leak against the fixation level of the unit.
 """
 
 
@@ -385,46 +383,32 @@ def main() -> None:
         }
         # Panels m to o: the leak (`leak_test.py`), in the matched peak measure
         # of the excited units, as in `flash_by_period.py`.
-        halves_axis, part_axis, rest_axis, level_axis = leak_row.subplots(
-            1, 4, width_ratios=(1, 1, 0.6, 1)
+        part_axis, rest_axis, level_axis = leak_row.subplots(
+            1, 3, width_ratios=(1, 0.6, 1)
         )
-        # Panel g: the fixation level that `hold_effect.py` reads, in the two
-        # halves, for the units that need the fixation kernel.
+        # The fixation kernel before and after `FIXATION_TAIL_MS`: few trials
+        # reach its end (its time axis runs to the longest fixation).
         hold_times = kernel_times()["hold"]
-        window = (hold_times >= LEVEL_MS[0]) & (hold_times <= LEVEL_MS[1])
-        level_halves = [
-            h["kernel__hold"][:, h["needs__hold"]][:, :, window].mean(2) for h in halves
-        ]
-        peak_axes(halves_axis, limits=LEVEL_LIMITS)
-        halves_axis.set_xticks([-1, 0, 1], ["−1", "0", "1"])
-        halves_axis.set_yticks([-1, 0, 1], ["−1", "0", "1"])
-        for line in (halves_axis.axhline, halves_axis.axvline):
-            line(0, color=REFERENCE_COLOR, lw=0.5)
-        pooled_points(
-            halves_axis,
-            [np.clip(level[0], *LEVEL_LIMITS) for level in level_halves],
-            [np.clip(level[1], *LEVEL_LIMITS) for level in level_halves],
-            subjects,
-            TASK,
-        )
-        halves_axis.set_xlabel("fixation level,\neven trials (Δ log rate)")
-        halves_axis.set_ylabel("fixation level,\nodd trials (Δ log rate)")
-        stats["fixation level in the two halves"] = {
+        stats["fixation kernel agreement, before and after the tail"] = {
             subject: {
-                "units": int(level.shape[1]),
-                "spearman_rho": float(spearmanr(*level).statistic),
-                "spearman_p": float(spearmanr(*level).pvalue),
-                "fraction_same_sign": float(
-                    np.mean(np.sign(level[0]) == np.sign(level[1]))
-                ),
-                "median_absolute_difference": float(
-                    np.median(np.abs(level[0] - level[1]))
-                ),
-                "units_outside_the_axis": int(
-                    np.sum((level < LEVEL_LIMITS[0]) | (level > LEVEL_LIMITS[1]))
-                ),
+                "tail_ms": FIXATION_TAIL_MS,
+                "units": int(h["needs__hold"].sum()),
+                **{
+                    part: float(
+                        np.median(
+                            agreement(
+                                h["kernel__hold"][0, h["needs__hold"]][:, window],
+                                h["kernel__hold"][1, h["needs__hold"]][:, window],
+                            )
+                        )
+                    )
+                    for part, window in (
+                        ("before", hold_times < FIXATION_TAIL_MS),
+                        ("after", hold_times >= FIXATION_TAIL_MS),
+                    )
+                },
             }
-            for subject, level in zip(subjects, level_halves, strict=True)
+            for subject, h in zip(subjects, halves, strict=True)
         }
         parts = []
         for root, leak in zip(roots, leaks, strict=True):
@@ -494,7 +478,7 @@ def main() -> None:
             y=1.04,
         )
         label_panels(
-            [None] * 6 + [halves_axis, part_axis, rest_axis, level_axis],
+            [None] * 6 + [part_axis, rest_axis, level_axis],
             x=-0.35,
             y=1.04,
         )
@@ -528,15 +512,22 @@ def main() -> None:
                 ].values()
                 for mouse in entry.values()
             ),
-            lo=LEVEL_MS[0],
-            hi=LEVEL_MS[1],
-            level_halves="Spearman correlation of the two halves: "
-            + "; ".join(
-                f"ρ = {v['spearman_rho']:.2f} in {subject} ({v['units']} units; the"
-                f" same sign in {v['fraction_same_sign']:.0%})"
-                for subject, v in stats["fixation level in the two halves"].items()
+            tail="The fixation kernel agrees "
+            + " and ".join(
+                f"{v['before']:.2f}"
+                for v in stats[
+                    "fixation kernel agreement, before and after the tail"
+                ].values()
             )
-            + ".",
+            + f" before {FIXATION_TAIL_MS} ms and "
+            + " and ".join(
+                f"{v['after']:.2f}"
+                for v in stats[
+                    "fixation kernel agreement, before and after the tail"
+                ].values()
+            )
+            + f" after it ({subjects[0]} and {subjects[1]}): its time axis runs to the"
+            " longest fixation, and only a few trials reach its end.",
             leak="; ".join(
                 f"{subject}: median {entry['median']:+.1f} spikes/s"
                 f" ({entry['units']} units, p = {entry['wilcoxon_p']:.2g})"
