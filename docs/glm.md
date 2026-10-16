@@ -444,12 +444,20 @@ Findings, with the section that has the details:
     the 10th to the 65th percentile of the predicted rate, and 1.05 to 1.12
     from the 80th to the 95th. The model predicts too much at low and middle
     rates and too little at high rates. The cause is not known.
-  - Residual structure (in-sample ΔD² of a term that is not in the model,
-    against shuffled labels): time in trial 0.0009 against 0.0006 (p = 2e-15),
-    choice in windows after the withdrawal 0.0007 against 0.0003 (p = 3e-17),
-    flash rate 0.0008 against 0.0006 (p = 2e-8), session drift as a spline
-    0.0007 against 0.0007 (p = 0.04). Each is small next to the D² of the
-    model.
+  - Terms that are not in the model (2026-10-15, `candidate_terms.py`, panel
+    f of `model_checks.svg`): time in trial, accumulated evidence, turn
+    direction, and the previous outcome, added together and tested with the
+    inclusion rule in both mice. Time in trial (52% and 67% of the units) and
+    turn direction (37% and 42%) pass in both; accumulated evidence (4% and
+    1%) and the previous outcome (6% and 8%) fail in both. In a design with
+    the two that pass, time in trial has a first canonical correlation of 1.00
+    with the fixation kernel (GVIF^(1/p) 9.9 and 9.5, condition index 92),
+    and turn direction one of 0.91 and 0.87 with the side term. Decided: time
+    in trial only after the exit, and turn direction in place of the side
+    term (not yet fit). The earlier in-sample residual check
+    (`residual_checks.py`) called the split of trials by their flash rate
+    (above and below 12 Hz) "flash rate"; that split is the stimulus
+    category.
   - GRB064: the model gives 1.17 times the observed response to the first
     flash after the withdrawal.
   - "Move" is a task period. No term of the model measures locomotion; a
