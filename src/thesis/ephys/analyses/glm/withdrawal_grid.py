@@ -2,6 +2,12 @@
 
 Question: does the model need the withdrawal kernel, and how wide must it be?
 
+This grid is for the design of 2026-10-13, which had the withdrawal kernel.
+From 2026-10-15 the response period replaces it (`dmat.WITHDRAWAL_KERNEL` is
+off), so on the design in use its designs are the same; `exit_grid.py` tests
+the term at the exit there. Its scores of 2026-10-13 are in
+`figures/glm/_before_design_2026_10_15/`.
+
 Comparison: for each design in `DESIGNS`, build the full design and run the
 model-selection stage of `glm fit`: fit on the training trials and score D² on
 the validation trials. Nothing else in the model changes; every design has the

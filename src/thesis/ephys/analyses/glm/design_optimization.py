@@ -1,45 +1,41 @@
 """Choose the form of each term of the V1 GLM by prediction.
 
 Question: why does each term of the design have its form (the number of gap
-classes, the length of the flash kernels, the fixation term, a term at the
-center exit, the number of motion-energy PCs, the session drift)?
-Whether the weights of the resulting design can be read is a separate
+classes, the length of the flash kernels, the fixation term and its end, the
+basis after the center exit, the number of motion-energy PCs, the session
+drift)? Whether the weights of the resulting design can be read is a separate
 question (`model_trust.py`). This script makes no fit. It draws the results
-of the eight design grids and writes the caption next to the figure.
+of the seven design grids and writes the caption next to the figure.
 
-Comparison: each grid scores the design in use and the same design with one
-term in another form, on the same units of GRB006 (`--root`). Panels a to f
-ran on the design of 2026-10-13; panels g and h test the forms that the
-design of 2026-10-15 took from the behavior (the fixation kernel to 0.7 s, the
-95th percentile of the fixation length; the exit basis to 1.3 s, the 95th
-percentile of the time from the exit to the response entry), on that design.
-A panel shows,
-for each other form, the validation D² of each unit minus its D² with the
-form in use (paired). D² is relative to the constant-rate model, on the
-validation trials.
+Comparison: each grid scores the design in use (2026-10-15) and the same
+design with one term in another form, on the same units of GRB006
+(`--root`). A panel shows, for each other form, the validation D² of each
+unit minus its D² with the form in use (paired). D² is relative to the
+constant-rate model, on the validation trials.
 
-- Panel a (`gap_class_grid.py`): one flash kernel, the earlier gap terms, and
-  three or four gap classes, against the two classes in use.
+- Panel a (`gap_class_grid.py`): one flash kernel and three or four gap
+  classes, against the two classes in use.
 - Panel b (`flash_length_grid.py`): flash kernels of 200, 250, and 300 ms
   against the 150 ms in use.
 - Panel c (`hold_grid.py`): no fixation term, a step, a step with a kernel on
-  the first flash, and other forms of the kernel, against the log-spaced
-  kernel in use.
-- Panel d (`withdrawal_grid.py`): no withdrawal kernel and kernels that also
-  cover the time before the exit, against the kernel of 0 to 100 ms that was
-  in use on 2026-10-13. A form that predicts better also has to keep the
-  other kernels readable: the ±300 ms kernel was tested for that with
-  `parameter_recovery.py` on 2026-10-13 (`WITHDRAWAL_RECOVERY`). The
-  response period replaced this kernel on 2026-10-15.
-- Panel e (`pc_grid.py`): no motion energy and more PCs, against the 10 in
+  the first flash, other forms of the kernel, no pre-stimulus column, and a
+  weaker penalty on the kernel, against the log-spaced kernel in use.
+- Panel d (`hold_window_grid.py`): the fixation kernel to 0.5 and 0.95 s,
+  against 0.7 s (the 95th percentile of the fixation length).
+- Panel e (`exit_grid.py`): the withdrawal kernel of the design of 2026-10-13
+  in place of the response period, and the exit basis to 1.0 and 1.6 s or
+  with 6 and 10 cosines, against 8 cosines to 1.3 s (the 95th percentile of
+  the time from the exit to the response entry).
+- Panel f (`pc_grid.py`): no motion energy and more PCs, against the 10 in
   use.
-- Panel f (`drift_grid.py`): no session drift, more raised cosines, and a
+- Panel g (`drift_grid.py`): no session drift, more raised cosines, and a
   cubic spline, against the 4 raised cosines in use.
-- Panel g (`hold_window_grid.py`): the fixation kernel to 0.5 and 0.95 s,
-  against 0.7 s.
-- Panel h (`exit_grid.py`): the withdrawal kernel of 2026-10-13 in place of
-  the response period, and the exit basis to 1.0 and 1.6 s or with 6 and 10
-  cosines, against 8 cosines to 1.3 s.
+
+`withdrawal_grid.py` (kernels that start before the exit) ran on the design
+of 2026-10-13 only, which had the withdrawal kernel. A kernel of ±300 ms
+predicted better there but made the fixation level worse in parameter
+recovery (`WITHDRAWAL_RECOVERY`), so the term at the exit starts at the exit;
+the caption of panel e gives it.
 
 Units: the sets of 20 units of the grids (`--samples 4` gives 80 units; no
 unit is in two sets). The form of a term is chosen on these units; the
@@ -54,7 +50,7 @@ on these units and keeps the other kernels readable (parameter recovery).
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization
 
-Run the eight grids first; this script stops if a result file is missing."""
+Run the seven grids first; this script stops if a result file is missing."""
 
 from __future__ import annotations
 
@@ -78,7 +74,6 @@ from thesis.ephys.analyses.glm import (
     hold_grid,
     hold_window_grid,
     pc_grid,
-    withdrawal_grid,
 )
 from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
 from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
@@ -104,11 +99,17 @@ GRIDS = {
         TASK,
         "parameterization of the fixation term",
     ),
-    "withdrawal_grid": (
-        withdrawal_grid,
-        withdrawal_grid.IN_USE,
+    "hold_window_grid": (
+        hold_window_grid,
+        hold_window_grid.IN_USE,
         TASK,
-        "withdrawal kernel, 2026-10-13 (ms from the exit)",
+        "end of the fixation kernel",
+    ),
+    "exit_grid": (
+        exit_grid,
+        exit_grid.IN_USE,
+        TASK,
+        "basis of the response period and turn direction",
     ),
     "pc_grid": (pc_grid, pc_grid.IN_USE, MOTION, "number of motion-energy PCs"),
     "drift_grid": (
@@ -116,18 +117,6 @@ GRIDS = {
         "4",
         DRIFT_COLOR,
         "session drift (number of raised cosines)",
-    ),
-    "hold_window_grid": (
-        hold_window_grid,
-        hold_window_grid.IN_USE,
-        TASK,
-        "end of the fixation kernel, 2026-10-15",
-    ),
-    "exit_grid": (
-        exit_grid,
-        exit_grid.IN_USE,
-        TASK,
-        "response period and turn direction basis, 2026-10-15",
     ),
 }
 # Tick labels that differ from the name of the design in its grid.
@@ -139,6 +128,27 @@ LABELS = {
     "no\nfixation": "no\npre-\nstimulus",
     "penalty\n÷ 100": "weaker\npenalty",
 }
+# Names of the other forms in the caption (keys as in the statistics).
+CAPTION_NAMES = {
+    "1 kernel": "one kernel for all flashes",
+    "40 | 80-120 | 160+": "three classes (40, 80 to 120, 160+)",
+    "40 | 80 | 120+": "three classes (40, 80, 120+)",
+    "40 | 80 | 120 | 160+": "four classes",
+    "200": "200 ms",
+    "250": "250 ms",
+    "300": "300 ms",
+    "none": "no term",
+    "step, entry": "a step from the entry",
+    "step, flash": "a step from the first flash",
+    "linear kernel": "linear spacing",
+    "coarse kernel": "a coarse kernel",
+    "no fixation": "no pre-stimulus column",
+    "penalty ÷ 100": "a weaker penalty",
+    "withdrawal 0–100": "the withdrawal kernel",
+    "8": "8 cosines",
+    "12": "12 cosines",
+    "spline": "a spline",
+}
 DISPLAY_LIMIT = 0.006
 # Fixation level, recovered over true (median unit), with the withdrawal
 # kernel in use on 2026-10-13 and with the ±300 ms kernel (`parameter_recovery
@@ -147,34 +157,28 @@ DISPLAY_LIMIT = 0.006
 WITHDRAWAL_RECOVERY = {"GRB006": (0.76, 0.55), "GRB064": (0.84, 0.73)}
 CAPTION = """\
 **The form of each term, chosen by prediction.** Each panel compares the
-design in use with the same design where one term has another form, on
-{units} units of {subject} ({sets} sets of 20 units; no unit is in two sets). A
-point is one unit: its validation D² with that form minus its D² with the one
-in use (open point at zero). The black line is the median. Marks are
-two-sided Wilcoxon signed-rank tests of the differences against zero (n.s.,
-p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01; \\*\\*\\*, p < 0.001). **a**,
-Flash kernels by the gap from the flash before. One kernel for all flashes is
-worse than the two gap classes in use; more classes are not better. **b**,
-Length of the flash kernels. Longer kernels are not better than 150 ms.
-**c**, Form of the fixation term. No term and a step are worse than the
-kernel in use. **d**, A term at the center exit: the withdrawal kernel of the design of
-2026-10-13. No kernel is worse, so the model needs a term at the exit. A
-kernel from 300 ms before to 300 ms after the exit predicts better, but with
-it the fitted fixation level is recovered at {level_under_test} of its true
-size, against {level_in_use} with the kernel of 0 to 100 ms (median unit,
-{subject} and {held_out}; parameter recovery, as in the figure of
-`model_trust.py`). So the term at the exit starts at the exit. The response
-period (8 cosines from the exit to 1.3 s) later replaced the kernel of 0 to
-100 ms; its form comes from the time from the exit to the response entry, not
-from a grid; panel h tests it. **e**, Number of motion-energy PCs.
-{pc_sentence} **f**, Session drift. No drift is worse; more functions are not
-better. Panels a to f ran on the design of 2026-10-13; panels g and h on the
-design in use (2026-10-15). **g**, End of the fixation kernel (12 cosines;
-after the end the kernel keeps its last value to the exit), against 0.7 s.
-{hold_window_sentence} The kernel stays at 0.7 s: past it, few trials give data,
-and the kernel to 0.95 s was not stable after 700 ms in split halves. **h**, The basis of the response period and turn
-direction, against 8 cosines to 1.3 s; "withdrawal 0–100" is the term at the
-exit of 2026-10-13 in place of the response period. {exit_sentence} The
+design in use (2026-10-15) with the same design where one term has another
+form, on {units} units of {subject} ({sets} sets of 20 units; no unit is in
+two sets). A point is one unit: its validation D² with that form minus its D²
+with the one in use (open point at zero). The black line is the median. Marks
+are two-sided Wilcoxon signed-rank tests of the differences against zero
+(n.s., p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01; \\*\\*\\*, p < 0.001).
+**a**, Flash kernels by the gap from the flash before, against the two gap
+classes in use. {gap_class_grid} **b**, Length of the flash kernels, against
+150 ms. {flash_length_grid} **c**, Form of the fixation term, against the
+log-spaced kernel in use. {hold_grid} **d**, End of the fixation kernel (12
+cosines; after the end the kernel keeps its last value to the exit), against
+0.7 s. {hold_window_grid} Past 0.7 s few trials give data, and in the design
+of 2026-10-13 the kernel to 0.95 s was not stable after 700 ms in split
+halves. **e**, The basis of the response period and turn direction, against
+8 cosines to 1.3 s; "withdrawal 0–100" is the term at the exit of the design
+of 2026-10-13 in place of the response period. {exit_grid} In that design, a
+withdrawal kernel from 300 ms before to 300 ms after the exit predicted
+better, but with it the fitted fixation level was recovered at
+{level_under_test} of its true size, against {level_in_use} with the kernel
+of 0 to 100 ms (median unit, {subject} and {held_out}; parameter recovery), so
+the term at the exit starts at the exit. **f**, Number of motion-energy PCs.
+{pc_sentence} **g**, Session drift, against 4 raised cosines. {drift_grid} The
 importance of each regressor is tested on all units (main figure).
 """
 
@@ -202,16 +206,16 @@ def _and(items: list[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 
-def _others_sentence(entry: dict, labels: dict[str, str]) -> str:
+def _others_sentence(entry: dict, labels: dict[str, str] = CAPTION_NAMES) -> str:
     """Say which other forms of a grid are reliably better or worse."""
     names = [n for n in entry if isinstance(entry[n], dict)]
     better = [
-        labels[n]
+        labels.get(n, n)
         for n in names
         if entry[n]["wilcoxon_p"] < 0.05 and entry[n]["median_change"] > 0
     ]
     worse = [
-        labels[n]
+        labels.get(n, n)
         for n in names
         if entry[n]["wilcoxon_p"] < 0.05 and entry[n]["median_change"] < 0
     ]
@@ -308,7 +312,9 @@ def main() -> None:
                 axis.set_ylabel(r"$D^2$ minus $D^2$" + "\nof the one in use")
             axis.tick_params(labelsize=7)
             axis.set_yticks([-0.005, 0, 0.005], ["−0.005", "0", "0.005"])
-        label_panels(axes.flat, x=-0.2, y=1.04)
+        for axis in axes.flat[len(GRIDS) :]:
+            axis.set_axis_off()
+        label_panels(axes.flat[: len(GRIDS)], x=-0.2, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
     first = stats[next(iter(GRIDS))]
     (args.root / "design_optimization_stats.json").write_text(
@@ -319,20 +325,11 @@ def main() -> None:
             units=first["units"],
             sets=first["units"] // 20,
             pc_sentence=_pc_sentence(stats["pc_grid"]),
-            hold_window_sentence=_others_sentence(
-                stats["hold_window_grid"],
-                {"0.5 s": "0.5 s", "0.95 s": "0.95 s"},
-            ),
-            exit_sentence=_others_sentence(
-                stats["exit_grid"],
-                {
-                    "withdrawal 0–100": "the withdrawal kernel",
-                    "1.0 s": "1.0 s",
-                    "1.6 s": "1.6 s",
-                    "6 cosines": "6 cosines",
-                    "10 cosines": "10 cosines",
-                },
-            ),
+            **{
+                grid: _others_sentence(stats[grid])
+                for grid in GRIDS
+                if grid != "pc_grid"
+            },
             level_in_use=" and ".join(
                 f"{WITHDRAWAL_RECOVERY[s][0]:.2f}" for s in subjects
             ),

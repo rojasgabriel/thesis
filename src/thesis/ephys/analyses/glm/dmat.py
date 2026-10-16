@@ -179,7 +179,7 @@ FLASH_MOVE_GAP = "flash_move_gap"
 #   V1 carries the accumulated flashes on top of the 150-ms flash kernels.
 # - Turn direction: the side of the response (+1 right, -1 left) times
 #   the `exit_basis` (`TURN_DIRECTION_BASES` raised cosines, even in
-#   log(t + `HOLD_LOG_STRETCH_S`), from the center exit to `TURN_DIRECTION_S`
+#   log(t + `EXIT_LOG_STRETCH_S`), from the center exit to `TURN_DIRECTION_S`
 #   after it, the 95th percentile of the time from the exit to the response
 #   entry in both mice); after that the last cosine keeps its value up to the
 #   response entry, where the bins of the trial end. 0 before the exit. A direction-specific movement
@@ -200,6 +200,10 @@ TURN_DIRECTION_TERM = True
 TURN_DIRECTION = "turn_direction"
 TURN_DIRECTION_S = 1.3
 TURN_DIRECTION_BASES = 8
+# The log stretch of the exit basis. It has the value of the fixation kernel,
+# but its own name, so that a grid of the fixation kernel (`hold_grid.py`)
+# does not change the exit basis also.
+EXIT_LOG_STRETCH_S = 0.025
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
 # Response period (decided with Gabriel, 2026-10-15): the `exit_basis` with no
@@ -229,7 +233,7 @@ def exit_basis() -> "StretchedCosineBasis":
         TURN_DIRECTION_BASES,
         TURN_DIRECTION_S + BINWIDTH_S,
         BINWIDTH_S,
-        HOLD_LOG_STRETCH_S,
+        EXIT_LOG_STRETCH_S,
     )
 
 
