@@ -5,47 +5,56 @@ much does each one explain?
 
 Comparison: no new fits. The script reads one fit set (`--units`, `all` by
 default) of each session of `SESSIONS`, after `glm fit` and `glm unique`.
-Panels a to c are the example unit of the first session (GRB006); panels d to
-g are each session, side by side. The tests are within each animal; the units
-of the two animals are not pooled.
+Panels b to d are the example unit of the first session (GRB006). In panels e
+and f the units of both mice are pooled (standard practice; the caption gives
+the units and mice); a summary is the pooled median with its
+hierarchical-bootstrap 95% interval (mice, then units;
+`plotting.hierarchical_interval`). The inclusion tests are within each mouse.
 
-- Panel a (the task and the model): one held-out trial of the example unit,
-  against time from the first flash. Flashes, the fixation (first flash to center
-  exit; the initiation, from the center entry to the first flash, is the
-  lighter part), and the withdrawal; the first motion-energy PC; the term that each group of
-  regressors adds to the log rate in the final refit (visual, task, and motion
-  energy in one row, spike history in its own row, in their colors); and the
-  observed spikes.
-- Panel b (what the model learns): the kernels of the example unit from the
+- Panel a (the design): each term of the model over one schematic trial
+  (`SCHEMATIC`: the median times of the two mice), from the switches of
+  `dmat.py`: ticks at the flashes that a flash kernel models, bars for the time
+  in which a term is on, and the number of columns of each term. Before the
+  center entry no event term is on: each event kernel is relative to that
+  time. Motion energy, spike history, the session drift, and the previous
+  choice are on there too, so the baseline is the rate before the entry at
+  the mean of those terms.
+- Panel b (the task and the model): one held-out trial of the example unit,
+  against time from the first flash. The events (flashes, the pre-stimulus
+  time from the center entry to the first flash in a lighter color, the
+  fixation from the first flash to the center exit, and the center exit); the
+  first motion-energy PC; the term that each group of regressors adds to the
+  log rate in the final refit (visual, task, and motion energy in one row,
+  spike history in its own row, in their colors); and the observed spikes.
+- Panel c (what the model learns): the kernels of the example unit from the
   final refit, as a change in log rate. Top: the flash kernel for a flash in
   the fixation in the two gap classes, and for a flash in the fixation and
   after the center exit in the class of the longer gaps
-  (`results.flash_condition_kernels`: the flash kernel of the gap class plus
-  the flash × move kernel at the value of that flash); the fixation
-  kernel. Bottom: the withdrawal kernel and the spike-history kernel. The
-  initiation, the two side columns, and the session drift have no kernel over
-  time and are not drawn.
-- Panel c (prediction): observed and predicted firing rate of the example unit
+  (`results.flash_condition_kernels`); the fixation kernel. Bottom: the term
+  after the center exit for a right and a left turn (the response period plus
+  and minus turn direction), and the spike-history kernel. The pre-stimulus
+  column, the previous choice, and the session drift have no kernel over time
+  and are not drawn.
+- Panel d (prediction): observed and predicted firing rate of the example unit
   over the held-out test trials, in `RATE_BIN_MS` bins. The prediction of a
   trial comes from the cross-validation fold that did not train on it. A time
   bin is shown while at least `MIN_TRIAL_FRACTION` of the test trials have not
   reached the response port.
-- Panel d (population): cross-validated D² of each unit against its
-  bits/spike, the units of both mice pooled, in three groups of equal size by
-  firing rate (`figures._plot_bits_deviance_by_rate`), with the distributions
-  of the two measures and their medians (pooled and of each mouse).
-- Panel e (what explains the spikes): for each regressor, the unique ΔD² and
-  the maximal ΔD²; the pooled median with its hierarchical-bootstrap 95%
-  interval (`plotting.hierarchical_interval`), and the median of each mouse as
-  a bar. The axis is logarithmic and starts at `FLOOR`. The numbers at the
-  right are the fraction of units of each mouse that need the regressor; the
-  two tests of `inclusion.py` are within each mouse
-  (`main_figure_stats.json`).
+- Panel e (population): cross-validated D² of each unit against its
+  bits/spike, in three groups of equal size by firing rate
+  (`figures._plot_bits_deviance_by_rate`), with the distributions of the two
+  measures and their medians.
+- Panel f (what explains the spikes): for each regressor, the unique ΔD² and
+  the maximal ΔD²: the pooled median with its hierarchical-bootstrap 95%
+  interval. The axis is logarithmic and starts at `FLOOR`. The numbers at the
+  right are the fraction of the units of both mice that need the regressor; a
+  dagger marks a regressor that fails the two tests of `inclusion.py` in one
+  mouse, and n.s. one that fails in both (`main_figure_stats.json`).
 
 Units, trials, alignment (first flash), baseline (constant rate), and
 exclusions (bins after response entry) are those of `fit.py`. The example unit
 is the one that `results.example_unit_id` selects (unit 197 when it was fit).
-The sampling unit is the unit in panels d to g. The script writes
+The sampling unit is the unit in panels e and f. The script writes
 `main_figure.svg`, `main_figure_stats.json` (by session), and
 `main_figure_caption.md` in `--out`.
 
@@ -64,7 +73,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from thesis.ephys.analyses.glm import cli
+from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.dmat import BINWIDTH_S
 from thesis.ephys.analyses.glm.figures import (
     _plot_bits_deviance_by_rate,
@@ -121,46 +130,50 @@ bins. Each group of regressors adds a term to the log of the firing rate, so a
 kernel is a change in log rate (Δ log rate): a value of 0.7 is a rate two times
 as high. Colors are the same in all panels: visual (blue), task (orange),
 motion energy (green), spike history (red), and model prediction (purple).
-Panels a to c are the example unit of {subject}. **a**, One held-out trial of
-the example unit (unit {unit}, {unit_rate:.0f} spikes/s), against time from the first flash. From the top: the events (the
-flashes; the initiation, from the center-port entry to the first flash, in a
-light color; the fixation, from the first flash to the withdrawal from the
-center port; and the withdrawal); the first motion-energy PC of the video; the
-term that each group of regressors adds to the log rate; the term of spike
-history, in its own row; and the observed spikes. **b**, The kernels of the
-example unit. Top, from the left: the flash kernel for a flash in the fixation that
-follows another within 50 ms (40 ms gap) and for every other flash (80+ ms
-gap); the flash kernel for a flash in the fixation (still) and after the
-withdrawal (move, dashed), at a gap of 80 ms or more; and the fixation kernel, which starts at the first
-flash and ends at the withdrawal. Bottom: the withdrawal kernel and the
-spike-history kernel. **c**, Observed and
-predicted firing rate of the example unit over the {test_trials} held-out test
-trials, in {bin_ms}-ms bins. Each trial is predicted by a model that was not
-fit on it. A time bin is shown while at least half of the trials have not
-reached the response port. **d**, Cross-validated D² (deviance explained on
-held-out trials, relative to a constant rate) against bits/spike for each of
-the {units} units, pooled over the two mice. Small points are units, in three
-groups of equal size by firing rate (a darker gray is a higher rate). In each
-group, the units are in bins of equal size by bits/spike; a large marker is
-the mean of a bin and the band is ±1 SEM. For the same bits/spike, a unit with
-a higher rate has a higher D². The histograms are the distributions over
-units (median D² {d2}; median bits/spike {bits}). **e**, What each regressor
-explains (the order of the regressors is that of {subject}): the unique ΔD²
-(filled; the D² that the model loses when that regressor is shuffled: inside
-each trial, or over trials for a variable of the trial) and the maximal ΔD²
-(open; the D² of that regressor alone). Markers are the median over the
-pooled units with its hierarchical-bootstrap 95% interval (the mice, then the
-units of each); the bars are the median of each mouse. The top row is the D²
-of the full model. The axis is logarithmic and starts at {floor:g}; a smaller
-value is drawn there. The numbers at the right are the fraction of units of
-each mouse with a unique ΔD² above zero (one-sided t-test over the 10 folds,
-p < {alpha}; a regressor with no effect gives about {alpha:.0%}). A regressor is in the model when it passes
-two tests over all units, each with a Holm correction for the {regressors}
-regressors: the unique ΔD² is above zero (one-sided Wilcoxon signed-rank test
-over units), and more units need the regressor than chance gives (one-sided
-binomial test against {alpha:.0%}; {minimum} units or more).
-The tests are within each mouse; the units of the two mice are not pooled.
-{verdict}
+**a**, The design: each term over one schematic trial, with the time in which
+it is on (bars) or the flashes it models (ticks), and its number of columns.
+Before the center entry no event term is on; each event kernel is relative to
+that time, at the mean of motion energy, spike history, the session drift, and
+the previous choice, which are on there too. Panels b
+to d are the example unit of {subject}. **b**, One held-out trial of the
+example unit (unit {unit}, {unit_rate:.0f} spikes/s), against time from the
+first flash. From the top: the events (the flashes; the pre-stimulus time, from
+the center-port entry to the first flash, in a light color; the fixation, from
+the first flash to the center exit; and the exit); the first motion-energy PC
+of the video; the term that each group of regressors adds to the log rate; the
+term of spike history, in its own row; and the observed spikes. **c**, The
+kernels of the example unit. Top, from the left: the flash kernel for a flash
+in the fixation that follows another within 50 ms (40 ms gap) and for every
+other flash (80+ ms gap); the flash kernel for a flash in the fixation (still)
+and after the exit (move, dashed), at a gap of 80 ms or more; and the fixation
+kernel, which starts at the first flash and ends at the exit. Bottom: the term
+after the exit for a right and a left turn (response period plus and minus
+turn direction) and the spike-history kernel. **d**, Observed and predicted
+firing rate of the example unit over the {test_trials} held-out test trials, in
+{bin_ms}-ms bins. Each trial is predicted by a model that was not fit on it. A
+time bin is shown while at least half of the trials have not reached the
+response port. **e**, Cross-validated D² (deviance explained on held-out
+trials, relative to a constant rate) against bits/spike for each of the {units}
+units of the two mice. Small points are units, in three groups of equal size by
+firing rate (a darker gray is a higher rate). In each group, the units are in
+bins of equal size by bits/spike; a large marker is the mean of a bin and the
+band is ±1 SEM. The histograms are the distributions over units (median D²
+{d2}; median bits/spike {bits}). **f**, What each regressor explains (in the
+order of {subject}): the unique ΔD² (filled; the D² that the model loses when
+that regressor is shuffled: inside each trial, or over trials for a variable
+of the trial) and the maximal ΔD² (open; the D² of that regressor alone).
+Markers are the median over the pooled units with its hierarchical-bootstrap
+95% interval (the mice, then the units of each). The top row is the D² of the
+full model. The axis is logarithmic and starts at {floor:g}; a smaller value is
+drawn there. The numbers at the right are the fraction of the units of both
+mice with a unique ΔD² above zero (one-sided t-test over the 10 folds, p <
+{alpha}; a regressor with no effect gives about {alpha:.0%}). A regressor is in
+the model when it passes two tests over the units of each mouse, each with a
+Holm correction for the {regressors} regressors: the unique ΔD² is above zero
+(one-sided Wilcoxon signed-rank test over units), and more units need the
+regressor than chance gives (one-sided binomial test against {alpha:.0%};
+{minimum} units or more). A dagger marks a regressor that fails in one mouse,
+and n.s. one that fails in both. {verdict}
 """
 
 
@@ -181,7 +194,7 @@ def _plot_trial(axes, data) -> None:
     events.vlines(1000 * data["event__visual_flash"], 2.6, 3.4, color=VISUAL, lw=1)
     events.vlines(1000 * data["event__withdrawal"], 0.6, 1.4, color=TASK, lw=1.2)
     events.set_ylim(0.3, 3.7)
-    events.set_yticks([3, 2, 1], ["flashes", "pre-stimulus, fixation", "withdrawal"])
+    events.set_yticks([3, 2, 1], ["flashes", "pre-stimulus, fixation", "center exit"])
     for tick, color in zip(events.get_yticklabels(), (VISUAL, TASK, TASK), strict=True):
         tick.set_color(color)
     shown = (1000 * data["motion_times"] >= left) & (
@@ -213,8 +226,211 @@ def _plot_trial(axes, data) -> None:
         axis.tick_params(bottom=False, labelbottom=False)
 
 
+# One schematic trial for the design panel (s from the first flash): the center
+# entry, the center exit, and the response entry at about the median times of
+# the two mice, and a flash train in slots of `dmat.FLASH_SLOT_S`.
+SCHEMATIC = {"entry": -0.05, "exit": 0.55, "response": 1.15}
+SCHEMATIC_FLASHES = (
+    np.array([0, 2, 3, 5, 8, 9, 11, 13, 15, 16, 19, 21, 22, 24]) * dmat.FLASH_SLOT_S
+)
+
+
+def design_rows(components: int) -> list[tuple]:
+    """Return (key, columns, kind, start, stop, note) for each term of the design.
+
+    `kind` is "flash" (ticks at the flashes it models; `start` names them) or
+    "span" (a bar). The rows follow the switches of `dmat`, so the panel shows
+    the design in use.
+    """
+    entry, leave, response = (SCHEMATIC[key] for key in ("entry", "exit", "response"))
+    start = -dmat.PRE_S
+    rows = []
+    if dmat.FLASH_GAP_EDGES_S:
+        rows += [
+            (
+                "flash_gap_1",
+                dmat.FLASH_BASES,
+                "flash",
+                "short",
+                None,
+                "a flash ≤ 50 ms after another",
+            ),
+            (
+                "flash_gap_2",
+                dmat.FLASH_BASES,
+                "flash",
+                "long",
+                None,
+                "every other flash",
+            ),
+        ]
+    if dmat.FLASH_AFTER_EXIT_TERM:
+        rows.append(
+            (
+                "flash_after_exit",
+                dmat.FLASH_BASES,
+                "flash",
+                "after",
+                None,
+                "flashes after the exit",
+            )
+        )
+    if dmat.FIXATION_COLUMN:
+        rows.append(("fixation", 1, "span", entry, 0.0, "entry to first flash"))
+    if dmat.HOLD_KERNEL:
+        rows.append(
+            (
+                "hold",
+                dmat.HOLD_BASES,
+                "span",
+                0.0,
+                leave,
+                f"to {dmat.HOLD_WINDOW_S:g} s, then held",
+            )
+        )
+    if dmat.WITHDRAWAL_KERNEL:
+        rows.append(
+            (
+                "withdrawal",
+                dmat.WITHDRAWAL_BASES,
+                "span",
+                leave,
+                leave + dmat.WITHDRAWAL_WINDOW_S,
+                "",
+            )
+        )
+    if dmat.RESPONSE_PERIOD_TERM:
+        rows.append(
+            (
+                "response_period",
+                dmat.TURN_DIRECTION_BASES,
+                "span",
+                leave,
+                response,
+                f"to {dmat.TURN_DIRECTION_S:g} s, then held",
+            )
+        )
+    if dmat.TURN_DIRECTION_TERM:
+        rows.append(
+            (
+                "turn_direction",
+                dmat.TURN_DIRECTION_BASES,
+                "span",
+                leave,
+                response,
+                "± side of the response",
+            )
+        )
+    if dmat.SIDE_COLUMN:
+        rows.append(
+            ("side_after_exit", 1, "span", leave, response, "± side of the response")
+        )
+    if dmat.PREVIOUS_SIDE_COLUMN:
+        rows.append(
+            ("previous_side", 1, "span", start, leave, "side of the trial before")
+        )
+    if dmat.SESSION_DRIFT:
+        rows.append(
+            (
+                "session_drift",
+                dmat.DRIFT_BASES - 1,
+                "span",
+                start,
+                response,
+                "constant inside a trial",
+            )
+        )
+    rows.append(("video", components, "span", start, response, "PCs of the video"))
+    rows.append(
+        (
+            "history",
+            dmat.HISTORY_COLUMNS,
+            "span",
+            start,
+            response,
+            "the unit's own spikes",
+        )
+    )
+    return rows
+
+
+def _plot_design(axis, components: int) -> None:
+    """Draw panel a: each term of the design over one schematic trial."""
+    rows = design_rows(components)
+    entry, leave, response = (SCHEMATIC[key] for key in ("entry", "exit", "response"))
+    start = -dmat.PRE_S
+    flashes = SCHEMATIC_FLASHES
+    gaps = np.diff(flashes, prepend=-np.inf)
+    edge = dmat.FLASH_GAP_EDGES_S[0] if dmat.FLASH_GAP_EDGES_S else np.inf
+    picked = {
+        "short": flashes[gaps <= edge],
+        "long": flashes[gaps > edge],
+        "after": flashes[flashes >= leave],
+    }
+    # Before the entry no event term is on: the baseline of the event kernels.
+    axis.axvspan(start, entry, color=REFERENCE_COLOR, alpha=0.15, lw=0)
+    for time in (entry, 0.0, leave, response):
+        axis.axvline(time, color=REFERENCE_COLOR, lw=0.6, ls=":")
+    for row, (key, columns, kind, first, last, note) in enumerate(rows):
+        label, color = REGRESSORS[key]
+        y = len(rows) - row
+        if kind == "flash":
+            times = picked[first]
+            axis.vlines(times, y - 0.32, y + 0.32, color=color, lw=1.2)
+            note_x = times[-1] + 0.03
+        else:
+            axis.barh(
+                y, last - first, left=first, height=0.55, color=color, alpha=0.55, lw=0
+            )
+            note_x = last + 0.03
+        axis.text(note_x, y, note, va="center", fontsize=6, color=color)
+        axis.text(
+            start - 0.03, y, label, va="center", ha="right", fontsize=7, color=color
+        )
+        axis.text(
+            1.0,
+            y,
+            str(columns),
+            transform=axis.get_yaxis_transform(),
+            va="center",
+            ha="right",
+            fontsize=7,
+        )
+    top = len(rows) + 1.0
+    axis.text(
+        1.0,
+        top,
+        f"columns ({sum(row[1] for row in rows)})",
+        transform=axis.get_yaxis_transform(),
+        ha="right",
+        va="center",
+        fontsize=6.5,
+    )
+    for time, label, align in (
+        (entry, "center entry", "right"),
+        (0.0, "first flash", "left"),
+        (leave, "center exit", "center"),
+        (response, "response entry", "center"),
+    ):
+        axis.text(time, top, label, ha=align, va="center", fontsize=6.5)
+    axis.text(
+        (start + entry) / 2,
+        0.2,
+        "no event term (baseline)",
+        ha="center",
+        fontsize=6,
+        color="0.4",
+    )
+    axis.set_xlim(start, response + 0.55)
+    axis.set_ylim(-0.2, top + 0.6)
+    axis.set_yticks([])
+    axis.set_xticks([start, 0, 0.5, 1.0], [f"{start:g}", "0", "0.5", "1"])
+    axis.set_xlabel("time from first flash (s), one schematic trial")
+    axis.spines["left"].set_visible(False)
+
+
 def _plot_kernels(axes, data) -> None:
-    by_gap, by_period, hold, withdrawal, history = axes
+    by_gap, by_period, hold, after, history = axes
     lags = data["flash_lags"]
     # The flash kernel by the gap from the flash before: darker for a longer gap.
     for gap, label, shade, height in zip(
@@ -242,13 +458,28 @@ def _plot_kernels(axes, data) -> None:
     by_period.set_xlabel("time from\nflash (ms)")
     hold.plot(data["kern_t__hold"], data["kern_v__hold"], color=TASK)
     hold.set_xlabel("time in fixation,\nfrom first flash (ms)")
-    withdrawal.plot(data["kern_t__withdrawal"], data["kern_v__withdrawal"], color=TASK)
-    withdrawal.set_xlabel("time from\nwithdrawal (ms)")
+    # After the exit: the response period plus or minus turn direction, the
+    # term of a right and of a left turn.
+    times = data["kern_t__response_period"]
+    for sign, label, style, height in (
+        (1, "right turn", "-", 1.13),
+        (-1, "left turn (dashed)", "--", 1.0),
+    ):
+        after.plot(
+            times,
+            data["kern_v__response_period"] + sign * data["kern_v__turn_direction"],
+            color=TASK,
+            ls=style,
+        )
+        after.text(
+            0, height, label, color=TASK, fontsize=6.5, transform=after.transAxes
+        )
+    after.set_xlabel("time from\ncenter exit (ms)")
     history.plot(data["kern_t__history"], data["kern_v__history"], color=HISTORY)
     history.set_xlabel("time since\nspike (ms)")
     for axis in axes:
         axis.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-    for axis in (by_gap, withdrawal):  # one y label for each row
+    for axis in (by_gap, after):  # one y label for each row
         axis.set_ylabel(r"$\Delta$ log rate")
 
 
@@ -301,12 +532,7 @@ def _plot_population(axis, sessions: list[dict]) -> None:
         0.45,
         1.0,
         f"{len(bits)} units, {len(sessions)} mice. Median {np.median(bits):.2f}"
-        f" bits/spike, D² {np.median(deviance):.3f}\n("
-        + "; ".join(
-            f"{s['subject']} {np.median(s['bits']):.2f}, {np.median(s['deviance']):.3f}"
-            for s in sessions
-        )
-        + ")",
+        f" bits/spike, D² {np.median(deviance):.3f}",
         transform=above.transAxes,
         ha="left",
         va="bottom",
@@ -343,8 +569,8 @@ def unique_order(records: list[dict], tests: dict[str, dict]) -> list[str]:
 def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     """Unique (filled) and maximal (open) ΔD² of each regressor, units of all mice pooled.
 
-    The large marker is the pooled median with its hierarchical-bootstrap 95%
-    interval (mice, then units); the small marks are the median of each mouse.
+    The marker is the pooled median with its hierarchical-bootstrap 95%
+    interval (mice, then units).
     """
 
     def draw(y, groups, color, face):
@@ -359,8 +585,6 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
             facecolor=face,
             edgecolor=color,
         )
-        for median in stats["median_of_each_mouse"]:
-            axis.plot(max(median, FLOOR), y, "|", color=color, ms=6, mew=1.0, zorder=3)
 
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
@@ -377,11 +601,7 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
         axis.text(
             1.03,
             position,
-            " / ".join(
-                f"{s['tests'][name]['fraction_units_that_need_it']:.0%}"
-                + ("" if s["tests"][name]["passes_both_tests"] else " n.s.")
-                for s in sessions
-            ),
+            f"{need_fraction(sessions, name):.0%}" + fail_mark(sessions, name),
             color=color,
             va="center",
             fontsize=6.5,
@@ -399,10 +619,7 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     axis.text(
         1.03,
         len(order) + 0.5,
-        "units with unique\n"
-        + r"$\Delta D^2$ > 0 ("
-        + " / ".join(s["subject"] for s in sessions)
-        + ")",
+        "units with unique\n" + r"$\Delta D^2$ > 0",
         transform=axis.get_yaxis_transform(),
         fontsize=6,
     )
@@ -414,9 +631,20 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     )
     for tick, name in zip(axis.get_yticklabels(), order, strict=False):
         tick.set_color(REGRESSORS[name][1])
-    axis.set_xlabel(
-        r"$\Delta D^2$ (filled: unique; open: maximal)" + "\nbars: median of each mouse"
+    axis.set_xlabel(r"$\Delta D^2$ (filled: unique; open: maximal)")
+
+
+def need_fraction(sessions: list[dict], name: str) -> float:
+    """Return the fraction of the units of all mice that need the regressor."""
+    return sum(s["tests"][name]["units_that_need_it"] for s in sessions) / sum(
+        len(s["records"]) for s in sessions
     )
+
+
+def fail_mark(sessions: list[dict], name: str) -> str:
+    """Return " n.s." when the regressor fails the rule in every mouse, "†" in one."""
+    failed = sum(not s["tests"][name]["passes_both_tests"] for s in sessions)
+    return "" if not failed else (" n.s." if failed == len(sessions) else "†")
 
 
 def session_population(root: Path, unit_set: str) -> dict:
@@ -457,14 +685,20 @@ def main() -> None:
     order = unique_order(sessions[0]["records"], sessions[0]["tests"])
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 10.0))
+        figure = plt.figure(figsize=(7.4, 12.6))
+        (design_axis,) = (
+            figure.add_subplot(cell)
+            for cell in figure.add_gridspec(
+                1, 1, left=0.2, right=0.96, top=0.975, bottom=0.79
+            )
+        )
         top = figure.add_gridspec(
             1,
             2,
             left=0.14,
             right=0.985,
-            top=0.965,
-            bottom=0.63,
+            top=0.735,
+            bottom=0.48,
             wspace=0.3,
             width_ratios=(1, 1.5),
         )
@@ -479,7 +713,7 @@ def main() -> None:
         (prediction,) = (
             figure.add_subplot(cell)
             for cell in figure.add_gridspec(
-                1, 1, left=0.1, right=0.98, top=0.545, bottom=0.39
+                1, 1, left=0.1, right=0.98, top=0.415, bottom=0.295
             )
         )
         population, unique_axis = (
@@ -489,12 +723,18 @@ def main() -> None:
                 2,
                 left=0.1,
                 right=0.86,
-                top=0.25,
-                bottom=0.07,
+                top=0.19,
+                bottom=0.05,
                 wspace=0.95,
                 width_ratios=(1, 1.05),
             )
         )
+        components = int(
+            json.loads((fit_dir / "validation_summary.json").read_text())[
+                "selected_video_components"
+            ]
+        )
+        _plot_design(design_axis, components)
         _plot_trial(trial_axes, data)
         _plot_kernels(kernel_axes, data)
         _plot_prediction(prediction, data)
@@ -507,9 +747,20 @@ def main() -> None:
 
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        firsts = (trial_axes[0], kernel_axes[0], prediction, population, unique_axis)
-        for letter, axis in zip("abcde", firsts, strict=True):
-            left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
+        firsts = (
+            design_axis,
+            trial_axes[0],
+            kernel_axes[0],
+            prediction,
+            population,
+            unique_axis,
+        )
+        for letter, axis in zip("abcdef", firsts, strict=True):
+            left = (
+                0.02
+                if axis is design_axis
+                else axis.yaxis.get_tightbbox().transformed(to_figure).x0
+            )
             top_edge = axis.get_position().y1 + (0.06 if axis is population else 0.02)
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
         output = save_figure(figure, args.out / "main_figure")
@@ -540,9 +791,9 @@ def main() -> None:
             unit_rate=scalars["example_unit_training_rate_spikes_s"],
             test_trials=scalars["test_trials"],
             bin_ms=RATE_BIN_MS,
-            units=each(lambda s: str(s["units"])),
-            d2=each(lambda s: f"{np.median(s['deviance']):.3f}"),
-            bits=each(lambda s: f"{np.median(s['bits']):.2f}"),
+            units=sum(s["units"] for s in sessions),
+            d2=f"{np.median(np.concatenate([s['deviance'] for s in sessions])):.3f}",
+            bits=f"{np.median(np.concatenate([s['bits'] for s in sessions])):.2f}",
             floor=FLOOR,
             alpha=RELIABLE_ALPHA,
             regressors=len(sessions[0]["tests"]),
