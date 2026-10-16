@@ -13,10 +13,12 @@ paired: each unit is scored with each design.
 - "step,\nentry": one column that is 1 from center entry to center exit.
 - "step,\nflash": one column that is 1 from the first flash to center exit.
 - "kernel": the design in `dmat.py`. One kernel from the first flash to the
-  center exit, with bases at even spacing in log(t + 25 ms), and no step.
+  center exit, 10 bases at even spacing in log(t + 50 ms), and no step.
 - "linear\nkernel": the same kernel with bases at even spacing in time.
-- "coarse\nkernel": the same kernel with 10 bases and a stretch of 50 ms, which
-  has bases about 40 ms apart near the first-flash response.
+- "fine\nkernel": the kernel of 2026-10-15, 12 bases and a stretch of 25 ms,
+  about 20 ms apart near the first-flash response. (Until 2026-10-16 that was
+  the kernel in use, and this grid tested 10 bases with 50 ms as the "coarse
+  kernel", which predicted better and replaced it.)
 - "no\nfixation": the design in `dmat.py` without the column for the fixation
   before the stimulus (center entry to first flash).
 
@@ -44,7 +46,7 @@ DESIGNS = {
     "step,\nflash": {**STEP, "STATE_FROM_FIRST_FLASH": True},
     "kernel": {},
     "linear\nkernel": {"HOLD_LOG_STRETCH_S": 0.0},
-    "coarse\nkernel": {"HOLD_BASES": 10, "HOLD_LOG_STRETCH_S": 0.05},
+    "fine\nkernel": {"HOLD_BASES": 12, "HOLD_LOG_STRETCH_S": 0.025},
     "no\nfixation": {"FIXATION_COLUMN": False},
     "penalty\n÷ 100": {"HOLD_PENALTY_SCALE": 10.0},
 }

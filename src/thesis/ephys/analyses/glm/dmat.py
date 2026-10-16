@@ -80,7 +80,7 @@ WITHDRAWAL_KERNEL = False
 # the animal leaves the center port; the flashes go on (the train is 1 s long
 # and stops early only at the response entry).
 # The bases have even spacing in log(t + stretch). They are close together
-# early, where the rate changes fast and every trial gives data (about 20 ms
+# early, where the rate changes fast and every trial gives data (about 40 ms
 # apart near the first-flash response), and far apart late, where the rate is
 # almost flat and only the longer holds give data. No step goes with the
 # kernel. In a trial with a hold longer than the window, the kernel keeps its
@@ -90,8 +90,12 @@ WITHDRAWAL_KERNEL = False
 # of the trials and was not stable between halves of the trials.
 HOLD_KERNEL = True
 HOLD_WINDOW_S = 0.7
-HOLD_BASES = 12
-HOLD_LOG_STRETCH_S = 0.025
+# 10 bases with a stretch of 50 ms (2026-10-16): on the design of 2026-10-15
+# this predicts better than 12 bases with 25 ms (+0.12%, 50 of 80 units,
+# p = 0.0047, `hold_grid.py`), and the kernels are recovered as well
+# (`parameter_recovery --grid hold_grid`).
+HOLD_BASES = 10
+HOLD_LOG_STRETCH_S = 0.05
 # A factor on the columns of the fixation kernel after the z-score. With 1 the
 # fixation kernel has the same L2 penalty as the other terms: the model in use,
 # and the common practice. With a factor above 1 the penalty on its weights is

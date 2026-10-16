@@ -141,7 +141,7 @@ CAPTION_NAMES = {
     "step, entry": "a step from the entry",
     "step, flash": "a step from the first flash",
     "linear kernel": "linear spacing",
-    "coarse kernel": "a coarse kernel",
+    "fine kernel": "the 12-cosine kernel of 2026-10-15",
     "no fixation": "no pre-stimulus column",
     "penalty ÷ 100": "a weaker penalty",
     "withdrawal 0–100": "the withdrawal kernel",
@@ -166,7 +166,7 @@ are two-sided Wilcoxon signed-rank tests of the differences against zero
 **a**, Flash kernels by the gap from the flash before, against the two gap
 classes in use. {gap_class_grid} **b**, Length of the flash kernels, against
 150 ms. {flash_length_grid} **c**, Form of the fixation term, against the
-log-spaced kernel in use. {hold_grid} **d**, End of the fixation kernel (12
+log-spaced kernel in use. {hold_grid} **d**, End of the fixation kernel (10
 cosines; after the end the kernel keeps its last value to the exit), against
 0.7 s. {hold_window_grid} Past 0.7 s few trials give data, and in the design
 of 2026-10-13 the kernel to 0.95 s was not stable after 700 ms in split

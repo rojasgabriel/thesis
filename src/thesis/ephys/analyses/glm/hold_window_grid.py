@@ -7,7 +7,7 @@ last value to the center exit. With the end at 0.95 s (the design of
 another end predict held-out spikes better?
 
 Comparison: for each design in `DESIGNS`, build the full design of 2026-10-15
-with the fixation kernel to that end (12 cosines, the same log spacing) and
+with the fixation kernel to that end (10 cosines, the same log spacing) and
 run the model-selection stage of `glm fit`: fit on the training trials and
 score D² on the validation trials. The comparison is paired: each unit is
 scored with each design. The design in use is the "1.3 s" design of
