@@ -34,9 +34,14 @@ from thesis.ephys.trials import build_trial_table
 # 0.45 s before the center entry (the entry is 26 to 106 ms before the first
 # flash), the baseline of the model, and in 95% of the trials of GRB006 it
 # starts after the exit from the side port of the trial before (2026-10-15;
-# it was 0.1 s, which left about 50 ms before the entry).
+# it was 0.1 s, which left about 50 ms before the entry). The window ends this
+# long after the first flash, so that the windows of the closest trials (2.70 s
+# apart) and their video frames do not overlap (at least 96 ms between
+# windows); 4 of 294 trials of GRB006 and 6 of 169 of GRB064 reach the response
+# entry later and lose their last bins (0.3% and 0.8% of the modeled time; it
+# was 2.54 s).
 PRE_S = 0.5
-POST_S = 2.54
+POST_S = 2.1
 BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
 # One count. In the first design, 25 and 50 PCs were not reliably better than
