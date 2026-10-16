@@ -26,7 +26,9 @@ writes the row again as the old onsets, not changed, plus the new ones. So the
 flashes of the completed trials stay exactly as they are. The replacement needs
 the DELETE permission on the table. If a database administrator deletes the
 row instead, run `--apply` again in the same directory: the tool then takes
-the old onsets from `--backup` and only inserts.
+the old onsets from `--backup` and only inserts. With no row, the trial table
+cannot be built (it needs the flash row), so the report by trial is skipped;
+run without `--apply` after the write to see it.
 
 Run it where the raw session folder is (the folder with the NI file):
 
@@ -137,15 +139,55 @@ def main() -> None:
         f"{1000 * nearest.max():.2f} ms)"
     )
 
+    is_new = np.ones(len(detected), dtype=bool)
+    is_new[index[matched]] = False
+    print(f"New onsets: {int(is_new.sum())}")
+    if row_exists:
+        _report_by_trial(args, detected, current, is_new)
+    else:
+        # The trial table needs the flash row, which is not there now.
+        print(
+            "No report by trial: the trial table needs the flash row. Run again "
+            "without --apply after the write to see it."
+        )
+
+    if not args.apply:
+        print("No write. Use --apply to replace the database row.")
+        return
+    if not matched.all():
+        raise SystemExit(
+            "Stopped: some onsets in the database have no detected onset. "
+            "The clock or the method is not the same; nothing was written."
+        )
+    if row_exists:
+        np.save(args.backup, current)
+        print(f"Saved the old onsets to {args.backup}.")
+    added = detected[is_new]
+    onsets = np.sort(np.concatenate((current, added)))
+    if row_exists:
+        relation.delete(force=True)
+    DatasetEvents.Digital().insert1(
+        {
+            **key,
+            "event_timestamps": onsets,
+            "event_values": np.ones(len(onsets), dtype=np.uint8),
+        },
+        allow_direct_insert=True,
+    )
+    print(
+        f"Wrote {key['stream_name']}:{key['event_name']}: {len(current)} onsets not "
+        f"changed and {len(added)} added ({len(onsets)} in total)."
+    )
+
+
+def _report_by_trial(args, detected, current, is_new) -> None:
+    """Print in which trials the new onsets are, and how the old ones compare."""
     trials = build_trial_table(args.subject, args.session, include_frames=False)
     starts = trials["trial_start_s"].to_numpy(dtype=float)
     early = trials["early_withdrawal"].to_numpy() == 1
-    is_new = np.ones(len(detected), dtype=bool)
-    is_new[index[matched]] = False
     row = np.searchsorted(starts, detected, side="right") - 1
     inside = row >= 0
     new_rows = row[is_new & inside]
-    print(f"New onsets: {int(is_new.sum())}")
     print(f"  in early-withdrawal trials: {int(early[new_rows].sum())}")
     print(f"  in completed trials: {int((~early[new_rows]).sum())}")
     print(f"  before the first trial start: {int((is_new & ~inside).sum())}")
@@ -184,34 +226,6 @@ def main() -> None:
             f"Completed trials: {len(in_completed)} detected onsets against "
             f"{len(current)} in the database; not paired."
         )
-
-    if not args.apply:
-        print("No write. Use --apply to replace the database row.")
-        return
-    if not matched.all():
-        raise SystemExit(
-            "Stopped: some onsets in the database have no detected onset. "
-            "The clock or the method is not the same; nothing was written."
-        )
-    if row_exists:
-        np.save(args.backup, current)
-        print(f"Saved the old onsets to {args.backup}.")
-    added = detected[is_new]
-    onsets = np.sort(np.concatenate((current, added)))
-    if row_exists:
-        relation.delete(force=True)
-    DatasetEvents.Digital().insert1(
-        {
-            **key,
-            "event_timestamps": onsets,
-            "event_values": np.ones(len(onsets), dtype=np.uint8),
-        },
-        allow_direct_insert=True,
-    )
-    print(
-        f"Wrote {key['stream_name']}:{key['event_name']}: {len(current)} onsets not "
-        f"changed and {len(added)} added ({len(onsets)} in total)."
-    )
 
 
 if __name__ == "__main__":
