@@ -511,8 +511,7 @@ Findings, with the section that has the details:
     flash kernel scaled by motion energy passes in GRB006 and fails in GRB064
     (different camera views).
   - Two mice, one session each.
-- Still open: the early-withdrawal flashes of GRB006 (the database row is not
-  deleted yet), the side index with turn direction, and the link of the model
+- Still open: the side index with turn direction, and the link of the model
   to locomotion and the decoding analyses.
 
 ## Flash response when still and when the animal moves
@@ -662,15 +661,22 @@ holds for other trials.
     Gabriel), so the arena is dark after an early exit. The tone is the one
     difference left: the rate after the exit is the same with the tone and no
     stimulus as with the stimulus and no tone.
-- In GRB006 the trial table has no flashes for the 209 early-withdrawal
-  trials, so this test is not possible there. This is a gap in the saved
-  events, not in the task: the stimulus events of GRB006 in the database
-  (`nidq`, `ai0`) are flash onsets that were written from the analog channel
-  in a past repair, and they have 295 trains, one for each completed trial.
-  The early-withdrawal trials had a stimulus (the animal was in the port for
-  about 510 ms before the punishment). To get their flashes, the onsets must
-  be extracted again from the raw analog channel; that code is not in this
-  repository. In GRB064 the fixation of the
+- GRB006 (2026-10-16, after `reextract_flash_onsets.py` added the 1170
+  flashes of the early-withdrawal trials to the database; 167 units, 207
+  early withdrawals with an exit 445 ms after the first flash, 294 completed
+  trials with the exit at 553 ms; `figures/exit_without_stimulus/GRB006_20240821_121447/`).
+  The result replicates: the rate after the exit is the same with and without
+  the stimulus (early over completed 1.01, 89 of 167 units higher, p = 0.57),
+  and it goes up at the exit in both (2.45 times in completed trials, 146 of
+  167 units, p = 6e-22; 1.86 times in early withdrawals, 137 of 166, p = 2e-18).
+  The rise is smaller in early withdrawals because the rate before the exit is
+  higher (early over completed 1.13, 143 of 166 units, p = 3e-18): the
+  fixation is shorter (445 against 553 ms), and in GRB006 the drop starts
+  about 90 ms after the first flash and goes on through the fixation. In
+  GRB064 the rate before the exit is the same in both (1.00, p = 0.92).
+  The flashes of the completed trials did not change with the new row (3520
+  onsets, the same as before), so the GLM fits are not affected.
+- In GRB064 the fixation of the
   completed trials has almost the same length as in GRB006 (1st to 95th
   percentile: 455 to 747 ms), so the matched-time test is not possible there
   either; the early withdrawals are what separates the exit from the time in
