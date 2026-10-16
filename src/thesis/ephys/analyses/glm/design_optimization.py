@@ -5,15 +5,15 @@ classes, the length of the flash kernels, the fixation term, a term at the
 center exit, the number of motion-energy PCs, the session drift)?
 Whether the weights of the resulting design can be read is a separate
 question (`model_trust.py`). This script makes no fit. It draws the results
-of the six design grids and writes the caption next to the figure.
+of the eight design grids and writes the caption next to the figure.
 
 Comparison: each grid scores the design in use and the same design with one
-term in another form, on the same units of GRB006 (`--root`). The grids ran
-on the design of 2026-10-13. The design of 2026-10-15 changed three forms
-without a grid, from the behavior: the fixation kernel ends at 0.7 s (it was
-0.95 s; the exit comes by 0.7 s in 95% of trials of both mice), the response
-period (8 cosines to 1.3 s from the exit) replaces the withdrawal kernel, and
-turn direction replaces the side term. A panel shows,
+term in another form, on the same units of GRB006 (`--root`). Panels a to f
+ran on the design of 2026-10-13; panels g and h test the forms that the
+design of 2026-10-15 took from the behavior (the fixation kernel to 0.7 s, the
+95th percentile of the fixation length; the exit basis to 1.3 s, the 95th
+percentile of the time from the exit to the response entry), on that design.
+A panel shows,
 for each other form, the validation D² of each unit minus its D² with the
 form in use (paired). D² is relative to the constant-rate model, on the
 validation trials.
@@ -35,6 +35,11 @@ validation trials.
   use.
 - Panel f (`drift_grid.py`): no session drift, more raised cosines, and a
   cubic spline, against the 4 raised cosines in use.
+- Panel g (`hold_window_grid.py`): the fixation kernel to 0.5 and 0.95 s,
+  against 0.7 s.
+- Panel h (`exit_grid.py`): the withdrawal kernel of 2026-10-13 in place of
+  the response period, and the exit basis to 1.0 and 1.6 s or with 6 and 10
+  cosines, against 8 cosines to 1.3 s.
 
 Units: the sets of 20 units of the grids (`--samples 4` gives 80 units; no
 unit is in two sets). The form of a term is chosen on these units; the
@@ -49,7 +54,7 @@ on these units and keeps the other kernels readable (parameter recovery).
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization
 
-Run the six grids first; this script stops if a result file is missing."""
+Run the eight grids first; this script stops if a result file is missing."""
 
 from __future__ import annotations
 
@@ -67,9 +72,11 @@ from scipy.stats import wilcoxon
 from thesis.ephys.analyses.glm import (
     cli,
     drift_grid,
+    exit_grid,
     flash_length_grid,
     gap_class_grid,
     hold_grid,
+    hold_window_grid,
     pc_grid,
     withdrawal_grid,
 )
@@ -110,6 +117,18 @@ GRIDS = {
         DRIFT_COLOR,
         "session drift (number of raised cosines)",
     ),
+    "hold_window_grid": (
+        hold_window_grid,
+        hold_window_grid.IN_USE,
+        TASK,
+        "end of the fixation kernel, 2026-10-15",
+    ),
+    "exit_grid": (
+        exit_grid,
+        exit_grid.IN_USE,
+        TASK,
+        "response period and turn direction basis, 2026-10-15",
+    ),
 }
 # Tick labels that differ from the name of the design in its grid.
 LABELS = {
@@ -147,12 +166,15 @@ size, against {level_in_use} with the kernel of 0 to 100 ms (median unit,
 `model_trust.py`). So the term at the exit starts at the exit. The response
 period (8 cosines from the exit to 1.3 s) later replaced the kernel of 0 to
 100 ms; its form comes from the time from the exit to the response entry, not
-from a grid. **e**, Number of motion-energy PCs.
+from a grid; panel h tests it. **e**, Number of motion-energy PCs.
 {pc_sentence} **f**, Session drift. No drift is worse; more functions are not
-better. All six grids ran on the design of 2026-10-13. The design
-in use (2026-10-15) also has a fixation kernel that ends at 0.7 s (not 0.95
-s), from the behavior and not from a grid. The importance of each regressor
-is tested on all units (main figure).
+better. Panels a to f ran on the design of 2026-10-13; panels g and h on the
+design in use (2026-10-15). **g**, End of the fixation kernel (12 cosines;
+after the end the kernel keeps its last value to the exit), against 0.7 s.
+{hold_window_sentence} **h**, The basis of the response period and turn
+direction, against 8 cosines to 1.3 s; "withdrawal 0–100" is the term at the
+exit of 2026-10-13 in place of the response period. {exit_sentence} The
+importance of each regressor is tested on all units (main figure).
 """
 
 
@@ -175,6 +197,36 @@ def _pc_sentence(entry: dict) -> str:
     return f"{first} {second}{', and some are worse' if worse else ''}."
 
 
+def _others_sentence(entry: dict, labels: dict[str, str]) -> str:
+    """Say which other forms of a grid are reliably better or worse."""
+    names = [n for n in entry if isinstance(entry[n], dict)]
+    better = [
+        labels[n]
+        for n in names
+        if entry[n]["wilcoxon_p"] < 0.05 and entry[n]["median_change"] > 0
+    ]
+    worse = [
+        labels[n]
+        for n in names
+        if entry[n]["wilcoxon_p"] < 0.05 and entry[n]["median_change"] < 0
+    ]
+    parts = []
+    if worse:
+        parts.append(f"{', '.join(worse)} {'is' if len(worse) == 1 else 'are'} worse")
+    if better:
+        parts.append(
+            f"{', '.join(better)} {'is' if len(better) == 1 else 'are'} better"
+        )
+    if not parts:
+        return "No other form is reliably different."
+    rest = (
+        ""
+        if len(worse) + len(better) == len(names)
+        else "; the others are not reliably different"
+    )
+    return "; ".join(parts).capitalize() + rest + "."
+
+
 def _stars(p: float) -> str:
     return "n.s." if p >= 0.05 else "*" * (1 + (p < 0.01) + (p < 0.001))
 
@@ -188,8 +240,8 @@ def main() -> None:
     subjects = [session.split("_")[0] for session in SESSIONS]
     with plt.rc_context(FIGURE_STYLE):
         # The dpi is for the rasterized points; the text and the lines are vectors.
-        figure = plt.figure(figsize=(7.4, 6.4), layout="constrained", dpi=300)
-        axes = figure.subplots(3, 2)
+        figure = plt.figure(figsize=(7.4, 8.5), layout="constrained", dpi=300)
+        axes = figure.subplots(4, 2)
         for axis, (grid, (module, in_use, color, xlabel)) in zip(
             axes.flat, GRIDS.items()
         ):
@@ -263,6 +315,20 @@ def main() -> None:
             units=first["units"],
             sets=first["units"] // 20,
             pc_sentence=_pc_sentence(stats["pc_grid"]),
+            hold_window_sentence=_others_sentence(
+                stats["hold_window_grid"],
+                {"0.5 s": "0.5 s", "0.95 s": "0.95 s"},
+            ),
+            exit_sentence=_others_sentence(
+                stats["exit_grid"],
+                {
+                    "withdrawal 0–100": "the withdrawal kernel",
+                    "1.0 s": "1.0 s",
+                    "1.6 s": "1.6 s",
+                    "6 cosines": "6 cosines",
+                    "10 cosines": "10 cosines",
+                },
+            ),
             level_in_use=" and ".join(
                 f"{WITHDRAWAL_RECOVERY[s][0]:.2f}" for s in subjects
             ),
