@@ -7,13 +7,15 @@ there is no comparison, baseline, exclusion, or sampling unit.
 
 - a, flash kernels (each gap class and flash × move): time from the flash.
 - b, fixation: time from the first flash. After the last
-  function the kernel keeps its last value until the withdrawal.
-- c, withdrawal: time from the center-port exit.
+  function the kernel keeps its last value until the center exit.
+- c, response period and turn direction (the same functions): time from the
+  center exit. After the last function the kernel keeps its last value until
+  the response entry.
 - d, spike history: time before the bin, from 1 ms.
 - e, session drift: time in the session, as a fraction. The last function is
   not a column, because the model has an intercept.
 
-The initiation, the choice, the previous side, and each motion-energy PC are one
+The pre-stimulus column, the previous side, and each motion-energy PC are one
 column each, with no basis.
 
     uv run python -m thesis.ephys.analyses.glm.basis_diagram
@@ -41,7 +43,7 @@ def main() -> None:
     args = parser.parse_args()
     task = dmat.task_temporal_bases()
     flash, hold = task[dmat.flash_gap_names()[0]], task["hold"]
-    withdrawal, history = task["withdrawal"], dmat.spike_history_basis()
+    exit, history = dmat.exit_basis(), dmat.spike_history_basis()
     session = np.linspace(0, 1, 500)
     # The function that is left out is 1 minus the sum of the columns.
     drift = dmat.session_drift_columns(session)
@@ -49,7 +51,7 @@ def main() -> None:
     panels = [
         ("flash kernels", 1000 * flash.basis_time, flash.basis, VISUAL, "time from flash (ms)"),
         ("fixation", 1000 * hold.basis_time, hold.basis, TASK, "time from first flash (ms)"),
-        ("withdrawal", 1000 * withdrawal.basis_time, withdrawal.basis, TASK, "time from center exit (ms)"),
+        ("response period, turn direction", 1000 * exit.basis_time, exit.basis, TASK, "time from center exit (ms)"),
         ("spike history", 1000 * history.basis_time + 1, history.basis, HISTORY, "time before the bin (ms)"),
         ("session drift", session, drift, DRIFT_COLOR, "time in session (fraction)"),
     ]  # fmt: skip

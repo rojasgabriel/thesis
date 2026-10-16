@@ -617,3 +617,46 @@ directory (not tracked by git); they cannot be run again from the repository.
 Earlier fits are kept next to the session directory: `_in_port_step` (the step
 design), `_log10_fit` (10 bases, 50 ms stretch, no initiation column), and
 `_linear_hold_fit` (10 linear bases).
+
+### Design of 2026-10-15: turn direction, response period, shorter kernels
+
+Candidate test of 2026-10-15 (`candidate_terms.py`, all candidates added to
+the design of 2026-10-13 together, both mice): time in trial (52% and 67% of
+the units) and turn direction (37% and 42%) pass the rule; accumulated
+evidence (4% and 1%) and the previous outcome (6% and 8%) fail. In a design
+with the two that pass, time in trial had a first canonical correlation of
+1.00 with the fixation kernel (GVIF^(1/p) 9.9 and 9.5, condition index 92),
+and turn direction one of 0.91 and 0.87 with the side term.
+
+Decisions (Gabriel, 2026-10-15):
+
+- The fixation kernel stays the term that reads the fixation effect; no new
+  time term may overlap it. Time in trial is out.
+- Turn direction replaces the side term. Its kernel runs from the center exit
+  to the response entry: 8 cosines with log spacing to 1.3 s (the 95th
+  percentile of exit to entry in both mice), and the last cosine keeps its
+  level to the entry.
+- The response period (the same basis, no sign) replaces the withdrawal
+  kernel, so the time after the exit has a part common to both sides.
+- Flash × move × gap is out: split halves 0.61 and 0.57, and its effect was
+  not reliable after the leak correction.
+- The fixation kernel ends at 0.7 s (the 95th percentile of the fixation
+  length in both mice), not 0.95 s. The kernel after 700 ms had a split-half
+  agreement of 0.26 in GRB006, because 1 to 3% of the trials reach it.
+- The window starts 0.5 s before the first flash, so the baseline is before
+  the center entry. The initiation column is named "pre-stimulus".
+- Flash × motion energy stays out (fails in GRB064, where the camera view is
+  different).
+
+Shuffle fix of 2026-10-16 (`unique_dev.py`): the over-trials shuffle of the
+unique ΔD² moved the exit-aligned time course of a side term to another trial,
+so the shuffle also removed the response period. In a synthetic unit with
+only flash responses, turn direction had a unique ΔD² of 0.19. A side on a
+time course (previous choice, turn direction) now keeps its own rows and
+takes the sign of another trial; session drift and the previous outcome are
+still shuffled over trials. With the fix, turn direction is needed by 49% and
+63% of the units.
+
+Result: all 11 regressors pass in both mice; median D² 0.072 and 0.074. The
+fits of the design of 2026-10-13 are in
+`figures/glm/_before_design_2026_10_15/`.

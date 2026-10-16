@@ -3,14 +3,14 @@
 Poisson encoding model of V1 spikes in the Chipmunk task, fitted on two
 sessions: GRB006 `20240821_121447` (167 units) and GRB064 `20260916_132939`
 (76 units). The model predicts the spike count of each unit in 1-ms bins from
-12 regressors: two flash kernels by the gap from the flash before, two
-kernels for the change of the flash response after the withdrawal (flash ×
-move, and flash × move × gap), a fixation kernel (first flash to center
-exit), a withdrawal kernel (0 to 100 ms), one column each for the initiation,
-the choice, and the previous choice, 10 motion-energy PCs of the video, a
-session drift, and a strictly past spike-history filter for each unit. All
-terms add in log rate. Coefficients are conditional associations, not causal
-effects.
+11 regressors (design of 2026-10-15): two flash kernels by the gap from the
+flash before, a flash × move kernel (the change of the flash response after
+the center exit), a fixation kernel (first flash to center exit), one
+pre-stimulus column (center entry to first flash), a response-period kernel
+and a turn-direction kernel (center exit to response entry), the previous
+choice, 10 motion-energy PCs of the video, a session drift, and a strictly
+past spike-history filter for each unit. All terms add in log rate.
+Coefficients are conditional associations, not causal effects.
 
 This file has the model, its results, and its checks. The history of the
 design (the earlier designs, and the test behind each change) is in
@@ -52,7 +52,9 @@ at a time.
   wait time (about 0.5 s) is reached. No sound plays at the center poke: the
   state machine (`VisualTaskSMA.m`) has a start tone there, but its length is
   the virtual-observer delay, which the settings fix at 0.
-- Grid: DAMN 1 ms, pre=100 ms, post=2.54 s (2,639 centers). Keep the full
+- Grid: DAMN 1 ms, pre=500 ms, post=2.1 s (2.6 s). The window starts
+  before the center entry in most trials, so the baseline is the rate before the
+  entry (to 2026-10-15: pre=100 ms, post=2.54 s). Keep the full
   window. Fitting **masks bins after that trial’s response entry**; it does not
   shorten the grid. Only flashes from initiation through response entry enter
   the design.
@@ -91,34 +93,58 @@ or punishment kernel.
 | Flash, 40 ms gap | A flash within 50 ms of another; 8 causal linearly spaced raised cosines, 0–150 ms | 8 |
 | Flash, 80+ ms gap | Every other flash (the first flash also); same bases | 8 |
 | Flash × move | Same flash bases, scaled by the centered period (a flash after the center exit against one in the fixation) | 8 |
-| Flash × move × gap | Same flash bases, scaled by the centered period times the centered gap class | 8 |
-| Withdrawal | 4 causal raised cosines, 0–100 ms after center exit | 4 |
-| Initiation | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
-| Fixation | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–950 ms; no step | 12 |
-| Choice (key `side_after_exit`) | +1 or −1 for the side of the response, from the center exit on | 1 |
+| Pre-stimulus (key `fixation`) | 1 from center entry to the first flash, else 0; no temporal basis | 1 |
+| Fixation (key `hold`) | One kernel on the first flash, set to zero from the center exit on; 12 raised cosines with even spacing in log(t + 25 ms), 0–700 ms; after 700 ms the last value is kept to the exit; no step | 12 |
+| Response period | One kernel on the center exit, to the response entry (bins after it are masked); 8 raised cosines with even spacing in log(t + 25 ms), 0–1.3 s; after 1.3 s the last cosine keeps its level (`exit_basis`) | 8 |
+| Turn direction | The same bases, times +1 or −1 for the side of the response | 8 |
+| Previous choice (key `previous_side`) | +1 or −1 for the side of the last response before the trial, from the start of the window to the center exit | 1 |
 | Motion energy | One contemporaneous value for each of the first 10 PCs; no temporal basis | 10 |
 | Session drift | 4 raised cosines over the session, with the last one left out | 3 |
 | Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
 
-74 columns in 12 regressors. `basis_diagram.py` draws the basis functions
-(`figures/glm/basis_functions.svg`).
+77 columns in 11 regressors. `basis_diagram.py` draws the basis functions
+(`figures/glm/basis_functions.svg`); panel a of `main_figure.svg` draws the
+design of one trial.
+
+- The ends of the two exit kernels come from the behavior, not from a grid:
+  the exit comes by 0.7 s after the first flash in 95% of the trials of both
+  mice, and the response entry by 1.3 s after the exit. A kernel past these
+  times has few trials and is not stable in split halves (the fixation kernel
+  of 0.95 s had an agreement of 0.26 from 700 to 950 ms in GRB006).
+- Response period and turn direction split the time after the exit into a part
+  common to both sides and a part of opposite sign for left and right. The
+  right-turn kernel is response period + turn direction, the left-turn kernel
+  response period − turn direction.
 
 Names in the figures: a flash in the fixation is "still" and a flash after the
 center exit is "move" (task periods, not a measure of locomotion); the side of
 the response after the exit is "choice"; the side of the last response before
 the trial is "previous choice".
 
-Design of 2026-10-13, fitted on all units of GRB006 (167 units, median
-cross-validated D² 0.0726, IQR 0.046 to 0.105) and GRB064 (76 units, 0.0702,
-IQR 0.045 to 0.100). Changes from the design of 2026-10-12: 2 gap classes in
-place of 3, no center-entry kernel, the previous choice, and flash × move ×
-gap. The fits of the earlier designs are in the folders next to the session
-folder (`_three_gap_classes`, `_eleven_regressors`).
+Design of 2026-10-15, fitted on all units of GRB006 (167 units, median
+cross-validated D² 0.072, IQR 0.044 to 0.102) and GRB064 (76 units, 0.074,
+IQR 0.049 to 0.116). Changes from the design of 2026-10-13 (decided with
+Gabriel, 2026-10-15; the test behind each is in `candidate_terms.py` and in
+[glm_decisions.md](glm_decisions.md)):
 
-No flash × movement interaction, response-entry,
-same-bin history, cross-unit coupling, or previous-trial
-terms. Motion-energy coefficients are contemporaneous nuisance associations.
-Pose tracking is not included.
+- Turn direction (8 bases, to the response entry) replaces the choice column
+  (`side_after_exit`). The two had a first canonical correlation of 0.9.
+- The response period replaces the withdrawal kernel (0 to 100 ms).
+- Flash × move × gap is out (split halves 0.61 and 0.57; not reliable after
+  the leak correction).
+- The fixation kernel ends at 0.7 s, not 0.95 s.
+- The window starts 0.5 s before the first flash, not 0.1 s.
+- Time in trial is out: it had a canonical correlation of 1.00 with the
+  fixation kernel. Flash × motion energy stays out (fails in GRB064, where the
+  camera view is different). Accumulated evidence and the previous outcome
+  fail the rule in both mice.
+
+The fits of the design of 2026-10-13 are in
+`figures/glm/_before_design_2026_10_15/`.
+
+No go cue, outcome, response-entry, same-bin history, cross-unit coupling, or
+previous-outcome terms. Motion-energy coefficients are contemporaneous
+nuisance associations. Pose tracking is not included.
 
 ## Video
 
@@ -234,8 +260,20 @@ the motion energy of another trial at the same time in the trial. This keeps the
 average time course of motion energy in a trial. If the trial-specific ΔD² is
 near zero and the unique ΔD² is not, the regressor predicts spikes through the time
 in the trial and not through the movement of that trial. `summary.json` gives it
-as `video_trial_specific`. Session drift and the previous choice do not change
-in a trial, so they are shuffled over trials.
+as `video_trial_specific`.
+
+Regressors that do not follow the time in the trial are shuffled in another
+way (`SHUFFLE_RULE` "trial variables over trials, sides by sign, 2026-10-16"):
+
+- Session drift and the previous outcome do not change in a trial, so their
+  rows are shuffled over trials.
+- A side on a time course (previous choice, turn direction) keeps its own rows
+  and takes the sign of another trial. A shuffle of the rows over trials moves
+  the exit-aligned time course to another trial, where the exit comes at
+  another time. That made the shuffle remove the response period also: in a
+  synthetic unit with only flash responses, turn direction had a unique ΔD² of
+  0.19. With the sign shuffle it is 0. The real results change little (turn
+  direction is needed by 49% and 63% of the units).
 
 All run inside the same 10 folds as `fit`, at the penalty that fold selected,
 so they are comparable with the cross-validated deviance. Reported as the mean
@@ -285,13 +323,19 @@ The tests say that a regressor is real for the population. They do not say
 that it is worth its columns; that is a choice of parsimony. The tests are in
 `inclusion.py`. `candidate_terms.py` applies them to a design with a new term
 (all regressors of the design, by the shuffle of each), and `main_figure.py`
-writes them for the model in use to `main_figure_stats.json` (all 12 regressors
+writes them for the model in use to `main_figure_stats.json` (all 11 regressors
 pass both tests in the two sessions).
 
 ## Parameterization of each term in the final design, on 80 units
 
 The six grids were run on 4 sets of 20 units (`--samples 4`, 80 units) with
-the design of 12 regressors as the base (median validation D² 0.0800). Each
+the design of 2026-10-13 (12 regressors) as the base (median validation D²
+0.0800). The design of 2026-10-15 was not run on the grids: its new forms (the
+fixation kernel to 0.7 s, the response period and turn direction to 1.3 s)
+come from the behavior (see "Design"). The withdrawal-kernel rows are for a
+term that the response period has replaced; they show that the model needs a
+term at the exit and that a term that starts before the exit takes the
+fixation level. Each
 row is a design against the parameterization in use (paired over the 80 units, two-sided
 Wilcoxon). The results of the earlier base designs are in
 `<grid>_earlier_design` and `<grid>_eleven_regressors`; they give the same
@@ -315,7 +359,7 @@ choices.
 | | step from the first flash | −1.86% | 19 | 2e-7 |
 | | kernel, linear spacing | −0.59% | 21 | 9e-5 |
 | | kernel, 10 bases | −0.16% | 32 | 0.10 |
-| | kernel, no initiation column | 0.00% | 41 | 0.50 |
+| | kernel, no pre-stimulus column | 0.00% | 41 | 0.50 |
 | Withdrawal kernel (in use: 0 to 100 ms) | none | −0.78% | 25 | 0.0006 |
 | | ±100 ms around the exit | +0.05% | 43 | 0.60 |
 | | ±300 ms around the exit | +0.58% | 51 | 0.010 |
@@ -352,31 +396,33 @@ choices.
     against 0.090, larger in 54 of 76 units, p = 9e-5; 0.73 against 0.84.
   - The recovery of the flash × move effect does not change (p from 0.06 to
     0.76 in the two animals and the two gap classes).
-- Step 2, for the design in use, in GRB006 and in the held-out animal GRB064
-  (no choice of step 1 used GRB064):
+- Step 2, for the design in use (2026-10-15), in GRB006 and in the held-out
+  animal GRB064 (no choice of step 1 used GRB064); panels a to e of
+  `model_trust.svg`:
   - 2a, collinearity: no regressor is above the limits in either animal
-    (largest GVIF^(1/p) 2.45; largest condition index 7.7), so no regressor
+    (largest GVIF^(1/p) 1.65; largest condition index 8.4), so no regressor
     goes.
   - 2b, parameter recovery of every regressor (`parameter_recovery.py`):
     spikes are simulated from the fitted model of each unit, the model is fit
     again to them with the same penalty, and each recovered kernel (or weight
     vector, for motion energy and drift) is compared with the true one. The
-    median agreement is 0.68 to 0.85 in GRB006 and 0.68 to 0.96 in GRB064;
-    the lowest is session drift in both. The median size of the recovered
-    kernel over the true size is 0.84 to 1.07, except spike history (0.71 in
-    GRB006 and 0.85 in GRB064, the effect of the penalty). The level of the
-    fixation kernel is recovered at 0.76 (GRB006) and 0.84 (GRB064) of its
-    size: the leak of "Leak of the fixation level".
+    median agreement is 0.65 to 0.82 in GRB006 (spike history 0.62) and 0.73
+    to 0.97 in GRB064. The median size of the recovered kernel over the true
+    size is 0.82 to 1.11, except spike history in GRB006 (0.51; see "Spike history and the
+    firing rate"). The level of the fixation kernel is recovered at 0.66
+    (GRB006) and 0.84 (GRB064) of its size: the leak of "Leak of the fixation
+    level". So the fitted fixation level is a lower bound.
 - Motion energy: 10 PCs are needed (none is worse), and more PCs do not help;
   100 and 200 are worse.
 - The design with one flash kernel has no flash × move × gap term: it is the
   product of the period and the class of the shortest gaps.
-- The initiation column gives no gain on these 80 units. Its importance is
-  tested on all units (16% need it in GRB006, 24% in GRB064).
+- The pre-stimulus column (named "initiation" to 2026-10-15) gives no gain on
+  these 80 units. Its importance is tested on all units (19% need it in
+  GRB006, 28% in GRB064).
 
 ## Results
 
-Model in use: the design of 2026-10-13 (12 regressors, 74 columns), one L2
+Model in use: the design of 2026-10-15 (11 regressors, 77 columns), one L2
 penalty for all terms, selected for each unit. Artifacts are in
 `figures/glm/<subject>_<session>/`, which git does not track.
 
@@ -384,157 +430,139 @@ penalty for all terms, selected for each unit. Artifacts are in
 | --- | ---: | ---: |
 | Units, trials | 167, 294 | 76, 169 |
 | Video | back view | bottom view |
-| Median cross-validated D² (IQR) | 0.073 (0.046 to 0.105) | 0.070 (0.045 to 0.100) |
-| Median bits/spike | 0.56 | 0.46 |
-| Regressors that pass the two tests of the rule | 12 of 12 | 12 of 12 |
+| Median cross-validated D² (IQR) | 0.072 (0.044 to 0.102) | 0.074 (0.049 to 0.116) |
+| Regressors that pass the two tests of the rule | 11 of 11 | 11 of 11 |
 
 | Regressor | Columns | GRB006: units that need it | units worse | median unique ΔD² | GRB064: units that need it | units worse | median unique ΔD² |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Spike history | 10 | 92% | 2.4% | 0.0257 | 92% | 1.3% | 0.0267 |
-| Fixation | 12 | 78% | 0.0% | 0.0032 | 91% | 0.0% | 0.0054 |
-| Flash, 80+ ms gap | 8 | 77% | 0.0% | 0.0031 | 61% | 0.0% | 0.0015 |
-| Flash, 40 ms gap | 8 | 74% | 0.0% | 0.0029 | 50% | 0.0% | 0.0012 |
-| Motion energy | 10 | 57% | 0.0% | 0.0015 | 45% | 0.0% | 0.0011 |
-| Withdrawal | 4 | 51% | 0.0% | 0.0008 | 47% | 0.0% | 0.0008 |
-| Flash × move | 8 | 41% | 0.0% | 0.0008 | 38% | 1.3% | 0.0007 |
-| Choice | 1 | 35% | 2.4% | 0.0004 | 45% | 0.0% | 0.0006 |
-| Session drift | 3 | 28% | 2.4% | 0.0004 | 14% | 1.3% | 0.0002 |
-| Flash × move × gap | 8 | 26% | 0.6% | 0.0004 | 24% | 0.0% | 0.0005 |
-| Previous choice | 1 | 19% | 0.6% | 0.0002 | 16% | 1.3% | 0.0001 |
-| Initiation | 1 | 16% | 3.6% | 0.0001 | 24% | 1.3% | 0.0002 |
+| Spike history | 10 | 96% | 1.2% | 0.0308 | 96% | 0.0% | 0.0292 |
+| Response period | 8 | 78% | 0.0% | 0.0018 | 86% | 0.0% | 0.0026 |
+| Flash, 80+ ms gap | 8 | 76% | 0.0% | 0.0022 | 54% | 0.0% | 0.0010 |
+| Fixation | 12 | 75% | 0.0% | 0.0028 | 91% | 0.0% | 0.0041 |
+| Flash, 40 ms gap | 8 | 71% | 0.0% | 0.0020 | 49% | 0.0% | 0.0008 |
+| Turn direction | 8 | 49% | 1.8% | 0.0009 | 63% | 0.0% | 0.0019 |
+| Flash × move | 8 | 41% | 0.6% | 0.0006 | 42% | 0.0% | 0.0008 |
+| Motion energy | 10 | 39% | 0.6% | 0.0006 | 45% | 1.3% | 0.0006 |
+| Session drift | 3 | 25% | 2.4% | 0.0004 | 18% | 0.0% | 0.0002 |
+| Pre-stimulus | 1 | 19% | 0.6% | 0.0001 | 28% | 1.3% | 0.0002 |
+| Previous choice | 1 | 19% | 1.2% | 0.0002 | 22% | 1.3% | 0.0001 |
 
-Chance gives 18 units or fewer of 167 (11%) and 11 or fewer of 76 (14%) for 12
-regressors. The previous choice and session drift pass only just in GRB064
-(12 and 11 units).
+Chance gives 17 units or fewer of 167 (10%) and 10 or fewer of 76 (13%) for 11
+regressors. Session drift passes only just in GRB064 (14 units).
 
 Findings, with the section that has the details:
 
 - **The rate is lower in the fixation, and the effect ends at the
-  withdrawal.** Raw rate, GRB006: 1.11 before the first flash, 0.64 in the
-  last 200 ms of the fixation, 1.44 from 100 to 400 ms after the withdrawal
-  (each unit over its mean rate). Higher after the withdrawal in 148 of 167
-  units (p = 1e-21). The fixation kernel is too small in size (parameter
-  recovery gets back 59% of a simulated level in GRB006 and 79% in GRB064),
-  so the size of the effect is taken from the raw rates. ("What causes the
-  fixation effect"; "Leak of the fixation level".)
-- **The flash response has two parameterizations by the gap from the flash before.** One
-  kernel for all flashes is worse than two gap classes (80 units, −1.4%,
-  p = 0.0002); three or four classes are not better. ("Parameterization of each term in
-  the final design".)
-- **The raw response to a flash is higher in move, and most of that is the
-  rate level.** Raw change in log rate +0.59 (GRB006) and +0.19 (GRB064).
-  The response to the flash alone, with the leak taken out, changes by +0.15
-  in GRB006 and −0.13 in GRB064 at the 80+ ms gap: the two animals have
-  opposite signs. With a weaker penalty on the fixation kernel (sensitivity
-  analysis) the values are +0.09 and −0.16. ("Flash response when still and
-  when the animal moves"; "Penalty: one for all terms".)
-- **The previous choice changes the rate before the withdrawal** in 19% and
-  16% of the units. On raw rates about half of the units differ by it, so the
-  one column holds a part of the effect. ("Previous choice".)
-- **Checks.** Collinearity is low (largest GVIF^(1/p) 2.45, largest condition
-  index 7.7). The kernels are stable in split halves, with two limits: flash
-  × move × gap (agreement 0.61 and 0.57) and the fixation kernel after 700 ms
-  in GRB006. The 87 units that took no part in the choices of parameterization do not
-  differ from the 80 selection units in D² (median 0.066 against 0.082,
-  p = 0.23) or in the unique ΔD² of a regressor (p from 0.10 to 0.96; session
-  drift 0.03, not corrected for 12 tests). Each parameterization of a term holds on 80
-  units.
+  exit.** Raw rate (each unit over its mean rate), GRB006: 1.04 before the
+  first flash, 0.62 in the last 200 ms of the fixation, 1.37 from 100 to 400
+  ms after the exit; higher after the exit in 147 of 167 units (p = 4e-22).
+  GRB064: 0.98, 0.62, 1.32; 64 of 76 (p = 4e-10). The fixation kernel is too
+  small in size (parameter recovery gets back 66% of a simulated level in
+  GRB006 and 84% in GRB064), so the size of the effect is taken from the raw
+  rates. ("What causes the fixation effect"; "Leak of the fixation level".)
+- **The flash response has two parameterizations by the gap from the flash
+  before.** One kernel for all flashes is worse than two gap classes (80
+  units, −1.4%, p = 0.0002); three or four classes are not better.
+  ("Parameterization of each term in the final design".)
+- **The flash × move part of the flash peak is not more than the leak.** In
+  the matched peak measure (excited units), real minus leak is +1.0 spikes/s
+  in GRB006 (23 units, p = 0.60) and −1.0 in GRB064 (15 units, p = 0.36);
+  pooled −0.57 [−2.8, 1.3]. In the kernel measure (all units, Δ log rate),
+  real minus leak is +0.04 in GRB006 (p = 0.026) and −0.12 in GRB064
+  (p = 8e-6): the two animals have opposite signs. ("Leak of the fixation
+  level".)
+- **The time after the exit has a part common to both sides and a part by
+  side.** The response period is needed by 78% and 86% of the units, turn
+  direction by 49% and 63%.
+- **The previous choice changes the rate before the exit** in 19% and 22% of
+  the units. On raw rates about half of the units differ by it, so the one
+  column holds a part of the effect.
+- **Checks** (`model_trust.svg`). Collinearity is low (largest GVIF^(1/p)
+  1.65, largest condition index 8.4). Every kernel is stable in split halves
+  (median agreement 0.74 or more in the units that need it). Parameter
+  recovery is good, with two known biases: the fixation level (a lower
+  bound), and spike history in units below 5 spikes/s.
 - **Known limits of the model.**
-  - Calibration (GRB006): observed over predicted rate is 0.81 to 0.93 from
-    the 10th to the 65th percentile of the predicted rate, and 1.05 to 1.12
-    from the 80th to the 95th. The model predicts too much at low and middle
-    rates and too little at high rates. The cause is not known.
-  - Terms that are not in the model (2026-10-15, `candidate_terms.py`, panel
-    f of `model_checks.svg`): time in trial, accumulated evidence, turn
-    direction, and the previous outcome, added together and tested with the
-    inclusion rule in both mice. Time in trial (52% and 67% of the units) and
-    turn direction (37% and 42%) pass in both; accumulated evidence (4% and
-    1%) and the previous outcome (6% and 8%) fail in both. In a design with
-    the two that pass, time in trial has a first canonical correlation of 1.00
-    with the fixation kernel (GVIF^(1/p) 9.9 and 9.5, condition index 92),
-    and turn direction one of 0.91 and 0.87 with the side term. Decided: time
-    in trial only after the exit, and turn direction in place of the side
-    term (not yet fit). The earlier in-sample residual check
-    (`residual_checks.py`) called the split of trials by their flash rate
-    (above and below 12 Hz) "flash rate"; that split is the stimulus
-    category.
-  - GRB064: the model gives 1.17 times the observed response to the first
-    flash after the withdrawal.
+  - The fitted fixation level is a lower bound: recovered at 0.66 and 0.84 of
+    its size. The rest goes to the response period and to flash × move.
+  - Spike history is read only in units at 5 spikes/s or more (78 of 167 and
+    50 of 76 units). In them, recovery agreement is 0.99 and size 0.91 to
+    0.92; below, agreement is 0.23 and 0.57.
+  - Calibration (GRB006, design of 2026-10-13): observed over predicted rate
+    is 0.81 to 0.93 from the 10th to the 65th percentile of the predicted
+    rate, and 1.05 to 1.12 from the 80th to the 95th. The model predicts too
+    much at low and middle rates and too little at high rates. The cause is
+    not known.
   - "Move" is a task period. No term of the model measures locomotion; a
     flash kernel scaled by motion energy passes in GRB006 and fails in GRB064
     (different camera views).
+  - Two mice, one session each.
 - Still open: the early-withdrawal flashes of GRB006 (the database row is not
-  deleted yet), and the link of the model to the decoding analyses.
+  deleted yet), the side index with turn direction, and the link of the model
+  to locomotion and the decoding analyses.
+
 ## Flash response when still and when the animal moves
 
 `flash_by_period.py` (`flash_by_period.svg`, both sessions) asks if the higher
-rate after a flash when the animal has left the center port
-(`stim_responses_by_locomotion.py`) is a change of the response to the flash.
-"Still" is a flash in the fixation and "move" is a flash after the center
-exit. These are task periods, not a measure of locomotion.
+peak after a flash when the animal has left the center port
+(`stim_responses_by_locomotion.py`) is a change of the response to the flash
+(the flash × move term) or a change of everything else at the exit. "Still" is
+the last flash in the fixation and "move" the first flash after the exit, in
+the same trials (283 and 158 trials). These are task periods, not a measure of
+locomotion.
 
-- Raw response (panel a): in each trial, the last flash in the fixation and
-  the first flash after the exit; the mean rate 40 to 100 ms after the flash,
-  with no baseline subtraction.
-- Flash kernel (panel b): the response of the flash kernel of the model for a
-  flash at a gap of 80 ms or more in each period. The fixation kernel, the
-  withdrawal, the choice, motion energy, and spike history are taken out.
+- Measure: the matched peak of `peaks.py` (the baseline is the still rate
+  before the flash, the same for both periods; spikes/s), on three rates of the
+  same flashes: the spikes, the rate of the final refit, and that rate with the
+  flash × move weights set to 0.
+- Units: the excited units of StimulusResponse that the GLM fits and that are
+  stable (23 in GRB006, 15 in GRB064). Units of both mice pooled, with the
+  hierarchical bootstrap of the pooled median.
 
-| Measure | GRB006 | GRB064 |
-| --- | ---: | ---: |
-| Raw response, still and move (median, spikes/s) | 6.1 and 12.7 | 7.8 and 14.0 |
-| Raw change, log(move / still), median | +0.59 (91 of 112 units higher, p = 3e-13) | +0.19 (31 of 56, p = 0.017) |
-| Flash kernel at the 80+ ms gap, move minus still, median | +0.24 (132 of 167 units higher, p = 3e-14) | −0.05 (31 of 76, p = 0.058) |
-| Flash kernel at the 40 ms gap, move minus still, median | +0.06 (98 of 167, p = 0.002) | −0.01 (37 of 76, p = 0.52) |
+| Move minus still (spikes/s) | Pooled median [95%] | GRB006 | GRB064 |
+| --- | ---: | ---: | ---: |
+| Observed | +14.7 [7.1, 45.6] | +12.7 (23 of 23 units, p = 2e-7) | +33.5 (13 of 15, p = 6e-4) |
+| Model | +12.8 [5.8, 32.5] | +8.5 | +25.0 |
+| Model with no flash × move | +12.8 [4.8, 42.7] | +8.0 | +27.9 |
+| Part from flash × move | +1.0 [−3.1, 1.7], p = 0.59 | +1.3 (p = 0.43) | −2.2 (p = 0.39) |
+| Model minus observed | −4.5 [−8.5, −2.3] | −3.9 (p = 0.003) | −4.6 (p = 0.007) |
 
-- Values of the design with 12 regressors (the 40 ms gap is in
-  `flash_kernels.svg`, panels i and l). With flash × move × gap in the model, the
-  change at the 80+ ms gap in GRB006 is larger than the design with one
-  flash × move kernel gave (+0.08), because that kernel was an average over
-  the two gap classes.
-- GRB006: the response to the flash is higher in move, most at the 80+ ms
-  gap. It is +0.24 of the raw +0.59; the rest is the change of the rate level
-  at the exit (the end of the fixation effect).
-- GRB064: the raw response is higher in move, and the response to the flash
-  alone does not change. So the two animals do not agree on a larger flash
-  response in move.
-- The raw data show the same difference, with no model (`matched_flashes.py`,
-  flashes after a long gap, matched for time and gap): after the exit, the
-  response goes up more than the baseline in GRB006 (+0.18 in log, p = 3e-4)
-  and much less than the baseline in GRB064 (−0.75, 8 of 65 units above 0,
-  p = 1e-9). So the opposite sign is in the data, not only in the model. No
+- The peak is higher after the exit in both mice, and the model gives almost
+  all of it without the flash × move term: it is the change of the rate level
+  and of the other terms at the exit, not of the response to the flash.
+- The flash × move part is not different from 0, and not different from the
+  leak (see "Leak of the fixation level").
+- The model predicts too small a change in both mice (−4.5 spikes/s).
+- The raw data without a model (`matched_flashes.py`, flashes after a long
+  gap, matched for time and gap) gave opposite signs in the two mice for the
+  response over the baseline (+0.18 in log in GRB006, −0.75 in GRB064). No
   direction of the flash × move effect is reported until a third animal is
   fit.
-- Check of the model: the final refit predicts the raw change in GRB006
-  (median +0.60; predicted over observed response, summed over units, 0.99
-  still and 0.99 move). In GRB064 it predicts too large a change (+0.57
-  against +0.19; 0.94 still and 1.17 move). With the design of 11 regressors
-  the error was in the first flash after the exit (median 34 ms after it; the
-  ratio was 0.95 for the later flashes). The gap term does not remove it. The
-  cause is not tested.
-- Units with a raw response below 1 spike/s in a period are left out of panel
-  a (55 and 20 units).
 
 ## What causes the fixation effect
 
 ### The fixation effect in both animals
 
-`hold_effect.py`, 2026-10-15 (final refits). Each test is within one animal. GRB064 took no
+`hold_effect.py`, 2026-10-16 (GLM units; window from 0.5 s before the first flash). Each test is within one animal. GRB064 took no
 part in the design choices.
 
 | Measure | GRB006 (167 units) | GRB064 (76 units) |
 | --- | ---: | ---: |
-| Normalized rate before the first flash, last 200 ms of the fixation, 100 to 400 ms after the exit | 1.11, 0.64, 1.44 | 1.11, 0.64, 1.41 |
-| Fixation level of the descriptive model, median Δ log rate (units below 0) | −0.23 (86%) | −0.36 (86%) |
-| Level after the exit, median Δ log rate | +0.13 | +0.22 |
-| Units higher after the exit than in fixation | 148 of 167, p = 1e-21 | 65 of 76, p = 3e-10 |
-| Fixation kernel fit last (lower bound), median (units below 0) | −0.18 (90%), p = 1e-26 | −0.20 (89%), p = 2e-11 |
+| Normalized rate before the first flash, last 200 ms of the fixation, 100 to 400 ms after the exit | 1.04, 0.62, 1.37 | 0.98, 0.62, 1.32 |
+| Fixation level of the descriptive model, median Δ log rate (units below 0) | −0.29 (90%) | −0.45 (84%) |
+| Level after the exit, median Δ log rate | +0.07 | +0.09 |
+| Units higher after the exit than in fixation | 147 of 167, p = 4e-22 | 64 of 76, p = 4e-10 |
+| Fixation kernel fit last (lower bound), median (units below 0) | −0.24 (89%), p = 6e-27 | −0.21 (83%), p = 3e-10 |
 | Stillness: center port over side port at the lowest motion energy | 0.78, p = 3e-7 | 0.84, p = 0.32 |
 | Response after the exit, more over less motion energy | 0.97, p = 0.54 | 1.00, p = 0.67 |
-| Fixation level against the unique ΔD² of the flash (Spearman) | ρ = −0.20, p = 0.01 | ρ = +0.10, p = 0.41 |
+| Fixation level against the unique ΔD² of the flash (Spearman; design of 2026-10-13) | ρ = −0.20, p = 0.01 | ρ = +0.10, p = 0.41 |
 
 - The effect replicates in GRB064. The raw rates are almost the same in the
   two animals, and the model gives a level below 0 in most units of each.
+- The fitted levels are lower bounds. In the main model, a simulated fixation
+  level is recovered at 0.66 (GRB006) and 0.84 (GRB064) of its size
+  (`parameter_recovery.py`); the rest goes to the response period and to
+  flash × move.
 - In GRB064 the rate falls sooner after the first flash (at about 50 ms; at
   about 90 ms in GRB006).
 - Two controls do not replicate in GRB064:
@@ -705,10 +733,10 @@ holds for other trials.
 ## Collinearity of the regressors
 
 Question: are the regressors so correlated that the weights cannot be read?
-`collinearity.py` gives the usual statistics for the design of each unit (74
+`collinearity.py` gives the usual statistics for the design of each unit (77
 columns: task, motion energy, and the spike history of the unit; the valid
-bins of all trials), in `collinearity.json`. Panels g to i of
-`design_optimization.svg` draw them for GRB006.
+bins of all trials), in `collinearity.json`. Panels a to c of
+`model_trust.svg` draw them for both mice.
 
 - GVIF^(1/p): the generalized variance inflation factor of a regressor with p
   columns (Fox and Monette, 1992), on the scale of a VIF. It is the factor by
@@ -719,123 +747,138 @@ bins of all trials), in `collinearity.json`. Panels g to i of
 
 | Regressor | GVIF^(1/p), GRB006: median (max over units) | GRB064 |
 | --- | ---: | ---: |
-| Choice | 2.15 (2.45) | 1.33 (1.72) |
-| Flash, 80+ ms gap | 1.45 (1.51) | 1.58 (1.62) |
-| Flash × move | 1.44 (1.47) | 1.45 (1.47) |
-| Flash, 40 ms gap | 1.30 (1.34) | 1.39 (1.41) |
-| Initiation | 1.26 (1.28) | 1.16 (1.22) |
-| Flash × move × gap | 1.25 (1.26) | 1.26 (1.27) |
-| Fixation | 1.24 (1.25) | 1.26 (1.28) |
-| Withdrawal | 1.21 (1.24) | 1.17 (1.19) |
-| Previous choice | 1.19 (1.22) | 1.12 (1.19) |
-| Motion energy | 1.17 (1.21) | 1.08 (1.10) |
-| Session drift | 1.02 (1.06) | 1.06 (1.07) |
-| Spike history | 1.01 (1.11) | 1.02 (1.09) |
+| Response period | 1.56 (1.60) | 1.37 (1.43) |
+| Flash, 80+ ms gap | 1.53 (1.57) | 1.63 (1.65) |
+| Motion energy | 1.34 (1.35) | 1.11 (1.12) |
+| Flash, 40 ms gap | 1.33 (1.36) | 1.42 (1.43) |
+| Turn direction | 1.32 (1.38) | 1.14 (1.20) |
+| Previous choice | 1.25 (1.29) | 1.12 (1.19) |
+| Fixation | 1.23 (1.25) | 1.26 (1.30) |
+| Flash × move | 1.19 (1.21) | 1.21 (1.21) |
+| Pre-stimulus | 1.12 (1.13) | 1.16 (1.20) |
+| Session drift | 1.02 (1.05) | 1.05 (1.06) |
+| Spike history | 1.01 (1.12) | 1.03 (1.10) |
 
-- Values of the design with 12 regressors (74 columns). No regressor is near
-  the limit of 5 in a unit of the two sessions. The largest value is the
-  choice in GRB006 (2.45).
-- The largest condition index of a unit is 5.8 in the median (6.6 at most) in
-  GRB006 and 6.7 (7.7 at most) in GRB064. No unit has an index above 10, so
+- No regressor is near the limit of 5 in a unit of the two sessions. With
+  the design of 2026-10-13 the largest value was the choice column (2.45);
+  turn direction, its replacement, is at 1.38.
+- The largest condition index of a unit is 6.1 in the median (6.8 at most) in
+  GRB006 and 7.5 (8.4 at most) in GRB064. No unit has an index above 10, so
   there is no dependency to decompose.
-- The VIF of a single column is higher in two regressors, from columns of the
-  same regressor: 4.0 for a basis function of the flash kernel of the 40 ms
-  gap in GRB064, and 4.0 to 5.2 for session drift. That is the overlap of
-  the basis functions of one kernel. It makes one weight of a basis function
-  uncertain, not the kernel, which is their sum.
-- The first canonical correlation with all other columns is highest for the
-  fixation kernel (0.86 and 0.83), flash × move (0.83 and 0.79), and motion
-  energy (0.81 and 0.53): one weighted sum of the columns of each is shared
-  with the other regressors. The other dimensions are not, so the GVIF stays
-  low.
+- The VIF of a single column is highest in session drift (3.9 and 5.7) and in
+  one basis function of the flash kernel of the 40 ms gap in GRB064 (4.1).
+  That is the overlap of the basis functions of one kernel. It makes one
+  weight of a basis function uncertain, not the kernel, which is their sum.
+- The first canonical correlation with all other columns is highest for
+  motion energy (0.88 and 0.59), the response period (0.87 and 0.80), and the
+  fixation kernel (0.86 and 0.85). The largest shared directions are between
+  motion energy and turn direction (0.73, GRB006), and between the response
+  period and flash × move (0.70 and 0.68). One weighted sum of the columns of
+  each is shared with the other regressors; the other dimensions are not, so
+  the GVIF stays low.
 - These are statistics of an ordinary fit. The L2 penalty makes the weights
   more stable than they say, and the split-half test below measures the
-  weights directly.
-- For two regressors the unique ΔD² is above the maximal ΔD² in most units
-  (flash, 40 ms gap: 102 of 167; previous choice: 94 of 167). The cause is
-  not strong collinearity: alone, with all other terms shuffled, the term
-  must fit a response that is on top of the other responses.
+  weights directly. A level that two terms can share (the fixation level and
+  the flash × move kernels) does not show in these statistics; parameter
+  recovery and the leak test find it.
 
 ## Are the kernels stable?
 
 Question: can the weights be read, or do correlated regressors make them
 change from one set of trials to another? `kernel_reliability.py` fits each
 unit on the even and on the odd trials (no shared trial) and compares the
-kernels (`kernel_reliability.svg`). Agreement is `1 - |a - b|² / (|a|² + |b|²)`:
-1 for equal kernels, 0 for unrelated kernels. Design with 12 regressors; each
-half has 147 trials in GRB006 and 84 or 85 in GRB064. The values are for the
-units that need the regressor (all units in brackets).
+kernels (panel f of `model_trust.svg`). Agreement is
+`1 - |a - b|² / (|a|² + |b|²)`: 1 for equal kernels, 0 for unrelated kernels.
+Each half has 147 trials in GRB006 and 84 or 85 in GRB064. The values are for
+the units that need the regressor (all units in brackets).
 
 | Regressor | Median agreement, GRB006 | GRB064 | Response over units (Spearman), GRB006 | GRB064 |
 | --- | ---: | ---: | ---: | ---: |
-| Spike history | 0.97 (0.97) | 0.96 (0.96) | 0.97 | 0.96 |
-| Withdrawal | 0.90 (0.75) | 0.82 (0.74) | 0.93 | 0.91 |
-| Flash, 80+ ms gap | 0.89 (0.83) | 0.86 (0.73) | 0.94 | 0.95 |
-| Flash, 40 ms gap | 0.88 (0.80) | 0.73 (0.64) | 0.93 | 0.94 |
-| Flash × move | 0.80 (0.72) | 0.68 (0.63) | 0.93 | 0.85 |
-| Flash × move × gap | 0.61 (0.45) | 0.57 (0.36) | 0.62 | 0.39 |
-| Fixation | 0.59 (0.51) | 0.83 (0.82) | 0.65 | 0.91 |
-| Choice | one weight | | 0.93 | 0.97 |
-| Previous choice | one weight | | 0.92 | 0.97 |
-| Initiation | one weight | | 0.92 | 0.90 |
+| Spike history | 0.97 (0.97) | 0.97 (0.97) | 0.97 | 0.97 |
+| Flash, 80+ ms gap | 0.90 (0.84) | 0.86 (0.81) | 0.94 | 0.95 |
+| Fixation | 0.87 (0.83) | 0.94 (0.91) | 0.94 | 0.97 |
+| Flash, 40 ms gap | 0.87 (0.76) | 0.82 (0.66) | 0.91 | 0.91 |
+| Response period | 0.84 (0.80) | 0.80 (0.76) | 0.87 | 0.82 |
+| Flash × move | 0.80 (0.67) | 0.83 (0.72) | 0.92 | 0.68 |
+| Turn direction | 0.74 (0.56) | 0.78 (0.66) | 0.82 | 0.86 |
+| Pre-stimulus | one weight | | 0.89 | 0.86 |
+| Previous choice | one weight | | 0.81 | 0.86 |
 
-- The flash kernels of the two gap classes, flash × move, the withdrawal
-  kernel, and spike history are stable: a fit on half of the trials gives the
-  same kernel.
-- Flash × move × gap is the least stable kernel in the two sessions. The term
-  passes the rule over units, but the kernel of one unit is not precise: read
-  it over units, not unit by unit.
-- The fixation kernel is stable up to 700 ms. Median agreement by time from
-  the first flash, GRB006: 0.84 (0 to 150 ms), 0.91 (150 to 450), 0.91 (450
-  to 700), 0.26 (700 to 950). GRB064, where the fixation is longer: 0.87,
-  0.93, 0.90, 0.73. In GRB006 the animal leaves before 708 ms in 95% of the
-  trials, so few trials give data for the last bases. Do not read the
-  fixation kernel after 700 ms in GRB006.
+- Every kernel is stable: a fit on half of the trials gives the same kernel
+  (median agreement 0.74 or more in the units that need it).
+- The fixation kernel is now stable to its end: agreement 0.87 before 700 ms
+  and 0.88 after it in GRB006 (0.94 and 0.92 in GRB064). With the kernel to
+  0.95 s it was 0.26 from 700 to 950 ms in GRB006, because few trials reach
+  that time.
+- Turn direction is the least stable kernel; read it over units.
+- The units that need turn direction are those of the unique step before the
+  sign shuffle (86 and 46 units; 82 and 48 with the shuffle in use).
 - A half has half of the data, so the final refit is more stable than this
   test shows.
 
+## Spike history and the firing rate
+
+Parameter recovery of the spike-history kernel depends on the rate of the
+unit (`model_trust.py`, `HISTORY_MIN_RATE` = 5 spikes/s):
+
+| | Units ≥ 5 spikes/s | Recovery agreement, ≥ 5 / below | Recovered size, ≥ 5 | Split halves, ≥ 5 / below |
+| --- | ---: | ---: | ---: | ---: |
+| GRB006 | 78 of 167 | 0.99 / 0.23 | 0.91 | 0.99 / 0.95 |
+| GRB064 | 50 of 76 | 0.99 / 0.57 | 0.92 | 0.98 / 0.92 |
+
+- In units at 5 spikes/s or more, the history kernel is reliable.
+- In slower units, few spikes are close enough together to fit it. Both
+  halves give the same kernel, but the penalty makes it small, so a simulated
+  kernel comes back too small. Read the history kernel only in the faster
+  units. The history term is still needed by 96% of the units for prediction.
+
 ## Leak of the fixation level into the flash × move kernels
 
-The synthetic check found it first: with the flash × move kernels in the
-model, a planted drop of the rate in the fixation (−0.58, no change of the
-flash response) is recovered as −0.20 to −0.41 in the fixation kernel, and the
-flash × move kernel becomes positive (+0.11 to +0.13) with nothing planted.
-A sum of flash kernels over a flash train is close to a level, so the fit
-gives a part of a level change to the flash × move kernels. The usual
-collinearity statistics do not show it (the synthetic session has the
-statistics of GRB006: condition index 5.2, canonical correlations 0.83 and
-0.86), and the split-half test cannot show it, because the two halves have
-the same bias. Three checks of `synthetic_check.py` on the fixation kernel
-fail for this reason.
+The synthetic check found it first (design of 2026-10-13): a planted drop of
+the rate in the fixation (−0.58, no change of the flash response) is
+recovered as −0.20 to −0.41 in the fixation kernel, and the flash × move
+kernel becomes positive (+0.11 to +0.13) with nothing planted. A sum of flash
+kernels over a flash train is close to a level, so the fit gives a part of a
+level change to the flash × move kernels. The usual collinearity statistics
+do not show it, and the split-half test cannot show it, because the two
+halves have the same bias.
 
 `leak_test.py` measures the leak in the real design of each unit
-(`leak_test.svg`, `leak_test.json`): spikes are simulated from the final
-refit of the unit with the two flash × move kernels set to 0, and the full
-model is fit to them (3 simulations for each unit).
+(`leak_test.json`; panels g to i of `model_trust.svg`): spikes are simulated
+from the final refit of the unit with the flash × move kernel set to 0, and
+the full model is fit to them (3 simulations for each unit).
 
-| Flash kernel, move minus still (median, Δ log rate) | GRB006 | GRB064 |
+| Flash × move, real minus leak | GRB006 | GRB064 |
 | --- | ---: | ---: |
-| 80+ ms gap: real | +0.24 | −0.05 |
-| 80+ ms gap: leak (nothing simulated) | +0.08 (132 of 167 units above 0, p = 5e-16) | +0.06 (54 of 76, p = 2e-6) |
-| 80+ ms gap: real minus leak | +0.15 (117 of 167 above 0, p = 4e-9) | −0.13 (22 of 76 above 0, p = 0.0002) |
-| 40 ms gap: real | +0.06 | −0.01 |
-| 40 ms gap: leak | +0.03 (p = 2e-6) | +0.04 (p = 3e-5) |
-| 40 ms gap: real minus leak | +0.04 (p = 0.069) | −0.04 (p = 0.042) |
-| Fixation level of the refit over the simulated level, median | 0.55 | 0.78 |
+| Matched peak, excited units (spikes/s) | +1.0 (23 units, p = 0.60) | −1.0 (15 units, p = 0.36) |
+| Pooled, hierarchical bootstrap | −0.57 [−2.8, 1.3] | |
+| Kernel, move minus still, all units (Δ log rate): real | +0.05 | −0.15 |
+| Kernel: leak (nothing simulated) | +0.03 (114 of 167 above 0, p = 1e-7) | +0.03 (50 of 76, p = 0.003) |
+| Kernel: real minus leak | +0.04 (98 of 167 above 0, p = 0.026) | −0.12 (17 of 76 above 0, p = 8e-6) |
+| Fixation level of the refit over the simulated level, median | 0.71 | 0.81 |
 
+- With one flash × move kernel the two gap classes have the same kernel
+  difference, so the table has one kernel row for both.
 - The leak is real and positive in the two sessions, and larger in units with
-  a lower fixation level (Spearman −0.37 and −0.32).
-- With the leak taken out, the flash response at the 80+ ms gap is higher in
-  move in GRB006 (+0.15) and lower in move in GRB064 (−0.13). The two animals
-  have opposite signs.
-- The fixation kernel keeps about 55% (GRB006) and 78% (GRB064) of a simulated
-  level, so the fitted fixation level is too small in size. The rest is in the
-  flash × move kernels and in the shrinkage of the L2 penalty.
+  a lower fixation level (Spearman −0.23 and −0.28).
+- In the matched peak measure of every flash comparison, the flash × move part
+  is not more than the leak in either mouse. In the kernel measure of all
+  units, the response at the exit is a little higher in GRB006 and lower in
+  GRB064: the two animals have opposite signs.
+- The fixation kernel keeps about 71% (GRB006) and 81% (GRB064) of a simulated
+  level (0.66 and 0.84 in `parameter_recovery.py`, which simulates all terms),
+  so the fitted fixation level is too small in size. The rest is in the
+  response period, in the flash × move kernel, and in the shrinkage of the L2
+  penalty.
 - So the size of the fixation effect and of the flash × move effect cannot be
   read from the weights alone; use the values with the leak taken out, and the
   model-free measures of `hold_effect.py` for the size of the fixation effect.
 
 ## Penalty: one for all terms (the model in use), and the sensitivity analysis
+
+The numbers of this section and the next are for the design of 2026-10-13
+(12 regressors, with flash × move × gap). The weaker-penalty fit was not run
+again on the design of 2026-10-15.
 
 Decision of 2026-10-13: the model in use has one L2 penalty for all terms,
 selected for each unit. That is the common practice for single-neuron task
@@ -845,8 +888,8 @@ net with fixed values). With it:
 
 - The leak test is the parameter-recovery check of the model (as in
   Rabinowitz et al. 2015, who simulated known modulators), and the flash ×
-  move effect is reported with the leak taken out: +0.15 in GRB006 and −0.13
-  in GRB064 at the 80+ ms gap.
+  move effect is reported with the leak taken out (see "Leak of the fixation
+  level").
 - The size of the fixation effect is taken from the raw rates
   (`hold_effect.py`), because the fixation kernel of this model is too small.
 - The fit with a weaker penalty on the fixation kernel is the sensitivity
@@ -921,6 +964,7 @@ Both sessions were fit again with the weaker penalty (design of 2026-10-13,
 
 ## Performance in the measures of other papers
 
+Design of 2026-10-13 (not run again on the design of 2026-10-15).
 `performance.py` (`performance.svg`, `performance.json`): each trial is
 predicted by the fold that did not train on it, with the task and
 motion-energy terms and no spike history, and compared with the observed
@@ -949,20 +993,23 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 
 | Figure | Module | Content |
 | --- | --- | --- |
-| Main | `main_figure.py` | one trial, the kernels, and the prediction of the example unit (GRB006); the population and what each regressor explains, both sessions |
+| Main | `main_figure.py` | the design of one trial, one trial, the kernels, and the prediction of the example unit (GRB006); the population and what each regressor explains, the units of both mice pooled |
 | Flash kernels | `flash_kernels.py` | the flash kernel by gap class and by period (still, move): median kernels of the units that fire more and less after a flash, maps of all units, paired scatters; both sessions |
 | Flash by gap | `flash_by_gap.py` | observed and predicted rate around flashes at each gap, still and move; both sessions |
-| Still against move | `flash_by_period.py` | raw response and flash kernel in the two periods, both sessions |
-| Fixation effect | `hold_effect.py` | two example units (GRB006), the lower rate in the fixation, its end at the exit, and its controls; both sessions |
-| Design optimization (supplement) | `design_optimization.py`, `collinearity.py`, `parameter_recovery.py` | step 1: the six design grids on 80 units of GRB006, each with its test of prediction; step 2, in GRB006 and the held-out GRB064: the collinearity of the design in use (variance inflation, condition indices, shared direction of each pair of regressors) and the parameter recovery of each regressor |
+| Still against move | `flash_by_period.py` | the matched peak in the two periods: observed, model, and model with no flash × move; both sessions |
+| Fixation effect | `hold_effect.py` | two example units (GRB006), the lower rate in the fixation, its onset, its end at the exit, and its controls; both sessions |
+| Design choices (supplement) | `design_optimization.py` | the six design grids on 80 units of GRB006, each with its test of prediction |
+| Can the weights be read? (supplement) | `model_trust.py` | collinearity, parameter recovery, split halves, and the leak, for the design in use; both sessions |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
 | Checks of the model (supplement) | `model_checks.py` | single trials, held-out units (and the held-out animal GRB064), terms that are not in the model, calibration (both sessions), recovery of planted kernels |
-| Kernel stability (supplement) | `kernel_reliability.py` | the kernels from two halves of the trials; both sessions |
-| Leak test (supplement) | `leak_test.py` | the flash × move effect that the model makes when none is simulated, against the real effect |
 | Flash against motion energy | `kernel_comparison.py` | the weights of the two terms over units; descriptive |
 
-`main_figure.py`, `hold_effect.py`, `design_optimization.py`, and
-`model_checks.py` write their caption next to the figure
+`model_trust.py` reads the results of `collinearity.py`,
+`parameter_recovery.py`, `kernel_reliability.py`, and `leak_test.py`; these
+four only fit and write their results.
+
+`main_figure.py`, `hold_effect.py`, `design_optimization.py`,
+`model_trust.py`, and `model_checks.py` write their caption next to the figure
 (`<figure>_caption.md`), with the numbers of that run. The captions of the
 other figures:
 
@@ -986,23 +1033,22 @@ other figures:
   against still at the 80+ ms gap. **i, l**, Move against still at the 40 ms
   gap. In g to l the color is the kind of the unit from conditions that are
   not in the pair, and gray is a unit of no kind. The model gives a part of
-  the fixation effect to the flash × move kernels, so the move-against-still
-  differences are too high by about 0.08 (GRB006) and 0.06 (GRB064) at the
-  80+ ms gap (`leak_test.py`).
+  the fixation effect to the flash × move kernel, so the move-against-still
+  differences are too high by about 0.03 in both animals (`leak_test.py`).
 - **Still against move (`flash_by_period.svg`).** One measure on three rates
   of the same flashes and units: the peak of the trial-mean rate (10-ms bins)
   from 30 to 120 ms after the last flash in the fixation (still) and the first
   flash after the withdrawal (move), minus the still rate from −40 to 0 ms, as
   in `stim_responses_by_locomotion.py`. Units: the "excited" units of
-  StimulusResponse that the GLM fits (23 in GRB006, 15 in GRB064). Circles
-  GRB006, triangles GRB064; small markers are units, large markers the median
-  with its bootstrap 95% interval. **a**, Observed peaks. **b**, Peaks of the
+  StimulusResponse that the GLM fits (23 in GRB006, 15 in GRB064). Units of both
+  mice pooled; the large marker is the pooled median with its
+  hierarchical-bootstrap 95% interval. **a**, Observed peaks. **b**, Peaks of the
   model rate (final refit, in-sample). **c**, Move minus still in the observed
   rate, the model rate, and the model rate with the flash × move terms set to
-  0. The peak is higher in move in both animals (median +12.7 and +24.6
+  0. The peak is higher in move in both animals (median +12.7 and +33.5
   spikes/s; 23 of 23 and 13 of 15 units). The model predicts most of it
-  (+8.9 and +20.6), and the flash × move terms carry +2.6 (p = 0.01) and
-  +1.3 spikes/s (p = 0.8). So in both animals most of the change is the rate
+  (+8.5 and +25.0), and the flash × move term carries +1.3 (p = 0.43) and
+  −2.2 spikes/s (p = 0.39). So in both animals most of the change is the rate
   change at the exit, not a larger response to the flash.
 - **Flash by gap (`flash_by_gap.svg`).** Observed (black) and predicted
   (purple) rate around flashes, for the units that fire more and that fire
@@ -1014,30 +1060,16 @@ other figures:
   mean rate around these flashes; lines are the mean over units.
 - **Basis functions (`basis_functions.svg`).** Each kernel is a weighted sum
   of these functions, each drawn with a peak of 1. **a**, The flash kernels
-  (the two gap classes, flash × move, and flash × move × gap): 8 raised
-  cosines over 150 ms. **b**, Fixation: 12 raised cosines with even spacing
-  in log time over 950 ms; after the last one the kernel keeps its last value
-  until the withdrawal. **c**, Withdrawal: 4 over 100 ms. **d**, Spike
-  history: 10 with log spacing over the 100 ms before the bin. **e**, Session
-  drift: 4 over the session; the dotted one is not a column, because the
-  model has an intercept. The initiation, the choice, the previous choice,
-  and each motion-energy PC are one column each.
-- **Kernel stability (`kernel_reliability.svg`).** Each unit is fit on the
-  even and on the odd trials. **a**, The kernels of the example unit (GRB006)
-  from the two halves. **b**, The agreement of the two kernels of each unit,
-  1 − |a − b|² / (|a|² + |b|²), for each kernel regressor, GRB006 on the left
-  and GRB064 on the right (color: units that need the regressor; gray: other
-  units; line: the median of the units that need it). **c, d**, The response
-  of each unit in one half against the other half, in GRB006 (c) and GRB064
-  (d).
-- **Leak test (`leak_test.svg`).** For each unit, spikes are
-  simulated from its fitted model with the flash × move kernels set to 0, and
-  the full model is fit to them. One row for each session. **a**, The real
-  flash × move effect of each unit (move minus still, 80+ ms gap) against the
-  effect that the model gives for the simulated spikes (the leak; the true
-  value is 0); error bars are the SD over 3 simulations. **b**, The same at
-  the 40 ms gap. **c**, The leak against the fixation level of the unit. The
-  leak is +0.08 in GRB006 and +0.06 in GRB064 at the 80+ ms gap (median).
+  (the two gap classes and flash × move): 8 raised cosines over 150 ms.
+  **b**, Fixation: 12 raised cosines with even spacing in log time over 700
+  ms; after the last one the kernel keeps its last value until the center
+  exit. **c**, Response period and turn direction: 8 raised cosines with even
+  spacing in log time over 1.3 s from the center exit; after the last one the
+  kernel keeps its last value until the response entry. **d**, Spike history:
+  10 with log spacing over the 100 ms before the bin. **e**, Session drift: 4
+  over the session; the dotted one is not a column, because the model has an
+  intercept. The pre-stimulus column, the previous choice, and each
+  motion-energy PC are one column each.
 
 `glm fit` writes no figure. `glm unique` writes `figure_data.npz` for the
 example unit.
@@ -1050,7 +1082,7 @@ Run this after you change the design, fit, or unique-deviance code:
 uv run python -m thesis.ephys.analyses.glm.synthetic_check
 ```
 
-It needs no database. It plants known flash, fixation, withdrawal,
+It needs no database. It plants known flash, fixation, response-period,
 motion-energy, and history effects in 80 simulated trials with the flash train
 of the task. Then it runs `prepare`, `fit`, and `unique` on them and checks that
 the effects come back. It compares 2 and 5 motion-energy PCs and takes about 2
