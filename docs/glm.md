@@ -511,18 +511,18 @@ exit. These are task periods, not a measure of locomotion.
 
 ### The fixation effect in both animals
 
-`hold_effect.py`, 2026-10-14. Each test is within one animal. GRB064 took no
+`hold_effect.py`, 2026-10-15 (final refits). Each test is within one animal. GRB064 took no
 part in the design choices.
 
 | Measure | GRB006 (167 units) | GRB064 (76 units) |
 | --- | ---: | ---: |
-| Normalized rate before the first flash, last 200 ms of the fixation, 100 to 400 ms after the exit | 1.11, 0.64, 1.44 | 1.13, 0.64, 1.44 |
-| Fixation level of the descriptive model, median Δ log rate (units below 0) | −0.23 (86%) | −0.34 (84%) |
-| Level after the exit, median Δ log rate | +0.13 | +0.23 |
+| Normalized rate before the first flash, last 200 ms of the fixation, 100 to 400 ms after the exit | 1.11, 0.64, 1.44 | 1.11, 0.64, 1.41 |
+| Fixation level of the descriptive model, median Δ log rate (units below 0) | −0.23 (86%) | −0.36 (86%) |
+| Level after the exit, median Δ log rate | +0.13 | +0.22 |
 | Units higher after the exit than in fixation | 148 of 167, p = 1e-21 | 65 of 76, p = 3e-10 |
-| Fixation kernel fit last (lower bound), median (units below 0) | −0.18 (90%), p = 1e-26 | −0.20 (89%), p = 1e-11 |
-| Stillness: center port over side port at the lowest motion energy | 0.78, p = 3e-7 | 0.84, p = 0.31 |
-| Response after the exit, more over less motion energy | 0.97, p = 0.54 | 0.98, p = 0.91 |
+| Fixation kernel fit last (lower bound), median (units below 0) | −0.18 (90%), p = 1e-26 | −0.20 (89%), p = 2e-11 |
+| Stillness: center port over side port at the lowest motion energy | 0.78, p = 3e-7 | 0.84, p = 0.32 |
+| Response after the exit, more over less motion energy | 0.97, p = 0.54 | 1.00, p = 0.67 |
 | Fixation level against the unique ΔD² of the flash (Spearman) | ρ = −0.20, p = 0.01 | ρ = +0.10, p = 0.41 |
 
 - The effect replicates in GRB064. The raw rates are almost the same in the
