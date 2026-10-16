@@ -2,16 +2,18 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, predict V1 spikes from seven regressors: a
-common flash kernel, the flash kernel of a flash that follows another within
-50 ms, a column for the fixation before the stimulus (center entry to first
-flash), a kernel for the stimulus during the hold (first flash to center
-exit), a causal post-withdrawal kernel (0 to 100 ms), the first 10 additive video motion-energy PCs, and the strictly past
-spike history of each unit. All terms are additive in log rate.
-The model has no flash × movement interaction, initiation, response-entry,
-response-side, coupling, session-drift, go-cue, outcome, or punishment terms.
-The full-design fit that tested and removed four more regressors is in
-`docs/glm.md`.
+For each session of `flash_kernels.SESSIONS` (GRB006 and GRB064), predict V1
+spikes from the regressors of `dmat.py` (design of 2026-10-15, 11 regressors):
+the flash kernels of the two gap classes, the flash × move kernel (a flash
+after the center exit), the pre-stimulus column (center entry to first flash),
+the fixation kernel (first flash to center exit, to 0.7 s, then held), the
+response period and turn direction (the same log-spaced basis from the center
+exit, without and with the sign of the side of the response), the previous
+choice, the session drift, the motion-energy PCs of the video, and the strictly
+past spike history of each unit. All terms are additive in log rate. Each
+window is from `dmat.PRE_S` before to `dmat.POST_S` after the first flash; before
+the center entry no event term is on. `docs/glm.md` gives the terms that were
+tested and left out.
 
 Units: each unit must pass quality criterion set 1 (`unit_criteria_id=1`) and
 stability set 0 (`stability_param_id=0`). No sensory-response filter is
@@ -22,8 +24,9 @@ random sample (seed 20260914) of 20 of the remaining units.
 Trials and alignment: use completed left or right trials without early
 withdrawal. Each trial must have a measured first flash and finite
 center-entry, center-exit, and response-entry times. Each window is aligned to
-the first measured flash. It covers -99.5 ms to +2539.5 ms in 1-ms bins. Bins
-after response entry are excluded.
+the first measured flash. It covers `dmat.PRE_S` (0.5 s) before to
+`dmat.POST_S` (2.1 s) after it in 1-ms bins. Bins after response entry are
+excluded.
 
 Baseline: the null model is a constant rate. This rate is the mean count in the
 fit rows. In model selection, the fit rows are the training rows. In a

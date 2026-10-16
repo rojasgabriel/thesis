@@ -136,7 +136,7 @@ def _unit(job: dict) -> dict:
     _, mean, scale = dmat.training_zscore(raw, valid)
     truth = leak_test.measures(record, scale)
     true_kernels = weight_vectors(record, shared["metadata"], scale)
-    kernel_agreement, kernel_size = [], []
+    kernel_agreement, kernel_size, recovered_kernels = [], [], []
     coefficients = np.asarray(record["coefficients"], dtype=float)
     rng = np.random.default_rng(SEED + job["unit_id"])
     recovered = []
@@ -159,6 +159,7 @@ def _unit(job: dict) -> dict:
                     metadata,
                     history_scale,
                 )
+                recovered_kernels.append(kernels)
                 kernel_agreement.append(
                     [
                         agreement(true_kernels[name][None], kernels[name][None])[0]
@@ -195,6 +196,13 @@ def _unit(job: dict) -> dict:
         "regressors": list(true_kernels),
         "agreement": np.mean(kernel_agreement, axis=0),
         "size": np.mean(kernel_size, axis=0),
+        # The true and the recovered (mean over simulations) values of each
+        # regressor, to see where a part of one goes.
+        "true": true_kernels,
+        "recovered": {
+            name: np.mean([item[name] for item in recovered_kernels], axis=0)
+            for name in true_kernels
+        },
     }
 
 
@@ -268,6 +276,12 @@ def main() -> None:
                 regressors=np.asarray(regressors),
                 agreement=kernel_agreement,
                 size=kernel_size,
+                unit_ids=np.asarray([job["unit_id"] for job in jobs]),
+                **{
+                    f"{kind}__{name}": np.asarray([unit[kind][name] for unit in units])
+                    for kind in ("true", "recovered")
+                    for name in regressors
+                },
             )
             shutil.rmtree(work)
             truth, in_use, under_test = values[:, 0], values[:, 1], values[:, 2]
