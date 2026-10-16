@@ -10,7 +10,8 @@ Comparison: the rate around the first center exit after the first flash, in
 completed trials against early-withdrawal trials of one session, with no
 model. The comparison is paired over units.
 
-- Units: `fetch_unit_table` with quality criteria 1 and stability 0.
+- Units: the units of the GLM (`fetch_unit_table` with quality criteria 1
+  and stability 0, without the units of `fit.EXCLUDED_UNITS`).
 - Trials: all trials with at least one flash and a center exit after the
   first flash. A completed trial also has a response-port entry.
 - Alignment: the center exit (`center_exit_s`; for an early withdrawal, the
@@ -53,6 +54,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import sem, wilcoxon
 
+from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
@@ -133,6 +135,8 @@ def main() -> None:
         stability_param_id=0,
         include_metrics=False,
     )
+    # The units of the GLM: its excluded units are not used here either.
+    units = units.iloc[analysis_unit_indices(units, "all")]
     events = exit_times(trials)
     edges = np.arange(WINDOW_S[0], WINDOW_S[1] + BIN_S / 2, BIN_S)
     centers = 1000 * (edges[:-1] + edges[1:]) / 2

@@ -29,11 +29,11 @@ flash starts later than the flash, so the window has no flash response.
   `BIN_S` bins, divided by its mean over the window, in the short and the
   long delays, aligned to the center entry and to the first flash; the
   figure shows the mean and SEM over units.
-- Units: `fetch_unit_table` with quality criteria 1 and stability 0, and a
-  mean rate of `MIN_RATE_HZ` or more in the window around the entry of these
-  trials. The rate of a unit is divided by its mean in the window, so a unit
-  with almost no spikes there (one spike in all the trials) would give one
-  very large value. The excluded units are in the output.
+- Units: the units of the GLM (`fetch_unit_table` with quality criteria 1
+  and stability 0, without the units of `fit.EXCLUDED_UNITS`). The rate of a
+  unit is divided by its mean in the window, so a unit with almost no spikes
+  there gives very large values; the GLM excludes the two such units of
+  GRB064.
 - Limit: the rate can already change before the entry, while the animal
   comes to the port; the window before the entry ends `BEFORE_ENTRY_MS[1]` ms
   before it.
@@ -53,6 +53,7 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import wilcoxon
 
+from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
@@ -63,7 +64,6 @@ MIN_FIXATION_S = 0.25
 BEFORE_ENTRY_MS = (-250, -100)
 ENTRY_LAG_MS = 20
 LATE_MS = (180, 290)
-MIN_RATE_HZ = 0.5
 
 
 def _finite(values) -> np.ndarray:
@@ -133,23 +133,9 @@ def main() -> None:
         include_metrics=False,
     )
     events = trial_events(trials)
-    # A unit with almost no spikes in the window has a mean near 0, and one
-    # spike becomes a huge normalized rate; such units are not used.
+    # The units of the GLM: its excluded units are not used here either.
+    units = units.iloc[analysis_unit_indices(units, "all")]
     edges = np.arange(WINDOW_S[0], WINDOW_S[1] + BIN_S / 2, BIN_S)
-    window_rate = np.asarray(
-        [
-            np.diff(
-                np.searchsorted(
-                    np.asarray(spikes, float), events[:, 0][:, None] + edges
-                ),
-                axis=1,
-            ).mean()
-            / BIN_S
-            for spikes in units["spike_times_s"]
-        ]
-    )
-    excluded = units["unit_id"][window_rate < MIN_RATE_HZ].astype(int).tolist()
-    units = units[window_rate >= MIN_RATE_HZ]
     delay = 1000 * (events[:, 1] - events[:, 0])
     early = events[:, 2] == 1
     short = delay < np.median(delay)
@@ -158,7 +144,6 @@ def main() -> None:
         "subject": args.subject,
         "session": args.session,
         "units": len(units),
-        "units_below_the_minimum_rate": excluded,
         "trials": len(events),
         "early_withdrawal_trials": int(early.sum()),
         "delay_ms_percentiles_5_50_95": np.percentile(delay, [5, 50, 95]).tolist(),

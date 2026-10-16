@@ -21,7 +21,8 @@ last flash and the response entry has the movement with no light.
   entry.
 - Fixation: from `AFTER_FIRST_FLASH_S` after the first flash to the center exit.
 - A trial is in a window when the window is `MIN_WINDOW_S` or longer.
-- Units: `fetch_unit_table` with quality criteria 1 and stability 0. The
+- Units: the units of the GLM (`fetch_unit_table` with quality criteria 1
+  and stability 0, without the units of `fit.EXCLUDED_UNITS`). The
   sampling unit is the unit.
 - Statistics: Spearman correlation of the index between windows, over units.
   The split-half correlation of each window (random halves of its trials,
@@ -44,6 +45,7 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import spearmanr
 
+from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
@@ -118,6 +120,8 @@ def main() -> None:
         stability_param_id=0,
         include_metrics=False,
     )
+    # The units of the GLM: its excluded units are not used here either.
+    units = units.iloc[analysis_unit_indices(units, "all")]
     windows, right = trial_windows(trials)
     rng = np.random.default_rng(SPLIT_SEED)
     index, halves = {}, {}
