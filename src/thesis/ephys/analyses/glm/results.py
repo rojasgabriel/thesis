@@ -25,15 +25,16 @@ from thesis.ephys.analyses.glm.dmat import (
     FLASH_MOVE_GAP,
     HISTORY_COLUMNS,
     HOLD,
+    RESPONSE_PERIOD,
     TIME_IN_TRIAL,
     TRIAL_TIME_WINDOW_S,
     TURN_DIRECTION,
-    TURN_DIRECTION_S,
     _bumps,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
     build_unit_history,
+    exit_basis,
     flash_after_exit,
     flash_events,
     flash_gap_class,
@@ -98,7 +99,7 @@ def fitted_trial_contributions(
 
 # State blocks with several columns: raised cosines over this time (s) from
 # the first flash or the center exit, built in `dmat.build_task_design`.
-SPREAD_STATES = {TIME_IN_TRIAL: TRIAL_TIME_WINDOW_S, TURN_DIRECTION: TURN_DIRECTION_S}
+SPREAD_STATES = {TIME_IN_TRIAL: TRIAL_TIME_WINDOW_S}
 
 
 def fitted_kernels(
@@ -126,6 +127,14 @@ def fitted_kernels(
     for item in design_metadata["task_manifest"]:
         name = item["name"]
         stop = cursor + int(item["columns"])
+        if name in (RESPONSE_PERIOD, TURN_DIRECTION):  # the basis from the exit
+            exit = exit_basis()
+            kernels[name] = (
+                1000 * exit.basis_time,
+                exit.basis @ weights[cursor:stop],
+            )
+            cursor = stop
+            continue
         if name in SPREAD_STATES:  # raised cosines over a time from an event
             seconds = np.linspace(0, SPREAD_STATES[name], 200)
             kernels[name] = (

@@ -100,7 +100,7 @@ REGRESSORS = {
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × move", VISUAL),
     "flash_move_gap": ("flash × move × gap", VISUAL),
-    "fixation": ("initiation", TASK),
+    "fixation": ("pre-stimulus", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
     "side_after_exit": ("choice", TASK),
@@ -109,6 +109,7 @@ REGRESSORS = {
     "session_drift": ("session drift", DRIFT_COLOR),
     "time_in_trial": ("time in trial", TASK),
     "accumulated_evidence": ("accumulated evidence", VISUAL),
+    "response_period": ("response period", TASK),
     "turn_direction": ("turn direction", TASK),
     "previous_outcome": ("previous outcome", TASK),
 }
@@ -180,7 +181,7 @@ def _plot_trial(axes, data) -> None:
     events.vlines(1000 * data["event__visual_flash"], 2.6, 3.4, color=VISUAL, lw=1)
     events.vlines(1000 * data["event__withdrawal"], 0.6, 1.4, color=TASK, lw=1.2)
     events.set_ylim(0.3, 3.7)
-    events.set_yticks([3, 2, 1], ["flashes", "initiation, fixation", "withdrawal"])
+    events.set_yticks([3, 2, 1], ["flashes", "pre-stimulus, fixation", "withdrawal"])
     for tick, color in zip(events.get_yticklabels(), (VISUAL, TASK, TASK), strict=True):
         tick.set_color(color)
     shown = (1000 * data["motion_times"] >= left) & (

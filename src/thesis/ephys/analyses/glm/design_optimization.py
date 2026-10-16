@@ -111,7 +111,7 @@ LABELS = {
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
     "40 | 80 | 120 | 160+": "40, 80,\n120,\n160+",
-    "no\nfixation": "no\ninitiation",
+    "no\nfixation": "no\npre-stimulus",
     "penalty\n÷ 100": "weaker\npenalty",
 }
 DISPLAY_LIMIT = 0.006

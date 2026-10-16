@@ -30,7 +30,12 @@ from damn.objects.regressor_objects import EventRegressor
 
 from thesis.ephys.trials import build_trial_table
 
-PRE_S = 0.1
+# The window starts this long before the first flash. With 0.5 s it has about
+# 0.45 s before the center entry (the entry is 26 to 106 ms before the first
+# flash), the baseline of the model, and in 95% of the trials of GRB006 it
+# starts after the exit from the side port of the trial before (2026-10-15;
+# it was 0.1 s, which left about 50 ms before the entry).
+PRE_S = 0.5
 POST_S = 2.54
 BINWIDTH_S = 0.001
 SPLIT_SEED = 20260912
@@ -60,8 +65,11 @@ FLASH_SLOT_S = 0.04
 WITHDRAWAL_PRE_S = 0.0
 WITHDRAWAL_WINDOW_S = 0.1
 WITHDRAWAL_BASES = 4
-# `withdrawal_grid.py` turns this off to test the model without the term.
-WITHDRAWAL_KERNEL = True
+# `withdrawal_grid.py` turns this off to test the model without the term. Off
+# from 2026-10-15: the response period covers the time after the exit, with
+# bases as close together just after the exit (first canonical correlation of
+# the two was 0.91).
+WITHDRAWAL_KERNEL = False
 # Stimulus during hold: one kernel on the first flash, set to zero from the
 # center exit on. Units fire less from about 80 ms after the first flash until
 # the animal leaves the center port; the flashes go on (the train is 1 s long
@@ -89,11 +97,11 @@ HOLD_LOG_STRETCH_S = 0.025
 # saved scale of the columns has the factor in it, so the kernels are read in
 # the same way. A factor above 10 stops the convergence.
 HOLD_PENALTY_SCALE = 1.0
-# Initiation: one column that is 1 from the center entry to the first flash,
+# Pre-stimulus: one column that is 1 from the center entry to the first flash,
 # where no other term is on. Its weight has no common sign over units; it sets
-# the rate of each unit in that time.
-# Names: the figures and the docs call this column "initiation" and the hold
-# kernel "fixation". The keys ("fixation", "hold") stay, because
+# the rate of each unit in the port before the stimulus.
+# Names: the figures and the docs call this column "pre-stimulus" (it was
+# "initiation" to 2026-10-15) and the hold kernel "fixation". The keys ("fixation", "hold") stay, because
 # the saved fits use them.
 FIXATION_COLUMN = True
 FIXATION = "fixation"
@@ -147,14 +155,15 @@ FLASH_MOVE_GAP_TERM = False
 FLASH_MOVE_GAP = "flash_move_gap"
 # Candidate terms. `candidate_terms.py` tested them with the inclusion rule
 # (decided with Gabriel, 2026-10-15). Time in trial and turn direction passed
-# in both mice and are in the model from 2026-10-15, in the forms below;
-# accumulated evidence and the previous outcome failed in both.
+# in both mice; accumulated evidence and the previous outcome failed in both.
+# Time in trial is not in the model: over the fixation it was the same time
+# course as the fixation kernel (first canonical correlation 1.00), and the
+# fixation kernel is the term that reads the fixation effect. The response
+# period below takes its place after the exit. Turn direction is in the model
+# from 2026-10-15, in the form below.
 # - Time in trial: `TRIAL_TIME_BASES` raised cosines over the time from the
 #   first flash, 0 to `TRIAL_TIME_WINDOW_S`; 0 outside. From the residual
-#   checks of 2026-10-13. With `TIME_IN_TRIAL_AFTER_EXIT`, it is also 0 before
-#   the center exit: over the fixation it was the same time course as the
-#   fixation kernel (first canonical correlation 1.00), and the fixation kernel
-#   is the term that reads the fixation effect.
+#   checks of 2026-10-13.
 # - Accumulated evidence: the number of flashes of the trial up to the bin,
 #   minus its expected value for the rate of the trial. A trial with rate N has
 #   N flashes in 25 slots of `FLASH_SLOT_S`; the first slot always has one, and
@@ -164,19 +173,18 @@ FLASH_MOVE_GAP = "flash_move_gap"
 #   separable from the rate, the category, and the choice. It tests whether
 #   V1 carries the accumulated flashes on top of the 150-ms flash kernels.
 # - Turn direction: the side of the response (+1 right, -1 left) times
-#   `TURN_DIRECTION_BASES` raised cosines from the center exit to
-#   `TURN_DIRECTION_S` after it (the 95th percentile of the time from the exit
-#   to the response entry in both mice); after that the last cosine keeps its
-#   value up to the response entry, where the bins of the trial end. 0 before
-#   the exit. A direction-specific movement
+#   the `exit_basis` (`TURN_DIRECTION_BASES` raised cosines, even in
+#   log(t + `HOLD_LOG_STRETCH_S`), from the center exit to `TURN_DIRECTION_S`
+#   after it, the 95th percentile of the time from the exit to the response
+#   entry in both mice); after that the last cosine keeps its value up to the
+#   response entry, where the bins of the trial end. 0 before the exit. A direction-specific movement
 #   signal, which motion energy cannot carry; it adds a time course to the
 #   choice column after the exit. Nothing before the exit, where the side is
 #   confounded with the stimulus.
 # - Previous outcome: +1 if the last trial with a response was rewarded, -1 if
 #   not, over the whole window of the trial (0 before the first response of
 #   the session). `unique_dev.py` shuffles it over trials.
-TIME_IN_TRIAL_TERM = True
-TIME_IN_TRIAL_AFTER_EXIT = True
+TIME_IN_TRIAL_TERM = False
 TIME_IN_TRIAL = "time_in_trial"
 TRIAL_TIME_WINDOW_S = 1.5
 TRIAL_TIME_BASES = 6
@@ -186,9 +194,19 @@ STIMULUS_SLOTS = 25
 TURN_DIRECTION_TERM = True
 TURN_DIRECTION = "turn_direction"
 TURN_DIRECTION_S = 1.3
-TURN_DIRECTION_BASES = 6
+TURN_DIRECTION_BASES = 8
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
+# Response period (decided with Gabriel, 2026-10-15): the `exit_basis` with no
+# sign, from the center exit to the response entry; it takes the place of the
+# withdrawal kernel. With turn direction it splits the time after the exit into
+# a part common to both sides and a part of opposite sign for left and right.
+# The two share a direction where the sides differ in number or in the time to
+# the response (first canonical correlation 0.39 in GRB006, 0.80 in GRB064,
+# where right turns take 734 against 638 ms). It also gives the rate step at
+# the exit a term of its own.
+RESPONSE_PERIOD_TERM = True
+RESPONSE_PERIOD = "response_period"
 # `THESIS_GLM_TERMS` switches terms on for a whole run, also in the worker
 # processes, which import this module again: a comma-separated list of the
 # switch names above, for example "TIME_IN_TRIAL_TERM,TURN_DIRECTION_TERM".
@@ -198,6 +216,16 @@ for _switch in filter(None, os.environ.get("THESIS_GLM_TERMS", "").split(",")):
     globals()[_switch] = True
 HOLD = "hold"
 HISTORY_COLUMNS = 10
+
+
+def exit_basis() -> "StretchedCosineBasis":
+    """Return the basis of the response period and the turn direction."""
+    return StretchedCosineBasis(
+        TURN_DIRECTION_BASES,
+        TURN_DIRECTION_S + BINWIDTH_S,
+        BINWIDTH_S,
+        HOLD_LOG_STRETCH_S,
+    )
 
 
 class StretchedCosineBasis(BasisFunction):
@@ -740,13 +768,10 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     )
     since_exit = times - trials["center_exit_s"].to_numpy(dtype=float)[:, None]
     after_exit = since_exit >= 0
-    if TIME_IN_TRIAL_AFTER_EXIT:
-        over_trial = over_trial * after_exit[..., None]
     # After `TURN_DIRECTION_S`, the last cosine keeps its value (1).
-    turn = (
-        _bumps(np.minimum(since_exit / TURN_DIRECTION_S, 1.0), TURN_DIRECTION_BASES)
-        * after_exit[..., None]
-    )
+    basis = exit_basis().basis
+    index = np.clip(np.rint(since_exit / BINWIDTH_S).astype(int), 0, len(basis) - 1)
+    turn = basis[index] * after_exit[..., None]
     side = np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None, None]
     for name, used, block, coding in (
         (
@@ -754,8 +779,7 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             TIME_IN_TRIAL_TERM,
             over_trial,
             f"{TRIAL_TIME_BASES} raised cosines over 0 to {TRIAL_TIME_WINDOW_S} s "
-            "from the first flash"
-            + (", 0 before the center exit" if TIME_IN_TRIAL_AFTER_EXIT else ""),
+            "from the first flash",
         ),
         (
             ACCUMULATED_EVIDENCE,
@@ -767,6 +791,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             else None,
             "flashes up to the bin minus 1 + (N - 1) k / 24 (N flashes, k of the 24 "
             "random slots started); 0 before the first flash",
+        ),
+        (
+            RESPONSE_PERIOD,
+            RESPONSE_PERIOD_TERM,
+            turn,
+            f"{TURN_DIRECTION_BASES} raised cosines from the center exit to "
+            f"{TURN_DIRECTION_S} s after it, the last one held to the response entry",
         ),
         (
             TURN_DIRECTION,
@@ -1041,6 +1072,7 @@ def _common_design_is_current(output: Path) -> bool:
             (DRIFT, drift_columns, SESSION_DRIFT),
             (TIME_IN_TRIAL, TRIAL_TIME_BASES, TIME_IN_TRIAL_TERM),
             (ACCUMULATED_EVIDENCE, 1, ACCUMULATED_EVIDENCE_TERM),
+            (RESPONSE_PERIOD, TURN_DIRECTION_BASES, RESPONSE_PERIOD_TERM),
             (TURN_DIRECTION, TURN_DIRECTION_BASES, TURN_DIRECTION_TERM),
             (IN_PORT, 1, IN_PORT_COLUMN),
         )
