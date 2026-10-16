@@ -28,23 +28,14 @@ unit has one kernel of each regressor from each half.
   for a regressor with one column.
 - Each measure is given for all units and for the units that need the
   regressor (unique ΔD² above 0 over the folds, the test of `inclusion.py`).
-- Figure: a, the kernels of the example unit of GRB006 from the two halves.
-  b, the agreement of each kernel regressor in each unit, the units of both
-  mice pooled; the black marker is the median of the units that need the
-  regressor with its hierarchical-bootstrap 95% interval, and the open
-  circles the median of each mouse. A point below `DISPLAY_FLOOR` is drawn at the floor; it is in the
-  statistics, and the count is in the output. c, the response of each unit in
-  one half against the other half, the units of both mice pooled.
+- The figure (panel f) is in `model_trust.py`.
 
 Units (`--units`), trials, alignment (first flash), baseline, and exclusions
 are those of `fit.py`. The sampling unit is the unit, and each measure is
-within one animal (`SESSIONS`); the units of the two animals are not pooled.
-With `--refit`, the script fits the two halves of each session and writes
-`kernel_reliability.npz` and `.json` in the session directory. It then draws
-`kernel_reliability.svg` from those files and writes `kernel_reliability.json`
-(by session) in `--out`.
+within one animal (`SESSIONS`). The script fits the two halves of each session
+and writes `kernel_reliability.npz` and `.json` in the session directory.
 
-    uv run python -m thesis.ephys.analyses.glm.kernel_reliability [--refit]
+    uv run python -m thesis.ephys.analyses.glm.kernel_reliability
 """
 
 from __future__ import annotations
@@ -57,7 +48,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr, ttest_1samp
 
@@ -69,16 +59,8 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.inclusion import ALPHA
-from thesis.ephys.analyses.glm.main_figure import REGRESSORS
-from thesis.ephys.analyses.glm.results import EXAMPLE_UNIT_ID, fitted_kernels
+from thesis.ephys.analyses.glm.results import fitted_kernels
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import (
-    FIGURE_STYLE,
-    REFERENCE_COLOR,
-    hierarchical_interval,
-    label_panels,
-    save_figure,
-)
 
 RESPONSE_MS = (40, 100)
 DISPLAY_FLOOR = -0.5
@@ -234,171 +216,14 @@ def kernel_times() -> dict[str, np.ndarray]:
     return times
 
 
-def draw_responses(axes, saved: list[dict], names: list, subjects: list) -> list:
-    """Draw the response of each unit in the two halves, both mice in each axis.
-
-    Returns, for each mouse, the number of its units outside the axis limits.
-    """
-    outside = [{} for _ in saved]
-    for ax, name in zip(axes, names):
-        label, color = REGRESSORS[name]
-        values = [arrays[f"response__{name}"] for arrays in saved]
-        limits = np.percentile(np.concatenate([v.ravel() for v in values]), [1, 99])
-        for k, (arrays, (first, second)) in enumerate(zip(saved, values, strict=True)):
-            needs = arrays[f"needs__{name}"]
-            for members, shade in ((~needs, "0.75"), (needs, color)):
-                ax.scatter(
-                    first[members],
-                    second[members],
-                    s=6,
-                    color=shade,
-                    lw=0,
-                )
-            outside[k][name] = int(
-                np.sum(
-                    (np.minimum(first, second) < limits[0])
-                    | (np.maximum(first, second) > limits[1])
-                )
-            )
-        ax.plot(limits, limits, color=REFERENCE_COLOR, lw=0.8, ls="--")
-        ax.set_xlim(limits)
-        ax.set_ylim(limits)
-        ax.set_aspect("equal")
-        ax.set_title(label, color=color, fontsize=7)
-        ax.tick_params(labelsize=6)
-    axes[0].set_ylabel("response, odd trials\n(Δ log rate)")
-    return outside
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=6)
-    parser.add_argument(
-        "--refit",
-        action="store_true",
-        help="fit the two halves of each session again before the figure",
-    )
     args = parser.parse_args()
-    if args.refit:
-        for name in SESSIONS:
-            subject, session = name.split("_", 1)
-            fit_session(subject, session, args.units, args.workers)
-    saved = []
     for name in SESSIONS:
-        path = args.out / name / "kernel_reliability.npz"
-        if not path.exists():
-            raise FileNotFoundError(f"{path}: run with --refit first.")
-        with np.load(path) as values:
-            saved.append({key: values[key] for key in values.files})
-    stats = {
-        name: json.loads((args.out / name / "kernel_reliability.json").read_text())
-        for name in SESSIONS
-    }
-    subjects = [name.split("_")[0] for name in SESSIONS]
-    times = kernel_times()
-    # Regressors in the order of the main figure.
-    names = [n for n in REGRESSORS if f"response__{n}" in saved[0]]
-    kernels = [n for n in names if f"kernel__{n}" in saved[0]]
-    arrays = saved[0]
-    unit_ids = arrays["unit_ids"].tolist()
-    example = unit_ids.index(EXAMPLE_UNIT_ID) if EXAMPLE_UNIT_ID in unit_ids else 0
-    rng = np.random.default_rng(0)
-    with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(11, 7.0), layout="constrained")
-        rows = figure.subfigures(3, 1, height_ratios=(1, 1.05, 0.85))
-        top = rows[0].subplots(1, len(kernels))
-        for ax, name in zip(top, kernels):
-            label, color = REGRESSORS[name]
-            for half, style in enumerate(("-", "--")):
-                ax.plot(
-                    times[name],
-                    arrays[f"kernel__{name}"][half, example],
-                    color=color,
-                    ls=style,
-                )
-            ax.axhline(0, color=REFERENCE_COLOR, lw=0.8, ls="--")
-            ax.set_title(label, color=color, fontsize=8)
-            ax.set_xlabel("time (ms)")
-        top[0].set_ylabel(f"{subjects[0]} example unit\nΔ log rate")
-        top[0].text(
-            0.98,
-            0.08,
-            "even trials\nodd trials (dashed)",
-            transform=top[0].transAxes,
-            ha="right",
-            fontsize=6.5,
-        )
-        middle = rows[1].subplots()
-        stats["pooled agreement, units that need the regressor"] = {}
-        for position, name in enumerate(kernels):
-            label, color = REGRESSORS[name]
-            agree = [values_of[f"agreement__{name}"] for values_of in saved]
-            needs = [values_of[f"needs__{name}"] for values_of in saved]
-            pooled, pooled_needs = np.concatenate(agree), np.concatenate(needs)
-            x = position + rng.uniform(-0.15, 0.15, len(pooled))
-            shown = np.maximum(pooled, DISPLAY_FLOOR)
-            middle.scatter(
-                x[~pooled_needs], shown[~pooled_needs], s=5, color="0.75", lw=0
-            )
-            middle.scatter(
-                x[pooled_needs], shown[pooled_needs], s=5, color=color, alpha=0.6, lw=0
-            )
-            # The median of the units that need it: pooled, with the
-            # hierarchical-bootstrap 95% interval, and of each mouse (bars).
-            summary = hierarchical_interval(
-                [a[n] for a, n in zip(agree, needs, strict=True)]
-            )
-            low, high = summary["interval_95"]
-            middle.errorbar(
-                position + 0.28,
-                summary["median"],
-                yerr=[[summary["median"] - low], [high - summary["median"]]],
-                fmt="o",
-                ms=4,
-                color="black",
-                capsize=2,
-                zorder=4,
-            )
-            for median in summary["median_of_each_mouse"]:
-                middle.scatter(
-                    position + 0.4,
-                    median,
-                    s=14,
-                    facecolor="white",
-                    edgecolor="black",
-                    lw=0.8,
-                    zorder=4,
-                )
-            stats["pooled agreement, units that need the regressor"][name] = summary
-        middle.axhline(0, color=REFERENCE_COLOR, lw=0.8, ls="--")
-        middle.set_xticks(range(len(kernels)), [REGRESSORS[n][0] for n in kernels])
-        for tick, name in zip(middle.get_xticklabels(), kernels):
-            tick.set_color(REGRESSORS[name][1])
-        middle.set_ylabel("agreement of the two halves\n(1 = equal kernels)")
-        middle.set_title(
-            f"{sum(len(v['unit_ids']) for v in saved)} units, {len(saved)} mice."
-            " Color: units that need the regressor; gray: other units. Black: the"
-            " median of the units that need it, with its 95% interval; open circles:"
-            " the median of each mouse",
-            fontsize=7,
-            loc="left",
-        )
-        axes = rows[2].subplots(1, len(names))
-        for k, (counts, name) in enumerate(
-            zip(draw_responses(axes, saved, names, subjects), SESSIONS, strict=True)
-        ):
-            for regressor, count in counts.items():
-                stats[name][regressor]["units_outside_the_axis_limits"] = count
-        rows[2].supxlabel(
-            "response, even trials (Δ log rate); units of both mice", fontsize=8
-        )
-        label_panels([top[0], middle], x=-0.02, y=1.08)
-        label_panels([None, None, axes[0]], x=-1.05, y=1.2)
-        print(save_figure(figure, args.out / "kernel_reliability"))
-    (args.out / "kernel_reliability.json").write_text(json.dumps(stats, indent=1))
-    print(json.dumps(stats, indent=1))
+        subject, session = name.split("_", 1)
+        fit_session(subject, session, args.units, args.workers)
 
 
 if __name__ == "__main__":

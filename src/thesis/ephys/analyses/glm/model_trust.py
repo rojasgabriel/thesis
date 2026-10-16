@@ -60,8 +60,8 @@ unit is the unit. This script makes no fit; it writes `model_trust.svg`,
 
     uv run python -m thesis.ephys.analyses.glm.model_trust
 
-Run `collinearity`, `parameter_recovery`, `kernel_reliability --refit`, and
-`leak_test --refit` first; this script stops if a result file is missing.
+Run `collinearity`, `parameter_recovery`, `kernel_reliability`, and
+`leak_test` first; this script stops if a result file is missing.
 """
 
 from __future__ import annotations
@@ -82,7 +82,6 @@ from thesis.ephys.analyses.glm.collinearity import INDEX_LIMITS, VIF_LIMITS
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
 from thesis.ephys.analyses.glm.kernel_reliability import agreement, kernel_times
-from thesis.ephys.analyses.glm.leak_test import PART_LIMITS
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS, TASK, VISUAL
 from thesis.plotting import (
     FIGURE_STYLE,
@@ -96,6 +95,8 @@ from thesis.plotting import (
 
 # Axis limits of the recovery panels; a unit outside them is drawn at the limit.
 RECOVERY_LIMITS = {"agreement": (-0.5, 1.05), "size": (0, 2)}
+# Axis limits of the leak panels (spikes/s).
+PART_LIMITS = (-15, 25)
 # Spike history is read only in units with this rate or more (spikes/s): in
 # slower units few spikes are close enough together to fit it.
 HISTORY_MIN_RATE = 5.0

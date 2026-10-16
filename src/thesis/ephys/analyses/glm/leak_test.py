@@ -25,29 +25,24 @@ paired: each unit has its real effect and its leak.
   part of the move-minus-still peak that the flash × move terms carry, on the
   paired flashes of `flash_by_period.py`: the peak change of the model rate
   minus the same with the flash × move columns set to 0 (spikes/s). The real
-  part uses the real fit; the leak uses each fit to simulated spikes. Drawn for
-  the excited units of StimulusResponse, as in `flash_by_period.py`. The old
+  part uses the real fit; the leak uses each fit to simulated spikes. `model_trust.py`
+  reads it for the excited units of StimulusResponse. The old
   kernel measure (the mean of the kernel difference from `RESPONSE_MS`, Δ log
   rate) stays in the output.
 - Also given: the fixation level of the refit (the mean of the fixation
   kernel from `LEVEL_MS`) against the level that was simulated, to show how
   much of the level the fit keeps in the fixation kernel.
-- Statistics: two-sided Wilcoxon signed-rank test over units of the real
-  effect minus the leak, and the Spearman correlation of the leak with the
-  fixation level of the unit.
-- Figure: the units of both mice pooled; the large marker is the pooled
-  median with its hierarchical-bootstrap 95% interval (mice, then units), and
-  the open circles the median of each mouse. a, the real flash × move part against the leak. b, real minus
-  leak. c, the leak against the fixation level of the unit. A point outside
-  `PART_LIMITS` is drawn at the limit; it is in the statistics, and the count
-  is in the output. Each test is within one mouse.
+- Statistics: two-sided Wilcoxon signed-rank test over units of the leak
+  against 0, and the Spearman correlation of the leak with the fixation level
+  of the unit. The test of the real effect minus the leak, on the excited
+  units, and the figure (panels g to i) are in `model_trust.py`.
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
-The sampling unit is the unit. With `--refit`, the script simulates and
-refits each unit and writes `leak_test.json` in `--out` and `leak_test.npz` in
-each session directory. It then draws `leak_test.svg` from the `.npz` files.
+The sampling unit is the unit. The script simulates and refits each unit and
+writes `leak_test.json` in `--out` and `leak_test.npz` in each session
+directory.
 
-    uv run python -m thesis.ephys.analyses.glm.leak_test [--refit]
+    uv run python -m thesis.ephys.analyses.glm.leak_test
 """
 
 from __future__ import annotations
@@ -60,7 +55,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr, wilcoxon
 
@@ -79,17 +73,6 @@ from thesis.ephys.analyses.glm.results import (
 )
 from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import (
-    CONCEPT_COLORS,
-    FIGURE_STYLE,
-    REFERENCE_COLOR,
-    hierarchical_interval,
-    label_panels,
-    median_interval,
-    pooled_points,
-    pooled_strip,
-    save_figure,
-)
 
 SIMULATIONS = 3
 SEED = 0
@@ -100,8 +83,6 @@ LEVEL_MS = HOLD_LEVEL_MS
 MIN_LEVEL = 0.1
 GAPS_MS = {"80+ ms gap": 100, "40 ms gap": 40}
 REMOVED = (dmat.FLASH_AFTER_EXIT, dmat.FLASH_MOVE_GAP)
-AXIS_LIMITS = (-1.0, 1.5)
-PART_LIMITS = (-15, 25)
 _SHARED: dict = {}
 
 
@@ -300,7 +281,6 @@ def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> di
     entry = {"units": len(units), "simulations": SIMULATIONS}
     for index, gap in enumerate(GAPS_MS):
         rest = real[:, index] - leak[:, index]
-        both = np.column_stack((real[:, index], leak[:, index]))
         entry[gap] = {
             "median_real_move_minus_still": float(np.median(real[:, index])),
             "median_leak": float(np.median(leak[:, index])),
@@ -311,9 +291,6 @@ def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> di
             "real_minus_leak_wilcoxon_p": float(wilcoxon(rest).pvalue),
             "spearman_leak_and_fixation_level": float(
                 spearmanr(leak[:, index], simulated_level)[0]
-            ),
-            "units_outside_the_axis_limits": int(
-                np.sum((both < AXIS_LIMITS[0]).any(1) | (both > AXIS_LIMITS[1]).any(1))
             ),
         }
     entry["fixation level"] = {
@@ -347,108 +324,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("figures/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=6)
-    parser.add_argument(
-        "--refit",
-        action="store_true",
-        help="simulate and refit each unit again before the figure",
-    )
     args = parser.parse_args()
-    stats = (
-        {
-            session: simulate_session(args.out, session, args.units, args.workers)
-            for session in SESSIONS
-        }
-        if args.refit
-        else json.loads((args.out / "leak_test.json").read_text())
-    )
-    data = []
-    for session in SESSIONS:
-        path = args.out / session / "leak_test.npz"
-        if not path.exists():
-            raise FileNotFoundError(f"{path}: run with --refit first.")
-        with np.load(path) as saved:
-            if "real_part" not in saved:
-                raise ValueError(f"{path} has no matched measure: run with --refit.")
-            subject, _, name = session.partition("_")
-            excited = np.isin(
-                saved["unit_ids"], list(peaks.excited_units(subject, name))
-            )
-            real_part, leak_part = (
-                saved["real_part"][excited],
-                saved["leak_part"][excited],
-            )
-            data.append(
-                {
-                    "subject": subject,
-                    "real": real_part,
-                    "leak": leak_part.mean(1),
-                    "level": saved["simulated_level"][excited],
-                }
-            )
-        rest = real_part - leak_part.mean(1)
-        stats[session]["matched peak, flash × move part (spikes/s), excited units"] = {
-            "units": int(excited.sum()),
-            "median_real": float(np.median(real_part)),
-            "median_leak": float(np.median(leak_part.mean(1))),
-            "leak_wilcoxon_p": float(wilcoxon(leak_part.mean(1)).pvalue),
-            "median_real_minus_leak": median_interval(rest),
-            "units_with_real_above_leak": int(np.sum(rest > 0)),
-            "real_minus_leak_wilcoxon_p": float(wilcoxon(rest).pvalue),
-            "units_outside_the_axis": int(
-                np.sum(
-                    (np.minimum(real_part, leak_part.mean(1)) < PART_LIMITS[0])
-                    | (np.maximum(real_part, leak_part.mean(1)) > PART_LIMITS[1])
-                )
-            ),
-        }
-    subjects = [item["subject"] for item in data]
-    stats["pooled, hierarchical bootstrap: flash × move part, real minus leak"] = (
-        hierarchical_interval([item["real"] - item["leak"] for item in data])
-    )
-    visual, task = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1, 3, figsize=(7.4, 2.7), layout="constrained", width_ratios=(1, 0.75, 1)
-        )
-        part_axis, rest_axis, level_axis = axes
-        part_axis.plot(PART_LIMITS, PART_LIMITS, color=REFERENCE_COLOR, lw=0.8, ls="--")
-        part_axis.set(xlim=PART_LIMITS, ylim=PART_LIMITS, aspect="equal")
-        pooled_points(
-            part_axis,
-            [np.clip(item["leak"], *PART_LIMITS) for item in data],
-            [np.clip(item["real"], *PART_LIMITS) for item in data],
-            subjects,
-            visual,
-        )
-        level_axis.set_ylim(*PART_LIMITS)
-        pooled_points(
-            level_axis,
-            [item["level"] for item in data],
-            [np.clip(item["leak"], *PART_LIMITS) for item in data],
-            subjects,
-            task,
-        )
-        part_axis.set_xlabel(
-            "leak: flash × move part with\nno effect simulated (spikes/s)"
-        )
-        part_axis.set_ylabel("real flash × move part\n(spikes/s)")
-        pooled_strip(
-            rest_axis,
-            0,
-            [np.clip(item["real"] - item["leak"], *PART_LIMITS) for item in data],
-            subjects,
-            visual,
-        )
-        rest_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
-        rest_axis.set_xticks([])
-        rest_axis.set_xlim(-0.5, 0.9)
-        rest_axis.set_ylim(*PART_LIMITS)
-        rest_axis.set_ylabel("flash × move part,\nreal minus leak (spikes/s)")
-        level_axis.axhline(0, color=REFERENCE_COLOR, lw=0.6)
-        level_axis.set_xlabel("fixation level of the unit\n(Δ log rate)")
-        level_axis.set_ylabel("leak (spikes/s)")
-        label_panels(axes, x=-0.3, y=1.04)
-        print(save_figure(figure, args.out / "leak_test"))
+    stats = {
+        session: simulate_session(args.out, session, args.units, args.workers)
+        for session in SESSIONS
+    }
     (args.out / "leak_test.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 

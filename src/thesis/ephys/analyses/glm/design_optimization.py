@@ -1,14 +1,19 @@
 """Choose the form of each term of the V1 GLM by prediction.
 
 Question: why does each term of the design have its form (the number of gap
-classes, the length of the flash kernels, the fixation term, the window of
-the withdrawal kernel, the number of motion-energy PCs, the session drift)?
+classes, the length of the flash kernels, the fixation term, a term at the
+center exit, the number of motion-energy PCs, the session drift)?
 Whether the weights of the resulting design can be read is a separate
 question (`model_trust.py`). This script makes no fit. It draws the results
 of the six design grids and writes the caption next to the figure.
 
 Comparison: each grid scores the design in use and the same design with one
-term in another form, on the same units of GRB006 (`--root`). A panel shows,
+term in another form, on the same units of GRB006 (`--root`). The grids ran
+on the design of 2026-10-13. The design of 2026-10-15 changed three forms
+without a grid, from the behavior: the fixation kernel ends at 0.7 s (it was
+0.95 s; the exit comes by 0.7 s in 95% of trials of both mice), the response
+period (8 cosines to 1.3 s from the exit) replaces the withdrawal kernel, and
+turn direction replaces the side term. A panel shows,
 for each other form, the validation D² of each unit minus its D² with the
 form in use (paired). D² is relative to the constant-rate model, on the
 validation trials.
@@ -21,9 +26,11 @@ validation trials.
   the first flash, and other forms of the kernel, against the log-spaced
   kernel in use.
 - Panel d (`withdrawal_grid.py`): no withdrawal kernel and kernels that also
-  cover the time before the exit, against the kernel of 0 to 100 ms in use.
-  A form that predicts better also has to keep the other kernels readable:
-  the ±300 ms kernel is tested for that with `parameter_recovery.py`.
+  cover the time before the exit, against the kernel of 0 to 100 ms that was
+  in use on 2026-10-13. A form that predicts better also has to keep the
+  other kernels readable: the ±300 ms kernel was tested for that with
+  `parameter_recovery.py` on 2026-10-13 (`WITHDRAWAL_RECOVERY`). The
+  response period replaced this kernel on 2026-10-15.
 - Panel e (`pc_grid.py`): no motion energy and more PCs, against the 10 in
   use.
 - Panel f (`drift_grid.py`): no session drift, more raised cosines, and a
@@ -42,8 +49,7 @@ on these units and keeps the other kernels readable (parameter recovery).
 
     uv run python -m thesis.ephys.analyses.glm.design_optimization
 
-Run the six grids and `parameter_recovery` first; this script stops if a
-result file is missing."""
+Run the six grids first; this script stops if a result file is missing."""
 
 from __future__ import annotations
 
@@ -95,7 +101,7 @@ GRIDS = {
         withdrawal_grid,
         withdrawal_grid.IN_USE,
         TASK,
-        "withdrawal kernel (ms from the center exit)",
+        "withdrawal kernel, 2026-10-13 (ms from the exit)",
     ),
     "pc_grid": (pc_grid, pc_grid.IN_USE, MOTION, "number of motion-energy PCs"),
     "drift_grid": (
@@ -111,10 +117,15 @@ LABELS = {
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
     "40 | 80 | 120 | 160+": "40, 80,\n120,\n160+",
-    "no\nfixation": "no\npre-stimulus",
+    "no\nfixation": "no\npre-\nstimulus",
     "penalty\n÷ 100": "weaker\npenalty",
 }
 DISPLAY_LIMIT = 0.006
+# Fixation level, recovered over true (median unit), with the withdrawal
+# kernel in use on 2026-10-13 and with the ±300 ms kernel (`parameter_recovery
+# --grid withdrawal_grid --design ±300`, 2026-10-13; docs/glm.md). The design
+# has no withdrawal kernel now, so the test cannot be run again on it.
+WITHDRAWAL_RECOVERY = {"GRB006": (0.76, 0.55), "GRB064": (0.84, 0.73)}
 CAPTION = """\
 **The form of each term, chosen by prediction.** Each panel compares the
 design in use with the same design where one term has another form, on
@@ -127,15 +138,21 @@ Flash kernels by the gap from the flash before. One kernel for all flashes is
 worse than the two gap classes in use; more classes are not better. **b**,
 Length of the flash kernels. Longer kernels are not better than 150 ms.
 **c**, Form of the fixation term. No term and a step are worse than the
-kernel in use. **d**, Withdrawal kernel. No kernel is worse. A kernel from
-300 ms before to 300 ms after the exit predicts better, but with it the
-fitted fixation level is recovered at {level_under_test} of its true size,
-against {level_in_use} with the kernel in use (median unit, {subject} and
-{held_out}; parameter recovery, as in the figure of `model_trust.py`), so the
-design keeps the kernel of 0 to 100 ms. **e**, Number of motion-energy PCs.
+kernel in use. **d**, A term at the center exit: the withdrawal kernel of the design of
+2026-10-13. No kernel is worse, so the model needs a term at the exit. A
+kernel from 300 ms before to 300 ms after the exit predicts better, but with
+it the fitted fixation level is recovered at {level_under_test} of its true
+size, against {level_in_use} with the kernel of 0 to 100 ms (median unit,
+{subject} and {held_out}; parameter recovery, as in the figure of
+`model_trust.py`). So the term at the exit starts at the exit. The response
+period (8 cosines from the exit to 1.3 s) later replaced the kernel of 0 to
+100 ms; its form comes from the time from the exit to the response entry, not
+from a grid. **e**, Number of motion-energy PCs.
 {pc_sentence} **f**, Session drift. No drift is worse; more functions are not
-better. The importance of each regressor is tested on all units (main
-figure).
+better. All six grids ran on the design of 2026-10-13. The design
+in use (2026-10-15) also has a fixation kernel that ends at 0.7 s (not 0.95
+s), from the behavior and not from a grid. The importance of each regressor
+is tested on all units (main figure).
 """
 
 
@@ -238,8 +255,6 @@ def main() -> None:
         label_panels(axes.flat, x=-0.2, y=1.04)
         print(save_figure(figure, args.root / "design_optimization"))
     first = stats[next(iter(GRIDS))]
-    # The test of the withdrawal kernel of ±300 ms, from `parameter_recovery`.
-    recovery = json.loads((args.root.parent / "parameter_recovery.json").read_text())
     (args.root / "design_optimization_stats.json").write_text(
         json.dumps(stats, indent=1)
     )
@@ -249,12 +264,10 @@ def main() -> None:
             sets=first["units"] // 20,
             pc_sentence=_pc_sentence(stats["pc_grid"]),
             level_in_use=" and ".join(
-                f"{recovery[s]['fixation level, recovered over true (median)']['in_use']:.2f}"
-                for s in SESSIONS
+                f"{WITHDRAWAL_RECOVERY[s][0]:.2f}" for s in subjects
             ),
             level_under_test=" and ".join(
-                f"{recovery[s]['fixation level, recovered over true (median)']['under_test']:.2f}"
-                for s in SESSIONS
+                f"{WITHDRAWAL_RECOVERY[s][1]:.2f}" for s in subjects
             ),
             subject=subjects[0],
             held_out=subjects[1],
