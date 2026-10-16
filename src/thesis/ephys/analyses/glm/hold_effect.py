@@ -50,7 +50,10 @@ signal after the exit is.
   of each unit from `ENTRY_LAG_MS` after the entry to the first flash, and in
   `LATE_MS` after the first flash, over its rate before the entry (the gray
   bands of the left panel; log axis). A ratio below 1 before the flash is a
-  drop with no stimulus.
+  drop with no stimulus. The blue bar above the trace is the 5th to 95th
+  percentile of the first flash of those trials (tick: the median); the
+  second band ends at the median, and in each trial the window of the test
+  ends at its own first flash.
 - Panel f (does the rise at the exit need the stimulus?): the rate around the
   center exit in completed trials (the flashes go on) and in early
   withdrawals (the flashes stop), mean and SEM over units, from
@@ -722,6 +725,17 @@ def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
     ):
         trace.axvspan(*limits, color=REFERENCE_COLOR, alpha=0.25, lw=0)
     trace.axvline(0, color=TASK, lw=0.8)
+    # The first flash of the long-delay trials of both mice: 5th to 95th
+    # percentile, and the median.
+    delays = np.concatenate(
+        [d["long-delay trials"]["delay_ms_by_trial"] for d in results]
+    )
+    low, middle, high = np.percentile(delays, [5, 50, 95])
+    top = trace.get_ylim()[1]
+    trace.plot([low, high], [top, top], color=VISUAL, lw=2, solid_capstyle="butt")
+    trace.plot(middle, top, "|", color=VISUAL, ms=6, mew=1.5)
+    trace.text(high + 8, top, "first flash", color=VISUAL, va="center", fontsize=5.5)
+    trace.set_ylim(top=top * 1.02)
     trace.set_xlabel("time from center entry (ms)")
     trace.set_ylabel("normalized\nfiring rate")
     strip = figure.add_subplot(slots[1])
@@ -1228,7 +1242,9 @@ def main() -> None:
         "in the long delays, the rate of each unit from"
         f" {onset.ENTRY_LAG_MS} ms after the entry to the first flash, over its"
         f" rate {-onset.BEFORE_ENTRY_MS[0]} to {-onset.BEFORE_ENTRY_MS[1]} ms"
-        " before the entry (gray bands in the left panel), and the same for"
+        " before the entry (gray bands in the left panel; the blue bar is the 5th"
+        " to 95th percentile of the first flash of these trials, the tick its"
+        " median), and the same for"
         f" {onset.LATE_MS[0]} to {onset.LATE_MS[1]} ms after the first flash: "
         + "; ".join(
             f"{d['subject']}: median {e['entry to first flash over before entry']['median_ratio']:.2f}"

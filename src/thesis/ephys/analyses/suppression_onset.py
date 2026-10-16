@@ -183,6 +183,7 @@ def main() -> None:
         "median_window_entry_to_flash_ms": float(
             1000 * np.median(flash - entry) - ENTRY_LAG_MS
         ),
+        "delay_ms_by_trial": (1000 * (flash - entry)).tolist(),
         "units_with_no_spike_before_entry": int(np.sum(rates[:, 0] == 0)),
         "entry to first flash over before entry": _paired(pre_flash),
         "late over before entry": _paired(late),
@@ -203,7 +204,7 @@ def main() -> None:
             values = {
                 k: v
                 for k, v in values.items()
-                if k not in ("mean_rate", "ratio_by_unit")
+                if k not in ("mean_rate", "ratio_by_unit", "delay_ms_by_trial")
             }
         if name != "time_ms":
             print(f"{name}: {values}")
