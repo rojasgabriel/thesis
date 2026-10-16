@@ -178,6 +178,10 @@ def main() -> None:
     with np.errstate(divide="ignore", invalid="ignore"):
         pre_flash = rates[:, 1] / rates[:, 0]
         late = rates[:, 2] / rates[:, 0]
+    stats["short-delay trials"] = {
+        "trials": int(short.sum()),
+        "delay_ms_by_trial": (1000 * (events[short, 1] - events[short, 0])).tolist(),
+    }
     stats["long-delay trials"] = {
         "trials": int((~short).sum()),
         "median_window_entry_to_flash_ms": float(

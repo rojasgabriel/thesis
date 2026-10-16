@@ -44,16 +44,18 @@ signal after the exit is.
   number is in `hold_effect_stats.json`.
 - Panel e (does the drop start before the stimulus?), from
   `suppression_onset.py`, no model. Left: the population rate of the trials
-  with a long delay from the center entry to the first flash (the upper half
-  of the delays), aligned to the center entry; the units of both mice are pooled as the mean
+  with a short and a long delay from the center entry to the first flash (the
+  lower and upper half of the delays), aligned to the center entry; the units of both mice are pooled as the mean
   of the two mice weighted by their units. Right: in the long delays, the rate
   of each unit from `ENTRY_LAG_MS` after the entry to the first flash, and in
   `LATE_MS` after the first flash, over its rate before the entry (the gray
-  bands of the left panel; log axis). A ratio below 1 before the flash is a
-  drop with no stimulus. The blue bar above the trace is the 5th to 95th
-  percentile of the first flash of those trials (tick: the median); the
-  second band ends at the median, and in each trial the window of the test
-  ends at its own first flash.
+  bands of the left panel, labeled "before entry" and "in port, no flash";
+  log axis). A ratio below 1 before the flash is a
+  drop with no stimulus. The bars above the traces are the 5th to 95th
+  percentile of the first flash of each half (tick: the median), in the
+  color of its trace. The test uses the long delays; the second band ends at
+  their median first flash, and in each trial the window of the test ends at
+  its own first flash.
 - Panel f (does the rise at the exit need the stimulus?): the rate around the
   center exit in completed trials (the flashes go on) and in early
   withdrawals (the flashes stop), mean and SEM over units, from
@@ -181,8 +183,9 @@ each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
 the 10 cross-validation folds). {paired} {outside_d} **e**, Does the drop
 start before the stimulus? Left: the population rate, with no model, of the
-trials with a long delay from the center entry to the first flash (the upper
-half of the delays), aligned to the center entry. Right: {onset} **f**, Does the rise at the
+trials with a short and a long delay from the center entry to the first flash
+(the lower and upper half of the delays), aligned to the center entry; the
+bars above are the 5th to 95th percentile of the first flash of each half. Right: {onset} **f**, Does the rise at the
 withdrawal need the stimulus? The rate around the withdrawal in completed
 trials, where the flashes go on, and in early withdrawals, where they stop
 ({exit_subject}, mean and SEM over units). {exit} **g**, Control for the
@@ -226,6 +229,7 @@ FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
 EXIT_WINDOW_MS = (-200, 500)
 TASK, VISUAL = CONCEPT_COLORS["task"], CONCEPT_COLORS["visual"]
+DELAY_COLORS = {"short delay": "0.6", "long delay": OBSERVED_COLOR}
 MOTION = CONCEPT_COLORS["motion energy"]
 # The raw analyses of panels e, f, and k (no model), in `figures/<name>/<session>/`.
 ONSET_NAME = "suppression_onset"
@@ -705,16 +709,33 @@ def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
     shown = (time >= ONSET_WINDOW_MS[0]) & (time <= ONSET_WINDOW_MS[1])
     trace = figure.add_subplot(slots[0])
     # The units of both mice pooled: the mean of the mice, weighted by units.
-    rate = np.average(
-        [
-            data["aligned to the center entry"]["mean_rate"]["long delay"]
-            for data in results
-        ],
-        axis=0,
-        weights=weights,
-    )
-    trace.plot(time[shown], rate[shown], color=OBSERVED_COLOR, lw=1)
-    trace.set_title("long delays", fontsize=6, loc="left")
+    delays = {}
+    for (delay, color), height in zip(DELAY_COLORS.items(), (0.96, 0.87), strict=True):
+        rate = np.average(
+            [
+                data["aligned to the center entry"]["mean_rate"][delay]
+                for data in results
+            ],
+            axis=0,
+            weights=weights,
+        )
+        trace.plot(time[shown], rate[shown], color=color, lw=1)
+        trace.text(
+            0.02,
+            height,
+            delay,
+            color=color,
+            transform=trace.transAxes,
+            ha="left",
+            va="top",
+            fontsize=5.5,
+        )
+        delays[delay] = np.concatenate(
+            [
+                d[f"{delay.split()[0]}-delay trials"]["delay_ms_by_trial"]
+                for d in results
+            ]
+        )
     # The two windows of the test, and the median first flash of the long delays.
     for limits in (
         onset.BEFORE_ENTRY_MS,
@@ -724,18 +745,39 @@ def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
         ),
     ):
         trace.axvspan(*limits, color=REFERENCE_COLOR, alpha=0.25, lw=0)
+    # The two windows of the ratio in the right panel, labeled in place.
+    for x, label, align in (
+        (np.mean(onset.BEFORE_ENTRY_MS), "before\nentry", "center"),
+        (onset.ENTRY_LAG_MS + 4, "in port,\nno flash", "left"),
+    ):
+        trace.text(
+            x,
+            0.04,
+            label,
+            transform=trace.get_xaxis_transform(),
+            ha=align,
+            va="bottom",
+            color="0.35",
+            fontsize=5.5,
+        )
     trace.axvline(0, color=TASK, lw=0.8)
-    # The first flash of the long-delay trials of both mice: 5th to 95th
-    # percentile, and the median.
-    delays = np.concatenate(
-        [d["long-delay trials"]["delay_ms_by_trial"] for d in results]
-    )
-    low, middle, high = np.percentile(delays, [5, 50, 95])
+    # The first flash of each delay group, both mice: 5th to 95th percentile
+    # and the median, in the color of its trace.
     top = trace.get_ylim()[1]
-    trace.plot([low, high], [top, top], color=VISUAL, lw=2, solid_capstyle="butt")
-    trace.plot(middle, top, "|", color=VISUAL, ms=6, mew=1.5)
-    trace.text(high + 8, top, "first flash", color=VISUAL, va="center", fontsize=5.5)
-    trace.set_ylim(top=top * 1.02)
+    for (delay, color), height in zip(
+        DELAY_COLORS.items(), (top * 1.04, top), strict=True
+    ):
+        low, middle, high = np.percentile(delays[delay], [5, 50, 95])
+        trace.plot([low, high], [height] * 2, color=color, lw=2, solid_capstyle="butt")
+        trace.plot(middle, height, "|", color=color, ms=6, mew=1.5)
+    trace.text(
+        np.percentile(delays["long delay"], 95) + 8,
+        top * 1.02,
+        "first flash",
+        va="center",
+        fontsize=5.5,
+    )
+    trace.set_ylim(top=top * 1.07)
     trace.set_xlabel("time from center entry (ms)")
     trace.set_ylabel("normalized\nfiring rate")
     strip = figure.add_subplot(slots[1])
@@ -1242,9 +1284,7 @@ def main() -> None:
         "in the long delays, the rate of each unit from"
         f" {onset.ENTRY_LAG_MS} ms after the entry to the first flash, over its"
         f" rate {-onset.BEFORE_ENTRY_MS[0]} to {-onset.BEFORE_ENTRY_MS[1]} ms"
-        " before the entry (gray bands in the left panel; the blue bar is the 5th"
-        " to 95th percentile of the first flash of these trials, the tick its"
-        " median), and the same for"
+        " before the entry (gray bands in the left panel), and the same for"
         f" {onset.LATE_MS[0]} to {onset.LATE_MS[1]} ms after the first flash: "
         + "; ".join(
             f"{d['subject']}: median {e['entry to first flash over before entry']['median_ratio']:.2f}"
