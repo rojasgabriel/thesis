@@ -159,6 +159,8 @@ def session_kernels(root: Path, unit_set: str) -> dict:
             dmat.FLASH_MOVE_GAP,
         )
     }
+    # Only the terms that the design in use has.
+    columns = {term: index for term, index in columns.items() if index}
 
     def kernels(coefficients) -> np.ndarray:
         """Return the kernel of each condition for one set of coefficients."""
