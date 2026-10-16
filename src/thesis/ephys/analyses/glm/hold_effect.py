@@ -32,7 +32,8 @@ and ends it, g to i are controls, and j asks which units.
 - Panel c (characterization): the kernels of a descriptive model, as a change
   in log rate. The model is the design of `dmat.py` with one change: the
   withdrawal kernel (0 to 100 ms) is replaced with a kernel from the center
-  exit to the response entry (`AFTER_BASES` raised cosines, `AFTER_WINDOW_S`).
+  exit to the response entry (`AFTER_BASES` raised cosines, `AFTER_WINDOW_S`),
+  and time in trial, which after the exit has the same time course, is off.
   Both kernels are relative to the time before the first flash. Thin lines are
   units; the thick line and band are the median and the interquartile range.
 - Panel d (the paired comparison): each unit's mean kernel value over
@@ -312,7 +313,13 @@ def fit_descriptive(source: Path, unit_set: str) -> Path:
         source,
         unit_set,
         ROOT_SUFFIX,
-        {"build_task_design": with_after_kernel, "WITHDRAWAL_KERNEL": False},
+        # Time in trial after the exit would have the time course of the kernel
+        # after the exit, so it is off in this model.
+        {
+            "build_task_design": with_after_kernel,
+            "WITHDRAWAL_KERNEL": False,
+            "TIME_IN_TRIAL_TERM": False,
+        },
     )
 
 
