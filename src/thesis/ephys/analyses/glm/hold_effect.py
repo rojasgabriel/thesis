@@ -45,8 +45,8 @@ signal after the exit is.
 - Panel e (does the drop start before the stimulus?), from
   `suppression_onset.py`, no model. Left: the population rate of the trials
   with a short and a long delay from the center entry to the first flash (the
-  lower and upper half of the delays), aligned to the center entry; the units of both mice are pooled as the mean
-  of the two mice weighted by their units. Right: in the long delays, the rate
+  lower and upper half of the delays), aligned to the center entry; mean and
+  SEM over the units of both mice. Right: in the long delays, the rate
   of each unit from `ENTRY_LAG_MS` after the entry to the first flash, and in
   `LATE_MS` after the first flash, over its rate before the entry (the gray
   bands of the left panel, labeled "before entry" and "in port, no flash";
@@ -704,22 +704,23 @@ def _draw_examples(figure, examples, data: dict) -> list:
 def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
     """Draw panel e: the population rate from the center entry, and the paired
     test of the drop before the first flash; return the axes and its statistics."""
-    weights = np.array([data["units"] for data in results], dtype=float)
     time = np.asarray(results[0]["time_ms"])
     shown = (time >= ONSET_WINDOW_MS[0]) & (time <= ONSET_WINDOW_MS[1])
     trace = figure.add_subplot(slots[0])
-    # The units of both mice pooled: the mean of the mice, weighted by units.
+    # The units of both mice pooled: mean and SEM over units.
     delays = {}
     for (delay, color), height in zip(DELAY_COLORS.items(), (0.96, 0.87), strict=True):
-        rate = np.average(
+        values = np.concatenate(
             [
-                data["aligned to the center entry"]["mean_rate"][delay]
+                np.asarray(data["aligned to the center entry"]["rate_by_unit"][delay])
                 for data in results
-            ],
-            axis=0,
-            weights=weights,
+            ]
+        )[:, shown]
+        mean, error = values.mean(0), sem(values, axis=0)
+        trace.fill_between(
+            time[shown], mean - error, mean + error, color=color, alpha=0.25, lw=0
         )
-        trace.plot(time[shown], rate[shown], color=color, lw=1)
+        trace.plot(time[shown], mean, color=color, lw=1)
         trace.text(
             0.02,
             height,

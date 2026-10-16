@@ -25,11 +25,15 @@ flash starts later than the flash, so the window has no flash response.
 - Statistics: the median ratio and a two-sided Wilcoxon signed-rank test of
   the log ratio over units. The sampling unit is the unit; the units share the
   trials.
-- Population rate (for the figure): for each trial, the mean over units of
-  the rate in `BIN_S` bins, with the rate of each unit divided by its mean over
-  the window, in the short and the long delays, aligned to the center entry
-  and to the first flash.
-- Units: `fetch_unit_table` with quality criteria 1 and stability 0.
+- Population rate (for the figure): the trial mean of each unit's rate in
+  `BIN_S` bins, divided by its mean over the window, in the short and the
+  long delays, aligned to the center entry and to the first flash; the
+  figure shows the mean and SEM over units.
+- Units: `fetch_unit_table` with quality criteria 1 and stability 0, and a
+  mean rate of `MIN_RATE_HZ` or more in the window around the entry of these
+  trials. The rate of a unit is divided by its mean in the window, so a unit
+  with almost no spikes there (one spike in all the trials) would give one
+  very large value. The excluded units are in the output.
 - Limit: the rate can already change before the entry, while the animal
   comes to the port; the window before the entry ends `BEFORE_ENTRY_MS[1]` ms
   before it.
@@ -59,6 +63,7 @@ MIN_FIXATION_S = 0.25
 BEFORE_ENTRY_MS = (-250, -100)
 ENTRY_LAG_MS = 20
 LATE_MS = (180, 290)
+MIN_RATE_HZ = 0.5
 
 
 def _finite(values) -> np.ndarray:
@@ -86,17 +91,14 @@ def trial_events(trials) -> np.ndarray:
     return np.asarray(rows, dtype=float)
 
 
-def population_rate(units, times: np.ndarray, edges: np.ndarray) -> np.ndarray:
-    """Return the normalized population rate of each trial in each bin."""
-    total = np.zeros((len(times), len(edges) - 1))
-    used = 0
+def unit_rates(units, times: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Return the rate of each unit in each trial and bin, over its mean (unit, trial, bin)."""
+    rates = []
     for spikes in units["spike_times_s"]:
         spikes = np.asarray(spikes, dtype=float)
         rate = np.diff(np.searchsorted(spikes, times[:, None] + edges), axis=1) / BIN_S
-        if rate.mean() > 0:
-            total += rate / rate.mean()
-            used += 1
-    return total / used
+        rates.append(rate / rate.mean())
+    return np.asarray(rates)
 
 
 def window_rates(spikes: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> float:
@@ -131,15 +133,32 @@ def main() -> None:
         include_metrics=False,
     )
     events = trial_events(trials)
+    # A unit with almost no spikes in the window has a mean near 0, and one
+    # spike becomes a huge normalized rate; such units are not used.
+    edges = np.arange(WINDOW_S[0], WINDOW_S[1] + BIN_S / 2, BIN_S)
+    window_rate = np.asarray(
+        [
+            np.diff(
+                np.searchsorted(
+                    np.asarray(spikes, float), events[:, 0][:, None] + edges
+                ),
+                axis=1,
+            ).mean()
+            / BIN_S
+            for spikes in units["spike_times_s"]
+        ]
+    )
+    excluded = units["unit_id"][window_rate < MIN_RATE_HZ].astype(int).tolist()
+    units = units[window_rate >= MIN_RATE_HZ]
     delay = 1000 * (events[:, 1] - events[:, 0])
     early = events[:, 2] == 1
     short = delay < np.median(delay)
-    edges = np.arange(WINDOW_S[0], WINDOW_S[1] + BIN_S / 2, BIN_S)
     centers = 1000 * (edges[:-1] + edges[1:]) / 2
     stats = {
         "subject": args.subject,
         "session": args.session,
         "units": len(units),
+        "units_below_the_minimum_rate": excluded,
         "trials": len(events),
         "early_withdrawal_trials": int(early.sum()),
         "delay_ms_percentiles_5_50_95": np.percentile(delay, [5, 50, 95]).tolist(),
@@ -150,12 +169,16 @@ def main() -> None:
         "time_ms": centers.tolist(),
     }
     for name, column in (("first flash", 1), ("center entry", 0)):
-        rate = population_rate(units, events[:, column], edges)
+        rate = unit_rates(units, events[:, column], edges)
+        halves = (("short delay", short), ("long delay", ~short))
         stats[f"aligned to the {name}"] = {
             "mean_rate": {
-                half: rate[members].mean(0).tolist()
-                for half, members in (("short delay", short), ("long delay", ~short))
-            }
+                half: rate[:, members].mean((0, 1)).tolist() for half, members in halves
+            },
+            # The trial mean of each unit, for the mean and SEM over units.
+            "rate_by_unit": {
+                half: rate[:, members].mean(1).tolist() for half, members in halves
+            },
         }
     entry, flash = events[~short, 0], events[~short, 1]
     windows = {
@@ -208,7 +231,13 @@ def main() -> None:
             values = {
                 k: v
                 for k, v in values.items()
-                if k not in ("mean_rate", "ratio_by_unit", "delay_ms_by_trial")
+                if k
+                not in (
+                    "mean_rate",
+                    "rate_by_unit",
+                    "ratio_by_unit",
+                    "delay_ms_by_trial",
+                )
             }
         if name != "time_ms":
             print(f"{name}: {values}")

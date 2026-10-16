@@ -563,7 +563,7 @@ holds for other trials.
 | Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
 | Stillness in the port | The same low rate at a side port with the same motion energy, and the same rise with motion energy | No, in both animals: the side-port rate goes up with motion energy and the center-port rate does not (p = 8e-11 and 5e-6). At the lowest motion energy alone: 0.78 of the side-port rate in GRB006, 0.84 (p = 0.31) in GRB064 |
 | A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully, and the two animals differ. Units with a larger flash response are suppressed more in GRB006 (Spearman ρ = −0.20, p = 0.01; the earlier design gave −0.41), not in GRB064 (ρ = +0.18, p = 0.12). For flashes after a long gap, the response changes more than the baseline in GRB006 (+0.18 in log, p = 0.0003) and much less in GRB064 (−0.75, 8 of 65 units above 0, p = 1e-9); for short gaps, no difference in either (0.00 and −0.03) |
-| The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate already falls from the center entry to the first flash, with no stimulus (0.95 of the rate before the entry in GRB006, 0.70 in GRB064) |
+| The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate already falls from the center entry to the first flash, with no stimulus (0.95 of the rate before the entry in GRB006, 0.71 in GRB064) |
 
 - The matched-time test is not possible in this session. The fixation has
   almost the same length in all trials (1st to 95th percentile: 488 to
@@ -638,13 +638,17 @@ holds for other trials.
 
   | Mouse | Units, long-delay trials | Entry to first flash, over before entry | 180–290 ms after the first flash, over before entry |
   | --- | --- | --- | --- |
-  | GRB006 | 166, 148 | 0.95 (lower in 101 units, p = 0.002) | 0.59 |
-  | GRB064 | 75, 120 | 0.70 (lower in 58 units, p = 4e-8) | 0.47 |
+  | GRB006 | 165, 148 | 0.95 (lower in 100 units, p = 0.003) | 0.58 |
+  | GRB064 | 74, 120 | 0.71 (lower in 57 units, p = 6e-8) | 0.47 |
 
   On a log scale, about 10% of the full drop comes before the first flash in
   GRB006 and about half in GRB064. So the drop does not need the stimulus to
   start, and in GRB064 a large part of it comes with the entry. Two-sided
   Wilcoxon signed-rank tests of the log ratio; the units share the trials.
+  Units with a mean rate below 0.5 spikes/s in the window around the entry are
+  not used (2 in GRB006, 4 in GRB064): the rate of a unit is divided by its
+  mean there, so one spike of a nearly silent unit gave a large false peak in
+  the population rate (GRB064 unit 414, 1 spike in all 239 trials).
   Limit: the population rate also goes down slowly in the 100 ms before the
   entry, while the animal comes to the port, so a part of the drop may follow
   the approach and not the entry. The trial table has no measure of the
