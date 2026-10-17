@@ -7,6 +7,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from thesis.ephys.cache import cached
+
 ALIGNMENT_EV_COLUMNS = (
     "first_stim_times_s",
     "stim_pulse_times_s",
@@ -21,6 +23,11 @@ ALIGNMENT_EV_COLUMNS = (
     "right_port_entry_times_s",
     "right_port_exit_times_s",
 )
+
+
+# Largest difference between the hardware and the Bpod response entry that is
+# taken as the same event. The hardware entry is about 8 ms before the Bpod one.
+RESPONSE_TOLERANCE_S = 0.02
 
 
 def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
@@ -38,9 +45,19 @@ def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _select_task_ev_sequence(
-    trial: pd.Series, predicted_react_s: float, predicted_entry_s: float = np.nan
+    trial: pd.Series,
+    predicted_react_s: float,
+    predicted_entry_s: float = np.nan,
+    predicted_response_s: float = np.nan,
 ) -> dict:
-    """Match hardware entry and exit to Bpod initiation and reaction events."""
+    """Match hardware entry, exit, and response entry to the Bpod events.
+
+    A hardware port line can give bursts of false entries (GRB064 20260916_132939,
+    left port). So the response entry is the hardware entry nearest to the Bpod
+    response entry, not the first one after the center exit. When no hardware
+    entry is within `RESPONSE_TOLERANCE_S` of it, the Bpod time is used
+    (`response_entry_source`).
+    """
     response_entries_s = {
         -1: trial["left_port_entry_times_s"],
         1: trial["right_port_entry_times_s"],
@@ -64,11 +81,17 @@ def _select_task_ev_sequence(
                     if np.isfinite(predicted_entry_s)
                     else center_entries_s[-1],
                     center_exit_s,
-                    following_response_entries_s[0],
+                    min(
+                        following_response_entries_s,
+                        key=lambda t: abs(t - predicted_response_s),
+                    )
+                    if np.isfinite(predicted_response_s)
+                    else following_response_entries_s[0],
                 )
             )
 
     selected_task_ev = (np.nan, np.nan, np.nan)
+    source = "hardware"
     if len(task_ev_candidates) == 1:
         selected_task_ev = task_ev_candidates[0]
     elif len(task_ev_candidates) > 1 and np.isfinite(predicted_react_s):
@@ -77,14 +100,23 @@ def _select_task_ev_sequence(
             key=lambda task_ev: abs(task_ev[1] - predicted_react_s),
         )
 
+    if (
+        np.isfinite(selected_task_ev[2])
+        and np.isfinite(predicted_response_s)
+        and abs(selected_task_ev[2] - predicted_response_s) > RESPONSE_TOLERANCE_S
+    ):
+        selected_task_ev = (*selected_task_ev[:2], predicted_response_s)
+        source = "bpod"
     return {
         "center_entry_s": selected_task_ev[0],
         "center_exit_s": selected_task_ev[1],
         "response_port_entry_s": selected_task_ev[2],
+        "response_entry_source": source,
         "n_task_ev_candidates": len(task_ev_candidates),
     }
 
 
+@cached
 def build_trial_table(
     subject: str, session: str, *, include_frames: bool = True
 ) -> pd.DataFrame:
@@ -163,6 +195,13 @@ def build_trial_table(
     trial_table["trial_start_s"] = trial_starts_s[:n_trials]
     trial_table["prev_rewarded"] = trial_table["rewarded"].shift(1)
     trial_table["prev_response"] = trial_table["response"].shift(1)
+    # The side of the last response before this trial: the trial before can have
+    # no response (early withdrawal), so go back to the last trial with one.
+    # ponytail: from the response, not from the side-port pokes; use the poke
+    # times if the animal goes to a side port in trials with no response.
+    trial_table["last_side"] = (
+        trial_table["response"].where(trial_table["response"] != 0).ffill().shift(1)
+    )
     trial_table["stim_category"] = pd.cut(
         trial_table["visual_stim_rate_hz"] - trial_table["category_boundary_hz"],
         bins=[-np.inf, -1e-9, 1e-9, np.inf],
@@ -219,15 +258,25 @@ def build_trial_table(
     bpod_react_s = trial_table["t_react"].to_numpy(dtype=float)
     predicted_react_s = np.full(n_trials, np.nan)
     bpod_entry_s = np.full(n_trials, np.nan)
+    bpod_response_s = np.full(n_trials, np.nan)
     for i, trial in trial_table.iterrows():
         entries, _ = _split_bpod_pokes(trial["center_poke"])
         if entries.size and np.isfinite(trial["t_initiate"]):
             # Stored state times can be rounded to 10 ms. Match the nearest
             # Bpod poke, not the last poke before that rounded state time.
             bpod_entry_s[i] = entries[np.argmin(abs(entries - trial["t_initiate"]))]
+        # The first Bpod entry into the response port after the reaction.
+        side = {-1: "left_poke", 1: "right_poke"}.get(trial["response"])
+        if side and np.isfinite(trial["t_react"]):
+            entries, _ = _split_bpod_pokes(trial[side])
+            entries = entries[entries > trial["t_react"]]
+            if entries.size:
+                bpod_response_s[i] = entries[0]
     predicted_entry_s = np.full(n_trials, np.nan)
+    predicted_response_s = np.full(n_trials, np.nan)
     valid_bpod_entry = np.isfinite(bpod_entry_s)
     valid_bpod_react = np.isfinite(bpod_react_s)
+    valid_bpod_response = np.isfinite(bpod_response_s)
     if valid_bpod_react.any() or valid_bpod_entry.any() or missing_port_roles:
         from labdata.schema import StreamSync
 
@@ -268,6 +317,10 @@ def build_trial_table(
         predicted_entry_s[valid_bpod_entry] = bpod_sync.apply(
             bpod_entry_s[valid_bpod_entry], force=True, warn=False
         )
+        if valid_bpod_response.any():
+            predicted_response_s[valid_bpod_response] = bpod_sync.apply(
+                bpod_response_s[valid_bpod_response], force=True, warn=False
+            )
 
     if missing_port_roles or missing_frames:
         fallback_notes = []
@@ -289,7 +342,10 @@ def build_trial_table(
 
     task_ev_selections = [
         _select_task_ev_sequence(
-            trial, predicted_react_s[trial_index], predicted_entry_s[trial_index]
+            trial,
+            predicted_react_s[trial_index],
+            predicted_entry_s[trial_index],
+            predicted_response_s[trial_index],
         )
         for trial_index, trial in trial_table.reset_index(drop=True).iterrows()
     ]
@@ -298,6 +354,9 @@ def build_trial_table(
     )
     trial_table["center_exit_bpod_error_s"] = (
         trial_table["center_exit_s"] - predicted_react_s
+    )
+    trial_table["response_entry_bpod_error_s"] = (
+        trial_table["response_port_entry_s"] - predicted_response_s
     )
     return trial_table[
         [
@@ -311,6 +370,7 @@ def build_trial_table(
             "early_withdrawal",
             "prev_response",
             "prev_rewarded",
+            "last_side",
             "trial_start_s",
             "center_entry_s",
             "first_stim_times_s",
@@ -331,5 +391,7 @@ def build_trial_table(
             "right_port_exit_times_s",
             "n_task_ev_candidates",
             "center_exit_bpod_error_s",
+            "response_entry_bpod_error_s",
+            "response_entry_source",
         ]
     ]

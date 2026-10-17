@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+from thesis.ephys.cache import cached
 
+
+@cached
 def fetch_unit_table(
     subject: str,
     session: str,
@@ -85,3 +88,15 @@ def fetch_unit_table(
             f"{duplicate_unit_ids.tolist()}"
         )
     return unit_table.sort_values("depth").reset_index(drop=True)
+
+
+def unit_spikes(subject: str, session: str) -> dict:
+    """Return the spike times of each unit (quality 1, stability 0), by unit id."""
+    table = fetch_unit_table(
+        subject,
+        session,
+        unit_criteria_id=1,
+        stability_param_id=0,
+        include_metrics=False,
+    )
+    return dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))

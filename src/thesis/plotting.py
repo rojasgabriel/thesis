@@ -5,6 +5,7 @@ import string
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.axes import Axes
 
 # Use with `plt.rc_context(FIGURE_STYLE)`.
@@ -25,6 +26,201 @@ OBSERVED_COLOR = "black"
 # Not a concept color and not gray: gray marks the excluded bins in the rasters.
 MODEL_COLOR = "C4"
 REFERENCE_COLOR = "0.65"
+BOOTSTRAPS = 2000
+
+
+# Axis of a peak rate (spikes/s), log on both axes. A peak at or below the lower
+# limit (a baseline-corrected peak can be 0 or below) is not drawn; it stays in
+# the statistics, and the panel gives the count.
+PEAK_AXIS_LIMITS = (0.5, 200)
+
+
+def peak_axes(axis, limits=None) -> None:
+    """Give a peak-against-peak scatter the same axes on x and y, and the identity line.
+
+    With no `limits`: the matplotlib log scale on both axes, from
+    `PEAK_AXIS_LIMITS`. With `limits`: linear axes over them, for peaks that are
+    often at or below 0, which a log axis cannot show.
+    """
+    if limits is None:
+        limits = PEAK_AXIS_LIMITS
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        ticks = [1, 10, 100]
+    else:
+        ticks = np.arange(np.ceil(limits[0] / 10) * 10, limits[1] + 1, 10)
+    axis.set_xlim(*limits)
+    axis.set_ylim(*limits)
+    axis.set_xticks(ticks, [f"{tick:g}" for tick in ticks])
+    axis.set_yticks(ticks, [f"{tick:g}" for tick in ticks])
+    axis.plot(limits, limits, color=REFERENCE_COLOR, lw=0.8, ls="--")
+    axis.set_aspect("equal")
+
+
+def hierarchical_interval(groups, seed: int = 0) -> dict:
+    """Return the pooled median with a hierarchical-bootstrap 95% interval and p.
+
+    `groups` holds the values of each mouse. A resample draws the mice with
+    replacement, then the units of each drawn mouse with replacement, and takes
+    the median of all of them (Saravanan, Berman and Sober 2020). p is the
+    two-sided bootstrap p-value of the median against 0. Also returns the
+    median of each mouse.
+    """
+    groups = [np.asarray(values, dtype=float) for values in groups]
+    rng = np.random.default_rng(seed)
+    medians = np.empty(BOOTSTRAPS)
+    for b in range(BOOTSTRAPS):
+        picked = rng.integers(0, len(groups), len(groups))
+        medians[b] = np.median(
+            np.concatenate(
+                [
+                    groups[g][rng.integers(0, len(groups[g]), len(groups[g]))]
+                    for g in picked
+                ]
+            )
+        )
+    low, high = np.percentile(medians, [2.5, 97.5])
+    p_value = min(1.0, 2 * min(np.mean(medians <= 0), np.mean(medians >= 0)))
+    return {
+        "median": float(np.median(np.concatenate(groups))),
+        "interval_95": [float(low), float(high)],
+        "p_bootstrap": float(max(p_value, 1 / BOOTSTRAPS)),
+        "median_of_each_mouse": [float(np.median(values)) for values in groups],
+    }
+
+
+def pooled_points(
+    axis, xs, ys, subjects, color, seed: int = 0, count_hidden: bool = False
+) -> None:
+    """Draw the units of all mice pooled, with the medians of the mice and of all.
+
+    Units are small light dots. The median of each mouse is a small open
+    circle with its name. The pooled median is a large dot with the
+    hierarchical-bootstrap 95% interval of each median as error bars.
+    """
+    axis.scatter(
+        np.concatenate(xs),
+        np.concatenate(ys),
+        s=8,
+        color=color,
+        alpha=0.3,
+        lw=0,
+        zorder=2,
+    )
+    # The label of the higher median goes up and the lower one down.
+    rank = np.argsort(np.argsort([np.median(y) for y in ys]))
+    for k, (x, y, subject) in enumerate(zip(xs, ys, subjects, strict=True)):
+        mx, my = np.median(x), np.median(y)
+        axis.scatter(mx, my, s=22, facecolor="white", edgecolor=color, lw=1, zorder=3)
+        # One line for each mouse, so that close medians keep legible names.
+        axis.annotate(
+            subject,
+            (mx, my),
+            xytext=(12, 9 if rank[k] == len(ys) - 1 else -13),
+            textcoords="offset points",
+            color=color,
+            fontsize=5.5,
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
+        )
+    axis.text(
+        0.03,
+        0.97,
+        f"{sum(len(x) for x in xs)} units, {len(xs)} mice"
+        + (
+            f"\n{hidden} not drawn (a peak\nbelow {axis.get_xlim()[0]:g} spikes/s)"
+            if (
+                hidden := int(
+                    sum(
+                        np.sum((x <= axis.get_xlim()[0]) | (y <= axis.get_ylim()[0]))
+                        for x, y in zip(xs, ys, strict=True)
+                    )
+                )
+            )
+            and count_hidden
+            else ""
+        ),
+        transform=axis.transAxes,
+        va="top",
+        fontsize=6,
+    )
+    fx, fy = hierarchical_interval(xs, seed), hierarchical_interval(ys, seed)
+    axis.errorbar(
+        fx["median"],
+        fy["median"],
+        xerr=[
+            [fx["median"] - fx["interval_95"][0]],
+            [fx["interval_95"][1] - fx["median"]],
+        ],
+        yerr=[
+            [fy["median"] - fy["interval_95"][0]],
+            [fy["interval_95"][1] - fy["median"]],
+        ],
+        fmt="o",
+        ms=6,
+        color=color,
+        mec="white",
+        mew=0.6,
+        elinewidth=1,
+        capsize=2,
+        zorder=4,
+    )
+
+
+def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) -> dict:
+    """Draw one column of pooled units, the median of each mouse, and the pooled median.
+
+    Returns the statistics of `hierarchical_interval`.
+    """
+    rng = np.random.default_rng(seed)
+    values = np.concatenate(groups)
+    axis.scatter(
+        position + rng.uniform(-0.15, 0.15, len(values)),
+        values,
+        s=8,
+        color=color,
+        alpha=0.3,
+        lw=0,
+        zorder=2,
+    )
+    stats = hierarchical_interval(groups, seed)
+    medians = stats["median_of_each_mouse"]
+    # The label of the higher median goes up and the lower one down, so that
+    # close medians keep legible names.
+    rank = np.argsort(np.argsort(medians))
+    for median, subject, place in zip(medians, subjects, rank, strict=True):
+        axis.scatter(
+            position + 0.25,
+            median,
+            s=22,
+            facecolor="white",
+            edgecolor=color,
+            lw=1,
+            zorder=3,
+        )
+        axis.annotate(
+            subject,
+            (position + 0.25, median),
+            xytext=(8, 7 if place == len(medians) - 1 else -9),
+            textcoords="offset points",
+            color=color,
+            fontsize=5.5,
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
+        )
+    low, high = stats["interval_95"]
+    axis.errorbar(
+        position,
+        stats["median"],
+        yerr=[[stats["median"] - low], [high - stats["median"]]],
+        fmt="o",
+        ms=6,
+        color=color,
+        mec="white",
+        mew=0.6,
+        elinewidth=1,
+        capsize=2,
+        zorder=4,
+    )
+    return stats
 
 
 def label_panels(axes, x: float = -0.14, y: float = 1.05) -> None:

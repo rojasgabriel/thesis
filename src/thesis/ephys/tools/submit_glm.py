@@ -15,7 +15,7 @@ import argparse
 from labdata.compute.schedulers import slurm_submit
 
 PIPELINE = (
-    "cd ~/lib/thesis && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && "
+    'cd "$SLURM_SUBMIT_DIR" && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && '
     "uv run glm prepare && "
     "uv run glm fit    --units {units} --workers $LABDATA_N_JOBS && "
     "uv run glm unique --units {units} --workers $LABDATA_N_JOBS"

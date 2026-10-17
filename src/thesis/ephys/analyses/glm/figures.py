@@ -1,85 +1,34 @@
-"""Create figures for the fitted V1 spike-prediction GLM.
+"""Write the figure data and the held-out prediction figure of the V1 GLM.
 
 The prediction figure uses the cross-validation model that held out each plotted
-trial. The model-design example instead decomposes the canonical final refit,
-which was fit on every valid bin. All rates condition on observed spike history.
+trial. All rates condition on observed spike history. `main_figure.py` draws
+the other panels from the saved figure data and uses the helpers here.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import matplotlib
 import numpy as np
-from scipy.stats import sem, spearmanr
+from scipy.stats import sem
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patheffects import withStroke
 
-from thesis.ephys.analyses.glm.dmat import BINWIDTH_S, VIDEO_COMPONENT_COUNTS
-from thesis.ephys.analyses.glm.fit import load_unit_records
-from thesis.ephys.analyses.glm.results import write_figure_data
-from thesis.ephys.analyses.glm.unique_dev import (
-    DETAILED_GROUPS,
-    MAXIMAL,
-    RELIABLE_ALPHA,
-    UNIQUE,
-    block_table,
+from thesis.ephys.analyses.glm.dmat import (
+    BINWIDTH_S,
 )
 from thesis.plotting import (
-    CONCEPT_COLORS,
-    FIGURE_STYLE,
     MODEL_COLOR,
     OBSERVED_COLOR,
-    label_panels,
-    save_figure,
 )
 
-GROUP_COLORS = {
-    "visual": CONCEPT_COLORS["visual"],
-    "task": CONCEPT_COLORS["task"],
-    "video": CONCEPT_COLORS["motion energy"],
-    "history": CONCEPT_COLORS["history"],
-}
-TASK_LABELS = {
-    "visual_flash": "visual flash",
-    "flash_pre_post_withdrawal": "flash: post - pre withdrawal",
-    "flash_adaptation": "flash: adaptation",
-    "flash_motion_energy": "flash × motion energy",
-    "flash_first": "first flash",
-    "flash_later_pre": "later flash, pre-withdrawal",
-    "flash_later_post": "later flash, post-withdrawal",
-    "initiation": "initiation",
-    "withdrawal": "withdrawal",
-    "response_entry": "response entry",
-}
 COUNT_BIN_MS = 10
 MIN_RATE_TRIAL_FRACTION = 0.5
-# Firing-rate groups of summary panel d, from the lowest rate to the highest.
-RATE_GROUP_COLORS = {"low": "#a50026", "medium": "#d9a400", "high": "#313695"}
+# Firing-rate groups of main-figure panel d, from the lowest rate to the highest.
+# Shades of gray: the rate is not a concept of the model, and a darker shade is
+# a higher rate.
+RATE_GROUP_COLORS = {"low": "0.68", "medium": "0.42", "high": "black"}
 RATE_GROUP_BINS = 4
 PREDICTION_SEED = 2008
-# Deviance figure: task blocks reuse the kernel labels. Each block takes the
-# color of its concept: flash blocks visual, the other event blocks task.
-DEVIANCE_LABELS = {
-    "full_model": "full model",
-    "task": "task",
-    "video": "motion energy",
-    "history": "spike history",
-    **TASK_LABELS,
-}
-DEVIANCE_COLORS = {
-    "full_model": "black",
-    "task": GROUP_COLORS["task"],
-    "video": GROUP_COLORS["video"],
-    "history": GROUP_COLORS["history"],
-    "visual_flash": GROUP_COLORS["visual"],
-    "flash_pre_post_withdrawal": GROUP_COLORS["visual"],
-    "flash_adaptation": GROUP_COLORS["visual"],
-    "flash_motion_energy": GROUP_COLORS["visual"],
-}
 
 
 def training_rate_and_deviance(
@@ -150,312 +99,14 @@ def binned_rates(
     return mean / (samples * BINWIDTH_S), enough
 
 
-def plot_model_design(
-    relative_times: np.ndarray,
-    counts: np.ndarray,
-    motion_times: np.ndarray,
-    motion_scores: np.ndarray,
-    events: dict[str, np.ndarray],
-    contributions: dict[str, np.ndarray],
-    linear_predictor: np.ndarray,
-    expected_count: np.ndarray,
-    design_metadata: dict,
-    output: Path,
-) -> Path:
-    """Show observed inputs, fitted log-count terms, and counts for one trial."""
-    relative_times = np.asarray(relative_times, dtype=float)
-    counts = np.asarray(counts, dtype=float)
-    motion_times = np.asarray(motion_times, dtype=float)
-    motion_scores = np.asarray(motion_scores, dtype=float)
-    if relative_times.ndim != 1 or len(relative_times) == 0:
-        raise ValueError("Model-design times must be a nonempty vector.")
-    if (
-        counts.shape != relative_times.shape
-        or expected_count.shape != relative_times.shape
-    ):
-        raise ValueError("Model-design counts, predictions, and times must match.")
-    if linear_predictor.shape != relative_times.shape or any(
-        values.shape != relative_times.shape for values in contributions.values()
-    ):
-        raise ValueError("Every fitted contribution must match the model time grid.")
-    if motion_scores.ndim != 2 or motion_scores.shape[1] != 3:
-        raise ValueError("The model-design figure requires three motion-PC traces.")
-    if motion_times.shape != (len(motion_scores),):
-        raise ValueError("Motion-PC times and scores must match.")
-    if not all(
-        np.isfinite(values).all()
-        for values in (
-            relative_times,
-            counts,
-            motion_times,
-            motion_scores,
-            linear_predictor,
-            expected_count,
-        )
-    ):
-        raise ValueError("Model-design values must be finite.")
-    expected_events = {"visual_flash", "initiation", "withdrawal", "response_entry"}
-    if set(events) != expected_events:
-        raise ValueError("Model-design task events are incomplete.")
-
-    event_arrays = {
-        name: np.asarray(values, dtype=float) for name, values in events.items()
-    }
-    if any(
-        values.ndim != 1 or not np.isfinite(values).all()
-        for values in event_arrays.values()
-    ):
-        raise ValueError("Model-design event times must be finite vectors.")
-    times_ms = 1000 * relative_times
-    model_left_ms = 1000 * (relative_times[0] - BINWIDTH_S / 2)
-    model_right_ms = 1000 * (relative_times[-1] + BINWIDTH_S / 2)
-    event_values_ms = 1000 * np.concatenate(list(event_arrays.values()))
-    left_ms = min(model_left_ms, float(event_values_ms.min()))
-    right_ms = max(model_right_ms, float(event_values_ms.max()))
-    spike_times_ms = np.repeat(times_ms, counts.astype(int, copy=False))
-    manifest = {item["name"]: item for item in design_metadata["task_manifest"]}
-    event_order = (
-        "initiation",
-        "visual_flash",
-        "withdrawal",
-        "response_entry",
-    )
-    event_labels = {
-        "initiation": "initiation",
-        "visual_flash": "visual flashes",
-        "withdrawal": "withdrawal",
-        "response_entry": "response entry",
-    }
-    event_colors = {
-        "visual_flash": GROUP_COLORS["visual"],
-        "initiation": GROUP_COLORS["task"],
-        "withdrawal": GROUP_COLORS["task"],
-        "response_entry": GROUP_COLORS["task"],
-    }
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 9.0))
-        outer = figure.add_gridspec(3, 1, height_ratios=(3.0, 4.0, 1.5), hspace=0.34)
-        observed_grid = outer[0].subgridspec(
-            3, 1, height_ratios=(1.8, 1.15, 0.72), hspace=0.08
-        )
-        event_axis = figure.add_subplot(observed_grid[0])
-        motion_axis = figure.add_subplot(observed_grid[1], sharex=event_axis)
-        history_axis = figure.add_subplot(observed_grid[2], sharex=event_axis)
-        contribution_grid = outer[1].subgridspec(5, 1, hspace=0.08)
-        contribution_axes = [
-            figure.add_subplot(contribution_grid[index], sharex=event_axis)
-            for index in range(5)
-        ]
-        count_axis = figure.add_subplot(outer[2], sharex=event_axis)
-
-        positions = np.arange(len(event_order))[::-1]
-        for position, name in zip(positions, event_order, strict=True):
-            color = event_colors[name]
-            kernel_start, kernel_stop = manifest[name]["kernel_range_s"]
-            for event_time in event_arrays[name]:
-                support_start = max(left_ms, 1000 * (event_time + kernel_start))
-                support_stop = min(right_ms, 1000 * (event_time + kernel_stop))
-                if name == "initiation":
-                    support_stop = min(support_stop, 0.0)
-                if support_stop > support_start:
-                    event_axis.fill_betweenx(
-                        (position - 0.28, position + 0.28),
-                        support_start,
-                        support_stop,
-                        color=color,
-                        alpha=0.18,
-                        linewidth=0,
-                    )
-                event_axis.vlines(
-                    1000 * event_time,
-                    position - 0.34,
-                    position + 0.34,
-                    color=color,
-                    linewidth=0.9,
-                )
-        event_axis.set_yticks(positions, [event_labels[name] for name in event_order])
-        event_axis.set_ylim(-0.65, len(event_order) - 0.35)
-        for index, linestyle in enumerate(("-", "--", ":")):
-            motion_axis.plot(
-                1000 * motion_times,
-                motion_scores[:, index],
-                color=GROUP_COLORS["video"],
-                linewidth=0.8,
-                linestyle=linestyle,
-                label=f"PC {index + 1}",
-            )
-        motion_axis.axhline(0, color="black", linewidth=0.45)
-        # Headroom above the traces keeps the legend clear of them.
-        low, high = float(motion_scores.min()), float(motion_scores.max())
-        motion_axis.set_ylim(low - 0.05 * (high - low), high + 0.45 * (high - low))
-        motion_axis.legend(
-            loc="upper left", ncols=3, frameon=False, fontsize=7, borderaxespad=0
-        )
-        motion_axis.set_ylabel("motion-energy\nPC score")
-
-        for spike_time in spike_times_ms:
-            start = spike_time + 1000 * BINWIDTH_S
-            stop = min(spike_time + 100, right_ms)
-            if stop > start:
-                history_axis.fill_betweenx(
-                    (0.72, 1.28),
-                    start,
-                    stop,
-                    color=GROUP_COLORS["history"],
-                    alpha=0.15,
-                    linewidth=0,
-                )
-                history_axis.vlines(
-                    start,
-                    0.72,
-                    1.28,
-                    color=GROUP_COLORS["history"],
-                    linewidth=0.6,
-                )
-        history_axis.set_yticks((1,), ("spike history",))
-        history_axis.set_ylim(0.45, 1.55)
-
-        trace_specs = (
-            ("visual", "visual flashes", GROUP_COLORS["visual"]),
-            ("task", "other task events", GROUP_COLORS["task"]),
-            ("video", "motion-energy PCs", GROUP_COLORS["video"]),
-            ("history", "spike history", GROUP_COLORS["history"]),
-        )
-        for axis, (name, label, color) in zip(
-            contribution_axes[:4], trace_specs, strict=True
-        ):
-            axis.plot(times_ms, contributions[name], color=color, linewidth=0.9)
-            axis.axhline(0, color="black", linewidth=0.45, linestyle="--")
-            axis.set_ylabel(label, color=color, rotation=0, ha="right", va="center")
-        contribution_axes[-1].plot(
-            times_ms, linear_predictor, color="black", linewidth=1.0
-        )
-        contribution_axes[-1].set_ylabel(
-            r"total log count, $\eta(t)$", rotation=0, ha="right", va="center"
-        )
-        for axis in contribution_axes:
-            axis.tick_params(axis="y", labelsize=6)
-
-        predicted_counts = np.random.default_rng(PREDICTION_SEED).poisson(
-            expected_count
-        )
-        predicted_spike_times_ms = np.repeat(
-            times_ms, predicted_counts.astype(int, copy=False)
-        )
-        count_axis.eventplot(
-            [spike_times_ms, predicted_spike_times_ms],
-            colors=[OBSERVED_COLOR, MODEL_COLOR],
-            lineoffsets=[1, 0],
-            linelengths=0.8,
-            linewidths=0.5,
-        )
-        count_axis.set_yticks([1, 0], ["observed", "predicted"])
-        count_axis.set_ylim(-0.6, 1.6)
-        count_axis.set_xlabel("time from first measured flash (ms)")
-
-        all_axes = [
-            event_axis,
-            motion_axis,
-            history_axis,
-            *contribution_axes,
-            count_axis,
-        ]
-        for axis in all_axes:
-            axis.axvline(0, color="0.65", linewidth=0.6, zorder=0)
-            axis.set_xlim(left_ms, right_ms)
-        for axis in all_axes[:-1]:
-            axis.tick_params(axis="x", labelbottom=False)
-        label_panels((event_axis, contribution_axes[0], count_axis), -0.15, 1.08)
-        figure.subplots_adjust(left=0.23, right=0.98, bottom=0.07, top=0.97)
-        return save_figure(figure, output)
-
-
-def plot_population_summary(
-    results: list[dict], selections: list[dict], output: Path
-) -> tuple[Path, float]:
-    """Show camera selection, held-out performance, and its rate relation."""
-    selected_components = {item["components"] for item in results}
-    if len(selected_components) != 1:
-        raise ValueError("All final fits must use one camera-PC count.")
-    selected = selected_components.pop()
-    component_counts = (0, *VIDEO_COMPONENT_COUNTS)
-    validation_deviance = [
-        np.mean(
-            [
-                item["baseline"]["validation"]["deviance_explained"]
-                for item in selections
-            ]
-        ),
-        *[
-            np.mean(
-                [
-                    item["plus_video"][str(count)]["validation"]["deviance_explained"]
-                    for item in selections
-                ]
-            )
-            for count in VIDEO_COMPONENT_COUNTS
-        ],
-    ]
-    training_rate, deviance = training_rate_and_deviance(results, selections)
-    bits = np.asarray([item["cross_validated_bits_per_spike"] for item in results])
-    rate_deviance_rho = float(spearmanr(training_rate, deviance).statistic)
-    if not np.isfinite(rate_deviance_rho):
-        raise ValueError("Training firing rate and test score must vary across units.")
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.6))
-        axes = axes.ravel()
-
-        positions = np.arange(len(component_counts))
-        axes[0].plot(
-            positions,
-            validation_deviance,
-            color="black",
-            marker="o",
-            markerfacecolor="white",
-        )
-        selected_position = component_counts.index(selected)
-        axes[0].scatter(
-            selected_position,
-            validation_deviance[selected_position],
-            color="black",
-            s=75,
-            zorder=3,
-        )
-        axes[0].set_xticks(positions, component_counts)
-        axes[0].set_xlabel("candidate motion-energy PCs")
-        axes[0].set_ylabel(r"mean validation deviance explained ($D^2$)")
-
-        for axis, values, xlabel, digits in (
-            (axes[1], deviance, r"test deviance explained ($D^2$)", 3),
-            (axes[2], bits, "test prediction (bits/spike)", 3),
-        ):
-            median = float(np.median(values))
-            axis.hist(values, bins=24, color="black", alpha=0.75)
-            axis.axvline(0, color="0.65", linestyle="--", linewidth=0.8)
-            axis.axvline(median, color="black", linewidth=1.5)
-            axis.text(
-                median,
-                1.01,
-                f"median = {median:.{digits}f}",
-                color="black",
-                transform=axis.get_xaxis_transform(),
-                ha="center",
-                va="bottom",
-            )
-            axis.set_xlabel(xlabel)
-            axis.set_ylabel("units")
-
-        _plot_bits_deviance_by_rate(axes[3], bits, deviance, training_rate)
-
-        label_panels(axes, -0.14)
-        figure.tight_layout(h_pad=2.0, w_pad=2.0)
-        return save_figure(figure, output), rate_deviance_rho
-
-
 def _plot_bits_deviance_by_rate(
-    axis, bits: np.ndarray, deviance: np.ndarray, rate: np.ndarray
+    axis,
+    bits: np.ndarray,
+    deviance: np.ndarray,
+    rate: np.ndarray,
+    marker: str = "o",
+    linestyle: str = "-",
+    label: bool = True,
 ) -> None:
     """Plot D² against bits/spike, with the units grouped by firing rate.
 
@@ -482,7 +133,6 @@ def _plot_bits_deviance_by_rate(
                     np.asarray([sem(deviance[b]) for b in bins]),
                 )
             )
-        longest = max(x[-1] for _, x, _, _ in lines)
         for (members, x, y, error), (name, color) in zip(
             lines, RATE_GROUP_COLORS.items(), strict=True
         ):
@@ -490,94 +140,54 @@ def _plot_bits_deviance_by_rate(
                 bits[members],
                 deviance[members],
                 color=color,
-                s=5,
+                s=6,
+                marker=marker,
                 alpha=0.5,
                 linewidths=0,
             )
             axis.fill_between(
                 x, y - error, y + error, color=color, alpha=0.3, linewidth=0
             )
-            axis.plot(x, y, color=color, marker="o", ms=3, linewidth=1.2)
-            # A line that ends left of the others has them on its right, so its
-            # label goes above its end.
-            right = x[-1] > 0.8 * longest
-            axis.annotate(
-                f"{name}\nfiring rate",
-                (x[-1], y[-1]),
-                xytext=(6, 0) if right else (-2, 6),
-                textcoords="offset points",
-                color=color,
-                ha="left" if right else "right",
-                va="center" if right else "bottom",
-                fontsize=7,
-                # A white outline keeps the label legible over single units.
-                path_effects=[withStroke(linewidth=2, foreground="white")],
+            axis.plot(
+                x, y, color=color, marker=marker, ms=3, linewidth=1.2, ls=linestyle
             )
+        if label:
+            # The lines of two groups can end close together, so the labels
+            # are a list in the empty upper left, in the colors of the lines.
+            axis.text(
+                0.03,
+                0.97,
+                "mean rate",
+                transform=axis.transAxes,
+                va="top",
+                fontsize=7,
+                color="0.3",
+            )
+            for row, (name, color) in enumerate(reversed(RATE_GROUP_COLORS.items())):
+                axis.text(
+                    0.03,
+                    0.89 - 0.08 * row,
+                    name,
+                    transform=axis.transAxes,
+                    va="top",
+                    fontsize=7,
+                    color=color,
+                )
     axis.set_xlim(left=0)
     axis.set_ylim(bottom=0)
     axis.set_xlabel("test prediction (bits/spike)")
     axis.set_ylabel(r"test deviance explained ($D^2$)")
 
 
-def plot_kernel_figure(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    task_names: list[str],
-    output: Path,
-) -> Path:
-    """Show every interpretable task and history kernel for the example unit."""
-    names = [*task_names, "history"]
-    rows = int(np.ceil(len(names) / 2))
-
-    with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 2.25 * rows))
-        grid = figure.add_gridspec(rows, 2)
-        axes = []
-        for index in range(len(names)):
-            location = (
-                grid[index // 2, :]
-                if len(names) % 2 and index == len(names) - 1
-                else grid[index // 2, index % 2]
-            )
-            axes.append(figure.add_subplot(location))
-        for axis, name in zip(axes, names, strict=True):
-            times_ms, values = kernels[name]
-            axis.plot(times_ms, values, color="black", linewidth=1.1)
-            axis.axhline(0, color="black", linestyle="--", linewidth=0.5)
-            if times_ms[0] <= 0 <= times_ms[-1]:
-                axis.axvline(0, color="black", linewidth=0.45)
-            axis.set_title(
-                "spike history" if name == "history" else TASK_LABELS[name],
-                fontsize=8,
-            )
-            axis.set_xlabel(
-                "time since spike (ms)" if name == "history" else "time from event (ms)"
-            )
-            axis.set_ylabel(
-                r"$\Delta$ log rate / spike"
-                if name == "history"
-                else r"$\Delta$ log rate",
-                fontsize=7,
-            )
-        label_panels(axes, -0.16)
-        task_limit = 1.05 * max(
-            np.max(np.abs(kernels[name][1]), initial=0.0) for name in task_names
-        )
-        if task_limit > 0:
-            for axis in axes[: len(task_names)]:
-                axis.set_ylim(-task_limit, task_limit)
-        figure.tight_layout(h_pad=1.8, w_pad=1.8)
-        return save_figure(figure, output)
-
-
-def plot_prediction_figure(
+def draw_prediction(
+    axes,
     relative_times: np.ndarray,
     observed: np.ndarray,
     predicted: np.ndarray,
     conditional: np.ndarray,
     valid: np.ndarray,
-    output: Path,
-) -> Path:
-    """Compare held-out observed and one-step-predicted spikes for the example unit."""
+) -> None:
+    """Draw held-out observed spikes, predicted spikes, and both rates on three axes."""
     observed = np.asarray(observed)
     predicted = np.asarray(predicted)
     conditional = np.asarray(conditional)
@@ -600,359 +210,68 @@ def plot_prediction_figure(
         relative_times[np.flatnonzero(shown)[-1]] + BINWIDTH_S / 2,
     )
 
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            3,
-            1,
-            figsize=(4.5, 5.8),
-            sharex=True,
-            gridspec_kw={"height_ratios": [1, 1, 1.2]},
-        )
-        for axis, counts, color in zip(
-            axes[:2], (observed, predicted), (OBSERVED_COLOR, MODEL_COLOR), strict=True
-        ):
-            for trial, keep in enumerate(valid, start=1):
-                missing = np.flatnonzero(~keep & shown)
-                if missing.size:
-                    axis.fill_betweenx(
-                        (trial - 0.4, trial + 0.4),
-                        relative_times[missing[0]] - BINWIDTH_S / 2,
-                        edges[1],
-                        color="0.94",
-                        linewidth=0,
-                        zorder=0,
-                    )
-            axis.eventplot(
-                _raster_events(counts, relative_times, valid),
-                colors=color,
-                lineoffsets=np.arange(1, trial_count + 1),
-                linelengths=0.8,
-                linewidths=0.3,
-            )
-            axis.set_ylim(0.5, trial_count + 0.5)
-            axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
-            axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
-
-        samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
-        binned_times = (
-            relative_times[: len(relative_times) // samples * samples]
-            .reshape(-1, samples)
-            .mean(axis=1)
-        )
-        for values, label, color in zip(
-            (observed, conditional),
-            ("observed", "predicted"),
-            (OBSERVED_COLOR, MODEL_COLOR),
-            strict=True,
-        ):
-            rate, keep = binned_rates(values, valid)
-            axes[2].plot(
-                binned_times[keep],
-                rate[keep],
-                color=color,
-                linewidth=1.15,
-                label=label,
-                drawstyle="steps-mid",
-            )
-        for row, (label, color) in enumerate(
-            (("observed", OBSERVED_COLOR), ("predicted", MODEL_COLOR))
-        ):
-            axes[2].text(
-                0.98,
-                0.97 - 0.09 * row,
-                label,
-                color=color,
-                transform=axes[2].transAxes,
-                ha="right",
-                va="top",
-            )
-        axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
-
-        label_panels(axes, -0.13)
-        axes[0].set_ylabel("observed\nheld-out trials")
-        axes[1].set_ylabel("predicted\nheld-out trials")
-        axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
-        axes[-1].set_xlim(*edges)
-        axes[-1].set_xlabel("time from first measured flash (s)")
-        figure.align_ylabels(axes)
-        figure.tight_layout(h_pad=0.8)
-        return save_figure(figure, output)
-
-
-def _plot_groups(
-    axis,
-    records: list[dict],
-    groups: tuple[str, ...],
-    metric: str,
-) -> None:
-    """Draw one population box plot per block, without unit points."""
-    values = [
-        np.asarray(
-            [
-                record[metric]
-                if group == "full_model"
-                else record["groups"][group][metric]
-                for record in records
-            ]
-        )
-        for group in groups
-    ]
-    positions = np.arange(len(groups))
-    boxes = axis.boxplot(
-        values,
-        positions=positions,
-        widths=0.58,
-        patch_artist=True,
-        showfliers=False,
-        medianprops={"color": "black", "linewidth": 0.8},
-        whiskerprops={"color": "0.3", "linewidth": 0.7},
-        capprops={"color": "0.3", "linewidth": 0.7},
-    )
-    for group, patch in zip(groups, boxes["boxes"], strict=True):
-        color = DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"])
-        patch.set(facecolor=color, edgecolor="black", alpha=0.45, linewidth=0.7)
-    axis.axhline(0, color="0.35", linestyle="--", linewidth=0.7, zorder=0)
-    axis.set_xticks(positions, [DEVIANCE_LABELS[group] for group in groups])
-    axis.tick_params(axis="x", labelrotation=48)
-    for label, group in zip(axis.get_xticklabels(), groups, strict=True):
-        label.set_ha("right")
-        label.set_color(DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"]))
-    axis.margins(x=0.04)
-
-
-def _block_color(group: str) -> str:
-    return DEVIANCE_COLORS.get(group, DEVIANCE_COLORS["task"])
-
-
-def plot_deviance_explained(samples: dict[str, list[dict]], output: Path) -> Path:
-    """Plot the deviance each regressor block explains, and how consistently.
-
-    `samples` maps a fit-set name to its unique-deviance unit records. Panels a
-    to c pool the units of all sets: (a) full-model D², (b) maximal and (c)
-    unique ΔD² per block, as boxes without unit points or outlier markers. (d)
-    Pooled median unique ΔD² against the column count of the block, on
-    logarithmic axes; the lines are the range over the sets, and a median at or
-    below zero cannot be drawn. (e) For each block, the fraction of units that
-    gain from it (one-sided t-test of the fold values of unique ΔD² against zero,
-    p < 0.05), that lose, and that have no reliable change; the dotted line is the
-    gain fraction expected by chance.
-    """
-    records = [record for sample in samples.values() for record in sample]
-    table = block_table(samples)
-    with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(10.5, 7.2))
-        # Fixed positions: the rotated block labels of the top row and the long
-        # block labels of panel e are too large for an automatic layout. Panel a
-        # has one box, so it is narrow.
-        top = figure.add_gridspec(
-            1,
-            3,
-            width_ratios=(0.55, 3, 3),
-            left=0.07,
-            right=0.99,
-            top=0.95,
-            bottom=0.60,
-            wspace=0.42,
-        )
-        bottom = figure.add_gridspec(
-            1,
-            2,
-            width_ratios=(1, 1.15),
-            left=0.09,
-            right=0.98,
-            top=0.37,
-            bottom=0.07,
-            wspace=0.62,
-        )
-        axes = [
-            figure.add_subplot(top[0]),
-            figure.add_subplot(top[1]),
-            figure.add_subplot(top[2]),
-            figure.add_subplot(bottom[0]),
-            figure.add_subplot(bottom[1]),
-        ]
-        _plot_groups(
-            axes[0], records, ("full_model",), "complete_test_deviance_explained"
-        )
-        _plot_groups(axes[1], records, DETAILED_GROUPS, MAXIMAL)
-        _plot_groups(axes[2], records, DETAILED_GROUPS, UNIQUE)
-        axes[0].set_ylabel(r"full-model test deviance explained ($D^2$)")
-        axes[1].set_ylabel(r"maximal deviance explained ($\Delta D^2$)")
-        axes[2].set_ylabel(r"unique deviance explained ($\Delta D^2$)")
-
-        for group in DETAILED_GROUPS:
-            block = table["blocks"][group]
-            medians = block["unique_median_by_sample"]
-            columns = float(np.mean(block["columns"]))
-            color = _block_color(group)
-            axes[3].vlines(
-                columns, min(medians), max(medians), color=color, linewidth=1
-            )
-            axes[3].hlines(
-                block["unique_median"],
-                min(block["columns"]),
-                max(block["columns"]),
-                color=color,
-                linewidth=1,
-            )
-            axes[3].scatter(
-                columns, block["unique_median"], s=22, color=color, zorder=3
-            )
-            left = columns <= 6
-            axes[3].annotate(
-                DEVIANCE_LABELS[group],
-                (columns if left else max(block["columns"]), block["unique_median"]),
-                xytext=(-5 if left else 5, 0),
-                textcoords="offset points",
-                ha="right" if left else "left",
-                va="center",
-                fontsize=6,
-                color=color,
-            )
-        axes[3].set_xscale("log")
-        axes[3].set_yscale("log")
-        # Room on the left for the labels of the six-column blocks.
-        axes[3].set_xlim(0.1, 200)
-        axes[3].set_xticks([1, 10, 100])
-        axes[3].set_xlabel("design columns of the regressor")
-        axes[3].set_ylabel("median unique deviance\n" r"explained ($\Delta D^2$)")
-
-        # One stacked bar per block: units that gain, units with no reliable
-        # change, and units that lose.
-        positions = np.arange(len(DETAILED_GROUPS))[::-1]
-        for position, group in zip(positions, DETAILED_GROUPS, strict=True):
-            block = table["blocks"][group]
-            gain, loss = block["gain_fraction"], block["loss_fraction"]
-            axes[4].barh(position, gain, color=_block_color(group), height=0.7)
-            axes[4].barh(position, 1 - gain - loss, left=gain, color="0.88", height=0.7)
-            axes[4].barh(position, loss, left=1 - loss, color="0.35", height=0.7)
-            axes[4].text(
-                gain + 0.015, position, f"{gain:.0%}", va="center", fontsize=6.5
-            )
-        top = len(DETAILED_GROUPS) - 0.45
-        for x, label, color, align in (
-            (0, "predicted better\nwith the regressor", "black", "left"),
-            (0.5, "no reliable\nchange", "0.5", "center"),
-            (1, "predicted worse\nwith the regressor", "0.35", "right"),
-        ):
-            axes[4].text(x, top, label, color=color, ha=align, va="bottom", fontsize=7)
-        # Dotted line: the gain fraction expected by chance for a block with no effect.
-        axes[4].axvline(RELIABLE_ALPHA, color="black", linestyle=":", linewidth=0.8)
-        axes[4].set_xlim(0, 1)
-        axes[4].set_ylim(-0.6, len(DETAILED_GROUPS) - 0.1)
-        axes[4].set_xlabel(
-            "fraction of units (t-test of unique "
-            f"$\\Delta D^2$ against 0, p < {RELIABLE_ALPHA:g})"
-        )
-        axes[4].set_yticks(positions, [DEVIANCE_LABELS[g] for g in DETAILED_GROUPS])
-        for label, group in zip(
-            axes[4].get_yticklabels(), DETAILED_GROUPS, strict=True
-        ):
-            label.set_color(_block_color(group))
-
-        label_panels((axes[0],), -0.9, 1.04)
-        label_panels((None, *axes[1:4]), -0.16, 1.04)
-        label_panels((None, None, None, None, axes[4]), -0.45, 1.04)
-        return save_figure(figure, output)
-
-
-def plot_fit(fit_dir: Path) -> None:
-    """Write this fit's figures inside its own artifact directory.
-
-    These population panels use the saved per-unit records.
-    """
-    figure_dir = fit_dir
-    checkpoints = fit_dir / "checkpoints"
-    results = load_unit_records(checkpoints, "unit_*_final.json")
-    selections = load_unit_records(checkpoints, "unit_*_validation.json")
-    if len(results) != len(selections):
-        raise ValueError("Final and validation result counts differ.")
-
-    summary, rate_deviance_rho = plot_population_summary(
-        results, selections, figure_dir / "summary"
-    )
-    written = {"summary": str(summary)}
-    payload = {
-        "training_rate_test_deviance_spearman_rho": rate_deviance_rho,
-        "figure_dir": str(figure_dir),
-        "figures": written,
-    }
-    print(json.dumps(payload, indent=2))
-
-
-def plot_example_unit(
-    windows: Path, design: Path, fit_dir: Path, example_id: int
-) -> None:
-    """Write the kernel, model-design, and prediction figures of one unit."""
-    figure_dir = fit_dir
-    written = {}
-    write_figure_data(windows, design, fit_dir, example_id)
-    data = np.load(fit_dir / "figure_data.npz", allow_pickle=False)
-    with (fit_dir / "figure_data.json").open() as handle:
-        meta = json.load(handle)
-
-    written["fitted_kernels"] = str(
-        plot_kernel_figure(
-            {
-                name: (data[f"kern_t__{name}"], data[f"kern_v__{name}"])
-                for name in meta["kernel_keys"]
-            },
-            meta["display_task_names"],
-            figure_dir / "fitted_kernels",
-        )
-    )
-    written["model_design"] = str(
-        plot_model_design(
-            data["model_times"],
-            data["model_counts"],
-            data["motion_times"],
-            data["motion_scores"],
-            {
-                name: data[f"event__{name}"]
-                for name in (
-                    "visual_flash",
-                    "initiation",
-                    "withdrawal",
-                    "response_entry",
+    for axis, counts, color in zip(
+        axes[:2], (observed, predicted), (OBSERVED_COLOR, MODEL_COLOR), strict=True
+    ):
+        for trial, keep in enumerate(valid, start=1):
+            missing = np.flatnonzero(~keep & shown)
+            if missing.size:
+                axis.fill_betweenx(
+                    (trial - 0.4, trial + 0.4),
+                    relative_times[missing[0]] - BINWIDTH_S / 2,
+                    edges[1],
+                    color="0.94",
+                    linewidth=0,
+                    zorder=0,
                 )
-            },
-            {
-                name: data[f"contrib__{name}"]
-                for name in ("visual", "task", "video", "history")
-            },
-            data["linear_predictor"],
-            data["fitted_count"],
-            {"task_manifest": meta["task_manifest"]},
-            figure_dir / "model_design",
+        axis.eventplot(
+            _raster_events(counts, relative_times, valid),
+            colors=color,
+            lineoffsets=np.arange(1, trial_count + 1),
+            linelengths=0.8,
+            linewidths=0.3,
         )
+        axis.set_ylim(0.5, trial_count + 0.5)
+        axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
+        axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
+
+    samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
+    binned_times = (
+        relative_times[: len(relative_times) // samples * samples]
+        .reshape(-1, samples)
+        .mean(axis=1)
     )
-    prediction_observed = data["prediction_observed"]
-    conditional = data["conditional"]
-    test_valid = data["test_valid"]
-    seed = PREDICTION_SEED + int(meta["example_unit_id"])
-    predicted = np.zeros_like(prediction_observed, dtype=int)
-    predicted[test_valid] = np.random.default_rng(seed).poisson(conditional[test_valid])
-    written["predicted_spike_trains"] = str(
-        plot_prediction_figure(
-            data["relative_times"],
-            prediction_observed,
-            predicted,
-            conditional,
-            test_valid,
-            figure_dir / "predicted_spike_trains",
+    for values, label, color in zip(
+        (observed, conditional),
+        ("observed", "predicted"),
+        (OBSERVED_COLOR, MODEL_COLOR),
+        strict=True,
+    ):
+        rate, keep = binned_rates(values, valid)
+        axes[2].plot(
+            binned_times[keep],
+            rate[keep],
+            color=color,
+            linewidth=1.15,
+            label=label,
+            drawstyle="steps-mid",
         )
-    )
-    print(
-        json.dumps(
-            {
-                "figures": written,
-                **{k: v for k, v in meta.items() if not isinstance(v, list)},
-                "prediction_observed_spikes": int(
-                    prediction_observed[test_valid].sum()
-                ),
-                "prediction_sampled_spikes": int(predicted[test_valid].sum()),
-                "prediction_seed": seed,
-            },
-            indent=2,
+    for row, (label, color) in enumerate(
+        (("observed", OBSERVED_COLOR), ("predicted", MODEL_COLOR))
+    ):
+        axes[2].text(
+            0.98,
+            0.97 - 0.09 * row,
+            label,
+            color=color,
+            transform=axes[2].transAxes,
+            ha="right",
+            va="top",
         )
-    )
+    axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
+
+    axes[0].set_ylabel("observed\nheld-out trials")
+    axes[1].set_ylabel("predicted\nheld-out trials")
+    axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
+    axes[2].set_xlim(*edges)
+    axes[2].set_xlabel("time from first flash (s)")

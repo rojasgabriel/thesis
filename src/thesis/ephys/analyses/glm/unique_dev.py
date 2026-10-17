@@ -15,11 +15,19 @@ the motion-energy block taken from another trial at the same time in the trial
 energy in a trial, so this value is the part of the unique ΔD² that needs the
 movement of that specific trial.
 
-A shuffle permutes design rows among the valid bins of each trial. All columns
-of a block move together. One permutation (`SHUFFLE_SEED`) is shared by all
+A shuffle permutes design rows among the valid bins of each trial. A block
+that is a variable of the trial (`OVER_TRIALS`: drift, the previous outcome) is
+instead taken from another trial at the same bin (`trial_swap_permutation`),
+because a shuffle inside the trial keeps its value there. A block that is a
+side (±1) on a time course of the trial itself (`SIGN_OVER_TRIALS`: the previous
+side, the side of the response, the turn direction) keeps its own rows and
+takes the sign of the other trial: taking the rows of the other trial would
+also move a time course that is aligned to the events of that trial, and
+test the timing and not the side (2026-10-16). All columns of a block move
+together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
-three broad groups (task, video, history) and the eight groups in
-`DETAILED_GROUPS`.
+three broad groups (task, video, history) and each regressor of the design
+(the task manifest of the saved design).
 
 Units, event alignment, excluded bins and units, and the D² null (a constant
 rate equal to the fit-trial mean) are the same as in `fit.py`. The sampling
@@ -33,10 +41,14 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import sem, ttest_1samp, wilcoxon
+from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
+    DRIFT,
     HISTORY_COLUMNS,
+    PREVIOUS_OUTCOME,
+    PREVIOUS_SIDE,
+    TURN_DIRECTION,
     _design_with_history,
     _load_windows,
     build_unit_history,
@@ -54,22 +66,16 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
+# The regressors that are a variable of the trial, shuffled over trials.
+OVER_TRIALS = (DRIFT, PREVIOUS_OUTCOME)
+# The regressors that are a side (±1) on a time course of the trial: the sign
+# is shuffled over trials, the time course stays.
+SIGN_OVER_TRIALS = (PREVIOUS_SIDE, TURN_DIRECTION)
+# The name of the shuffle rule, saved in each record.
+SHUFFLE_RULE = "trial variables over trials, sides by sign, 2026-10-16"
+
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
-DETAILED_GROUPS = (
-    "visual_flash",
-    "flash_pre_post_withdrawal",
-    "flash_adaptation",
-    "flash_motion_energy",
-    "initiation",
-    "withdrawal",
-    "response_entry",
-    "video",
-    "history",
-)
-GROUP_ORDER = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
-# Regressors that are shuffled together, to test whether they replace each other.
-JOINT_GROUPS = {"flash_movement": ("flash_pre_post_withdrawal", "flash_motion_energy")}
 RELIABLE_ALPHA = 0.05
 UNIQUE = "unique_test_deviance_explained"
 MAXIMAL = "maximal_test_deviance_explained"
@@ -92,8 +98,6 @@ def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
         cursor = stop
     if cursor != task_columns:
         raise ValueError("Task manifest and task-column count differ.")
-    for name, members in JOINT_GROUPS.items():
-        groups[name] = tuple(groups[member] for member in members)
     return groups
 
 
@@ -150,7 +154,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
         "maximal_test_deviance_explained_sem",
     )
     rows = []
-    for group in GROUP_ORDER:
+    for group in records[0]["groups"]:  # the groups of the fitted design
         values = np.asarray(
             [
                 record["groups"][group]["unique_test_deviance_explained"]
@@ -210,6 +214,18 @@ def _block_task(job: dict) -> dict:
     within = _SHARED["within_trial"]
     between = _SHARED["between_trials"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
+    # For a side on a time course: +1 or -1 in each row, so that a trial keeps
+    # its block and takes the side of its partner in `between`.
+    trials = len(prepared["alignments"])
+    bins = len(between) // trials
+    partner = between.reshape(trials, bins)[:, 0] // bins
+    flips = {}
+    for name in SIGN_OVER_TRIALS:
+        if name in groups:
+            block = np.asarray(common[:, groups[name]]).reshape(trials, bins, -1)
+            side = np.sign(block.sum((1, 2)))
+            side[side == 0] = 1
+            flips[name] = np.repeat(side[partner] * side, bins)
     complete_folds, trial_specific = [], []
     for fold_index, (fold, alpha) in enumerate(
         _scored_folds(counts, _SHARED["partitions"], job["alphas"]), start=1
@@ -245,17 +261,18 @@ def _block_task(job: dict) -> dict:
         # Each fold copies its train and test rows only once. `mapping` is a row
         # permutation, or None to restore the real rows.
         def put(columns, mapping):
-            if isinstance(columns, tuple):  # a joint group of several regressors
-                for part in columns:
-                    put(part, mapping)
-                return
             width = job["common_columns"]
             if columns.stop <= width:
                 source = np.asarray(common[:, columns])
             else:
                 source = history[:, columns.start - width : columns.stop - width]
             for matrix, rows in ((fit_design, fit_rows), (test_design, test_rows)):
-                matrix[:, columns] = source[rows if mapping is None else mapping[rows]]
+                if isinstance(mapping, tuple):  # ("sign", +1 or -1 in each row)
+                    matrix[:, columns] = source[rows] * mapping[1][rows, None]
+                else:
+                    matrix[:, columns] = source[
+                        rows if mapping is None else mapping[rows]
+                    ]
 
         # Control: motion energy of another trial at the same time in the trial.
         if "video" in order:
@@ -264,25 +281,35 @@ def _block_task(job: dict) -> dict:
             put(groups["video"], None)
 
         # These detailed blocks are non-overlapping and cover the full model.
-        blocks = [groups[name] for name in DETAILED_GROUPS]
-        for columns in blocks:
-            put(columns, within)
+        blocks = [name for name in order if name != "task"]
+
+        def shuffle_of(name):
+            # A variable of the trial (drift, the previous side, the side of the
+            # response, the turn direction, the previous outcome) is shuffled over trials. A
+            # shuffle inside a trial keeps its sign there, so it would test only
+            # when the column turns on, not the variable.
+            if name in flips:
+                return ("sign", flips[name])
+            return between if name in OVER_TRIALS else within
+
+        for name in blocks:
+            put(groups[name], shuffle_of(name))
         reference = score("all regressor groups shuffled")
-        for columns in blocks:
-            put(columns, None)
+        for name in blocks:
+            put(groups[name], None)
 
         for group in order:
             columns = groups[group]
-            put(columns, within)
+            put(columns, shuffle_of(group))
             removed = score(f"{group} shuffled")
             put(columns, None)
 
-            for other in blocks:
-                put(other, within)
+            for name in blocks:
+                put(groups[name], shuffle_of(name))
             put(columns, None)
             alone = score(f"only {group} unshuffled")
-            for other in blocks:
-                put(other, None)
+            for name in blocks:
+                put(groups[name], None)
 
             per_fold[group]["unique"].append(complete - removed)
             per_fold[group]["maximal"].append(alone - reference)
@@ -324,84 +351,12 @@ def _block_task(job: dict) -> dict:
         "depth": job["depth"],
         "video_components": job["video_components"],
         "shuffle_seed": SHUFFLE_SEED,
+        "shuffle_rule": SHUFFLE_RULE,
         "folds": len(complete_folds),
         "complete_test_deviance_explained": float(np.mean(complete_folds)),
         "groups": group_results,
     }
     return record
-
-
-def block_table(samples: dict[str, list[dict]]) -> dict:
-    """Summarize each block within each sample and over all units."""
-    complete = np.concatenate(
-        [
-            [record["complete_test_deviance_explained"] for record in records]
-            for records in samples.values()
-        ]
-    )
-    table = {
-        "samples": list(samples),
-        "units": int(len(complete)),
-        "complete_d2_median": float(np.median(complete)),
-        "reliable_alpha": RELIABLE_ALPHA,
-        "blocks": {},
-    }
-    for group in DETAILED_GROUPS:
-        per_sample = []
-        for records in samples.values():
-            entries = [record["groups"][group] for record in records]
-            unique = np.asarray([entry[UNIQUE] for entry in entries])
-            # Does this unit gain or lose? Test its fold values against zero,
-            # one-sided in each direction.
-            gain_p, loss_p = (
-                np.asarray(
-                    [
-                        ttest_1samp(
-                            entry["folds"]["unique"], 0, alternative=side
-                        ).pvalue
-                        for entry in entries
-                    ]
-                )
-                for side in ("greater", "less")
-            )
-            per_sample.append(
-                {
-                    "columns": int(entries[0]["columns"]),
-                    "unique": unique,
-                    "maximal": np.asarray([entry[MAXIMAL] for entry in entries]),
-                    "reliable_fraction": float(np.mean(gain_p < RELIABLE_ALPHA)),
-                    "gain": gain_p < RELIABLE_ALPHA,
-                    "loss": loss_p < RELIABLE_ALPHA,
-                    "wilcoxon_p": float(wilcoxon(unique, alternative="greater").pvalue),
-                }
-            )
-        pooled_unique = np.concatenate([item["unique"] for item in per_sample])
-        share = float(np.median(pooled_unique)) / table["complete_d2_median"]
-        reliable = [item["reliable_fraction"] for item in per_sample]
-        table["blocks"][group] = {
-            "columns": [item["columns"] for item in per_sample],
-            "unique_median_by_sample": [
-                float(np.median(item["unique"])) for item in per_sample
-            ],
-            "maximal_median_by_sample": [
-                float(np.median(item["maximal"])) for item in per_sample
-            ],
-            "reliable_fraction_by_sample": reliable,
-            "gain_fraction": float(
-                np.mean(np.concatenate([item["gain"] for item in per_sample]))
-            ),
-            "loss_fraction": float(
-                np.mean(np.concatenate([item["loss"] for item in per_sample]))
-            ),
-            "wilcoxon_p_by_sample": [item["wilcoxon_p"] for item in per_sample],
-            "unique_median": float(np.median(pooled_unique)),
-            "unique_q25_q75": np.quantile(pooled_unique, [0.25, 0.75]).tolist(),
-            "maximal_median": float(
-                np.median(np.concatenate([item["maximal"] for item in per_sample]))
-            ),
-            "share_of_complete_d2": share,
-        }
-    return table
 
 
 def run_unique(
@@ -410,15 +365,8 @@ def run_unique(
     fit_dir: Path,
     unit_set: str,
     workers: int | None = None,
-    joint: bool = False,
 ) -> None:
-    """Fit same-width shuffled comparators; plot the summary and the example unit.
-
-    With `joint`, score only the groups in `JOINT_GROUPS` (regressors shuffled
-    together) and write `unique_deviance/joint_summary.json`. If the joint
-    unique ΔD² is much larger than the sum of the single values, the regressors
-    in the group replace each other.
-    """
+    """Fit same-width shuffled comparators; plot the summary and the example unit."""
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
     with design_path.with_suffix(".json").open() as handle:
@@ -454,7 +402,7 @@ def run_unique(
     )
     unit_rows = analysis_unit_indices(units, unit_set)
     output_dir = fit_dir / "unique_deviance"
-    checkpoint_dir = checkpoints / ("unique_joint" if joint else "unique")
+    checkpoint_dir = checkpoints / "unique"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     jobs = [
@@ -465,7 +413,8 @@ def run_unique(
             "video_components": video_components,
             "common_columns": common_columns,
             "groups": groups,
-            "group_order": tuple(JOINT_GROUPS) if joint else GROUP_ORDER,
+            # The broad groups, then every regressor of this design.
+            "group_order": tuple(dict.fromkeys((*BROAD_GROUPS, *groups))),
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(
                 checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"
@@ -478,6 +427,18 @@ def run_unique(
     if missing:
         raise ValueError(
             f"{missing} units have no cross-validated record; run fit again."
+        )
+    # A saved record is reused when its file exists (`fit._run_one`). A record of
+    # another shuffle rule must not be reused.
+    stale = [
+        path.name
+        for path in checkpoint_dir.glob("unit_*.json")
+        if json.loads(path.read_text()).get("shuffle_rule") != SHUFFLE_RULE
+    ]
+    if stale:
+        raise ValueError(
+            f"{len(stale)} records in {checkpoint_dir} were made with another "
+            "shuffle rule; move that folder aside and run again."
         )
     print(
         f"Starting unique-deviance analysis: {len(jobs)} units, "
@@ -494,54 +455,11 @@ def run_unique(
         shuffle_seed=SHUFFLE_SEED,
     )
 
-    if joint:
-        single = {
-            int(item["unit_id"]): item
-            for item in load_unit_records(checkpoints / "unique", "unit_*.json")
-        }
-        summary = {"units": len(records)}
-        for name, members in JOINT_GROUPS.items():
-            joint_unique = np.asarray(
-                [record["groups"][name][UNIQUE] for record in records]
-            )
-            single_sum = np.asarray(
-                [
-                    sum(
-                        single[int(record["unit_id"])]["groups"][member][UNIQUE]
-                        for member in members
-                    )
-                    for record in records
-                ]
-            )
-            summary[name] = {
-                "members": list(members),
-                "joint_unique_median": float(np.median(joint_unique)),
-                "sum_of_single_unique_median": float(np.median(single_sum)),
-                "joint_minus_sum_median": float(np.median(joint_unique - single_sum)),
-                "fraction_units_joint_above_sum": float(
-                    np.mean(joint_unique > single_sum)
-                ),
-                "joint_maximal_median": float(
-                    np.median([record["groups"][name][MAXIMAL] for record in records])
-                ),
-            }
-        output_dir.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(output_dir / "joint_summary.json", summary)
-        print(json.dumps(summary, indent=2))
-        return
-
     summary = _write_summary(records, output_dir)
-    from thesis.ephys.analyses.glm.figures import (
-        plot_deviance_explained,
-        plot_example_unit,
-    )
-    from thesis.ephys.analyses.glm.results import example_unit_id
+    from thesis.ephys.analyses.glm.results import example_unit_id, write_figure_data
 
-    figure_path = plot_deviance_explained(
-        {unit_set: records}, fit_dir / "deviance_explained"
-    )
-    print(json.dumps({**summary, "figure": str(figure_path)}, indent=2))
+    print(json.dumps(summary, indent=2))
     final_records = load_unit_records(checkpoints, "unit_*_final.json")
-    plot_example_unit(
+    write_figure_data(
         windows, design_path, fit_dir, example_unit_id(records, final_records)
     )
