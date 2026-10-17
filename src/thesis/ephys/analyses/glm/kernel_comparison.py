@@ -52,7 +52,11 @@ import numpy as np
 from matplotlib.patheffects import withStroke
 from scipy.stats import rankdata
 
-from thesis.ephys.analyses.glm.dmat import HISTORY_COLUMNS, flash_gap_names
+from thesis.ephys.analyses.glm.dmat import (
+    FLASH_GAP_EDGES_S,
+    HISTORY_COLUMNS,
+    gap_flash_terms,
+)
 from thesis.ephys.analyses.glm.fit import _write_json_atomic, load_unit_records
 from thesis.ephys.analyses.glm.results import (
     block_deviance_rate,
@@ -73,8 +77,8 @@ def load_units(root: Path, unit_set: str) -> list[dict]:
     """Return each unit's final fit, block norms, and block deviance rates."""
     with (root / "common_design_me.json").open() as handle:
         design = json.load(handle)
-    # The flash kernels of the gap classes: the first regressors of the design.
-    gap_names = flash_gap_names()
+    # The flash kernels that code the gap: the first regressors of the design.
+    gap_names = gap_flash_terms()
     manifest = [item["name"] for item in design["task_manifest"]]
     if manifest[: len(gap_names)] != gap_names:
         raise ValueError("The design does not start with the flash kernels by gap.")
@@ -143,7 +147,8 @@ def plot_kernel_comparison(
 ) -> Path:
     kernels = {
         name: fitted_kernels(unit["fit"], design, np.ones(HISTORY_COLUMNS))[
-            flash_gap_names()[-1]
+            # The response at a long gap: the last class, or the common kernel.
+            gap_flash_terms()[-1] if FLASH_GAP_EDGES_S else gap_flash_terms()[0]
         ]
         for name, unit in examples.items()
     }

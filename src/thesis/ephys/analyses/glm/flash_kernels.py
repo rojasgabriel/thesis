@@ -155,6 +155,8 @@ def session_kernels(root: Path, unit_set: str) -> dict:
         ]
         for term in (
             *dmat.flash_gap_names(),
+            dmat.FLASH_COMMON,
+            dmat.FLASH_JUST_BEFORE,
             dmat.FLASH_AFTER_EXIT,
             dmat.FLASH_MOVE_GAP,
         )
@@ -259,7 +261,7 @@ def gap_flashes(trials) -> list[tuple[np.ndarray, np.ndarray]]:
         keep &= np.isfinite(gaps)
         rows.append(np.full(int(keep.sum()), row))
         times.append(flashes[keep])
-        short.append(gaps[keep] < dmat.FLASH_GAP_EDGES_S[0])
+        short.append(gaps[keep] < dmat.short_gap_s())
     rows, times, short = (np.concatenate(values) for values in (rows, times, short))
     return [(rows[~short], times[~short]), (rows[short], times[short])]
 

@@ -323,7 +323,7 @@ def main() -> None:
     }
     # "flash": the flash kernels of all gap classes together.
     blocks = {
-        "flash": dmat.flash_gap_names(),
+        "flash": dmat.gap_flash_terms(),
         "video": ["video"],
         "history": ["history"],
     }

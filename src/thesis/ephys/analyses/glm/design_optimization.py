@@ -13,9 +13,11 @@ design with one term in another form, on the same units of GRB006
 unit minus its D² with the form in use (paired). D² is relative to the
 constant-rate model, on the validation trials.
 
-- Panel a (`gap_class_grid.py`): one flash kernel, one kernel with a second
-  kernel for a flash just before (the same columns as two classes in another
-  form), and three or four gap classes, against the two classes in use.
+- Panel a (`gap_class_grid.py`): one flash kernel, two to four gap classes
+  (two classes have the same columns as the form in use), and the centered
+  coding of flash × move, against the form in use: one kernel and a kernel for
+  a flash up to 50 ms before, with flash × move coded 0 in the port and 1
+  after the exit.
 - Panel b (`flash_length_grid.py`): flash kernels of 200, 250, and 300 ms
   against the 150 ms in use.
 - Panel c (`hold_grid.py`): no fixation term, a step, a step with a kernel on
@@ -123,6 +125,7 @@ GRIDS = {
 # Tick labels that differ from the name of the design in its grid.
 LABELS = {
     "40 | 80+": "40,\n80+",
+    "centered\nexit term": "centered\nexit\nterm",
     "1 kernel +\nflash before": "1 kernel\n+ flash\nbefore",
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
@@ -134,6 +137,8 @@ LABELS = {
 CAPTION_NAMES = {
     "1 kernel": "one kernel for all flashes",
     "1 kernel + flash before": "one kernel with a flash-just-before kernel",
+    "40 | 80+": "two gap classes (the form to 2026-10-16)",
+    "centered exit term": "the centered flash × move coding (to 2026-10-16)",
     "40 | 80-120 | 160+": "three classes (40, 80 to 120, 160+)",
     "40 | 80 | 120+": "three classes (40, 80, 120+)",
     "40 | 80 | 120 | 160+": "four classes",
@@ -166,8 +171,8 @@ two sets). A point is one unit: its validation D² with that form minus its D²
 with the one in use (open point at zero). The black line is the median. Marks
 are two-sided Wilcoxon signed-rank tests of the differences against zero
 (n.s., p ≥ 0.05; \\*, p < 0.05; \\*\\*, p < 0.01; \\*\\*\\*, p < 0.001).
-**a**, Flash kernels by the gap from the flash before, against the two gap
-classes in use. {gap_class_grid} **b**, Length of the flash kernels, against
+**a**, Flash kernels by the gap from the flash before, against the form in
+use (one kernel and a kernel for a flash up to 50 ms before). {gap_class_grid} **b**, Length of the flash kernels, against
 150 ms. {flash_length_grid} **c**, Form of the fixation term, against the
 log-spaced kernel in use. {hold_grid} **d**, End of the fixation kernel (10
 cosines; after the end the kernel keeps its last value to the exit), against

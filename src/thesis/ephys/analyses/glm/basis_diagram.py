@@ -42,7 +42,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("figures/glm"))
     args = parser.parse_args()
     task = dmat.task_temporal_bases()
-    flash, hold = task[dmat.flash_gap_names()[0]], task["hold"]
+    flash, hold = task[dmat.gap_flash_terms()[0]], task["hold"]
     exit, history = dmat.exit_basis(), dmat.spike_history_basis()
     session = np.linspace(0, 1, 500)
     # The function that is left out is 1 minus the sum of the columns.

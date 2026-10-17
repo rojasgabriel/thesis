@@ -104,6 +104,7 @@ DRIFT_COLOR = "0.4"  # not a variable of the task
 REGRESSORS = {
     "history": ("spike history", HISTORY),
     "visual_flash": ("flash", VISUAL),
+    "flash_just_before": ("flash × short gap", VISUAL),
     "flash_gap_1": ("flash, 40 ms gap", VISUAL),
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
@@ -245,6 +246,18 @@ def design_rows(components: int) -> list[tuple]:
     entry, leave, response = (SCHEMATIC[key] for key in ("entry", "exit", "response"))
     start = -dmat.PRE_S
     rows = []
+    if dmat.FLASH_JUST_BEFORE_TERM and not dmat.FLASH_GAP_EDGES_S:
+        rows += [
+            ("visual_flash", dmat.FLASH_BASES, "flash", "all", None, "every flash"),
+            (
+                "flash_just_before",
+                dmat.FLASH_BASES,
+                "flash",
+                "short",
+                None,
+                f"a flash ≤ {1000 * dmat.FLASH_JUST_BEFORE_S:.0f} ms after another",
+            ),
+        ]
     if dmat.FLASH_GAP_EDGES_S:
         rows += [
             (
@@ -361,8 +374,9 @@ def _plot_design(axis, components: int) -> None:
     start = -dmat.PRE_S
     flashes = SCHEMATIC_FLASHES
     gaps = np.diff(flashes, prepend=-np.inf)
-    edge = dmat.FLASH_GAP_EDGES_S[0] if dmat.FLASH_GAP_EDGES_S else np.inf
+    edge = dmat.short_gap_s()
     picked = {
+        "all": flashes,
         "short": flashes[gaps <= edge],
         "long": flashes[gaps > edge],
         "after": flashes[flashes >= leave],

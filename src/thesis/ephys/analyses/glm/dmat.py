@@ -60,16 +60,21 @@ FLASH_BASES = 8
 # classes do not predict better on 80 units or on all units. An earlier design
 # had one common kernel with a fast-adaptation and a flash-recovery term,
 # which were correlated (-0.86) and could not be read one by one.
-FLASH_GAP_EDGES_S = (0.05,)
+# From 2026-10-17 the design has the two classes in the form of a modifier
+# (`FLASH_JUST_BEFORE_TERM`): no classes here.
+FLASH_GAP_EDGES_S = ()
 FLASH_GAP = "flash_gap"
 FLASH_COMMON = "visual_flash"
-# Another form of the same two gap classes, for `gap_class_grid.py`: with no
-# gap classes, one common kernel on every flash plus a second kernel on the
-# flashes with a flash up to `FLASH_JUST_BEFORE_S` before them. The columns
-# span the same space as the two classes (common = the longer-gap kernel; the
-# second kernel = the 40 ms kernel minus it); only the L2 penalty differs: it
-# pulls the difference between the gaps to zero, not each kernel.
-FLASH_JUST_BEFORE_TERM = False
+# The gap from the flash before, as a modifier (the design from 2026-10-17,
+# decided with Gabriel for a reading in words): one common kernel on every
+# flash, and a second kernel on the flashes with a flash up to
+# `FLASH_JUST_BEFORE_S` before them. So the common kernel is the response to a
+# flash after a long gap, and the second kernel is how a flash just before
+# changes it. The columns span the same space as two gap classes
+# (`FLASH_GAP_EDGES_S = (0.05,)`, the design to 2026-10-16), which predict the
+# same (`gap_class_grid.py`); only the L2 penalty differs: it pulls the change
+# to zero, not each class kernel.
+FLASH_JUST_BEFORE_TERM = True
 FLASH_JUST_BEFORE = "flash_just_before"
 FLASH_JUST_BEFORE_S = 0.05
 # The flashes come in slots of this length.
@@ -163,6 +168,8 @@ FLASH_AFTER_EXIT_TERM = True
 # flash after the center exit "move", and this term "flash × move". These are
 # task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
+# The coding of the design to 2026-10-16, for a comparison.
+FLASH_AFTER_EXIT_CENTERED = False
 # A flash kernel for the product of the period and the gap class: with it, the
 # change from the fixation to after the exit can differ between the gap classes.
 # In the model from 2026-10-13 to 2026-10-15 (`candidate_terms.py`: about a
@@ -490,6 +497,18 @@ def flash_gap_names() -> list[str]:
     ] * bool(FLASH_GAP_EDGES_S)
 
 
+def gap_flash_terms() -> list[str]:
+    """Return the flash terms that code the gap: the classes, or common + modifier."""
+    if FLASH_GAP_EDGES_S:
+        return flash_gap_names()
+    return [FLASH_COMMON, *[FLASH_JUST_BEFORE] * FLASH_JUST_BEFORE_TERM]
+
+
+def short_gap_s() -> float:
+    """Return the limit of a short gap: the first class limit, or the modifier's."""
+    return FLASH_GAP_EDGES_S[0] if FLASH_GAP_EDGES_S else FLASH_JUST_BEFORE_S
+
+
 def flash_gap_class(trials) -> np.ndarray:
     """Return the gap class of each modeled flash, in the order of `flash_events`.
 
@@ -536,13 +555,15 @@ def flash_events(trials) -> np.ndarray:
 
 
 def flash_after_exit(trials) -> np.ndarray:
-    """Return the centered period of each modeled flash, in the order of `flash_events`.
+    """Return the period of each modeled flash, in the order of `flash_events`.
 
-    1 for a flash at or after the center exit and 0 for a flash in the fixation,
-    minus the mean over those flashes. The first flash of a trial gets 0 (no
-    contrast): it is always in the fixation, and the first bases of the hold
-    kernel already hold its response. The period is that of the flash time; the
-    kernel of a flash just before the exit goes on after it.
+    1 for a flash at or after the center exit and 0 for a flash in the
+    fixation, so the common flash kernel is the response in the port and the
+    flash × move kernel is how the exit changes it (to 2026-10-16 the values
+    were centered, which made the common kernel a mean of the two periods).
+    With `FLASH_AFTER_EXIT_CENTERED` they are centered again. The first flash
+    of a trial gets 0: it is always in the fixation. The period is that of the
+    flash time; the kernel of a flash just before the exit goes on after it.
     """
     after, first = [], []
     for flashes, center_entry, center_exit, response_entry in zip(
@@ -558,7 +579,9 @@ def flash_after_exit(trials) -> np.ndarray:
         first.append(np.arange(len(modeled)) == 0)
     after = np.concatenate(after).astype(float)
     first = np.concatenate(first)
-    return np.where(first, 0.0, after - after[~first].mean())
+    if FLASH_AFTER_EXIT_CENTERED:
+        return np.where(first, 0.0, after - after[~first].mean())
+    return np.where(first, 0.0, after)
 
 
 def flash_move_gap(trials) -> np.ndarray:

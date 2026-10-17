@@ -22,6 +22,8 @@ from thesis.ephys.analyses.glm.dmat import (
     FLASH_COMMON,
     FLASH_GAP,
     FLASH_GAP_EDGES_S,
+    FLASH_JUST_BEFORE,
+    FLASH_JUST_BEFORE_S,
     FLASH_MOVE_GAP,
     HISTORY_COLUMNS,
     HOLD,
@@ -217,9 +219,9 @@ def flash_kernel_at(
     """Return the flash kernel of the model for a flash at one gap and period.
 
     It is the kernel of the gap class of that gap (or the common kernel, in a
-    design with no gap classes), plus the flash × move kernel at the value of
-    the period, plus the flash × move × gap kernel at the product of the
-    period and the gap class.
+    design with no gap classes, plus the flash-just-before kernel for a short
+    gap), plus the flash × move kernel at the value of the period, plus the
+    flash × move × gap kernel at the product of the period and the gap class.
     """
     in_fixation, short_fraction = levels
     gap_s = gap_ms / 1000
@@ -228,6 +230,8 @@ def flash_kernel_at(
         by_gap = kernels[classes[int(np.searchsorted(FLASH_GAP_EDGES_S, gap_s))]][1]
     else:
         by_gap = kernels[FLASH_COMMON][1]
+    if FLASH_JUST_BEFORE in kernels and gap_s <= FLASH_JUST_BEFORE_S:
+        by_gap = by_gap + kernels[FLASH_JUST_BEFORE][1]
     if FLASH_AFTER_EXIT in kernels:
         by_gap = by_gap + (in_fixation + after_exit) * kernels[FLASH_AFTER_EXIT][1]
     if FLASH_MOVE_GAP in kernels:
@@ -280,7 +284,7 @@ def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
     flash = [
         name
         for name in unique_records[0]["groups"]
-        if name == FLASH_COMMON or name.startswith(FLASH_GAP)
+        if name in (FLASH_COMMON, FLASH_JUST_BEFORE) or name.startswith(FLASH_GAP)
     ]
     best = max(
         unique_records,

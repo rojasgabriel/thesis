@@ -415,9 +415,15 @@ def main() -> None:
         # follows another within 50 ms: so the planted kernel of the class of
         # the short gaps is that kernel at the value 1, and of the other class
         # at the value 0.
-        short_name, long_name = dmat.flash_gap_names()
-        flash_t, short_v = kernels[short_name]
-        _, long_v = kernels[long_name]
+        if dmat.FLASH_GAP_EDGES_S:
+            short_name, long_name = dmat.flash_gap_names()
+            flash_t, short_v = kernels[short_name]
+            _, long_v = kernels[long_name]
+        else:
+            # The common kernel is the long-gap response; the modifier adds
+            # the change for a short gap.
+            flash_t, long_v = kernels[dmat.FLASH_COMMON]
+            short_v = long_v + kernels[dmat.FLASH_JUST_BEFORE][1]
         center = recent_fraction(trials)
         gain = ADAPT_GAIN * ("adapt" in effects)
         if "flash" in effects:
@@ -479,7 +485,7 @@ def main() -> None:
                 max(abs(value) for value in unique.values()) < 0.005,
             )
         drivers = {
-            "flash": dmat.flash_gap_names(),
+            "flash": dmat.gap_flash_terms(),
             "video": ["video"],
             "withdrawal": [EXIT_TERM],
             "hold": [dmat.HOLD],
