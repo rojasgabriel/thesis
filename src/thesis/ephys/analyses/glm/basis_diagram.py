@@ -5,7 +5,7 @@ sum of basis functions, and the fit gives one weight for each function. The
 diagram shows the functions that `dmat.py` makes, with no data and no fit, so
 there is no comparison, baseline, exclusion, or sampling unit.
 
-- a, flash kernels (each gap class and flash × move): time from the flash.
+- a, flash kernels (each gap class and flash × after exit): time from the flash.
 - b, fixation: time from the first flash. After the last
   function the kernel keeps its last value until the center exit.
 - c, response period and turn direction (the same functions): time from the

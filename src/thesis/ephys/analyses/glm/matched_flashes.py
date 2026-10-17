@@ -12,34 +12,22 @@ not used. Two groups of flashes are always matched on a grid: each cell with
 flashes of both groups gets the same weight in both (the smaller of its two
 counts). All comparisons are paired over units.
 
-- Time in the train: the fixation against after the exit, matched for the time
-  from the first flash (`TIME_EDGES_S`) and the gap from the flash before
-  (`GAP_EDGES_S`). Slow adaptation predicts no difference at a matched time.
-  This needs trials with different fixation lengths; the script gives the
-  distribution of the length and the number of flashes that could be matched.
-- The same comparison matched for the gap only (not for time), and for long
-  and short gaps apart.
+- The fixation against after the exit, matched for the gap from the flash
+  before (`GAP_EDGES_S`).
 - Movement: among the flashes after the exit, the upper against the lower half
   of the motion energy of the video at the flash, matched for the time from
-  the first flash, the gap, and the time from the exit. A gain that comes with
-  the movement predicts a larger response with more motion energy.
-- Side: among the flashes after the exit, trials with a response to the left
-  port against to the right port (`response` of the trial table is 1 for the
-  right port), with the same matching. The stimulus panel is above the center
-  port, so it moves to the other side of the visual field when the animal
-  turns. The recording is in left V1 (right visual field).
-- Time from the exit: among the flashes after the exit, 0 to 100 ms against
-  later, matched for the time from the first flash and the gap.
+  the first flash (`TIME_EDGES_S`), the gap, and the time from the exit. A
+  gain that comes with the movement predicts a larger response with more
+  motion energy.
 - Measures: the baseline (rate from `BASELINE_MS` around the flash, before the
   response), the response (rate from `RESPONSE_MS` after the flash), their
   log ratio between the two groups, and the difference of the two log ratios
-  (is the response changed by more than the baseline). Peak latency: the time
-  of the maximum of the smoothed response, for units with a response above
-  the baseline in both groups (`MIN_RESPONSE_RATIO`).
+  (is the response changed by more than the baseline).
 - From the saved fit: is the fixation level of a unit (mean of its fixation
-  kernel over `LEVEL_MS`) related to the unique ΔD² of its other regressors,
-  to its rate, or to its depth (Spearman)? A change of the gain of the whole
-  unit predicts no relation with the size of its flash response.
+  kernel over `LEVEL_MS`) related to the unique ΔD² of its flash terms
+  (Spearman)? A change of the gain of the whole unit predicts no relation.
+  (The other comparisons of 2026-10-11 are in docs/glm_decisions.md and the
+  git history.)
 
 Units are those of `fit.py` (`--units`), and the trials are the trials of the
 GLM. Bins after the response entry are not used. The sampling unit is the
@@ -58,7 +46,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 from scipy.stats import spearmanr, wilcoxon
 
 from thesis.ephys.analyses.glm import cli, dmat
@@ -73,7 +60,6 @@ RESPONSE_MS = (30, 120)
 TIME_EDGES_S = np.arange(0.2, 0.91, 0.1)
 GAP_EDGES_S = (0.0, 0.05, 0.1, np.inf)
 SINCE_EXIT_EDGES_S = (0.0, 0.1, 0.25, np.inf)
-MIN_RESPONSE_RATIO = 1.2
 SMOOTH_MS = 5
 
 
@@ -88,12 +74,9 @@ def flash_table(source: Path) -> dict[str, np.ndarray]:
             video["total"],
         )
     window_s = WINDOW_MS[1] / 1000
-    out = {
-        key: [] for key in ("time", "after", "cell", "since_exit", "energy", "right")
-    }
-    for row, (side, flashes, entry, leave, response) in enumerate(
+    out = {key: [] for key in ("time", "after", "cell", "since_exit", "energy")}
+    for row, (flashes, entry, leave, response) in enumerate(
         zip(
-            trials["response"],
             trials["stim_pulse_times_s"],
             trials["center_entry_s"],
             trials["center_exit_s"],
@@ -118,7 +101,6 @@ def flash_table(source: Path) -> dict[str, np.ndarray]:
         out["after"].append(after[keep])
         out["cell"].append((time_cell * (len(GAP_EDGES_S) - 1) + gap_cell)[keep])
         out["since_exit"].append((times - leave)[keep])
-        out["right"].append(np.full(keep.sum(), side == 1))
         out["energy"].append(
             np.interp(times[keep], frame_times[frames], energy[frames])
         )
@@ -135,12 +117,6 @@ def matched_weights(cell: np.ndarray, first: np.ndarray, second: np.ndarray):
             if shared:
                 weight[member] = shared / member.sum()
     return weights
-
-
-def flash_counts(spikes: np.ndarray, times: np.ndarray) -> np.ndarray:
-    """Return the spike count in each 1-ms bin of `WINDOW_MS` around each flash."""
-    edges = times[:, None] + np.arange(WINDOW_MS[0], WINDOW_MS[1] + 1) / 1000
-    return np.diff(np.searchsorted(spikes, edges), axis=1)
 
 
 def _mean_rate(rates: np.ndarray, limits_ms: tuple[int, int]) -> np.ndarray:
@@ -161,27 +137,6 @@ def _paired(first: np.ndarray, second: np.ndarray) -> dict:
     }
 
 
-def _latency(values: np.ndarray) -> dict:
-    """Compare the peak time of the smoothed response between the two groups."""
-    lags = np.arange(*WINDOW_MS)
-    smooth = gaussian_filter1d(values, SMOOTH_MS, axis=-1)
-    searched = (lags >= 20) & (lags < 130)
-    baseline = _mean_rate(values, BASELINE_MS)
-    responsive = (smooth[..., searched].max(-1) > MIN_RESPONSE_RATIO * baseline).all(
-        0
-    ) & (baseline > 0).all(0)
-    latency = lags[searched][smooth[..., searched].argmax(-1)][:, responsive]
-    shift = latency[1] - latency[0]
-    return {
-        "units": int(responsive.sum()),
-        "median_first_group": float(np.median(latency[0])),
-        "median_second_group": float(np.median(latency[1])),
-        "units_earlier_in_second_group": int(np.sum(shift < 0)),
-        "units_later_in_second_group": int(np.sum(shift > 0)),
-        "wilcoxon_p": float(wilcoxon(shift).pvalue),
-    }
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
@@ -196,36 +151,11 @@ def main() -> None:
     energy_split = np.median(table["energy"][after])
     # name: (grid to match on, first group, second group)
     comparisons = {
-        "fixation against after exit, matched time and gap": (
-            table["cell"],
-            fixation,
-            after,
-        ),
         "fixation against after exit, matched gap": (gap, fixation, after),
-        "fixation against after exit, long gaps": (
-            gap,
-            fixation & (gap == gaps - 1),
-            after & (gap == gaps - 1),
-        ),
-        "fixation against after exit, short gaps": (
-            gap,
-            fixation & (gap == 0),
-            after & (gap == 0),
-        ),
         "after exit, lower against upper half of motion energy": (
             with_exit,
             after & (table["energy"] < energy_split),
             after & (table["energy"] >= energy_split),
-        ),
-        "after exit, response to the left against to the right": (
-            with_exit,
-            after & ~table["right"],
-            after & table["right"],
-        ),
-        "after exit, first 100 ms against later": (
-            table["cell"],
-            after & (since == 0),
-            after & (since > 0),
         ),
     }
     weights = {name: matched_weights(*groups) for name, groups in comparisons.items()}
@@ -247,7 +177,13 @@ def main() -> None:
     # rates[name][group, unit, lag]: the weighted mean rate in spikes/s.
     rates = {name: np.zeros((2, len(units), np.ptp(WINDOW_MS))) for name in comparisons}
     for position, spikes in enumerate(units["spike_times_s"]):
-        counts = flash_counts(np.asarray(spikes, dtype=float), table["time"])
+        # The spike count in each 1-ms bin of `WINDOW_MS` around each flash.
+        edges = (
+            table["time"][:, None] + np.arange(WINDOW_MS[0], WINDOW_MS[1] + 1) / 1000
+        )
+        counts = np.diff(
+            np.searchsorted(np.asarray(spikes, dtype=float), edges), axis=1
+        )
         for name, pair in weights.items():
             for group, weight in enumerate(pair):
                 rates[name][group, position] = (
@@ -285,7 +221,6 @@ def main() -> None:
                 "units_above_0": int(np.sum(difference > 0)),
                 "wilcoxon_p": float(wilcoxon(difference).pvalue),
             },
-            "peak latency (ms)": _latency(values),
         }
     lags = np.arange(*WINDOW_MS)
 
@@ -321,20 +256,12 @@ def main() -> None:
         int(item["unit_id"]): item["groups"]
         for item in load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
     }
-    # "flash": the flash kernels of all gap classes together.
-    blocks = {
-        "flash": dmat.gap_flash_terms(),
-        "video": ["video"],
-        "history": ["history"],
-    }
+    # "flash": the flash terms that code the gap, together.
     properties = {
-        f"unique dD2, {name}": [
-            sum(records[unit][group][UNIQUE] for group in groups) for unit in unit_ids
+        "unique dD2, flash": [
+            sum(records[unit][group][UNIQUE] for group in dmat.gap_flash_terms())
+            for unit in unit_ids
         ]
-        for name, groups in blocks.items()
-    } | {
-        "firing rate": [final[unit]["fit_mean_count"] for unit in unit_ids],
-        "depth": [final[unit]["depth"] for unit in unit_ids],
     }
     for name, values in properties.items():
         result = spearmanr(level, values)

@@ -21,8 +21,8 @@ paired: each unit has the error of each fit, on the same simulated spikes.
   for each unit (`SEED`); the values of a unit are means over them. The
   penalty of each fit is the penalty of the unit; it is not selected again.
 - Measures (`leak_test.measures`, Δ log rate): the fixation level (the mean
-  of the fixation kernel from `leak_test.LEVEL_MS`), and the flash × move
-  effect (the response of the flash kernel in move minus still) at each gap
+  of the fixation kernel from `leak_test.LEVEL_MS`), and the flash × after exit
+  effect (the response of the flash kernel after the exit minus in the port) at each gap
   class. These are the kernels that the results of the model are read from.
 - Error of a fit: the absolute difference between the recovered and the true
   value of a measure.
@@ -72,7 +72,7 @@ from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.kernel_reliability import agreement
 from thesis.ephys.analyses.glm.results import fitted_kernels
 from thesis.ephys.analyses.glm.unique_dev import block_slices
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import unit_spikes
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
@@ -84,7 +84,10 @@ from thesis.plotting import (
 SIMULATIONS = 3
 SEED = 0
 AXIS_LIMIT = 0.6
-MEASURES = (*(f"flash × move, {gap}" for gap in leak_test.GAPS_MS), "fixation level")
+MEASURES = (
+    *(f"flash × after exit, {gap}" for gap in leak_test.GAPS_MS),
+    "fixation level",
+)
 COLORS = (CONCEPT_COLORS["visual"], CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"])
 _OTHER: dict = {}
 
@@ -174,22 +177,18 @@ def _unit(job: dict) -> dict:
                     ]
                 )
             # The kernels are read with the bases and the metadata of that design.
-            saved = {name: getattr(dmat, name) for name in settings}
             in_use = shared["metadata"]
-            for name, value in settings.items():
-                setattr(dmat, name, value)
             shared["metadata"] = metadata
             try:
-                both.append(
-                    leak_test.measures(
-                        {"components": components, "coefficients": fitted},
-                        history_scale,
+                with dmat.switched(settings):
+                    both.append(
+                        leak_test.measures(
+                            {"components": components, "coefficients": fitted},
+                            history_scale,
+                        )
                     )
-                )
             finally:
                 shared["metadata"] = in_use
-                for name, value in saved.items():
-                    setattr(dmat, name, value)
         recovered.append(both)
     return {
         "values": np.vstack((truth, np.mean(recovered, axis=0))),
@@ -230,26 +229,13 @@ def main() -> None:
             work = args.out / f"{session}_parameter_recovery_work"
             work.mkdir(exist_ok=True)
             other = work / "common_design_me.npy"
-            saved = {key: getattr(dmat, key) for key in settings}
-            for key, value in settings.items():
-                setattr(dmat, key, value)
-            try:
-                if not other.exists():
+            if not other.exists():
+                with dmat.switched(settings):
                     dmat.prepare_common_design(model.windows, model.video, other)
-            finally:
-                for key, value in saved.items():
-                    setattr(dmat, key, value)
             final = load_unit_records(
                 model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
             )
-            table = fetch_unit_table(
-                subject,
-                name,
-                unit_criteria_id=1,
-                stability_param_id=0,
-                include_metrics=False,
-            )
-            spikes = dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))
+            spikes = unit_spikes(subject, name)
             jobs = [
                 {
                     "unit_id": int(item["unit_id"]),

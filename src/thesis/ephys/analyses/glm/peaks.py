@@ -1,6 +1,6 @@
 """The one measure of a flash response, for the observed rate and the model alike.
 
-Every comparison of flash responses (still against move, one gap against
+Every comparison of flash responses (in port against after exit, one gap against
 another) uses this measure, as `stim_responses_by_locomotion.py` does on raw
 spikes:
 

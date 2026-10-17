@@ -67,7 +67,7 @@ from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.unique_dev import block_slices
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import unit_spikes
 
 VIF_LIMITS = (5, 10)
 INDEX_LIMITS = (10, 30)
@@ -179,14 +179,7 @@ def main() -> None:
         }
         width = int(metadata["base_columns"]) + components
         subject, _, name = session.partition("_")
-        table = fetch_unit_table(
-            subject,
-            name,
-            unit_criteria_id=1,
-            stability_param_id=0,
-            include_metrics=False,
-        )
-        spikes = dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))
+        spikes = unit_spikes(subject, name)
         jobs = [np.asarray(spikes[int(item["unit_id"])], dtype=float) for item in final]
         with Pool(args.workers, _load, (model.windows, model.design, width)) as pool:
             correlations = pool.map(_unit_correlation, jobs)

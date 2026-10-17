@@ -10,12 +10,12 @@ two mice are not pooled. Both mice are in each axis: solid lines and circles
 GRB006, dashed lines and triangles GRB064.
 
 - Kernel of a condition (`results.flash_kernel_at`): the flash kernel of the
-  gap class of that condition, plus the flash × move kernel at the value of
-  the period. Conditions (`CONDITIONS`): a flash in the fixation (still) and
-  after the center exit (move), in each of the two gap classes. The flash ×
+  gap class of that condition, plus the flash × after exit kernel at the value of
+  the period. Conditions (`CONDITIONS`): a flash in the fixation (in port) and
+  after the center exit (after exit), in each of the two gap classes. The flash ×
   move × gap kernel is added at the product of the centered period and the
   centered gap class.
-- Panels a and b: the median kernel, when still, at the 40 ms gap (light) and
+- Panels a and b: the median kernel, in the port, at the 40 ms gap (light) and
   the 80+ ms gap (dark), over the units that fire more after a flash (a) and
   that fire less (b). The kind of a unit is from its mean kernel response over
   the two still conditions (above `KIND_LIMIT` or below -`KIND_LIMIT`; the
@@ -23,7 +23,7 @@ GRB006, dashed lines and triangles GRB064.
   curves is by selection; the panels show the shape.
 - Panels c and d (every unit, one map for each mouse, because the units
   differ): the kernel in each condition, one row for each unit, in the same
-  order in all maps of a mouse (by the mean response when still). The color
+  order in all maps of a mouse (by the mean response in the port). The color
   scale stops at ±`COLOR_LIMIT`.
 - Panels e to g (the gap, with the matched measure of `peaks.py`): the peak of
   the excited units (StimulusResponse) after flashes in the fixation at the
@@ -79,29 +79,33 @@ from thesis.plotting import (
 SESSIONS = ("GRB006_20240821_121447", "GRB064_20260916_132939")
 
 # name: (gap in ms that selects the gap class, after the center exit)
-# "Still" is a flash in the fixation and "move" is a flash after the center exit.
+# "In port" is a flash in the fixation and "after exit" a flash after the center exit.
 CONDITIONS = {
-    "still, 40 ms gap": (40, False),
-    "still, 80+ ms gap": (100, False),
-    "move, 40 ms gap": (40, True),
-    "move, 80+ ms gap": (100, True),
+    "in port, 40 ms gap": (40, False),
+    "in port, 80+ ms gap": (100, False),
+    "after exit, 40 ms gap": (40, True),
+    "after exit, 80+ ms gap": (100, True),
 }
-FIXATION = ("still, 40 ms gap", "still, 80+ ms gap")
+FIXATION = ("in port, 40 ms gap", "in port, 80+ ms gap")
 # name: (first condition, second condition, conditions that give the kind of unit)
 # The kind of a unit comes from conditions that are not in the pair. A kind
 # that comes from one of the two compared responses makes that response more
 # extreme than the other one by selection alone.
 PAIRS = {
     "gap": (
-        "still, 40 ms gap",
-        "still, 80+ ms gap",
-        ("move, 40 ms gap", "move, 80+ ms gap"),
+        "in port, 40 ms gap",
+        "in port, 80+ ms gap",
+        ("after exit, 40 ms gap", "after exit, 80+ ms gap"),
     ),
-    "period": ("still, 80+ ms gap", "move, 80+ ms gap", ("still, 40 ms gap",)),
+    "period": (
+        "in port, 80+ ms gap",
+        "after exit, 80+ ms gap",
+        ("in port, 40 ms gap",),
+    ),
     "period, 40 ms gap": (
-        "still, 40 ms gap",
-        "move, 40 ms gap",
-        ("still, 80+ ms gap",),
+        "in port, 40 ms gap",
+        "after exit, 40 ms gap",
+        ("in port, 80+ ms gap",),
     ),
 }
 RESPONSE_MS = (40, 100)
@@ -328,13 +332,13 @@ def draw_maps(figure, slot, data: dict, first: bool) -> list:
         if position:
             axis.tick_params(labelleft=False)
         else:
-            axis.set_ylabel("unit, sorted by its\nmean response when still")
+            axis.set_ylabel("unit, sorted by its\nmean response in the port")
         axes.append(axis)
     return axes
 
 
 def gap_peaks(out: Path, session: str, unit_set: str) -> dict:
-    """Return the matched peaks of the excited units at the two gaps, still."""
+    """Return the matched peaks of the excited units at the two gaps, in the port."""
     model = cli.PoissonGLM(root=out / session)
     trials = dmat._load_selected_trials(dmat._load_windows(model.windows))
     return peaks.session_peaks(out / session, unit_set, gap_flashes(trials))
@@ -352,7 +356,7 @@ def main() -> None:
         change = gap["peaks"][:, :, 1] - gap["peaks"][:, :, 0]  # 40 minus 80+
         stats[session] = {
             "kernels": data["stats"],
-            "matched peak (spikes/s), 40 ms minus 80+ ms gap, still": {
+            "matched peak (spikes/s), 40 ms minus 80+ ms gap, in port": {
                 "flashes": gap["events"],
                 **{
                     rate: _paired(gap["peaks"][:, k, 0], gap["peaks"][:, k, 1])

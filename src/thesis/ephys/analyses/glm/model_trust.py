@@ -43,10 +43,10 @@ right: GRB064). The tests are within each mouse.
   only a few trials reach its end.
 - Leak (g to i, `leak_test.py`): a bias of one result. A flash kernel summed
   over the flash train after the exit is close to a level, so the L2 penalty
-  can give part of the rate step at the exit to the flash × move kernels and
-  make a flash × move effect from nothing. Spikes are simulated from the
-  final refit of each unit with the flash × move weights set to 0, and the
-  full model is fit to them. The leak is the flash × move part of the move −
+  can give part of the rate step at the exit to the flash × after exit kernels and
+  make a flash × after exit effect from nothing. Spikes are simulated from the
+  final refit of each unit with the flash × after exit weights set to 0, and the
+  full model is fit to them. The leak is the flash × after exit part of the move −
   still peak of that fit, in the matched peak measure of `peaks.py`
   (`peaks.py`; the excited units). g, the real part against the leak; h, real
   minus leak (two-sided Wilcoxon signed-rank test in each mouse, and the
@@ -125,14 +125,14 @@ median agreement of {lowest_agreement:.2f} or more in both animals. Spike
 history depends on the firing rate: {history_recovery}. The level of the
 fixation kernel is recovered at {level_in_use} of its true size, so the fitted
 level is a lower bound: the L2 penalty gives a part of it to the terms after
-the exit (the response period and flash × move). **f, The same
+the exit (the response period and flash × after exit). **f, The same
 weights from independent trials**: each unit is fit on the even and on the
 odd trials, and the two kernels are compared, for the units that need the
 regressor. Every regressor has a median agreement of {lowest_half:.2f} or
-more. {tail} {history_halves} **g–i, The flash × move effect that the fit makes with none in
-the data.** **g**, The flash × move part of the move − still flash peak
-(spikes/s; the excited units) in the real fit against the leak: the same part
-in fits to spikes simulated with no flash × move effect. **h**, Real minus
+more. {tail} {history_halves} **g–i, The flash × after exit effect that the fit makes with none in
+the data.** **g**, The flash × after exit part of the flash peak after the exit
+minus in the port (spikes/s; the excited units) in the real fit against the leak: the same part
+in fits to spikes simulated with no flash × after exit effect. **h**, Real minus
 leak. {leak} **i**, The leak against the fixation level of the unit.
 """
 
@@ -479,34 +479,37 @@ def main() -> None:
             VISUAL,
         )
         part_axis.set_xlabel(
-            "leak: flash × move part with\nno effect simulated (spikes/s)"
+            "leak: flash × after exit part with\nno effect simulated (spikes/s)"
         )
-        part_axis.set_ylabel("real flash × move part\n(spikes/s)")
-        stats["leak, flash × move part, real minus leak (spikes/s)"] = pooled_strip(
-            rest_axis,
-            0,
-            [np.clip(p["real"] - p["leak"], *PART_LIMITS) for p in parts],
-            subjects,
-            VISUAL,
-        ) | {
-            subject: {
-                "units": len(p["real"]),
-                "median": float(np.median(p["real"] - p["leak"])),
-                "wilcoxon_p": float(wilcoxon(p["real"] - p["leak"]).pvalue),
-                "units_outside_the_axis": int(
-                    np.sum(
-                        (np.minimum(p["real"], p["leak"]) < PART_LIMITS[0])
-                        | (np.maximum(p["real"], p["leak"]) > PART_LIMITS[1])
-                    )
-                ),
+        part_axis.set_ylabel("real flash × after exit part\n(spikes/s)")
+        stats["leak, flash × after exit part, real minus leak (spikes/s)"] = (
+            pooled_strip(
+                rest_axis,
+                0,
+                [np.clip(p["real"] - p["leak"], *PART_LIMITS) for p in parts],
+                subjects,
+                VISUAL,
+            )
+            | {
+                subject: {
+                    "units": len(p["real"]),
+                    "median": float(np.median(p["real"] - p["leak"])),
+                    "wilcoxon_p": float(wilcoxon(p["real"] - p["leak"]).pvalue),
+                    "units_outside_the_axis": int(
+                        np.sum(
+                            (np.minimum(p["real"], p["leak"]) < PART_LIMITS[0])
+                            | (np.maximum(p["real"], p["leak"]) > PART_LIMITS[1])
+                        )
+                    ),
+                }
+                for subject, p in zip(subjects, parts, strict=True)
             }
-            for subject, p in zip(subjects, parts, strict=True)
-        }
+        )
         rest_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
         rest_axis.set_xticks([])
         rest_axis.set_xlim(-0.5, 0.9)
         rest_axis.set_ylim(*PART_LIMITS)
-        rest_axis.set_ylabel("flash × move part,\nreal minus leak (spikes/s)")
+        rest_axis.set_ylabel("flash × after exit part,\nreal minus leak (spikes/s)")
         level_axis.set_ylim(*PART_LIMITS)
         pooled_points(
             level_axis,
@@ -595,7 +598,7 @@ def main() -> None:
                 f"{subject}: median {entry['median']:+.1f} spikes/s"
                 f" ({entry['units']} units, p = {entry['wilcoxon_p']:.2g})"
                 for subject, entry in stats[
-                    "leak, flash × move part, real minus leak (spikes/s)"
+                    "leak, flash × after exit part, real minus leak (spikes/s)"
                 ].items()
                 if subject in subjects
             )

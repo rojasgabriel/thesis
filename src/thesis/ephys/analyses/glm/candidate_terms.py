@@ -66,14 +66,8 @@ def main() -> None:
     )
     if len(list(unique_dir.glob("unit_*.json"))) < len(final):
         # The unique step reads the bases of the design, so the switches stay on.
-        saved = {name: getattr(dmat, name) for name in switches}
-        for name in switches:
-            setattr(dmat, name, True)
-        try:
+        with dmat.switched(switches):
             model.unique(args.units)
-        finally:
-            for name, value in saved.items():
-                setattr(dmat, name, value)
     records = load_unit_records(unique_dir, "unit_*.json")
     metadata = dmat._load_windows(cli.PoissonGLM(root=args.root).windows)["metadata"]
     table = fetch_unit_table(

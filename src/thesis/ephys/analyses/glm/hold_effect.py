@@ -125,10 +125,7 @@ from thesis.ephys.analyses.glm import cli, dmat, port_vs_stillness
 from thesis.ephys.analyses.glm.fit import (
     analysis_unit_indices,
     build_unit_counts,
-    crossvalidate,
-    fit_models,
     load_unit_records,
-    refit_final,
 )
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.grid import INPUTS
@@ -227,27 +224,16 @@ def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> 
     for name in INPUTS:
         if not (root / name).exists():
             shutil.copy(source / name, root / name)
-    # ponytail: the design reads module attributes; set them for this fit and
-    # restore them. Make them arguments if the design gets more callers.
-    saved = {name: getattr(dmat, name) for name in attributes}
-    for name, value in attributes.items():
-        setattr(dmat, name, value)
-    try:
+    # ponytail: the design reads module attributes; set them for this fit.
+    # Make them arguments if the design gets more callers.
+    with dmat.switched(attributes):
         if not model.design.exists():
             dmat.prepare_common_design(model.windows, model.video, model.design)
         # Each stage keeps its finished units, so a stopped fit goes on.
         checkpoints = directory / "checkpoints"
-        if not list(checkpoints.glob("unit_*_final.json")) or len(
-            list(checkpoints.glob("unit_*_final.json"))
-        ) < len(list(checkpoints.glob("unit_*_validation.json"))):
-            fit_models(model.windows, model.design, unit_set, directory)
-            summary = json.loads((directory / "validation_summary.json").read_text())
-            components = int(summary["selected_video_components"])
-            crossvalidate(model.windows, model.design, unit_set, directory, components)
-            refit_final(model.windows, model.design, unit_set, directory, components)
-    finally:
-        for name, value in saved.items():
-            setattr(dmat, name, value)
+        finals = len(list(checkpoints.glob("unit_*_final.json")))
+        if not finals or finals < len(list(checkpoints.glob("unit_*_validation.json"))):
+            model.fit(unit_set)
     return root
 
 
@@ -794,9 +780,9 @@ def _draw_matched(axis, data: dict, labels: bool, style: str = "-") -> None:
     scale = reference.mean((0, 2))
     used = scale > 0
     curves = (
-        (reference[0], TASK, "still"),
-        (by_energy[0], "0.35", "move, less motion energy"),
-        (by_energy[1], MOTION, "move, more motion energy"),
+        (reference[0], TASK, "in port"),
+        (by_energy[0], "0.35", "after exit, less motion energy"),
+        (by_energy[1], MOTION, "after exit, more motion energy"),
     )
     # The labels after the exit are in the band between the curves; the label of
     # the fixation is below its curve.
@@ -1224,7 +1210,7 @@ def main() -> None:
 
     def outside(key: str) -> str:
         return (
-            _pair(sessions, lambda d: str(_find(st(d), key)))
+            _pair(sessions, lambda d: str(st(d).get(key, st(d)["two_step"].get(key))))
             + " units are outside the axis limits and are in the tests."
         )
 
@@ -1266,11 +1252,6 @@ def main() -> None:
     )
     print(json.dumps(stats, indent=1))
     print(output)
-
-
-def _find(stats: dict, key: str):
-    """Return a value of the session statistics, also from the two-step block."""
-    return stats[key] if key in stats else stats["two_step"][key]
 
 
 if __name__ == "__main__":

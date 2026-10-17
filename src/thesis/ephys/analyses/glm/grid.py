@@ -32,17 +32,11 @@ def score_design(
     model.root.mkdir(parents=True, exist_ok=True)
     for name in INPUTS:
         shutil.copy(source / name, model.root / name)
-    # ponytail: the design reads module constants; set them for one design and
-    # restore them. Make them arguments if the design gets more callers.
-    saved = {name: getattr(dmat, name) for name in settings}
-    for name, value in settings.items():
-        setattr(dmat, name, value)
-    try:
+    # ponytail: the design reads module constants; set them for one design.
+    # Make them arguments if the design gets more callers.
+    with dmat.switched(settings):
         dmat.prepare_common_design(model.windows, model.video, model.design)
         fit.fit_models(model.windows, model.design, unit_set, model.fit_dir(unit_set))
-    finally:
-        for name, value in saved.items():
-            setattr(dmat, name, value)
     count = str(max(dmat.VIDEO_COMPONENT_COUNTS))
     scores = {}
     for path in (model.fit_dir(unit_set) / "checkpoints").glob(

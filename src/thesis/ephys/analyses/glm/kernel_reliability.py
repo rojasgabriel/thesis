@@ -60,7 +60,7 @@ from thesis.ephys.analyses.glm.fit import (
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.inclusion import ALPHA
 from thesis.ephys.analyses.glm.results import fitted_kernels
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import unit_spikes
 
 RESPONSE_MS = (40, 100)
 DISPLAY_FLOOR = -0.5
@@ -113,14 +113,7 @@ def fit_session(subject: str, session: str, unit_set: str, workers: int) -> None
         int(item["unit_id"]): item
         for item in load_unit_records(checkpoints / "unique", "unit_*.json")
     }
-    table = fetch_unit_table(
-        subject,
-        session,
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    spikes = dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))
+    spikes = unit_spikes(subject, session)
     unit_ids = sorted(final)
     jobs = [
         {

@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+from contextlib import ExitStack
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from damn.alignment import construct_timebins
@@ -115,7 +118,7 @@ HOLD_LOG_STRETCH_S = 0.05
 # fixation kernel has the same L2 penalty as the other terms: the model in use,
 # and the common practice. With a factor above 1 the penalty on its weights is
 # that factor squared times weaker. With the same penalty, the fit makes the
-# fixation kernel too small and gives a part of the level to the flash × move
+# fixation kernel too small and gives a part of the level to the flash × after exit
 # kernels (`leak_test.py`); a factor of 10 removes that leak with the same
 # prediction, and is the sensitivity analysis (`_weaker_fixation_penalty`). The
 # saved scale of the columns has the factor in it, so the kernels are read in
@@ -159,8 +162,8 @@ VIDEO_VIEWS = ("BackStereoView", "BottomView")
 # A second flash kernel for a flash after the center exit against a flash in
 # the fixation. In the model from 2026-10-12 (`candidate_terms.py`).
 FLASH_AFTER_EXIT_TERM = True
-# Names: the figures and the docs call a flash in the fixation "still" and a
-# flash after the center exit "move", and this term "flash × move". These are
+# Names: the figures and the docs call a flash in the fixation "in port" and a
+# flash after the center exit "after exit", and this term "flash × after exit". These are
 # task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
@@ -173,7 +176,7 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # movement signal, which motion energy cannot carry. It replaced one column for
 # the side after the exit (first canonical correlation 0.9 between the two).
 # Candidates that failed or were not taken (time in trial, accumulated
-# evidence, flash × move × gap) are in docs/glm_decisions.md and git history.
+# evidence, flash × after exit × gap) are in docs/glm_decisions.md and git history.
 TURN_DIRECTION_TERM = True
 TURN_DIRECTION = "turn_direction"
 TURN_DIRECTION_S = 1.3
@@ -207,6 +210,14 @@ for _switch in filter(None, os.environ.get("THESIS_GLM_TERMS", "").split(",")):
     globals()[_switch] = True
 HOLD = "hold"
 HISTORY_COLUMNS = 10
+
+
+def switched(settings: dict) -> ExitStack:
+    """Set some design attributes of this module for a `with` block, then restore them."""
+    stack = ExitStack()
+    for name, value in settings.items():
+        stack.enter_context(patch.object(sys.modules[__name__], name, value))
+    return stack
 
 
 def exit_basis() -> "StretchedCosineBasis":
@@ -518,7 +529,7 @@ def flash_after_exit(trials) -> np.ndarray:
 
     1 for a flash at or after the center exit and 0 for a flash in the
     fixation, so the common flash kernel is the response in the port and the
-    flash × move kernel is how the exit changes it (to 2026-10-16 the values
+    flash × after exit kernel is how the exit changes it (to 2026-10-16 the values
     were centered, which made the common kernel a mean of the two periods;
     the same columns in span). The first flash
     of a trial gets 0: it is always in the fixation. The period is that of the

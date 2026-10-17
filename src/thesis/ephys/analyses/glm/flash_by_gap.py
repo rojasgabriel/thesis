@@ -38,7 +38,7 @@ gaps and between periods are paired: each unit has a value in each condition.
   the flash comes at different times: the solid line is the shortest gap and
   the band goes to the longest one.
 - Measure in the output: the matched peak of `peaks.py` (spikes/s; baseline
-  from the still rate before the flash), for each gap group, still and move,
+  from the still rate before the flash), for each gap group, in the port and after the exit,
   on the observed rate and the model rate, for the excited units of
   StimulusResponse; and the two-sided Wilcoxon signed-rank test of move minus
   still for each gap group. The traces are of all units of each kind, as
@@ -97,7 +97,7 @@ MIN_RATE = 2.0
 VISUAL = CONCEPT_COLORS["visual"]
 NAMES = ("observed", "model")
 COLORS = (OBSERVED_COLOR, MODEL_COLOR)
-PERIODS = ("still", "move")
+PERIODS = ("in port", "after exit")
 KINDS = ("units that fire more after a flash", "units that fire less after a flash")
 
 
@@ -227,7 +227,7 @@ def session_traces(root: Path, unit_set: str) -> dict:
         sources = (rate_grid, predicted_grid)
         # (condition, observed or model, bin) and (condition, observed or model)
         if int(unit_id) in excited:
-            # The matched peak (`peaks.py`) of each gap group, still and move,
+            # The matched peak (`peaks.py`) of each gap group, in the port and after the exit,
             # for the observed rate and the model: (group, observed or model, period).
             around = np.stack([source[rows[:, None], columns] for source in sources])
             mean = np.einsum("cf,mfl->cml", in_condition, around)[:, :, in_peak]
@@ -262,7 +262,7 @@ def session_traces(root: Path, unit_set: str) -> dict:
         },
     }
     change = peak[..., 1] - peak[..., 0]  # (excited unit, group, observed or model)
-    stats["matched peak (spikes/s), move minus still, excited units"] = {
+    stats["matched peak (spikes/s), after exit minus in port, excited units"] = {
         "units": len(peak),
         **{
             name: {

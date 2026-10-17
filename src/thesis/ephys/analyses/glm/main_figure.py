@@ -108,7 +108,7 @@ REGRESSORS = {
     "flash_gap_1": ("flash, 40 ms gap", VISUAL),
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
-    "flash_after_exit": ("flash × move", VISUAL),
+    "flash_after_exit": ("flash × after exit", VISUAL),
     "fixation": ("pre-stimulus", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
@@ -141,8 +141,8 @@ of the video; the term that each group of regressors adds to the log rate; the
 term of spike history, in its own row; and the observed spikes. **c**, The
 kernels of the example unit. Top, from the left: the flash kernel for a flash
 in the fixation that follows another within 50 ms (40 ms gap) and for every
-other flash (80+ ms gap); the flash kernel for a flash in the fixation (still)
-and after the exit (move, dashed), at a gap of 80 ms or more; and the fixation
+other flash (80+ ms gap); the flash kernel for a flash in the fixation (in port)
+and after the exit (dashed), at a gap of 80 ms or more; and the fixation
 kernel, which starts at the first flash and ends at the exit. Bottom: the term
 after the exit for a right and a left turn (response period plus and minus
 turn direction) and the spike-history kernel. **d**, Observed and predicted
@@ -454,8 +454,8 @@ def _plot_kernels(axes, data) -> None:
         )
     by_gap.set_xlabel("time from\nflash (ms)")
     for key, label, style, height in (
-        ("fixation", "still", "-", 1.13),
-        ("after_exit", "move (dashed)", "--", 1.0),
+        ("fixation", "in port", "-", 1.13),
+        ("after_exit", "after exit (dashed)", "--", 1.0),
     ):
         by_period.plot(lags, data[f"flashcond__{key}"], color=VISUAL, ls=style)
         by_period.text(
@@ -564,14 +564,6 @@ def inclusion_tests(records: list[dict]) -> dict[str, dict]:
     )
 
 
-def unique_order(records: list[dict], tests: dict[str, dict]) -> list[str]:
-    """Return the regressors in the order of their median unique ΔD²."""
-    return sorted(
-        tests,
-        key=lambda name: np.median([item["groups"][name][UNIQUE] for item in records]),
-    )
-
-
 def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     """Unique (filled) and maximal (open) ΔD² of each regressor, units of all mice pooled.
 
@@ -604,10 +596,17 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
                 color,
                 face,
             )
+        # The fraction of the units of all mice that need it; "†" when it fails
+        # the rule in one mouse, " n.s." in every mouse.
+        fraction = sum(s["tests"][name]["units_that_need_it"] for s in sessions) / sum(
+            len(s["records"]) for s in sessions
+        )
+        failed = sum(not s["tests"][name]["passes_both_tests"] for s in sessions)
+        mark = "" if not failed else (" n.s." if failed == len(sessions) else "†")
         axis.text(
             1.03,
             position,
-            f"{need_fraction(sessions, name):.0%}" + fail_mark(sessions, name),
+            f"{fraction:.0%}{mark}",
             color=color,
             va="center",
             fontsize=6.5,
@@ -638,19 +637,6 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     for tick, name in zip(axis.get_yticklabels(), order, strict=False):
         tick.set_color(REGRESSORS[name][1])
     axis.set_xlabel(r"$\Delta D^2$ (filled: unique; open: maximal)")
-
-
-def need_fraction(sessions: list[dict], name: str) -> float:
-    """Return the fraction of the units of all mice that need the regressor."""
-    return sum(s["tests"][name]["units_that_need_it"] for s in sessions) / sum(
-        len(s["records"]) for s in sessions
-    )
-
-
-def fail_mark(sessions: list[dict], name: str) -> str:
-    """Return " n.s." when the regressor fails the rule in every mouse, "†" in one."""
-    failed = sum(not s["tests"][name]["passes_both_tests"] for s in sessions)
-    return "" if not failed else (" n.s." if failed == len(sessions) else "†")
 
 
 def session_population(root: Path, unit_set: str) -> dict:
@@ -688,7 +674,13 @@ def main() -> None:
     with np.load(fit_dir / "figure_data.npz", allow_pickle=False) as saved:
         data = {key: saved[key] for key in saved.files}
     sessions = [session_population(args.out / name, args.units) for name in SESSIONS]
-    order = unique_order(sessions[0]["records"], sessions[0]["tests"])
+    # The regressors in the order of their median unique ΔD².
+    order = sorted(
+        sessions[0]["tests"],
+        key=lambda name: np.median(
+            [item["groups"][name][UNIQUE] for item in sessions[0]["records"]]
+        ),
+    )
 
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 12.6))

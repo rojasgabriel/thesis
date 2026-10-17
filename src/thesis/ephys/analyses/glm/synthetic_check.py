@@ -41,7 +41,7 @@ z-scoring on all rows.
 
 The command raises AssertionError when a check fails. The checks of the size
 of the fixation kernel are an exception: the L2 penalty makes that kernel too
-small and gives a part of the level to the flash × move kernels
+small and gives a part of the level to the flash × after exit kernels
 (`leak_test.py`), so they report the bias and do not stop the command. Use --out to keep the
 artifacts. It writes the planted and the recovered kernels of each unit to
 `synthetic_recovery.json` there; `model_checks.py` draws them.
@@ -103,12 +103,6 @@ def hold_kernel(lag: np.ndarray) -> np.ndarray:
     """Log-rate drop that starts at the first flash and stays for the hold."""
     lag = np.asarray(lag, dtype=float)
     return np.where(lag >= 0, HOLD_GAIN * (1 - np.exp(-lag / HOLD_TAU_S)), 0.0)
-
-
-def history_kernel(lag_bins: np.ndarray) -> np.ndarray:
-    """Refractory log-rate kernel at strictly past lags of 1..100 bins."""
-    lag_bins = np.asarray(lag_bins, dtype=float)
-    return np.where(lag_bins <= 2, -4.0, -1.5 * np.exp(-(lag_bins - 2) / 5.0))
 
 
 def synthetic_trials(rng: np.random.Generator) -> pd.DataFrame:
@@ -238,7 +232,9 @@ def simulate_unit(
     # with the gap classes of `dmat`.
     resources = [np.r_[0.0, np.diff(times) <= 0.05] for times in modeled]
     center = recent_fraction(trials)
-    history = history_kernel(np.arange(1, 101))
+    # Refractory log-rate kernel at strictly past lags of 1..100 bins.
+    lags = np.arange(1, 101, dtype=float)
+    history = np.where(lags <= 2, -4.0, -1.5 * np.exp(-(lags - 2) / 5.0))
     spikes = []
     for index, row in enumerate(trials.itertuples()):
         alignment = row.stim_pulse_times_s[0]

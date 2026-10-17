@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+from contextlib import ExitStack
 from pathlib import Path
+from unittest.mock import patch
 
 from thesis.ephys.analyses.glm import cli, dmat, figures, fit
 from thesis.ephys.analyses.glm.grid import INPUTS
@@ -42,7 +44,6 @@ def run_grid(source: Path, output: Path, samples: int) -> dict[str, dict]:
     scores = json.loads(path.read_text()) if path.exists() else {}
     scores = {str(count): scores.get(str(count), {}) for count in (0, *COUNTS)}
     modules = (dmat, fit, figures)
-    saved = dmat.VIDEO_COMPONENT_COUNTS
     for sample in range(samples):
         if len(scores["0"]) >= fit.SAMPLE_UNITS * (sample + 1):
             continue
@@ -51,9 +52,11 @@ def run_grid(source: Path, output: Path, samples: int) -> dict[str, dict]:
         model.root.mkdir(parents=True, exist_ok=True)
         for name in INPUTS:
             shutil.copy(source / name, model.root / name)
-        for module in modules:  # this run only; restored below
-            module.VIDEO_COMPONENT_COUNTS = COUNTS
-        try:
+        with ExitStack() as stack:  # this run only
+            for module in modules:
+                stack.enter_context(
+                    patch.object(module, "VIDEO_COMPONENT_COUNTS", COUNTS)
+                )
             dmat.prepare_common_design(model.windows, model.video, model.design)
             fit.fit_models(
                 model.windows,
@@ -62,9 +65,6 @@ def run_grid(source: Path, output: Path, samples: int) -> dict[str, dict]:
                 model.fit_dir(unit_set),
                 workers=1,
             )
-        finally:
-            for module in modules:
-                module.VIDEO_COMPONENT_COUNTS = saved
         for record_path in (model.fit_dir(unit_set) / "checkpoints").glob(
             "unit_*_validation.json"
         ):

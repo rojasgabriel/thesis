@@ -1,18 +1,18 @@
-"""Test how much of the flash × move effect the GLM makes with no such effect in the data.
+"""Test how much of the flash × after exit effect the GLM makes with no such effect in the data.
 
 Question: the model finds a flash response that differs between the fixation
-(still) and the time after the center exit (move). The rate level also
+(in port) and the time after the center exit (after exit). The rate level also
 changes at the exit (the fixation kernel). A sum of flash kernels over a
 flash train is close to a level, so the fit can give a part of a pure level
-change to the flash × move kernels. How large is that part in the real design
+change to the flash × after exit kernels. How large is that part in the real design
 of each unit?
 
 Comparison: a parametric null, one for each unit. Spikes are simulated from
-the final refit of the unit with the weights of the flash × move and the
-flash × move × gap kernels set to 0, so the simulated unit has the fixation
+the final refit of the unit with the weights of the flash × after exit and the
+flash × after exit × gap kernels set to 0, so the simulated unit has the fixation
 effect and every other term of the real unit, and no change of the flash
 response with the period. The full model is then fit to the simulated spikes
-with the real design and the penalty of the unit. The flash × move effect of
+with the real design and the penalty of the unit. The flash × after exit effect of
 that fit is what the model makes from nothing (the leak). The comparison is
 paired: each unit has its real effect and its leak.
 
@@ -22,9 +22,9 @@ paired: each unit has its real effect and its leak.
   limited to `MAX_COUNT` per bin. `SIMULATIONS` simulations for each unit
   (`SEED`); the leak of a unit is the mean over them.
 - Effect, in the matched measure of every flash comparison (`peaks.py`): the
-  part of the move-minus-still peak that the flash × move terms carry, on the
+  part of the after-exit-minus-in-port peak that the flash × after exit terms carry, on the
   paired flashes of `peaks.paired_flashes`: the peak change of the model rate
-  minus the same with the flash × move columns set to 0 (spikes/s). The real
+  minus the same with the flash × after exit columns set to 0 (spikes/s). The real
   part uses the real fit; the leak uses each fit to simulated spikes. `model_trust.py`
   reads it for the excited units of StimulusResponse. The old
   kernel measure (the mean of the kernel difference from `RESPONSE_MS`, Δ log
@@ -72,7 +72,7 @@ from thesis.ephys.analyses.glm.results import (
     flash_kernel_at,
 )
 from thesis.ephys.analyses.glm.unique_dev import block_slices
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import unit_spikes
 
 SIMULATIONS = 3
 SEED = 0
@@ -125,10 +125,10 @@ def _load(windows: Path, design: Path) -> None:
 
 
 def matched_part(intercept: float, coefficients, history, width: int) -> float:
-    """Return the part of the move-minus-still peak that flash × move carries.
+    """Return the part of the after-exit-minus-in-port peak that flash × after exit carries.
 
     The peak of the model rate (`peaks.py`, spikes/s) on the paired flashes of
-    `peaks.paired_flashes`, minus the same with the flash × move columns set to 0.
+    `peaks.paired_flashes`, minus the same with the flash × after exit columns set to 0.
     """
     design = dmat._design_with_history(
         _SHARED["common"], history, width, _SHARED["window_rows"]
@@ -145,7 +145,7 @@ def matched_part(intercept: float, coefficients, history, width: int) -> float:
 
 
 def measures(result: dict, history_scale: np.ndarray) -> np.ndarray:
-    """Return move minus still at each gap, and the fixation level, of one fit."""
+    """Return after exit minus in port at each gap, and the fixation level, of one fit."""
     kernels = fitted_kernels(result, _SHARED["metadata"], history_scale)
     lags = kernels[dmat.FLASH_AFTER_EXIT][0]
     window = (lags >= RESPONSE_MS[0]) & (lags < RESPONSE_MS[1])
@@ -205,7 +205,7 @@ def simulate(
 
 
 def _unit(job: dict) -> dict:
-    """Simulate one unit with no flash × move effect and fit the full model."""
+    """Simulate one unit with no flash × after exit effect and fit the full model."""
     prepared, valid, common, metadata = (
         _SHARED[key] for key in ("prepared", "valid", "common", "metadata")
     )
@@ -253,14 +253,7 @@ def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> di
     final = load_unit_records(
         model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
     )
-    table = fetch_unit_table(
-        subject,
-        name,
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    spikes = dict(zip(table["unit_id"].astype(int), table["spike_times_s"]))
+    spikes = unit_spikes(subject, name)
     jobs = [
         {
             "unit_id": int(item["unit_id"]),
