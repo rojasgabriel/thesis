@@ -12,7 +12,6 @@ import numpy as np
 from scipy.stats import sem
 
 matplotlib.use("Agg")
-from matplotlib.patheffects import withStroke
 
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
@@ -134,7 +133,6 @@ def _plot_bits_deviance_by_rate(
                     np.asarray([sem(deviance[b]) for b in bins]),
                 )
             )
-        longest = max(x[-1] for _, x, _, _ in lines)
         for (members, x, y, error), (name, color) in zip(
             lines, RATE_GROUP_COLORS.items(), strict=True
         ):
@@ -153,23 +151,28 @@ def _plot_bits_deviance_by_rate(
             axis.plot(
                 x, y, color=color, marker=marker, ms=3, linewidth=1.2, ls=linestyle
             )
-            if not label:
-                continue
-            # A line that ends left of the others has them on its right, so its
-            # label goes above its end.
-            right = x[-1] > 0.8 * longest
-            axis.annotate(
-                f"{name}\nmean rate",
-                (x[-1], y[-1]),
-                xytext=(6, 0) if right else (-2, 6),
-                textcoords="offset points",
-                color=color,
-                ha="left" if right else "right",
-                va="center" if right else "bottom",
+        if label:
+            # The lines of two groups can end close together, so the labels
+            # are a list in the empty upper left, in the colors of the lines.
+            axis.text(
+                0.03,
+                0.97,
+                "mean rate",
+                transform=axis.transAxes,
+                va="top",
                 fontsize=7,
-                # A white outline keeps the label legible over single units.
-                path_effects=[withStroke(linewidth=2, foreground="white")],
+                color="0.3",
             )
+            for row, (name, color) in enumerate(reversed(RATE_GROUP_COLORS.items())):
+                axis.text(
+                    0.03,
+                    0.89 - 0.08 * row,
+                    name,
+                    transform=axis.transAxes,
+                    va="top",
+                    fontsize=7,
+                    color=color,
+                )
     axis.set_xlim(left=0)
     axis.set_ylim(bottom=0)
     axis.set_xlabel("test prediction (bits/spike)")
