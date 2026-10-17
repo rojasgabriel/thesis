@@ -47,7 +47,7 @@ right: GRB064). The tests are within each mouse.
   make a flash × move effect from nothing. Spikes are simulated from the
   final refit of each unit with the flash × move weights set to 0, and the
   full model is fit to them. The leak is the flash × move part of the move −
-  still peak of that fit, in the matched peak measure of `flash_by_period.py`
+  still peak of that fit, in the matched peak measure of `peaks.py`
   (`peaks.py`; the excited units). g, the real part against the leak; h, real
   minus leak (two-sided Wilcoxon signed-rank test in each mouse, and the
   hierarchical bootstrap); i, the leak against the fixation level of the unit.
@@ -80,7 +80,7 @@ from scipy.stats import wilcoxon
 from thesis.ephys.analyses.glm import cli, peaks
 from thesis.ephys.analyses.glm.collinearity import INDEX_LIMITS, VIF_LIMITS
 from thesis.ephys.analyses.glm.fit import load_unit_records
-from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.kernel_reliability import agreement, kernel_times
 from thesis.ephys.analyses.glm.main_figure import REGRESSORS, TASK, VISUAL
 from thesis.plotting import (
@@ -428,7 +428,7 @@ def main() -> None:
             }
         stats[f"spike history by rate ({HISTORY_MIN_RATE:g} spikes/s)"] = by_rate
         # Panels m to o: the leak (`leak_test.py`), in the matched peak measure
-        # of the excited units, as in `flash_by_period.py`.
+        # of the excited units, on the paired flashes of `peaks.paired_flashes`.
         part_axis, rest_axis, level_axis = leak_row.subplots(
             1, 3, width_ratios=(1, 0.6, 1)
         )

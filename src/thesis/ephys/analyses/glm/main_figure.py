@@ -109,16 +109,12 @@ REGRESSORS = {
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × move", VISUAL),
-    "flash_move_gap": ("flash × move × gap", VISUAL),
     "fixation": ("pre-stimulus", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
-    "side_after_exit": ("choice", TASK),
     "previous_side": ("previous choice", TASK),
     "video": ("motion energy", MOTION),
     "session_drift": ("session drift", DRIFT_COLOR),
-    "time_in_trial": ("time in trial", TASK),
-    "accumulated_evidence": ("accumulated evidence", VISUAL),
     "response_period": ("response period", TASK),
     "turn_direction": ("turn direction", TASK),
     "previous_outcome": ("previous outcome", TASK),
@@ -333,10 +329,6 @@ def design_rows(components: int) -> list[tuple]:
                 response,
                 "± side of the response",
             )
-        )
-    if dmat.SIDE_COLUMN:
-        rows.append(
-            ("side_after_exit", 1, "span", leave, response, "± side of the response")
         )
     if dmat.PREVIOUS_SIDE_COLUMN:
         rows.append(

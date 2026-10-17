@@ -19,8 +19,6 @@ sample, with the validation D² of each unit. The designs are in `DESIGNS`:
 - "40 | 80-120 | 160+": three classes.
 - "40 | 80 | 120+": three classes with the second limit at 90 ms.
 - "40 | 80 | 120 | 160+": four classes.
-- "centered\nexit term": the flash × move values centered over the flashes
-  (the coding to 2026-10-16), against 0 in the port and 1 after the exit.
 
 In a design with classes, each class has its own flash kernel and there is no
 common kernel; the first flash of a trial is in the last class. The flash ×
@@ -43,11 +41,8 @@ from pathlib import Path
 from thesis.ephys.analyses.glm import cli
 from thesis.ephys.analyses.glm.grid import score_designs
 
-# With no gap classes there is no flash × move × gap term: it is the product of
-# the period and the class of the shortest gaps.
 NO_CLASSES = {
     "FLASH_GAP_EDGES_S": (),
-    "FLASH_MOVE_GAP_TERM": False,
     "FLASH_JUST_BEFORE_TERM": False,
 }
 # The class designs have no flash-just-before kernel: it would code the gap twice.
@@ -59,8 +54,6 @@ DESIGNS = {
     "40 | 80-120 | 160+": {**CLASSES, "FLASH_GAP_EDGES_S": (0.05, 0.13)},
     "40 | 80 | 120+": {**CLASSES, "FLASH_GAP_EDGES_S": (0.05, 0.09)},
     "40 | 80 | 120 | 160+": {**CLASSES, "FLASH_GAP_EDGES_S": (0.05, 0.09, 0.13)},
-    # The coding of flash × move of the design to 2026-10-16 (centered).
-    "centered\nexit term": {"FLASH_AFTER_EXIT_CENTERED": True},
 }
 IN_USE = "1 kernel +\nflash before"
 

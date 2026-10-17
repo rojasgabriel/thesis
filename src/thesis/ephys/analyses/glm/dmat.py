@@ -84,7 +84,8 @@ FLASH_SLOT_S = 0.04
 WITHDRAWAL_PRE_S = 0.0
 WITHDRAWAL_WINDOW_S = 0.1
 WITHDRAWAL_BASES = 4
-# `withdrawal_grid.py` turns this off to test the model without the term. Off
+# The term at the exit of the design to 2026-10-15; `exit_grid.py` turns it on
+# in place of the response period. Off
 # from 2026-10-15: the response period covers the time after the exit, with
 # bases as close together just after the exit (first canonical correlation of
 # the two was 0.91).
@@ -133,12 +134,6 @@ FIXATION = "fixation"
 IN_PORT_COLUMN = False
 STATE_FROM_FIRST_FLASH = False
 IN_PORT = "in_port"
-# One column for the side of the response after the center exit (the figures
-# and the docs call it "choice"; the key stays). In the model from 2026-10-12
-# to 2026-10-15 (`candidate_terms.py`); turn direction, the same side with a
-# time course, replaces it (first canonical correlation 0.9 between the two).
-SIDE_COLUMN = False
-SIDE = "side_after_exit"
 # One column for the side of the last response port that the animal went to
 # before this trial (`trials.last_side`), from the start of the window to the
 # center exit: the side from which the animal comes to the center port. On raw
@@ -168,54 +163,17 @@ FLASH_AFTER_EXIT_TERM = True
 # flash after the center exit "move", and this term "flash × move". These are
 # task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
-# The coding of the design to 2026-10-16, for a comparison.
-FLASH_AFTER_EXIT_CENTERED = False
-# A flash kernel for the product of the period and the gap class: with it, the
-# change from the fixation to after the exit can differ between the gap classes.
-# In the model from 2026-10-13 to 2026-10-15 (`candidate_terms.py`: about a
-# quarter of the units need it in the two sessions). Out: it was the least
-# stable kernel between halves of the trials (agreement 0.61 and 0.56), and the
-# flash × move effect is not reliable after the leak correction.
-FLASH_MOVE_GAP_TERM = False
-FLASH_MOVE_GAP = "flash_move_gap"
-# Candidate terms. `candidate_terms.py` tested them with the inclusion rule
-# (decided with Gabriel, 2026-10-15). Time in trial and turn direction passed
-# in both mice; accumulated evidence and the previous outcome failed in both.
-# Time in trial is not in the model: over the fixation it was the same time
-# course as the fixation kernel (first canonical correlation 1.00), and the
-# fixation kernel is the term that reads the fixation effect. The response
-# period below takes its place after the exit. Turn direction is in the model
-# from 2026-10-15, in the form below.
-# - Time in trial: `TRIAL_TIME_BASES` raised cosines over the time from the
-#   first flash, 0 to `TRIAL_TIME_WINDOW_S`; 0 outside. From the residual
-#   checks of 2026-10-13.
-# - Accumulated evidence: the number of flashes of the trial up to the bin,
-#   minus its expected value for the rate of the trial. A trial with rate N has
-#   N flashes in 25 slots of `FLASH_SLOT_S`; the first slot always has one, and
-#   the other N - 1 go to random slots of the other 24. So the expected count
-#   when k of those 24 slots have started is 1 + (N - 1) k / 24. The term is 0
-#   before the first flash and varies only by the random placement, so it is
-#   separable from the rate, the category, and the choice. It tests whether
-#   V1 carries the accumulated flashes on top of the 150-ms flash kernels.
-# - Turn direction: the side of the response (+1 right, -1 left) times
-#   the `exit_basis` (`TURN_DIRECTION_BASES` raised cosines, even in
-#   log(t + `EXIT_LOG_STRETCH_S`), from the center exit to `TURN_DIRECTION_S`
-#   after it, the 95th percentile of the time from the exit to the response
-#   entry in both mice); after that the last cosine keeps its value up to the
-#   response entry, where the bins of the trial end. 0 before the exit. A direction-specific movement
-#   signal, which motion energy cannot carry; it adds a time course to the
-#   choice column after the exit. Nothing before the exit, where the side is
-#   confounded with the stimulus.
-# - Previous outcome: +1 if the last trial with a response was rewarded, -1 if
-#   not, over the whole window of the trial (0 before the first response of
-#   the session). `unique_dev.py` shuffles it over trials.
-TIME_IN_TRIAL_TERM = False
-TIME_IN_TRIAL = "time_in_trial"
-TRIAL_TIME_WINDOW_S = 1.5
-TRIAL_TIME_BASES = 6
-ACCUMULATED_EVIDENCE_TERM = False
-ACCUMULATED_EVIDENCE = "accumulated_evidence"
-STIMULUS_SLOTS = 25
+# Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
+# response (+1 right, -1 left) times the `exit_basis` (`TURN_DIRECTION_BASES`
+# raised cosines, even in log(t + `EXIT_LOG_STRETCH_S`), from the center exit
+# to `TURN_DIRECTION_S` after it, the 95th percentile of the time from the exit
+# to the response entry in both mice); after that the last cosine keeps its
+# value up to the response entry, where the bins of the trial end. 0 before the
+# exit, where the side is confounded with the stimulus. A direction-specific
+# movement signal, which motion energy cannot carry. It replaced one column for
+# the side after the exit (first canonical correlation 0.9 between the two).
+# Candidates that failed or were not taken (time in trial, accumulated
+# evidence, flash × move × gap) are in docs/glm_decisions.md and git history.
 TURN_DIRECTION_TERM = True
 TURN_DIRECTION = "turn_direction"
 TURN_DIRECTION_S = 1.3
@@ -224,6 +182,10 @@ TURN_DIRECTION_BASES = 8
 # but its own name, so that a grid of the fixation kernel (`hold_grid.py`)
 # does not change the exit basis also.
 EXIT_LOG_STRETCH_S = 0.025
+# Previous outcome, a candidate (`candidate_terms.py`): +1 if the last trial
+# with a response was rewarded, -1 if not, over the whole window of the trial
+# (0 before the first response of the session). It failed the rule in both
+# mice on 2026-10-15. `unique_dev.py` shuffles it over trials.
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
 # Response period (decided with Gabriel, 2026-10-15): the `exit_basis` with no
@@ -238,7 +200,7 @@ RESPONSE_PERIOD_TERM = True
 RESPONSE_PERIOD = "response_period"
 # `THESIS_GLM_TERMS` switches terms on for a whole run, also in the worker
 # processes, which import this module again: a comma-separated list of the
-# switch names above, for example "TIME_IN_TRIAL_TERM,TURN_DIRECTION_TERM".
+# switch names above, for example "PREVIOUS_OUTCOME_COLUMN".
 for _switch in filter(None, os.environ.get("THESIS_GLM_TERMS", "").split(",")):
     if globals().get(_switch) is not False:
         raise ValueError(f"THESIS_GLM_TERMS: {_switch} is not a switch of the design.")
@@ -466,7 +428,6 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         FLASH_COMMON: flash,
         **{name: flash for name in flash_gap_names()},
         FLASH_AFTER_EXIT: flash,
-        FLASH_MOVE_GAP: flash,
         FLASH_JUST_BEFORE: flash,
         "hold": StretchedCosineBasis(
             HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
@@ -481,8 +442,6 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_COMMON]
     if not FLASH_AFTER_EXIT_TERM:
         del bases[FLASH_AFTER_EXIT]
-    if not FLASH_MOVE_GAP_TERM:
-        del bases[FLASH_MOVE_GAP]
     if not FLASH_JUST_BEFORE_TERM:
         del bases[FLASH_JUST_BEFORE]
     if not WITHDRAWAL_KERNEL:
@@ -560,8 +519,8 @@ def flash_after_exit(trials) -> np.ndarray:
     1 for a flash at or after the center exit and 0 for a flash in the
     fixation, so the common flash kernel is the response in the port and the
     flash × move kernel is how the exit changes it (to 2026-10-16 the values
-    were centered, which made the common kernel a mean of the two periods).
-    With `FLASH_AFTER_EXIT_CENTERED` they are centered again. The first flash
+    were centered, which made the common kernel a mean of the two periods;
+    the same columns in span). The first flash
     of a trial gets 0: it is always in the fixation. The period is that of the
     flash time; the kernel of a flash just before the exit goes on after it.
     """
@@ -579,21 +538,7 @@ def flash_after_exit(trials) -> np.ndarray:
         first.append(np.arange(len(modeled)) == 0)
     after = np.concatenate(after).astype(float)
     first = np.concatenate(first)
-    if FLASH_AFTER_EXIT_CENTERED:
-        return np.where(first, 0.0, after - after[~first].mean())
     return np.where(first, 0.0, after)
-
-
-def flash_move_gap(trials) -> np.ndarray:
-    """Return the period-by-gap product of each modeled flash, in the order of `flash_events`.
-
-    The centered period of `flash_after_exit` times the centered indicator of
-    the class of the shortest gaps. The first flash of a trial gets 0.
-    """
-    period = flash_after_exit(trials)
-    used = period != 0  # the first flash of a trial is exactly 0
-    short = (flash_gap_class(trials) == 0).astype(float)
-    return np.where(used, period * (short - short[used].mean()), 0.0)
 
 
 def _bumps(position: np.ndarray, count: int) -> np.ndarray:
@@ -605,26 +550,6 @@ def _bumps(position: np.ndarray, count: int) -> np.ndarray:
     centers = np.linspace(0, 1, count)
     distance = (np.asarray(position)[..., None] - centers) / (centers[1] - centers[0])
     return np.where(np.abs(distance) < 1, 0.5 * (1 + np.cos(np.pi * distance)), 0.0)
-
-
-def accumulated_evidence(trials, times: np.ndarray, first: np.ndarray) -> np.ndarray:
-    """Return the flashes up to each bin minus their expected number (trial x bin).
-
-    `times` are the bin times (trial x bin) and `first` the first flash of each
-    trial. See `ACCUMULATED_EVIDENCE` for the expected number.
-    """
-    out = np.zeros(times.shape)
-    for row, (flashes, rate) in enumerate(
-        zip(trials["stim_pulse_times_s"], trials["visual_stim_rate_hz"], strict=True)
-    ):
-        flashes = np.sort(np.asarray(flashes, dtype=float))
-        flashes = flashes[flashes >= first[row] - 1e-6]
-        since = times[row] - first[row]
-        count = np.searchsorted(flashes - first[row], since, side="right")
-        started = np.clip(np.floor(since / FLASH_SLOT_S), 0, STIMULUS_SLOTS - 1)
-        expected = 1 + (float(rate) - 1) * started / (STIMULUS_SLOTS - 1)
-        out[row] = np.where(since >= 0, count - expected, 0.0)
-    return out
 
 
 def session_drift_columns(trial_times: np.ndarray) -> np.ndarray:
@@ -683,16 +608,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             flashes,
             flash_after_exit(trials),
             "sensory",
-            "centered; 1 for a flash after the center exit, 0 in the fixation; "
+            "1 for a flash after the center exit, 0 in the fixation; "
             "the first flash is 0",
-        ),
-        (
-            FLASH_MOVE_GAP,
-            flashes,
-            flash_move_gap(trials),
-            "sensory",
-            "the centered period (flash × move) times the centered gap class "
-            "(1 for the shortest gaps, else 0); the first flash is 0",
         ),
         (
             "hold",
@@ -767,20 +684,6 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "coding": "1 from center entry to the first flash, else 0",
             }
         )
-    if SIDE_COLUMN:
-        # +1 for a response to the right port and -1 for the left port, from the
-        # center exit on; 0 before the exit.
-        sign = np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None]
-        values = np.column_stack((values, (sign * ~before_exit).ravel()))
-        manifest.append(
-            {
-                "name": SIDE,
-                "group": "task",
-                "events": len(alignments),
-                "columns": 1,
-                "coding": "+1 (right) or -1 (left) from the center exit on, else 0",
-            }
-        )
     if PREVIOUS_SIDE_COLUMN:
         # +1 (right) or -1 (left) up to the center exit; 0 from the exit on, and
         # in the trials before the first response of the session.
@@ -824,12 +727,6 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "trial in the session",
             }
         )
-    since_first = times - np.asarray(alignments, dtype=float)[:, None]
-    in_window = (since_first >= 0) & (since_first <= TRIAL_TIME_WINDOW_S)
-    over_trial = (
-        _bumps(since_first / TRIAL_TIME_WINDOW_S, TRIAL_TIME_BASES)
-        * in_window[..., None]
-    )
     since_exit = times - trials["center_exit_s"].to_numpy(dtype=float)[:, None]
     after_exit = since_exit >= 0
     # After `TURN_DIRECTION_S`, the last cosine keeps its value (1).
@@ -838,24 +735,6 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     turn = basis[index] * after_exit[..., None]
     side = np.where(trials["response"].to_numpy() == 1, 1.0, -1.0)[:, None, None]
     for name, used, block, coding in (
-        (
-            TIME_IN_TRIAL,
-            TIME_IN_TRIAL_TERM,
-            over_trial,
-            f"{TRIAL_TIME_BASES} raised cosines over 0 to {TRIAL_TIME_WINDOW_S} s "
-            "from the first flash",
-        ),
-        (
-            ACCUMULATED_EVIDENCE,
-            ACCUMULATED_EVIDENCE_TERM,
-            accumulated_evidence(trials, times, np.asarray(alignments, dtype=float))[
-                ..., None
-            ]
-            if ACCUMULATED_EVIDENCE_TERM
-            else None,
-            "flashes up to the bin minus 1 + (N - 1) k / 24 (N flashes, k of the 24 "
-            "random slots started); 0 before the first flash",
-        ),
         (
             RESPONSE_PERIOD,
             RESPONSE_PERIOD_TERM,
@@ -1130,12 +1009,9 @@ def _common_design_is_current(output: Path) -> bool:
         (name, columns)
         for name, columns, used in (
             (FIXATION, 1, FIXATION_COLUMN),
-            (SIDE, 1, SIDE_COLUMN),
             (PREVIOUS_SIDE, 1, PREVIOUS_SIDE_COLUMN),
             (PREVIOUS_OUTCOME, 1, PREVIOUS_OUTCOME_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
-            (TIME_IN_TRIAL, TRIAL_TIME_BASES, TIME_IN_TRIAL_TERM),
-            (ACCUMULATED_EVIDENCE, 1, ACCUMULATED_EVIDENCE_TERM),
             (RESPONSE_PERIOD, TURN_DIRECTION_BASES, RESPONSE_PERIOD_TERM),
             (TURN_DIRECTION, TURN_DIRECTION_BASES, TURN_DIRECTION_TERM),
             (IN_PORT, 1, IN_PORT_COLUMN),

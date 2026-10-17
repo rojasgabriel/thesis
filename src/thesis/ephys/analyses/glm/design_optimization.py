@@ -13,11 +13,9 @@ design with one term in another form, on the same units of GRB006
 unit minus its D² with the form in use (paired). D² is relative to the
 constant-rate model, on the validation trials.
 
-- Panel a (`gap_class_grid.py`): one flash kernel, two to four gap classes
-  (two classes have the same columns as the form in use), and the centered
-  coding of flash × move, against the form in use: one kernel and a kernel for
-  a flash up to 50 ms before, with flash × move coded 0 in the port and 1
-  after the exit.
+- Panel a (`gap_class_grid.py`): one flash kernel and two to four gap classes
+  (two classes have the same columns as the form in use), against the form in
+  use: one kernel and a kernel for a flash up to 50 ms before.
 - Panel b (`flash_length_grid.py`): flash kernels of 200, 250, and 300 ms
   against the 150 ms in use.
 - Panel c (`hold_grid.py`): no fixation term, a step, a step with a kernel on
@@ -34,7 +32,8 @@ constant-rate model, on the validation trials.
 - Panel g (`drift_grid.py`): no session drift, more raised cosines, and a
   cubic spline, against the 4 raised cosines in use.
 
-`withdrawal_grid.py` (kernels that start before the exit) ran on the design
+The withdrawal grid (kernels that start before the exit; removed, in the git
+history) ran on the design
 of 2026-10-13 only, which had the withdrawal kernel. A kernel of ±300 ms
 predicted better there but made the fixation level worse in parameter
 recovery (`WITHDRAWAL_RECOVERY`), so the term at the exit starts at the exit;
@@ -78,7 +77,7 @@ from thesis.ephys.analyses.glm import (
     hold_window_grid,
     pc_grid,
 )
-from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
 from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
 
@@ -125,7 +124,6 @@ GRIDS = {
 # Tick labels that differ from the name of the design in its grid.
 LABELS = {
     "40 | 80+": "40,\n80+",
-    "centered\nexit term": "centered\nexit\nterm",
     "1 kernel +\nflash before": "1 kernel\n+ flash\nbefore",
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
@@ -138,7 +136,6 @@ CAPTION_NAMES = {
     "1 kernel": "one kernel for all flashes",
     "1 kernel + flash before": "one kernel with a flash-just-before kernel",
     "40 | 80+": "two gap classes (the form to 2026-10-16)",
-    "centered exit term": "the centered flash × move coding (to 2026-10-16)",
     "40 | 80-120 | 160+": "three classes (40, 80 to 120, 160+)",
     "40 | 80 | 120+": "three classes (40, 80, 120+)",
     "40 | 80 | 120 | 160+": "four classes",
@@ -160,7 +157,7 @@ CAPTION_NAMES = {
 DISPLAY_LIMIT = 0.006
 # Fixation level, recovered over true (median unit), with the withdrawal
 # kernel in use on 2026-10-13 and with the ±300 ms kernel (`parameter_recovery
-# --grid withdrawal_grid --design ±300`, 2026-10-13; docs/glm.md). The design
+# with the withdrawal grid, 2026-10-13; docs/glm.md). The design
 # has no withdrawal kernel now, so the test cannot be run again on it.
 WITHDRAWAL_RECOVERY = {"GRB006": (0.76, 0.55), "GRB064": (0.84, 0.73)}
 CAPTION = """\

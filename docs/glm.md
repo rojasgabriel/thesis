@@ -506,44 +506,6 @@ Findings, with the section that has the details:
 - Still open: the side index with turn direction, and the link of the model
   to locomotion and the decoding analyses.
 
-## Flash response when still and when the animal moves
-
-`flash_by_period.py` (`flash_by_period.svg`, both sessions) asks if the higher
-peak after a flash when the animal has left the center port
-(`stim_responses_by_locomotion.py`) is a change of the response to the flash
-(the flash × move term) or a change of everything else at the exit. "Still" is
-the last flash in the fixation and "move" the first flash after the exit, in
-the same trials (283 and 158 trials). These are task periods, not a measure of
-locomotion.
-
-- Measure: the matched peak of `peaks.py` (the baseline is the still rate
-  before the flash, the same for both periods; spikes/s), on three rates of the
-  same flashes: the spikes, the rate of the final refit, and that rate with the
-  flash × move weights set to 0.
-- Units: the excited units of StimulusResponse that the GLM fits and that are
-  stable (23 in GRB006, 15 in GRB064). Units of both mice pooled, with the
-  hierarchical bootstrap of the pooled median.
-
-| Move minus still (spikes/s) | Pooled median [95%] | GRB006 | GRB064 |
-| --- | ---: | ---: | ---: |
-| Observed | +14.7 [7.1, 45.6] | +12.7 (23 of 23 units, p = 2e-7) | +33.5 (13 of 15, p = 6e-4) |
-| Model | +12.8 [6.3, 32.5] | +10.4 | +24.7 |
-| Model with no flash × move | +12.6 [4.9, 43.8] | +8.0 | +29.0 |
-| Part from flash × move | +0.8 [−4.3, 2.1], p = 0.80 | +1.2 (p = 0.31) | −2.0 (p = 0.19) |
-| Model minus observed | −4.4 [−8.8, −2.0] | −3.8 (p = 0.004) | −4.7 (p = 0.002) |
-
-- The peak is higher after the exit in both mice, and the model gives almost
-  all of it without the flash × move term: it is the change of the rate level
-  and of the other terms at the exit, not of the response to the flash.
-- The flash × move part is not different from 0, and not different from the
-  leak (see "Leak of the fixation level").
-- The model predicts too small a change in both mice (−4.5 spikes/s).
-- The raw data without a model (`matched_flashes.py`, flashes after a long
-  gap, matched for time and gap) gave opposite signs in the two mice for the
-  response over the baseline (+0.18 in log in GRB006, −0.75 in GRB064). No
-  direction of the flash × move effect is reported until a third animal is
-  fit.
-
 ## What causes the fixation effect
 
 ### The fixation effect in both animals
@@ -589,158 +551,9 @@ part in the design choices.
   (−2.5 to 1.6) and in the rank test; the median does not change without
   them. Panel d hides 0 and 1 units, panel h 1 and 3. All are in the tests.
 
-### Tests of 2026-10-11 (GRB006)
-
-Tests of 2026-10-11 with no model (`matched_flashes.py`, 167 units, results in
-`matched_flashes.json`; panels g and h of the fixation-effect figure). The
-measures are the rate around a flash (−20 to 20 ms, the baseline) and after it
-(30 to 120 ms, the response). The first flash of a trial is not used. The
-units share the trials, so a test over units does not show that a result
-holds for other trials.
-
-| Explanation | What it predicts | What the data show |
-| --- | --- | --- |
-| Slow adaptation to the train | The rate depends on the time in the train and the flashes, not on the exit | The effect ends in about 100 ms at the exit while the flashes continue, a kernel that goes on after the exit predicts worse, and the flash rate of the trial has no effect. Not tested at a matched time: see below |
-| Movement after the exit | A larger response with more movement | No: among flashes after the exit, the upper half of motion energy (2.2 times the lower half) gives the same baseline and response (ratio 0.97 and 0.97, p = 0.09 and 0.5) |
-| Stillness in the port | The same low rate at a side port with the same motion energy, and the same rise with motion energy | No, in both animals: the side-port rate goes up with motion energy and the center-port rate does not (p = 8e-11 and 5e-6). At the lowest motion energy alone: 0.78 of the side-port rate in GRB006, 0.84 (p = 0.31) in GRB064 |
-| A change of the gain of the whole unit (state) | The same factor for all units and for baseline and response | Not fully, and the two animals differ. Units with a larger flash response are suppressed more in GRB006 (Spearman ρ = −0.20, p = 0.01; the earlier design gave −0.41), not in GRB064 (ρ = +0.10, p = 0.41). For flashes after a long gap, the response changes more than the baseline in GRB006 (+0.18 in log, p = 0.0003) and much less in GRB064 (−0.75, 8 of 65 units above 0, p = 1e-9); for short gaps, no difference in either (0.00 and −0.03) |
-| The view of the stimulus from the center port | A step at the exit that needs the stimulus, in units that respond to it, and a common effect of the side of the turn | Agrees with the fast step at the exit and the relation to the flash response. Against it: the rate goes up at the exit by the same amount when the stimulus stops there (GRB064), the side of the response has no common direction, and the rate already falls from the center entry to the first flash, with no stimulus (0.95 of the rate before the entry in GRB006, 0.70 in GRB064) |
-
-- The matched-time test is not possible in this session. The fixation has
-  almost the same length in all trials (1st to 95th percentile: 488 to
-  708 ms; the animal leaves about 50 ms after the go cue). Only 21 flashes in
-  the fixation are at a time from the first flash where there are also flashes
-  after the exit. So the time in the train, the go cue, and the exit cannot be
-  separated here by their times. A session with wait times that differ, with
-  early withdrawals, or with the stimulus shown outside the port would separate
-  them.
-- The change at the exit is fast: flashes in the first 100 ms after the exit
-  have a baseline 1.46 times lower than later flashes, and a response only
-  1.08 times lower.
-- The fixation level has no relation to the unique ΔD² of motion energy, fast
-  adaptation, or spike history, or to depth.
-- Rig facts (from Gabriel, 2026-10-11): the stimulus is an LED panel above
-  the ports, centered on the center port, so it is in the upper visual field
-  when the animal is in the center port. The flash is full-field and the arena
-  is dark, so the light is everywhere, but the source moves in the visual
-  field when the head turns (to the left of the field for a turn to the
-  right). The probe is in posterior left V1 (right visual field), aimed at the
-  upper field and the binocular zone by surgical coordinates, with no
-  retinotopy. There is no measure of the head or the eye. A second camera
-  gives a view from the right side, at an angle.
-- Side of the response (`matched_flashes.py`): the view predicts one direction
-  over units, because the source moves to the right visual field for a turn to
-  the left. The flash response after the exit has no common direction (right
-  over left 1.04, p = 0.2; baseline 1.12, p = 0.02). Single units differ: 46%
-  of the units have a response more than 1.5 times larger for one side (35 to
-  the left, 41 to the right). So the side matters for single units, but not in
-  the direction that the position of the source predicts for left V1.
-- The exit with no stimulus (`exit_without_stimulus.py` and its figure
-  `exit_without_stimulus.svg`, GRB064
-  20260916_132939, 78 units, no model). In an early-withdrawal trial the animal
-  leaves the center port before the go cue and the flashes stop at the exit
-  (78 trials, exit 403 ms after the first flash; 169 completed trials, exit at
-  582 ms). The rate goes up at the exit by the same amount in both: 2.17 times
-  in completed trials (67 of 77 units, p = 4e-10) and 2.12 times in early
-  withdrawals (62 of 74 units, p = 2e-8). The rate after the exit is the same
-  with and without the stimulus (early over completed 0.98, p = 1.0). So:
-  - The effect is in a second animal.
-  - The rise at the exit does not need the stimulus, so it is not a better
-    view of the stimulus.
-  - The rise is at the exit and not at a time in the train (403 against
-    582 ms), so it is not slow adaptation.
-  - The punishment of an early withdrawal is a 2 s tone with no light (from
-    Gabriel), so the arena is dark after an early exit. The tone is the one
-    difference left: the rate after the exit is the same with the tone and no
-    stimulus as with the stimulus and no tone.
-- GRB006 (2026-10-16, after `reextract_flash_onsets.py` added the 1170
-  flashes of the early-withdrawal trials to the database; 167 units, 207
-  early withdrawals with an exit 445 ms after the first flash, 294 completed
-  trials with the exit at 553 ms; `figures/exit_without_stimulus/GRB006_20240821_121447/`).
-  The result replicates: the rate after the exit is the same with and without
-  the stimulus (early over completed 1.01, 89 of 167 units higher, p = 0.57),
-  and it goes up at the exit in both (2.45 times in completed trials, 146 of
-  167 units, p = 6e-22; 1.86 times in early withdrawals, 137 of 166, p = 2e-18).
-  The rise is smaller in early withdrawals because the rate before the exit is
-  higher (early over completed 1.13, 143 of 166 units, p = 3e-18): the
-  fixation is shorter (445 against 553 ms), and in GRB006 the drop starts
-  about 90 ms after the first flash and goes on through the fixation. In
-  GRB064 the rate before the exit is the same in both (1.00, p = 0.92).
-  The flashes of the completed trials did not change with the new row (3520
-  onsets, the same as before), so the GLM fits are not affected.
-- In GRB064 the fixation of the
-  completed trials has almost the same length as in GRB006 (1st to 95th
-  percentile: 455 to 747 ms), so the matched-time test is not possible there
-  either; the early withdrawals are what separates the exit from the time in
-  the train.
-- Does the drop start before the stimulus? (2026-10-15,
-  `suppression_onset.py`, no model; panel e of `hold_effect.svg`.) The time
-  from the center entry to the first flash differs between trials (5th to
-  95th percentile 26 to 99 ms in GRB006, 31 to 106 ms in GRB064). In the
-  trials with a long delay (the upper half; median 73 and 83 ms), the rate of
-  each unit from 20 ms after the entry to the first flash (the port with no
-  stimulus; median window 53 and 63 ms) is compared with its rate 250 to
-  100 ms before the entry, paired over units. For scale, the rate 180 to
-  290 ms after the first flash over the same rate before the entry is the full
-  drop.
-
-  | Mouse | Units, long-delay trials | Entry to first flash, over before entry | 180–290 ms after the first flash, over before entry |
-  | --- | --- | --- | --- |
-  | GRB006 | 166, 148 | 0.95 (lower in 101 units, p = 0.002) | 0.59 |
-  | GRB064 | 75, 120 | 0.70 (lower in 58 units, p = 4e-8) | 0.47 |
-
-  On a log scale, about 10% of the full drop comes before the first flash in
-  GRB006 and about half in GRB064. So the drop does not need the stimulus to
-  start, and in GRB064 a large part of it comes with the entry. Two-sided
-  Wilcoxon signed-rank tests of the log ratio; the units share the trials.
-  The units are those of the GLM (without `fit.EXCLUDED_UNITS`), as in every
-  analysis that is compared with it; one unit of each mouse has no spike
-  before the entry and no ratio. Before this rule, GRB064 unit 414 (excluded
-  from the GLM: 1 spike in all 239 trials) gave a large false peak in the
-  normalized population rate.
-  Limit: the population rate also goes down slowly in the 100 ms before the
-  entry, while the animal comes to the port, so a part of the drop may follow
-  the approach and not the entry. The trial table has no measure of the
-  approach that could separate them.
-  - This replaces the time of the drop (2026-10-12): the first time after
-    40 ms at which the smoothed rate is below the middle of its levels before
-    and late. It gave 0 ms (GRB006) and −30 ms (GRB064) for the shift of the
-    long against the short delays from the entry. In GRB064 the rate was
-    already below that middle level before 40 ms, so the measure gave the
-    start of its search and not a time of the drop. The −30 ms is not a
-    result.
-- The side preference of single units does not need the stimulus (2026-10-15,
-  `side_preference.py`, both sessions, no model, with the corrected response
-  entries of GRB064; for the turn-direction work, not in `hold_effect.svg`). Side index of a unit:
-  (right − left) / (right + left) of its rate. With the stimulus on after the
-  exit (100 ms after the exit to 100 ms after the last flash), about half of
-  the units have an index above 0.2 in size (50% of 167 units in GRB006, 53%
-  of 76 in GRB064; split-half Spearman ρ = 0.86 and 0.85). The index with the
-  stimulus on agrees with the index with the stimulus off (150 ms after the
-  last flash to the response entry, in the dark; split-half ρ = 0.59 and
-  0.79): ρ = 0.51 in GRB006 and 0.57 in GRB064, against a limit of about 0.71
-  and 0.82 from the split-half values (the geometric mean of the two). In the
-  fixation the index is small and has no relation to the index after the exit
-  (ρ = −0.07 and −0.08). The units are those of the GLM. So the side preference is a
-  signal of the movement or of the place of the animal, not of the view of the
-  stimulus. Limit: the window with the stimulus off is later in the movement.
-- The most probable explanation with these data, in both animals: the rate
-  is low while the animal holds in the center port with the stimulus on, and
-  it goes up when the animal leaves, with or without the stimulus. It does not
-  follow motion energy after the exit. It is not only stillness: at a side
-  port the rate goes up with motion energy, and in the center port it does not
-  (slope test, p = 8e-11 and 5e-6). So it is a state of the trial (holding in
-  the port during the stimulus) that ends with the exit. Slow adaptation, the
-  view of the stimulus, and a gain that grows with movement are less
-  probable.
-- Only in GRB006: most of the suppression comes after the first flash (about
-  90% on a log scale), and it is larger in units with a larger flash response.
-  In GRB064 about half of the drop comes between the entry and the first
-  flash, and ρ = +0.10 for the flash response. So "units with a visual
-  response" is not part of the explanation, and the drop starts with the
-  entry into the port (or the approach to it) in both mice, with a part that
-  follows the first flash. Not known: what starts it, and what the side
-  preference of single units after the exit is.
+The tests of 2026-10-11 on what causes the fixation effect (GRB006; matched
+flashes, the flash × fixation term, the view, the latency) are in
+[glm_decisions.md](glm_decisions.md), "Tests of 2026-10-11".
 
 ## Collinearity of the regressors
 
@@ -887,120 +700,11 @@ the full model is fit to them (3 simulations for each unit).
   read from the weights alone; use the values with the leak taken out, and the
   model-free measures of `hold_effect.py` for the size of the fixation effect.
 
-## Penalty: one for all terms (the model in use), and the sensitivity analysis
+## Penalty
 
-The numbers of this section and the next are for the design of 2026-10-13
-(12 regressors, with flash × move × gap). The weaker-penalty fit was not run
-again on the design of 2026-10-15.
-
-Decision of 2026-10-13: the model in use has one L2 penalty for all terms,
-selected for each unit. That is the common practice for single-neuron task
-GLMs (Park et al. 2014: one ridge penalty, evidence optimization; Musall et
-al. 2019: ridge, one penalty for each pixel; Steinmetz et al. 2019: elastic
-net with fixed values). With it:
-
-- The leak test is the parameter-recovery check of the model (as in
-  Rabinowitz et al. 2015, who simulated known modulators), and the flash ×
-  move effect is reported with the leak taken out (see "Leak of the fixation
-  level").
-- The size of the fixation effect is taken from the raw rates
-  (`hold_effect.py`), because the fixation kernel of this model is too small.
-- The fit with a weaker penalty on the fixation kernel is the sensitivity
-  analysis (`HOLD_PENALTY_SCALE = 10`; fits in `_weaker_fixation_penalty`,
-  with no unique-deviance step). A separate treatment of a slow baseline term
-  has precedent (a drift term with its own prior in Rabinowitz et al. 2015; a
-  drift term in Liska et al. 2024; one penalty for each group of regressors
-  in banded ridge, Nunez-Elizalde et al. 2019), but no task GLM that was read
-  leaves a state term with a weaker penalty. The conclusions are the same
-  with it: +0.09 in GRB006 and −0.16 in GRB064.
-- For a term of interest that shares variance with another term, Musall et
-  al. (orthogonalization) and Steinmetz et al. (a kernel fit to the residuals
-  of the model without it) give the shared part to the other terms. That is
-  an alternative to the leak correction and is not run here.
-
-In the tables of the next section, "same penalty" is the model in use and
-"weaker" is the sensitivity analysis.
-
-## A weaker penalty on the fixation kernel removes the leak
-
-The leak comes from the L2 penalty. With the same penalty on all terms, the
-fit makes the fixation kernel too small, and the flash × move kernels take the
-rest of the level: in the simulations, the fixation kernel keeps the full
-level at a penalty of 1e-5, 80% at 1e-4, and 39% at 1e-3.
-
-Test on simulated spikes of every unit (the true flash × move effect is 0;
-a scratch test, not a module):
-
-| Way to fit the fixation term | Leak, GRB006 | GRB064 | Level kept, GRB006 | GRB064 |
-| --- | ---: | ---: | ---: | ---: |
-| Same penalty on all terms | +0.086 | +0.058 | 63% | 78% |
-| One shared time course for all units, one weight for each unit | +0.093 | +0.058 | 56% | 77% |
-| Weaker penalty on all terms (1e-5) | +0.073 | +0.049 | 83% | 95% |
-| Penalty 100 times weaker on the fixation kernel only | +0.030 | −0.003 | 101% | 103% |
-
-- A shared time course does not remove the leak: its weight has the same
-  penalty.
-- `HOLD_PENALTY_SCALE = 10` (the default is 1) makes the columns of the fixation kernel 10 times
-  larger than a z-score, so the penalty on its weights is 100 times weaker.
-  The saved scale of the columns has the factor in it, so the kernels are
-  read as before. Factors of 30 and 100 stop the convergence of the fit.
-- Prediction on real data is the same: on 80 units the same penalty is not
-  different from the weaker one (`hold_grid`, −0.04%, 38 of 80 units better,
-  p = 0.75), and on all units the cross-validated D² does not change (GRB006:
-  92 of 167 units better, p = 0.52; GRB064: 46 of 76, p = 0.063).
-
-Both sessions were fit again with the weaker penalty (design of 2026-10-13,
-12 regressors; these fits are in `_weaker_fixation_penalty`), and
-`leak_test.py` was run on them (`leak_test_weaker_fixation_penalty.json`):
-
-| Median over units, Δ log rate | GRB006, same penalty | GRB006, weaker | GRB064, same penalty | GRB064, weaker |
-| --- | ---: | ---: | ---: | ---: |
-| Fixation level (kernel, 200 to 450 ms) | −0.24 | −0.54 | −0.46 | −0.71 |
-| Simulated fixation level that the refit keeps | 59% | 89% | 79% | 102% |
-| Flash kernel, move minus still, 80+ ms gap | +0.24 | +0.13 | −0.05 | −0.14 |
-| Leak at the 80+ ms gap | +0.08 | +0.02 (p = 2e-7) | +0.06 | 0.00 (p = 0.82) |
-| Real minus leak, 80+ ms gap | +0.15 | +0.09 (p = 3e-5) | −0.13 | −0.16 (p = 3e-7) |
-| Flash kernel, move minus still, 40 ms gap | +0.06 | 0.00 | −0.01 | −0.04 |
-| Real minus leak, 40 ms gap | +0.04 | −0.01 (p = 0.53) | −0.04 | −0.06 (p = 0.003) |
-
-- The fixation level of the kernel is now −0.54 in GRB006. The raw rate in
-  the fixation is 0.56 of the rate before the first flash (log −0.58), so the
-  kernel now agrees with the model-free measure.
-- The leak is gone in GRB064 and small in GRB006 (+0.02).
-- The flash response at the 80+ ms gap is a little higher in move in GRB006
-  (+0.09 with the leak taken out) and lower in move in GRB064 (−0.16). The two
-  animals have opposite signs. At the 40 ms gap there is no change in GRB006
-  and a small decrease in GRB064.
-- The numbers of the other sections (flash kernels by period, kernel
-  stability, collinearity, unique ΔD²) are from the model in use, with the
-  same penalty on all terms.
-
-## Performance in the measures of other papers
-
-Design of 2026-10-13 (not run again on the design of 2026-10-15).
-`performance.py` (`performance.svg`, `performance.json`): each trial is
-predicted by the fold that did not train on it, with the task and
-motion-energy terms and no spike history, and compared with the observed
-spikes. Median over units of the Pearson correlation (r² in brackets):
-
-| | GRB006 (167 units) | GRB064 (76 units) |
-| --- | ---: | ---: |
-| Single trials, 1-ms bins | 0.04 | 0.05 |
-| Single trials, 10-ms bins | 0.12 (0.015) | 0.16 (0.024) |
-| Single trials, 33-ms bins | 0.20 (0.04) | 0.27 (0.07) |
-| Single trials, 100-ms bins | 0.27 (0.07) | 0.42 (0.17) |
-| Mean over held-out trials, 20-ms bins | 0.88 (0.77) | 0.87 (0.76) |
-
-- The model predicts the mean time course of a unit well and single trials
-  weakly. With the spike-history term the prediction of a wide bin has the
-  spikes of that bin in it, so it is not used here.
-- Values from other papers, with different signals, bins, and predictors (no
-  direct comparison): Musall et al. 2019, two-photon neurons in V1 at 30 Hz,
-  cvR² 31% with many video and movement regressors; Akella et al. 2025,
-  Neuropixels units of the visual cortex with rates smoothed at 50 ms, cvR²
-  27 ± 14% with stimulus, behavior, and the activity of other areas and LFP
-  (stimulus alone 20%); Parker et al. 2022, V1 units of freely moving mice in
-  50-ms bins smoothed over 2 s, mean correlation 0.28 for the visual model.
+One L2 penalty for all terms, selected for each unit (the common practice).
+The sensitivity analysis with a weaker penalty on the fixation kernel (design
+of 2026-10-13) is in [glm_decisions.md](glm_decisions.md), "Penalty".
 
 ## Figures
 
@@ -1009,13 +713,11 @@ spikes. Median over units of the Pearson correlation (r² in brackets):
 | Main | `main_figure.py` | the design of one trial, one trial, the kernels, and the prediction of the example unit (GRB006); the population and what each regressor explains, the units of both mice pooled |
 | Flash kernels | `flash_kernels.py` | the flash kernel by gap class and by period (still, move): median kernels of the units that fire more and less after a flash, maps of all units, paired scatters; both sessions |
 | Flash by gap | `flash_by_gap.py` | observed and predicted rate around flashes at each gap, still and move; both sessions |
-| Still against move | `flash_by_period.py` | the matched peak in the two periods: observed, model, and model with no flash × move; both sessions |
 | Fixation effect | `hold_effect.py` | two example units (GRB006), the lower rate in the fixation, its onset, its end at the exit, and its controls; both sessions |
 | Design choices (supplement) | `design_optimization.py` | the eight design grids on 80 units of GRB006, each with its test of prediction |
 | Can the weights be read? (supplement) | `model_trust.py` | collinearity, parameter recovery, split halves, and the leak, for the design in use; both sessions |
 | Basis functions (supplement) | `basis_diagram.py` | the basis functions of each kernel |
 | Checks of the model (supplement) | `model_checks.py` | single trials, held-out units (and the held-out animal GRB064), terms that are not in the model, calibration (both sessions), recovery of planted kernels |
-| Flash against motion energy | `kernel_comparison.py` | the weights of the two terms over units; descriptive |
 
 `model_trust.py` reads the results of `collinearity.py`,
 `parameter_recovery.py`, `kernel_reliability.py`, and `leak_test.py`; these
@@ -1049,21 +751,6 @@ other figures:
   the fixation effect to the flash × move kernel, so the move-against-still
   differences are too high by about 0.02 (GRB006) and 0.01 (GRB064)
   (`leak_test.py`).
-- **Still against move (`flash_by_period.svg`).** One measure on three rates
-  of the same flashes and units: the peak of the trial-mean rate (10-ms bins)
-  from 30 to 120 ms after the last flash in the fixation (still) and the first
-  flash after the withdrawal (move), minus the still rate from −40 to 0 ms, as
-  in `stim_responses_by_locomotion.py`. Units: the "excited" units of
-  StimulusResponse that the GLM fits (23 in GRB006, 15 in GRB064). Units of both
-  mice pooled; the large marker is the pooled median with its
-  hierarchical-bootstrap 95% interval. **a**, Observed peaks. **b**, Peaks of the
-  model rate (final refit, in-sample). **c**, Move minus still in the observed
-  rate, the model rate, and the model rate with the flash × move terms set to
-  0. The peak is higher in move in both animals (median +12.7 and +33.5
-  spikes/s; 23 of 23 and 13 of 15 units). The model predicts most of it
-  (+10.4 and +24.7), and the flash × move term carries +1.2 (p = 0.31) and
-  −2.0 spikes/s (p = 0.19). So in both animals most of the change is the rate
-  change at the exit, not a larger response to the flash.
 - **Flash by gap (`flash_by_gap.svg`).** Observed (black) and predicted
   (purple) rate around flashes, for the units that fire more and that fire
   less after a flash, in GRB006 (a, b) and GRB064 (c, d); the number of units
@@ -1105,22 +792,6 @@ size of the fixation kernel report the known bias of the model and do not
 stop the command (see "Leak of the fixation level"). Pass `--out DIR` (a new
 directory) to keep the artifacts; `synthetic_recovery.json` there has the
 planted and recovered kernels, which `model_checks.py` draws.
-
-## Kernel comparison
-
-```bash
-uv run python -m thesis.ephys.analyses.glm.kernel_comparison
-```
-
-This script makes no new fits. It reads one fit set (`--units`, `all` by
-default) in the session output directory and writes `kernel_comparison.svg` and
-`kernel_comparison.json`. Panel a compares the size of the flash weights (the kernels of the two gap
-classes together) and of the motion-energy weights (the norm of the
-coefficients) for every unit. Panels b and c show the flash kernel at a gap of
-80 ms or more and the motion-energy weight map of three example units: one that the flash predicts,
-one that motion energy predicts, and one that both predict. Motion energy has no
-temporal kernel, so its panel is a map over the video frame. The module
-docstring gives the selection rule.
 
 ## Related methods
 

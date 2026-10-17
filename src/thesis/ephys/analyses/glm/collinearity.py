@@ -65,7 +65,7 @@ import numpy as np
 
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
-from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import fetch_unit_table
 

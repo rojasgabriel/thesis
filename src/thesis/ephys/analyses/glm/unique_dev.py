@@ -48,7 +48,6 @@ from thesis.ephys.analyses.glm.dmat import (
     HISTORY_COLUMNS,
     PREVIOUS_OUTCOME,
     PREVIOUS_SIDE,
-    SIDE,
     TURN_DIRECTION,
     _design_with_history,
     _load_windows,
@@ -71,7 +70,7 @@ from thesis.ephys.units import fetch_unit_table
 OVER_TRIALS = (DRIFT, PREVIOUS_OUTCOME)
 # The regressors that are a side (±1) on a time course of the trial: the sign
 # is shuffled over trials, the time course stays.
-SIGN_OVER_TRIALS = (PREVIOUS_SIDE, SIDE, TURN_DIRECTION)
+SIGN_OVER_TRIALS = (PREVIOUS_SIDE, TURN_DIRECTION)
 # The name of the shuffle rule, saved in each record.
 SHUFFLE_RULE = "trial variables over trials, sides by sign, 2026-10-16"
 

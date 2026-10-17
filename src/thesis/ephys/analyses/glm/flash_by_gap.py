@@ -98,7 +98,6 @@ VISUAL = CONCEPT_COLORS["visual"]
 NAMES = ("observed", "model")
 COLORS = (OBSERVED_COLOR, MODEL_COLOR)
 PERIODS = ("still", "move")
-MOUSE_STYLES = ("-", "--")
 KINDS = ("units that fire more after a flash", "units that fire less after a flash")
 
 

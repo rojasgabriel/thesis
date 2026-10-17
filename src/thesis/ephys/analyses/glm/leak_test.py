@@ -23,7 +23,7 @@ paired: each unit has its real effect and its leak.
   (`SEED`); the leak of a unit is the mean over them.
 - Effect, in the matched measure of every flash comparison (`peaks.py`): the
   part of the move-minus-still peak that the flash × move terms carry, on the
-  paired flashes of `flash_by_period.py`: the peak change of the model rate
+  paired flashes of `peaks.paired_flashes`: the peak change of the model rate
   minus the same with the flash × move columns set to 0 (spikes/s). The real
   part uses the real fit; the leak uses each fit to simulated spikes. `model_trust.py`
   reads it for the excited units of StimulusResponse. The old
@@ -64,12 +64,12 @@ from thesis.ephys.analyses.glm.fit import (
     fit_poisson_at_alpha,
     load_unit_records,
 )
-from thesis.ephys.analyses.glm.flash_by_period import SESSIONS, paired_flashes
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.hold_effect import LEVEL_MS as HOLD_LEVEL_MS
+from thesis.ephys.analyses.glm.peaks import paired_flashes
 from thesis.ephys.analyses.glm.results import (
     fitted_kernels,
     flash_kernel_at,
-    flash_kernel_levels,
 )
 from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import fetch_unit_table
@@ -82,7 +82,7 @@ RESPONSE_MS = (40, 100)
 LEVEL_MS = HOLD_LEVEL_MS
 MIN_LEVEL = 0.1
 GAPS_MS = {"80+ ms gap": 100, "40 ms gap": 40}
-REMOVED = (dmat.FLASH_AFTER_EXIT, dmat.FLASH_MOVE_GAP)
+REMOVED = (dmat.FLASH_AFTER_EXIT,)
 _SHARED: dict = {}
 
 
@@ -93,9 +93,8 @@ def _load(windows: Path, design: Path) -> None:
         valid=dmat._valid_bin_mask(prepared),
         common=np.load(design, mmap_mode="r", allow_pickle=False),
         metadata=json.loads(design.with_suffix(".json").read_text()),
-        levels=flash_kernel_levels(dmat._load_selected_trials(prepared)),
     )
-    # The bins of the still and the move windows of `flash_by_period`, for the
+    # The bins of the still and the move windows of `peaks.paired_flashes`, for the
     # matched peak (`peaks.py`).
     alignments, relative = prepared["alignments"], prepared["relative_centers"]
     rows, still, move = paired_flashes(dmat._load_selected_trials(prepared))
@@ -129,7 +128,7 @@ def matched_part(intercept: float, coefficients, history, width: int) -> float:
     """Return the part of the move-minus-still peak that flash × move carries.
 
     The peak of the model rate (`peaks.py`, spikes/s) on the paired flashes of
-    `flash_by_period`, minus the same with the flash × move columns set to 0.
+    `peaks.paired_flashes`, minus the same with the flash × move columns set to 0.
     """
     design = dmat._design_with_history(
         _SHARED["common"], history, width, _SHARED["window_rows"]
@@ -151,10 +150,9 @@ def measures(result: dict, history_scale: np.ndarray) -> np.ndarray:
     lags = kernels[dmat.FLASH_AFTER_EXIT][0]
     window = (lags >= RESPONSE_MS[0]) & (lags < RESPONSE_MS[1])
     out = [
-        (
-            flash_kernel_at(kernels, _SHARED["levels"], gap, True)
-            - flash_kernel_at(kernels, _SHARED["levels"], gap, False)
-        )[window].mean()
+        (flash_kernel_at(kernels, gap, True) - flash_kernel_at(kernels, gap, False))[
+            window
+        ].mean()
         for gap in GAPS_MS.values()
     ]
     time, hold = kernels[dmat.HOLD]

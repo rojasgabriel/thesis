@@ -167,3 +167,32 @@ def session_peaks(
         "unit_ids": unit_ids,
         "events": [len(rows) for rows, _ in windows],
     }
+
+
+def paired_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the trial row and the times of the still and the move flash.
+
+    In each trial: the last flash whose window (`BASELINE_MS[0]` to
+    `PEAK_MS[1]`) is in the fixation, and the first flash at or after the
+    center exit whose window ends before the response entry. Only trials with
+    both, so the comparison is paired over the same trials.
+    """
+    before_s, after_s = -BASELINE_MS[0] / 1000, PEAK_MS[1] / 1000
+    rows, still, move = [], [], []
+    for row, (flashes, entry, leave, response) in enumerate(
+        zip(
+            trials["stim_pulse_times_s"],
+            trials["center_entry_s"],
+            trials["center_exit_s"],
+            trials["response_port_entry_s"],
+            strict=True,
+        )
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        inside = flashes[(flashes - before_s >= entry) & (flashes + after_s <= leave)]
+        outside = flashes[(flashes >= leave) & (flashes + after_s <= response)]
+        if len(inside) and len(outside):
+            rows.append(row)
+            still.append(inside[-1])
+            move.append(outside[0])
+    return np.asarray(rows), np.asarray(still), np.asarray(move)

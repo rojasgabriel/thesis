@@ -50,15 +50,12 @@ from thesis.ephys.units import fetch_unit_table
 # Fourth run ("_flash_move_candidates"): flash × move × gap and flash × motion
 # energy, together.
 # Fifth run ("_flash_move_gap"): flash × move × gap.
-# Sixth run: time in trial, accumulated evidence, turn direction, and the
-# previous outcome (2026-10-15).
-ROOT_SUFFIX = "_residual_candidates"
-CANDIDATES = {
-    "TIME_IN_TRIAL_TERM": dmat.TIME_IN_TRIAL,
-    "ACCUMULATED_EVIDENCE_TERM": dmat.ACCUMULATED_EVIDENCE,
-    "TURN_DIRECTION_TERM": dmat.TURN_DIRECTION,
-    "PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME,
-}
+# Sixth run ("_residual_candidates"): time in trial, accumulated evidence,
+# turn direction, and the previous outcome (2026-10-15).
+# Seventh run: the previous outcome again (2026-10-17), with the window from
+# 0.5 s before the first flash, which has the time before the center entry.
+ROOT_SUFFIX = "_previous_outcome"
+CANDIDATES = {"PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME}
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4
 

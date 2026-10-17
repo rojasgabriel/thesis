@@ -68,7 +68,7 @@ from scipy.stats import wilcoxon
 
 from thesis.ephys.analyses.glm import cli, dmat, leak_test
 from thesis.ephys.analyses.glm.fit import fit_poisson_at_alpha, load_unit_records
-from thesis.ephys.analyses.glm.flash_by_period import SESSIONS
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.kernel_reliability import agreement
 from thesis.ephys.analyses.glm.results import fitted_kernels
 from thesis.ephys.analyses.glm.unique_dev import block_slices
@@ -210,8 +210,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("figures/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
-    parser.add_argument("--grid", default="withdrawal_grid", help="Grid module.")
-    parser.add_argument("--design", default="±300", help="Name in its DESIGNS.")
+    parser.add_argument("--grid", default="hold_grid", help="Grid module.")
+    parser.add_argument("--design", default="fine\nkernel", help="Name in its DESIGNS.")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
     grid = importlib.import_module(f"thesis.ephys.analyses.glm.{args.grid}")

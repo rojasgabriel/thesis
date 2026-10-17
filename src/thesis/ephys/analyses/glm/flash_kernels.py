@@ -1,8 +1,8 @@
 """Show the flash kernels of every unit, and the flash response at the two gaps.
 
 Question: how does the response of V1 units to a flash depend on the gap from
-the flash before? (The period, still against move, is in `flash_by_period.py`,
-with the same matched measure.)
+the flash before? (The change after the center exit, in the same matched
+measure, is in panels g to i of `model_trust.py`.)
 
 Comparison: no new fit. The comparisons are paired: each unit has a value in
 each condition. Each test is within one mouse (`SESSIONS`); the units of the
@@ -61,7 +61,7 @@ from scipy.stats import wilcoxon
 
 from thesis.ephys.analyses.glm import cli, dmat, peaks
 from thesis.ephys.analyses.glm.fit import load_unit_records
-from thesis.ephys.analyses.glm.results import flash_kernel_at, flash_kernel_levels
+from thesis.ephys.analyses.glm.results import flash_kernel_at
 from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
@@ -110,7 +110,6 @@ COLOR_LIMIT = 1.0
 AXIS_LIMITS = (-1.2, 1.6)
 # The two kinds of unit, in the colors of the two ends of the map of panel c.
 KIND_COLORS = {"fire more": "#b2182b", "fire less": "#2166ac"}
-OTHER_COLOR = "0.7"
 # The matched peak (`peaks.py`): the observed rate and the model rate.
 RATES = ("observed", "model")
 RATE_COLORS = (OBSERVED_COLOR, MODEL_COLOR)
@@ -147,8 +146,6 @@ def session_kernels(root: Path, unit_set: str) -> dict:
     basis = dmat.task_temporal_bases()[dmat.FLASH_AFTER_EXIT]
     lags = 1000 * basis.basis_time
     window = (lags >= RESPONSE_MS[0]) & (lags < RESPONSE_MS[1])
-    prepared = dmat._load_windows(model.windows)
-    levels = flash_kernel_levels(dmat._load_selected_trials(prepared))
     columns = {
         term: [
             i for i, column in enumerate(names) if column.startswith(f"{term}_basis")
@@ -158,7 +155,6 @@ def session_kernels(root: Path, unit_set: str) -> dict:
             dmat.FLASH_COMMON,
             dmat.FLASH_JUST_BEFORE,
             dmat.FLASH_AFTER_EXIT,
-            dmat.FLASH_MOVE_GAP,
         )
     }
     # Only the terms that the design in use has.
@@ -172,10 +168,7 @@ def session_kernels(root: Path, unit_set: str) -> dict:
             for term, index in columns.items()
         }
         return np.stack(
-            [
-                flash_kernel_at(terms, levels, gap, after)
-                for gap, after in CONDITIONS.values()
-            ]
+            [flash_kernel_at(terms, gap, after) for gap, after in CONDITIONS.values()]
         )
 
     checkpoints = model.fit_dir(unit_set) / "checkpoints"
