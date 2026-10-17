@@ -29,7 +29,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from thesis.ephys.analyses.glm import cli, dmat, figures, fit
+from thesis.ephys.analyses.glm import cli, dmat, fit
 from thesis.ephys.analyses.glm.grid import INPUTS
 
 COUNTS = (10, 25, 50, 100, 200)
@@ -43,7 +43,7 @@ def run_grid(source: Path, output: Path, samples: int) -> dict[str, dict]:
     path = output / "pc_grid.json"
     scores = json.loads(path.read_text()) if path.exists() else {}
     scores = {str(count): scores.get(str(count), {}) for count in (0, *COUNTS)}
-    modules = (dmat, fit, figures)
+    modules = (dmat, fit)
     for sample in range(samples):
         if len(scores["0"]) >= fit.SAMPLE_UNITS * (sample + 1):
             continue

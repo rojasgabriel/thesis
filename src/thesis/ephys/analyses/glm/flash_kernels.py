@@ -5,34 +5,31 @@ the flash before? (The change after the center exit, in the same matched
 measure, is in panels g to i of `model_trust.py`.)
 
 Comparison: no new fit. The comparisons are paired: each unit has a value in
-each condition. Each test is within one mouse (`SESSIONS`); the units of the
-two mice are not pooled. Both mice are in each axis: solid lines and circles
-GRB006, dashed lines and triangles GRB064.
+each condition. Each test is within one mouse (`SESSIONS`); the plots pool the
+units of both mice.
 
-- Kernel of a condition (`results.flash_kernel_at`): the flash kernel of the
-  gap class of that condition, plus the flash × after exit kernel at the value of
-  the period. Conditions (`CONDITIONS`): a flash in the fixation (in port) and
-  after the center exit (after exit), in each of the two gap classes. The flash ×
-  move × gap kernel is added at the product of the centered period and the
-  centered gap class.
+- Kernel of a condition (`results.flash_kernel_at`): the flash kernel, plus
+  the short-gap modifier for a gap up to 50 ms, plus the after-exit modifier
+  for a flash after the center exit. Conditions (`CONDITIONS`): in port and
+  after exit, at the 40 ms and the 80+ ms gap.
 - Panels a and b: the median kernel, in the port, at the 40 ms gap (light) and
   the 80+ ms gap (dark), over the units that fire more after a flash (a) and
   that fire less (b). The kind of a unit is from its mean kernel response over
-  the two still conditions (above `KIND_LIMIT` or below -`KIND_LIMIT`; the
+  the two in-port conditions (above `KIND_LIMIT` or below -`KIND_LIMIT`; the
   response is the mean of the kernel from `RESPONSE_MS`), so the sign of the
   curves is by selection; the panels show the shape.
-- Panels c and d (every unit, one map for each mouse, because the units
-  differ): the kernel in each condition, one row for each unit, in the same
-  order in all maps of a mouse (by the mean response in the port). The color
+- Panel c: the kernel of every unit in each condition, one row for each unit,
+  in the same order in all maps (by the mean response in the port). The color
   scale stops at ±`COLOR_LIMIT`.
-- Panels e to g (the gap, with the matched measure of `peaks.py`): the peak of
+- Panels d to f (the gap, with the matched measure of `peaks.py`): the peak of
   the excited units (StimulusResponse) after flashes in the fixation at the
   80+ ms gap and at the 40 ms gap (not the first flash of a trial), for the
-  observed rate (e) and the model rate (f), and 40 ms minus 80+ ms in both
-  (g). The baseline is the 80+ ms rate from `peaks.BASELINE_MS`. Small markers
-  are units; large markers the median with its bootstrap 95% interval. A
-  point outside `GAP_LIMITS` (linear axes) is not drawn; it is in the
-  statistics, and the count is in the output.
+  observed rate (d) and the model rate (e), and 40 ms minus 80+ ms in both
+  (f). The baseline is the 80+ ms rate from `peaks.BASELINE_MS`. The large
+  marker is the pooled median with its hierarchical-bootstrap 95% interval;
+  the open circles are the median of each mouse. A point outside
+  `GAP_LIMITS` is not drawn; it is in the statistics, and the count is in the
+  output.
 - Statistics: two-sided Wilcoxon signed-rank tests of the paired difference.
   For the kernels (in the output), also for the units that fire more and that
   fire less apart, with the kind from conditions outside the pair (`PAIRS`).
@@ -293,7 +290,7 @@ def draw_curves(axes, pooled: dict) -> None:
             0.03,
             0.96 - 0.1 * row,
             text,
-            color="black",
+            color=KIND_COLORS["fire more"],  # the lines of this panel
             alpha=shade,
             transform=axes[0].transAxes,
             va="top",
