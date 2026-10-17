@@ -63,6 +63,15 @@ FLASH_BASES = 8
 FLASH_GAP_EDGES_S = (0.05,)
 FLASH_GAP = "flash_gap"
 FLASH_COMMON = "visual_flash"
+# Another form of the same two gap classes, for `gap_class_grid.py`: with no
+# gap classes, one common kernel on every flash plus a second kernel on the
+# flashes with a flash up to `FLASH_JUST_BEFORE_S` before them. The columns
+# span the same space as the two classes (common = the longer-gap kernel; the
+# second kernel = the 40 ms kernel minus it); only the L2 penalty differs: it
+# pulls the difference between the gaps to zero, not each kernel.
+FLASH_JUST_BEFORE_TERM = False
+FLASH_JUST_BEFORE = "flash_just_before"
+FLASH_JUST_BEFORE_S = 0.05
 # The flashes come in slots of this length.
 FLASH_SLOT_S = 0.04
 # Causal withdrawal kernel: this long after center exit, with this many bases.
@@ -451,6 +460,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         **{name: flash for name in flash_gap_names()},
         FLASH_AFTER_EXIT: flash,
         FLASH_MOVE_GAP: flash,
+        FLASH_JUST_BEFORE: flash,
         "hold": StretchedCosineBasis(
             HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
         )
@@ -466,6 +476,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_AFTER_EXIT]
     if not FLASH_MOVE_GAP_TERM:
         del bases[FLASH_MOVE_GAP]
+    if not FLASH_JUST_BEFORE_TERM:
+        del bases[FLASH_JUST_BEFORE]
     if not WITHDRAWAL_KERNEL:
         del bases["withdrawal"]
     return bases
@@ -484,7 +496,16 @@ def flash_gap_class(trials) -> np.ndarray:
     The class is the number of limits of `FLASH_GAP_EDGES_S` that are below the
     gap from the flash before. The first flash of a trial is in the last class.
     """
-    classes = []
+    return np.searchsorted(FLASH_GAP_EDGES_S, flash_gaps(trials), side="left")
+
+
+def flash_gaps(trials) -> np.ndarray:
+    """Return the gap from the flash before of each modeled flash (s).
+
+    In the order of `flash_events`; the first flash of a trial has an infinite
+    gap.
+    """
+    gaps_by_trial = []
     for flashes, center_entry, response_entry in zip(
         trials["stim_pulse_times_s"],
         trials["center_entry_s"],
@@ -493,9 +514,8 @@ def flash_gap_class(trials) -> np.ndarray:
     ):
         flashes = np.asarray(flashes, dtype=float)
         modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
-        gaps = np.diff(modeled, prepend=-np.inf)
-        classes.append(np.searchsorted(FLASH_GAP_EDGES_S, gaps, side="left"))
-    return np.concatenate(classes)
+        gaps_by_trial.append(np.diff(modeled, prepend=-np.inf))
+    return np.concatenate(gaps_by_trial)
 
 
 def flash_events(trials) -> np.ndarray:
@@ -608,6 +628,7 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     holds = trials["center_exit_s"].to_numpy(dtype=float) - np.asarray(alignments)
     flashes = flash_events(trials)
     gap_class = flash_gap_class(trials)
+    just_before = flash_gaps(trials) <= FLASH_JUST_BEFORE_S
     limits_ms = [f"{1000 * limit:.0f}" for limit in FLASH_GAP_EDGES_S]
     gap_coding = [
         *(f"flashes with a gap up to {limit} ms" for limit in limits_ms),
@@ -626,6 +647,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             None,
             "sensory",
             "each measured flash from initiation through response entry",
+        ),
+        (
+            FLASH_JUST_BEFORE,
+            flashes[just_before],
+            None,
+            "sensory",
+            f"flashes with a flash up to {1000 * FLASH_JUST_BEFORE_S:.0f} ms before",
         ),
         (
             FLASH_AFTER_EXIT,

@@ -8,9 +8,13 @@ Comparison: the final design with one thing changed, on the fixed 20-unit
 sample, with the validation D² of each unit. The designs are in `DESIGNS`:
 
 - "1 kernel": one flash kernel for all flashes, with no term for the gap.
-- "gap terms": one common kernel, the fast-adaptation term (a flash within
-  50 ms of another), and the flash-recovery term (the log of the gap). The two
-  terms are correlated (-0.86).
+- "1 kernel +\nflash before": one common kernel on every flash and a second
+  kernel on the flashes with a flash up to 50 ms before them
+  (`dmat.FLASH_JUST_BEFORE_TERM`). It spans the same columns as the two
+  classes; only the L2 penalty differs (it pulls the difference between the
+  gaps to zero). (An earlier form also had a flash-recovery term on the log
+  of the gap; the two terms were correlated, -0.86, and it is no longer in the
+  code.)
 - "40 | 80+": two gap classes, with a limit at 50 ms (the design in use,
   `IN_USE`).
 - "40 | 80-120 | 160+": three classes.
@@ -43,6 +47,7 @@ from thesis.ephys.analyses.glm.grid import score_designs
 NO_CLASSES = {"FLASH_GAP_EDGES_S": (), "FLASH_MOVE_GAP_TERM": False}
 DESIGNS = {
     "1 kernel": NO_CLASSES,
+    "1 kernel +\nflash before": {**NO_CLASSES, "FLASH_JUST_BEFORE_TERM": True},
     "40 | 80+": {"FLASH_GAP_EDGES_S": (0.05,)},
     "40 | 80-120 | 160+": {"FLASH_GAP_EDGES_S": (0.05, 0.13)},
     "40 | 80 | 120+": {"FLASH_GAP_EDGES_S": (0.05, 0.09)},

@@ -13,8 +13,9 @@ design with one term in another form, on the same units of GRB006
 unit minus its D² with the form in use (paired). D² is relative to the
 constant-rate model, on the validation trials.
 
-- Panel a (`gap_class_grid.py`): one flash kernel and three or four gap
-  classes, against the two classes in use.
+- Panel a (`gap_class_grid.py`): one flash kernel, one kernel with a second
+  kernel for a flash just before (the same columns as two classes in another
+  form), and three or four gap classes, against the two classes in use.
 - Panel b (`flash_length_grid.py`): flash kernels of 200, 250, and 300 ms
   against the 150 ms in use.
 - Panel c (`hold_grid.py`): no fixation term, a step, a step with a kernel on
@@ -122,6 +123,7 @@ GRIDS = {
 # Tick labels that differ from the name of the design in its grid.
 LABELS = {
     "40 | 80+": "40,\n80+",
+    "1 kernel +\nflash before": "1 kernel\n+ flash\nbefore",
     "40 | 80-120 | 160+": "40,\n80-120,\n160+",
     "40 | 80 | 120+": "40, 80,\n120+",
     "40 | 80 | 120 | 160+": "40, 80,\n120,\n160+",
@@ -131,6 +133,7 @@ LABELS = {
 # Names of the other forms in the caption (keys as in the statistics).
 CAPTION_NAMES = {
     "1 kernel": "one kernel for all flashes",
+    "1 kernel + flash before": "one kernel with a flash-just-before kernel",
     "40 | 80-120 | 160+": "three classes (40, 80 to 120, 160+)",
     "40 | 80 | 120+": "three classes (40, 80, 120+)",
     "40 | 80 | 120 | 160+": "four classes",
