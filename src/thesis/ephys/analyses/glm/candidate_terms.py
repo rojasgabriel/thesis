@@ -43,17 +43,9 @@ from thesis.ephys.analyses.glm.hold_effect import _fit_variant
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.units import fetch_unit_table
 
-# First run (suffix "_candidates", output `candidate_terms.json`): side after
-# exit, flash × move, center entry, and flash recovery.
-# Second run ("_previous_side"): the previous-side column. Third run
-# ("_flash_previous_side"): the flash kernel by previous side.
-# Fourth run ("_flash_move_candidates"): flash × move × gap and flash × motion
-# energy, together.
-# Fifth run ("_flash_move_gap"): flash × move × gap.
-# Sixth run ("_residual_candidates"): time in trial, accumulated evidence,
-# turn direction, and the previous outcome (2026-10-15).
-# Seventh run: the previous outcome again (2026-10-17), with the window from
-# 0.5 s before the first flash, which has the time before the center entry.
+# Earlier runs (other suffixes, other candidates) are in docs/glm_decisions.md.
+# This run: the previous outcome again (2026-10-17), with the window from 0.5 s
+# before the first flash, which has the time before the center entry.
 ROOT_SUFFIX = "_previous_outcome"
 CANDIDATES = {"PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME}
 # The units of the design choices: the sets of 20 units of the grids.

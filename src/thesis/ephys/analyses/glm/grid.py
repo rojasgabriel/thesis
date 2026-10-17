@@ -13,6 +13,7 @@ command.
 
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 from pathlib import Path
@@ -85,3 +86,19 @@ def score_designs(
             path.write_text(json.dumps(scores, indent=1))
             print(f"Scored {name!r} on {unit_set}.", flush=True)
     return scores
+
+
+def main(designs: dict[str, dict], name: str, description: str) -> None:
+    """Score the designs of one grid module from the command line."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=1,
+        help="Number of sets of 20 units (no unit is in two sets).",
+    )
+    args = parser.parse_args()
+    output = args.root / name
+    scores = score_designs(args.root, output, f"{name}.json", designs, args.samples)
+    print(f"{len(scores)} designs in {output}")

@@ -68,7 +68,7 @@ FLASH_PEAK_S = 0.04
 FLASH_GAIN = 1.5
 ADAPT_GAIN = -0.6  # flash kernel scale after a flash in the last 50 ms (centered)
 # The term of the design that recovers the bump after the exit.
-EXIT_TERM = "withdrawal" if dmat.WITHDRAWAL_KERNEL else dmat.RESPONSE_PERIOD
+EXIT_TERM = dmat.RESPONSE_PERIOD
 WITHDRAWAL_PEAK_S = 0.05
 WITHDRAWAL_GAIN = 1.5
 VIDEO_GAIN = 0.4

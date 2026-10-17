@@ -28,11 +28,7 @@ A design that has saved scores in `exit_grid/exit_grid.json` is not fit again.
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
-
-from thesis.ephys.analyses.glm import cli
-from thesis.ephys.analyses.glm.grid import score_designs
+from thesis.ephys.analyses.glm import grid
 
 DESIGNS = {
     "withdrawal\n0–100": {"RESPONSE_PERIOD_TERM": False, "WITHDRAWAL_KERNEL": True},
@@ -45,21 +41,5 @@ DESIGNS = {
 IN_USE = "1.3 s"
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
-    parser.add_argument(
-        "--samples",
-        type=int,
-        default=1,
-        help="Number of sets of 20 units (no unit is in two sets).",
-    )
-    args = parser.parse_args()
-    scores = score_designs(
-        args.root, args.root / "exit_grid", "exit_grid.json", DESIGNS, args.samples
-    )
-    print(f"{len(scores)} designs in {args.root / 'exit_grid'}")
-
-
 if __name__ == "__main__":
-    main()
+    grid.main(DESIGNS, "exit_grid", __doc__.splitlines()[0])

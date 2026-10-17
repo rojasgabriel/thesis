@@ -25,11 +25,7 @@ again. Each design takes about two minutes.
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
-
-from thesis.ephys.analyses.glm import cli
-from thesis.ephys.analyses.glm.grid import score_designs
+from thesis.ephys.analyses.glm import grid
 
 DESIGNS = {
     "none": {"SESSION_DRIFT": False},
@@ -40,21 +36,5 @@ DESIGNS = {
 }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
-    parser.add_argument(
-        "--samples",
-        type=int,
-        default=1,
-        help="Number of sets of 20 units (no unit is in two sets).",
-    )
-    args = parser.parse_args()
-    scores = score_designs(
-        args.root, args.root / "drift_grid", "drift_grid.json", DESIGNS, args.samples
-    )
-    print(f"{len(scores)} designs in {args.root / 'drift_grid'}")
-
-
 if __name__ == "__main__":
-    main()
+    grid.main(DESIGNS, "drift_grid", __doc__.splitlines()[0])

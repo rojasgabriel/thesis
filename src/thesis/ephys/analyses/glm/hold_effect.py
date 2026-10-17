@@ -28,12 +28,9 @@ and ends it, g to i are controls, and j asks which units.
   rate over the valid bins; the line is the mean over units and the band is its
   SEM. The
   top row is the fraction of trials with a flash in each 40 ms.
-- Panel c (characterization): the kernels of a descriptive model, as a change
-  in log rate. The model is the design of `dmat.py` with one change: the
-  withdrawal kernel (0 to 100 ms) is replaced with a kernel from the center
-  exit to the response entry (`AFTER_BASES` raised cosines, `AFTER_WINDOW_S`),
-  and the response period, which has the same time course, is off.
-  Both kernels are relative to the time before the first flash. Thin lines are
+- Panel c (characterization): the fixation kernel and the response-period
+  kernel (from the center exit) of the model of the main figure, as a change
+  in log rate. Both kernels are relative to the time before the center entry. Thin lines are
   units; the thick line and band are the median and the interquartile range.
 - Panel d (the paired comparison): each unit's mean kernel value over
   `LEVEL_MS` of the fixation against its mean over the same time after the center
@@ -86,11 +83,9 @@ and ends it, g to i are controls, and j asks which units.
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
 
-The descriptive model and the design with no fixation kernel are fit here (`glm
-fit` stages, with cross-validation) in the directories with the suffixes
-`ROOT_SUFFIX` and `NO_HOLD_SUFFIX` next to the session directory. It
-is not the model of the main figure: the longer kernel after the exit does not
-predict reliably better than the withdrawal kernel (`docs/glm.md`).
+The design with no fixation kernel (for panel g) is fit here (`glm fit`
+stages) in the directory with the suffix `NO_HOLD_SUFFIX` next to the session
+directory.
 
 Units, trials, alignment (first flash), baseline, and exclusions are those of
 `fit.py`. Bins after the response entry are excluded. The sampling unit is the
@@ -100,12 +95,12 @@ session), and `hold_effect_caption.md` in `--out`.
     uv run python -m thesis.ephys.analyses.glm.hold_effect --fit --root <session>
     uv run python -m thesis.ephys.analyses.glm.hold_effect
 
-The first command fits the two variants of one session (about 20 minutes each
-for all units; a finished fit is not run again) and draws nothing. The second
-command makes no fit: it draws the figure from the fits of both sessions and
-stops with the command to run when a fit is missing. Run `port_vs_stillness`
-and `matched_flashes` for each session, and `suppression_onset`,
-`exit_without_stimulus`, and `side_preference`, first.
+The first command fits the design with no fixation kernel for one session
+(about 20 minutes for all units; a finished fit is not run again) and draws
+nothing. The second command makes no fit: it draws the figure from the fits of
+both sessions and stops with the command to run when a fit is missing. Run
+`port_vs_stillness` and `matched_flashes` for each session, and
+`suppression_onset` and `exit_without_stimulus`, first.
 """
 
 from __future__ import annotations
@@ -167,10 +162,8 @@ the fraction of trials with a flash in each 40 ms. Bottom: the firing rate,
 with the rate of each unit divided by its mean rate (mean and SEM over units).
 The rate is {before} before the first flash, {late} in the last 200 ms of the
 fixation, and {after_rate} from 100 to 400 ms after the withdrawal. **c**, The
-kernels of a descriptive model, as a change in log rate relative to the time
-before the first flash. This model is the GLM of the main figure with one
-change: a kernel from the withdrawal to the response entry in place of the
-100-ms withdrawal kernel. Thin lines are units; the thick lines and the
+fixation kernel and the response-period kernel of the GLM of the main figure,
+as a change in log rate relative to the time before the center entry. Thin lines are units; the thick lines and the
 bands are the median and the interquartile range. **d**, The paired comparison. For
 each unit, the mean kernel value from {lo} to {hi} ms after the first flash
 against the mean over the same time after the withdrawal (error bars: SD over
@@ -196,7 +189,6 @@ over units; the first flash of a trial is not used). {energy}
 **j**, The level in fixation against the unique ΔD² of the visual flash.
 {relation} {outside_j}
 """
-ROOT_SUFFIX = "_after_exit_kernel"
 NO_HOLD_SUFFIX = "_no_hold_term"
 # The excited example unit must fire at this rate or more (spikes/s).
 EXAMPLE_MIN_RATE = 2.0
@@ -204,8 +196,6 @@ EXAMPLE_MIN_RATE = 2.0
 # spikes to see the hold, few enough to see single spikes.
 SUPPRESSED_RATES = (5.0, 20.0)
 AFTER = "after_exit"
-AFTER_WINDOW_S = 0.6
-AFTER_BASES = 8
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
 LEVEL_LIMITS = (-1.6, 1.6)
@@ -226,16 +216,6 @@ MOTION = CONCEPT_COLORS["motion energy"]
 ONSET_NAME = "suppression_onset"
 EXIT_NAME = "exit_without_stimulus"
 ONSET_WINDOW_MS = (-250, 290)
-
-
-def after_exit_basis() -> dmat.BasisFunction:
-    """Bases of the kernel after the center exit, spaced like the hold kernel."""
-    post = AFTER_WINDOW_S + dmat.BINWIDTH_S
-    if dmat.HOLD_LOG_STRETCH_S:
-        return dmat.StretchedCosineBasis(
-            AFTER_BASES, post, dmat.BINWIDTH_S, dmat.HOLD_LOG_STRETCH_S
-        )
-    return dmat.RaisedCosineBasis(AFTER_BASES, 0, post, dmat.BINWIDTH_S)
 
 
 def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> Path:
@@ -282,42 +262,6 @@ def _kernel_block(basis: np.ndarray, since: np.ndarray, keep: np.ndarray) -> np.
     inside = (index >= 0) & (index < len(basis)) & keep
     block = np.where(inside[..., None], basis[np.clip(index, 0, len(basis) - 1)], 0.0)
     return block.reshape(-1, basis.shape[1])
-
-
-def fit_descriptive(source: Path, unit_set: str) -> Path:
-    """Fit the design with a kernel from the center exit to the response entry."""
-    basis = after_exit_basis().basis
-    original = dmat.build_task_design
-
-    def with_after_kernel(alignments, trials):
-        values, manifest = original(alignments, trials)
-        leave = trials["center_exit_s"].to_numpy(dtype=float)
-        since = _time_in_trial()[None, :] - (leave - np.asarray(alignments))[:, None]
-        limit = trials["response_port_entry_s"].to_numpy(dtype=float) - leave
-        manifest.append(
-            {
-                "name": AFTER,
-                "group": "task",
-                "events": len(alignments),
-                "columns": basis.shape[1],
-                "coding": "kernel on the center exit, zero from the response entry on",
-            }
-        )
-        block = _kernel_block(basis, since, since < limit[:, None])
-        return np.column_stack((values, block)), manifest
-
-    return _fit_variant(
-        source,
-        unit_set,
-        ROOT_SUFFIX,
-        # The response period has the time course of the kernel after the exit,
-        # so it is off in this model.
-        {
-            "build_task_design": with_after_kernel,
-            "WITHDRAWAL_KERNEL": False,
-            "RESPONSE_PERIOD_TERM": False,
-        },
-    )
 
 
 def two_step_levels(source: Path, unit_set: str) -> dict:
@@ -414,9 +358,11 @@ def kernel_values(root: Path, unit_set: str) -> dict:
     out = {"unit_ids": np.asarray([item["unit_id"] for item in final])}
     for name, basis in (
         (dmat.HOLD, dmat.task_temporal_bases()[dmat.HOLD]),
-        (AFTER, after_exit_basis()),
+        (AFTER, dmat.exit_basis()),
     ):
-        columns = [i for i, column in enumerate(names) if column.startswith(name)]
+        # The kernel after the exit is the response period of the main model.
+        key = dmat.RESPONSE_PERIOD if name == AFTER else name
+        columns = [i for i, column in enumerate(names) if column.startswith(key)]
         times = 1000 * basis.basis_time
         level = (times >= LEVEL_MS[0]) & (times < LEVEL_MS[1])
         values_of = lambda weights: (  # noqa: E731
@@ -522,20 +468,11 @@ def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
     }
 
 
-def _fits_done(root: Path, unit_set: str) -> bool:
-    """Return True when every stage of the fit in `root` finished for all units."""
-    checkpoints = cli.PoissonGLM(root=root).fit_dir(unit_set) / "checkpoints"
-    finals = len(list(checkpoints.glob("unit_*_final.json")))
-    return finals > 0 and finals >= len(
-        list(checkpoints.glob("unit_*_validation.json"))
-    )
-
-
 def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
     """Return the measures of one session.
 
-    With `fit`, the descriptive model and the design with no fixation kernel
-    are fit when they are not there. Without it, nothing is fit: a missing or
+    With `fit`, the design with no fixation kernel is fit when it is not
+    there. Without it, nothing is fit: a missing or
     unfinished fit raises an error with the command to run.
     """
     loaded = {}
@@ -549,19 +486,17 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
         with np.load(path, allow_pickle=False) as data:
             loaded[name] = {key: data[key] for key in data.files}
         loaded[f"{name}_json"] = json.loads(path.with_suffix(".json").read_text())
-    descriptive = root.with_name(root.name + ROOT_SUFFIX)
     if fit:
-        descriptive = fit_descriptive(root, unit_set)
         steps = two_step_levels(root, unit_set)
     else:
         cache = root / f"hold_two_step_{unit_set}.npz"
-        if not (_fits_done(descriptive, unit_set) and cache.exists()):
+        if not cache.exists():
             raise FileNotFoundError(
                 f"The fits of {root.name} are not finished. Run "
                 f"`hold_effect --fit --root {root} --units {unit_set}`."
             )
         steps = two_step_levels(root, unit_set)  # reads the cache
-    kernels = kernel_values(descriptive, unit_set)
+    kernels = kernel_values(root, unit_set)
     # Example units: the most suppressed and the most excited unit, each among
     # the units with a rate that makes its raster readable.
     ids, joint = steps["unit_ids"], steps["joint"]
