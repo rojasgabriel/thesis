@@ -660,3 +660,34 @@ still shuffled over trials. With the fix, turn direction is needed by 49% and
 Result: all 11 regressors pass in both mice; median D² 0.072 and 0.074. The
 fits of the design of 2026-10-13 are in
 `figures/glm/_before_design_2026_10_15/`.
+
+### Coarse fixation kernel, 2026-10-16
+
+All seven design grids were run again on the design of 2026-10-15
+(`design_optimization.py`). One form predicted better than the form in use:
+the fixation kernel with 10 cosines and a 50 ms stretch, against 12 cosines
+with 25 ms (+0.12%, 50 of 80 units, p = 0.0047; on the design of 2026-10-13
+it was not better, p = 0.10). Parameter recovery with it
+(`parameter_recovery --grid hold_grid`) recovers every measure as well: the
+error of the fixation level and of flash × move does not grow (p from 0.67 to
+0.94), and the fixation level is recovered at 0.67 and 0.85 against 0.66 and
+0.84. By the rule of the design, the coarse kernel replaces the 12-cosine
+kernel (decided with Gabriel, 2026-10-16). Both mice were fit again, with
+every check and every grid on the new design:
+
+- D² 0.0716 → 0.0717 (GRB006) and 0.0744 → 0.0744 (GRB064); all 11
+  regressors still pass; the units that need each regressor change by 0 to 4
+  points.
+- Fixation level recovered at 0.70 and 0.80; split halves of the fixation
+  kernel 0.89 and 0.94; largest GVIF^(1/p) 1.63, condition index 8.4.
+- On the new design no other form predicts better, and the 12-cosine kernel
+  is now the worse one (−0.12%, p = 0.0047).
+- The grid also has a new form of the gap classes: one flash kernel plus a
+  kernel for a flash up to 50 ms before (`FLASH_JUST_BEFORE_TERM`). It spans
+  the same columns as the two classes and predicts the same (p = 0.56).
+- The exit basis got its own log stretch (`EXIT_LOG_STRETCH_S`, 25 ms): it
+  shared the stretch of the fixation kernel, so a grid of the fixation kernel
+  changed it too.
+
+The fits with the 12-cosine kernel are in
+`figures/glm/_before_coarse_kernel_2026_10_16/`.
