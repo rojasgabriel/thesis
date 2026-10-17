@@ -551,6 +551,115 @@ part in the design choices.
   (−2.5 to 1.6) and in the rank test; the median does not change without
   them. Panel d hides 0 and 1 units, panel h 1 and 3. All are in the tests.
 
+### What starts and ends the effect
+
+- The exit with no stimulus (`exit_without_stimulus.py` and its figure
+  `exit_without_stimulus.svg`, GRB064
+  20260916_132939, 78 units, no model). In an early-withdrawal trial the animal
+  leaves the center port before the go cue and the flashes stop at the exit
+  (78 trials, exit 403 ms after the first flash; 169 completed trials, exit at
+  582 ms). The rate goes up at the exit by the same amount in both: 2.17 times
+  in completed trials (67 of 77 units, p = 4e-10) and 2.12 times in early
+  withdrawals (62 of 74 units, p = 2e-8). The rate after the exit is the same
+  with and without the stimulus (early over completed 0.98, p = 1.0). So:
+  - The effect is in a second animal.
+  - The rise at the exit does not need the stimulus, so it is not a better
+    view of the stimulus.
+  - The rise is at the exit and not at a time in the train (403 against
+    582 ms), so it is not slow adaptation.
+  - The punishment of an early withdrawal is a 2 s tone with no light (from
+    Gabriel), so the arena is dark after an early exit. The tone is the one
+    difference left: the rate after the exit is the same with the tone and no
+    stimulus as with the stimulus and no tone.
+- GRB006 (2026-10-16, after `reextract_flash_onsets.py` added the 1170
+  flashes of the early-withdrawal trials to the database; 167 units, 207
+  early withdrawals with an exit 445 ms after the first flash, 294 completed
+  trials with the exit at 553 ms; `figures/exit_without_stimulus/GRB006_20240821_121447/`).
+  The result replicates: the rate after the exit is the same with and without
+  the stimulus (early over completed 1.01, 89 of 167 units higher, p = 0.57),
+  and it goes up at the exit in both (2.45 times in completed trials, 146 of
+  167 units, p = 6e-22; 1.86 times in early withdrawals, 137 of 166, p = 2e-18).
+  The rise is smaller in early withdrawals because the rate before the exit is
+  higher (early over completed 1.13, 143 of 166 units, p = 3e-18): the
+  fixation is shorter (445 against 553 ms), and in GRB006 the drop starts
+  about 90 ms after the first flash and goes on through the fixation. In
+  GRB064 the rate before the exit is the same in both (1.00, p = 0.92).
+  The flashes of the completed trials did not change with the new row (3520
+  onsets, the same as before), so the GLM fits are not affected.
+- In GRB064 the fixation of the
+  completed trials has almost the same length as in GRB006 (1st to 95th
+  percentile: 455 to 747 ms), so the matched-time test is not possible there
+  either; the early withdrawals are what separates the exit from the time in
+  the train.
+- Does the drop start before the stimulus? (2026-10-15,
+  `suppression_onset.py`, no model; panel e of `hold_effect.svg`.) The time
+  from the center entry to the first flash differs between trials (5th to
+  95th percentile 26 to 99 ms in GRB006, 31 to 106 ms in GRB064). In the
+  trials with a long delay (the upper half; median 73 and 83 ms), the rate of
+  each unit from 20 ms after the entry to the first flash (the port with no
+  stimulus; median window 53 and 63 ms) is compared with its rate 250 to
+  100 ms before the entry, paired over units. For scale, the rate 180 to
+  290 ms after the first flash over the same rate before the entry is the full
+  drop.
+
+  | Mouse | Units, long-delay trials | Entry to first flash, over before entry | 180–290 ms after the first flash, over before entry |
+  | --- | --- | --- | --- |
+  | GRB006 | 166, 148 | 0.95 (lower in 101 units, p = 0.002) | 0.59 |
+  | GRB064 | 75, 120 | 0.70 (lower in 58 units, p = 4e-8) | 0.47 |
+
+  On a log scale, about 10% of the full drop comes before the first flash in
+  GRB006 and about half in GRB064. So the drop does not need the stimulus to
+  start, and in GRB064 a large part of it comes with the entry. Two-sided
+  Wilcoxon signed-rank tests of the log ratio; the units share the trials.
+  The units are those of the GLM (without `fit.EXCLUDED_UNITS`), as in every
+  analysis that is compared with it; one unit of each mouse has no spike
+  before the entry and no ratio. Before this rule, GRB064 unit 414 (excluded
+  from the GLM: 1 spike in all 239 trials) gave a large false peak in the
+  normalized population rate.
+  Limit: the population rate also goes down slowly in the 100 ms before the
+  entry, while the animal comes to the port, so a part of the drop may follow
+  the approach and not the entry. The trial table has no measure of the
+  approach that could separate them.
+  - This replaces the time of the drop (2026-10-12): the first time after
+    40 ms at which the smoothed rate is below the middle of its levels before
+    and late. It gave 0 ms (GRB006) and −30 ms (GRB064) for the shift of the
+    long against the short delays from the entry. In GRB064 the rate was
+    already below that middle level before 40 ms, so the measure gave the
+    start of its search and not a time of the drop. The −30 ms is not a
+    result.
+- The side preference of single units does not need the stimulus (2026-10-15,
+  `side_preference.py`, both sessions, no model, with the corrected response
+  entries of GRB064; for the turn-direction work, not in `hold_effect.svg`). Side index of a unit:
+  (right − left) / (right + left) of its rate. With the stimulus on after the
+  exit (100 ms after the exit to 100 ms after the last flash), about half of
+  the units have an index above 0.2 in size (50% of 167 units in GRB006, 53%
+  of 76 in GRB064; split-half Spearman ρ = 0.86 and 0.85). The index with the
+  stimulus on agrees with the index with the stimulus off (150 ms after the
+  last flash to the response entry, in the dark; split-half ρ = 0.59 and
+  0.79): ρ = 0.51 in GRB006 and 0.57 in GRB064, against a limit of about 0.71
+  and 0.82 from the split-half values (the geometric mean of the two). In the
+  fixation the index is small and has no relation to the index after the exit
+  (ρ = −0.07 and −0.08). The units are those of the GLM. So the side preference is a
+  signal of the movement or of the place of the animal, not of the view of the
+  stimulus. Limit: the window with the stimulus off is later in the movement.
+- The most probable explanation with these data, in both animals: the rate
+  is low while the animal holds in the center port with the stimulus on, and
+  it goes up when the animal leaves, with or without the stimulus. It does not
+  follow motion energy after the exit. It is not only stillness: at a side
+  port the rate goes up with motion energy, and in the center port it does not
+  (slope test, p = 8e-11 and 5e-6). So it is a state of the trial (holding in
+  the port during the stimulus) that ends with the exit. Slow adaptation, the
+  view of the stimulus, and a gain that grows with movement are less
+  probable.
+- Only in GRB006: most of the suppression comes after the first flash (about
+  90% on a log scale), and it is larger in units with a larger flash response.
+  In GRB064 about half of the drop comes between the entry and the first
+  flash, and ρ = +0.10 for the flash response. So "units with a visual
+  response" is not part of the explanation, and the drop starts with the
+  entry into the port (or the approach to it) in both mice, with a part that
+  follows the first flash. Not known: what starts it, and what the side
+  preference of single units after the exit is.
+
 The tests of 2026-10-11 on what causes the fixation effect (GRB006; matched
 flashes, the flash × fixation term, the view, the latency) are in
 [glm_decisions.md](glm_decisions.md), "Tests of 2026-10-11".
