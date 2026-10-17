@@ -692,6 +692,42 @@ every check and every grid on the new design:
 The fits with the 12-cosine kernel are in
 `figures/glm/_before_coarse_kernel_2026_10_16/`.
 
+### Flash terms as a base and modifiers, 2026-10-17
+
+Decided with Gabriel, for a model that reads in words. The flash part of the
+design is now one flash kernel (the response in the port after a long gap),
+a kernel for a flash up to 50 ms after another (`FLASH_JUST_BEFORE_TERM`),
+and the flash × after-exit kernel coded 0 in the port and 1 after the exit.
+Before, the design had one kernel for each of two gap classes, and the
+after-exit values were centered over the flashes, which made the common
+kernel a mean of the two periods. The columns span the same space in both
+forms, so the prediction is the same (on the design of 2026-10-16: −0.03%,
+p = 0.56); only the L2 penalty differs: it now pulls the change after a
+short gap and the change after the exit toward zero. The labels "still" and
+"move" became "in port" and "after exit", because "move" reads as a measure
+of locomotion, and the rig has none.
+
+### Previous outcome, second test, 2026-10-17
+
+`candidate_terms.py` with the previous outcome alone, on the design of
+2026-10-17, with the window from 0.5 s before the first flash (it now
+reaches before the center entry, where an outcome effect would most likely
+be). It fails in both mice again: 9 of 167 units need it in GRB006 (chance
+18) and 4 of 76 in GRB064 (chance 11); gain p = 0.11 and 0.28 after Holm. It
+stays out.
+
+### Cleanup, 2026-10-17
+
+Three rounds of a complexity audit. Deleted: `residual_checks.py`,
+`kernel_comparison.py`, `flash_by_period.py` (its result is panels g–i of
+`model_trust.svg`), `performance.py`, `withdrawal_grid.py`, the flash-onset
+repair tool (the GRB006 row is written), the descriptive model of the
+fixation figure (it now reads the fixation and response-period kernels of
+the main fit), and the dead design terms (time in trial, accumulated
+evidence, the side column, flash × move × gap). The comparisons of
+`matched_flashes.py` that no figure reads are gone too. All of them are in
+the git history.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
