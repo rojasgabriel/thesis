@@ -1,8 +1,10 @@
 # V1 GLM: history of the design decisions
 
 This file has the earlier designs of the V1 GLM and the test behind each
-change, in the order in which they were made (2026-10-10 to 2026-10-13). The
-model in use and its results are in [glm.md](glm.md).
+change, in the order in which they were made (2026-10-10 to 2026-10-17).
+Read [glm.md](glm.md) for the current scientific argument and main figures.
+See [glm_checks.md](glm_checks.md) for validation, supporting figures, methods, and run commands.
+This file is the design history.
 
 Some sections name scripts that are no longer in the repository, because the
 final model does not use them: `side_term_test.py`, `flash_fixation_test.py`,

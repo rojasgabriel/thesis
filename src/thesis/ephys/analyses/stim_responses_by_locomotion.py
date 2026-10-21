@@ -42,7 +42,6 @@ from spks.event_aligned import population_peth
 # Keep this import above `labdata_plugin`: after the plugin loads, the name
 # `thesis` points to the plugin, and a first import of `thesis.plotting` fails.
 from thesis.plotting import FIGURE_STYLE, label_panels, save_figure  # isort: skip
-from labdata_plugin.schema import StimulusResponse
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
@@ -66,7 +65,9 @@ SUBJECT_COLORS = ("#E41A1C", "#377EB8", "#4DAF4A")
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
     """Classify 15 ms pulses as stationary or movement for each trial."""
     classification_records = []
-    for _, trial in build_trial_table(subject, session).iterrows():
+    for _, trial in build_trial_table(
+        subject, session, include_frames=False
+    ).iterrows():
         cp_entry = trial["center_entry_s"]
         cp_exit = trial["center_exit_s"]
         rp_entry = trial["response_port_entry_s"]
@@ -109,6 +110,8 @@ def extract_paired_stim_anchors(
 
 def compute_locomotion_peaks(subject: str, session: str) -> pd.DataFrame:
     """Return stationary and movement peaks for stable stimulus-excited units."""
+    from labdata_plugin.schema import StimulusResponse
+
     stationary_events, movement_events = extract_paired_stim_anchors(
         load_trial_classification(subject, session)
     )
