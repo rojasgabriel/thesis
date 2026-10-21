@@ -50,6 +50,36 @@ from thesis.ephys.units import fetch_unit_table
 EXAMPLE_UNIT_ID = 197
 
 
+def raw_contribution(design, coefficients, metadata, columns):
+    """Return a raw regressor's log-rate contribution before column centering.
+
+    A raw zero must carry no contribution, even when its standardized value
+    is nonzero. Removing this quantity leaves the other raw terms fixed.
+
+    >>> meta = {'training_mean': [2.], 'training_scale': [2.]}
+    >>> raw_contribution(np.array([[-1.], [1.]]), [6.], meta, [0]).tolist()
+    [0.0, 12.0]
+    """
+    columns = np.asarray(columns, dtype=int)
+    offset = (
+        np.asarray(metadata["training_mean"])[columns]
+        / np.asarray(metadata["training_scale"])[columns]
+    )
+    return (np.asarray(design)[:, columns] + offset) @ np.asarray(coefficients)[columns]
+
+
+def zero_raw_columns(intercept, coefficients, metadata, columns):
+    """Remove raw terms while preserving the intercept of the other raw terms."""
+    columns = np.asarray(columns, dtype=int)
+    coefficients = np.asarray(coefficients, dtype=float).copy()
+    offset = (
+        np.asarray(metadata["training_mean"])[columns]
+        / np.asarray(metadata["training_scale"])[columns]
+    ) @ coefficients[columns]
+    coefficients[columns] = 0
+    return float(intercept) - float(offset), coefficients
+
+
 def fitted_trial_contributions(
     design: np.ndarray, result: dict, design_metadata: dict
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:

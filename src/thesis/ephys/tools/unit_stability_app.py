@@ -29,7 +29,11 @@ def _load_data(
 ) -> dict[int, pd.DataFrame]:
     from labdata.schema import EphysRecording, SpikeSorting
 
-    from labdata_plugin.schema import UnitStability, UnitStabilityParam
+    from labdata_plugin.schema import (
+        UnitStability,
+        UnitStabilityParam,
+        initialize_schema,
+    )
 
     key = {
         "subject_name": subject,
@@ -37,6 +41,7 @@ def _load_data(
         "unit_criteria_id": unit_criteria_id,
         "stability_param_id": stability_param_id,
     }
+    initialize_schema()
     UnitStability().populate(key)
     params = (UnitStabilityParam & key).fetch1()
     data = {}

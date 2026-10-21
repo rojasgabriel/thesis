@@ -45,13 +45,15 @@ right: GRB064). The tests are within each mouse.
   over the flash train after the exit is close to a level, so the L2 penalty
   can give part of the rate step at the exit to the flash × after exit kernels and
   make a flash × after exit effect from nothing. Spikes are simulated from the
-  final refit of each unit with the flash × after exit weights set to 0, and the
+  final refit of each unit with the raw flash × after exit regressors set
+  to 0 and the intercept adjusted for centering to keep the in-port rate
+  fixed, and the
   full model is fit to them. The leak is the flash × after exit part of the move −
   still peak of that fit, in the matched peak measure of `peaks.py`
   (`peaks.py`; the excited units). g, the real part against the leak; h, real
   minus leak (two-sided Wilcoxon signed-rank test in each mouse, and the
   hierarchical bootstrap); i, the leak against the fixation level of the unit.
-  A point outside `PART_LIMITS` is drawn at the limit; it is in the
+  A point outside `PART_LIMITS` is not drawn; it is in the
   statistics.
 
 Units, trials, alignment, and exclusions are those of `fit.py`. The sampling
@@ -473,8 +475,8 @@ def main() -> None:
         part_axis.set(xlim=PART_LIMITS, ylim=PART_LIMITS, aspect="equal")
         pooled_points(
             part_axis,
-            [np.clip(p["leak"], *PART_LIMITS) for p in parts],
-            [np.clip(p["real"], *PART_LIMITS) for p in parts],
+            [p["leak"] for p in parts],
+            [p["real"] for p in parts],
             subjects,
             VISUAL,
         )
@@ -486,7 +488,7 @@ def main() -> None:
             pooled_strip(
                 rest_axis,
                 0,
-                [np.clip(p["real"] - p["leak"], *PART_LIMITS) for p in parts],
+                [p["real"] - p["leak"] for p in parts],
                 subjects,
                 VISUAL,
             )
@@ -499,6 +501,12 @@ def main() -> None:
                         np.sum(
                             (np.minimum(p["real"], p["leak"]) < PART_LIMITS[0])
                             | (np.maximum(p["real"], p["leak"]) > PART_LIMITS[1])
+                        )
+                    ),
+                    "units_corrected_outside_the_axis": int(
+                        np.sum(
+                            ((p["real"] - p["leak"]) < PART_LIMITS[0])
+                            | ((p["real"] - p["leak"]) > PART_LIMITS[1])
                         )
                     ),
                 }
@@ -514,7 +522,7 @@ def main() -> None:
         pooled_points(
             level_axis,
             [p["level"] for p in parts],
-            [np.clip(p["leak"], *PART_LIMITS) for p in parts],
+            [p["leak"] for p in parts],
             subjects,
             TASK,
         )
@@ -597,6 +605,8 @@ def main() -> None:
             leak="; ".join(
                 f"{subject}: median {entry['median']:+.1f} spikes/s"
                 f" ({entry['units']} units, p = {entry['wilcoxon_p']:.2g})"
+                f"; {entry['units_outside_the_axis']} units outside panel g and"
+                f" {entry['units_corrected_outside_the_axis']} outside panel h"
                 for subject, entry in stats[
                     "leak, flash × after exit part, real minus leak (spikes/s)"
                 ].items()

@@ -12,9 +12,35 @@ from __future__ import annotations
 import functools
 import inspect
 import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import pandas as pd
+
+
+@contextmanager
+def atomic_output(path: Path):
+    """Publish a complete binary file without replacing an existing file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".partial",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            yield handle
+        # Linking a sibling file publishes it atomically and refuses to clobber
+        # a file another process finished while this one was still writing.
+        os.link(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def cached(function):
@@ -32,8 +58,11 @@ def cached(function):
         if path.exists():
             return pd.read_pickle(path)
         table = function(*args, **kwargs)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        table.to_pickle(path)
+        try:
+            with atomic_output(path) as handle:
+                table.to_pickle(handle)
+        except FileExistsError:
+            return pd.read_pickle(path)
         return table
 
     return wrapper

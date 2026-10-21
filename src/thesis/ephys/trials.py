@@ -74,24 +74,39 @@ def _select_task_ev_sequence(
             for timestamp_s in response_entries_s
             if timestamp_s > center_exit_s
         ]
-        if center_entries_s and following_response_entries_s:
-            task_ev_candidates.append(
+        has_bpod_response = (
+            np.isfinite(predicted_response_s) and predicted_response_s > center_exit_s
+        )
+        if not center_entries_s:
+            continue
+        if following_response_entries_s:
+            response_s = (
+                min(
+                    following_response_entries_s,
+                    key=lambda t: abs(t - predicted_response_s),
+                )
+                if np.isfinite(predicted_response_s)
+                else following_response_entries_s[0]
+            )
+            source = "hardware"
+        elif has_bpod_response:
+            response_s, source = predicted_response_s, "bpod"
+        else:
+            continue
+        task_ev_candidates.append(
+            (
                 (
                     min(center_entries_s, key=lambda t: abs(t - predicted_entry_s))
                     if np.isfinite(predicted_entry_s)
-                    else center_entries_s[-1],
-                    center_exit_s,
-                    min(
-                        following_response_entries_s,
-                        key=lambda t: abs(t - predicted_response_s),
-                    )
-                    if np.isfinite(predicted_response_s)
-                    else following_response_entries_s[0],
-                )
+                    else center_entries_s[-1]
+                ),
+                center_exit_s,
+                response_s,
+                source,
             )
+        )
 
-    selected_task_ev = (np.nan, np.nan, np.nan)
-    source = "hardware"
+    selected_task_ev = (np.nan, np.nan, np.nan, "hardware")
     if len(task_ev_candidates) == 1:
         selected_task_ev = task_ev_candidates[0]
     elif len(task_ev_candidates) > 1 and np.isfinite(predicted_react_s):
@@ -105,13 +120,12 @@ def _select_task_ev_sequence(
         and np.isfinite(predicted_response_s)
         and abs(selected_task_ev[2] - predicted_response_s) > RESPONSE_TOLERANCE_S
     ):
-        selected_task_ev = (*selected_task_ev[:2], predicted_response_s)
-        source = "bpod"
+        selected_task_ev = (*selected_task_ev[:2], predicted_response_s, "bpod")
     return {
         "center_entry_s": selected_task_ev[0],
         "center_exit_s": selected_task_ev[1],
         "response_port_entry_s": selected_task_ev[2],
-        "response_entry_source": source,
+        "response_entry_source": selected_task_ev[3],
         "n_task_ev_candidates": len(task_ev_candidates),
     }
 

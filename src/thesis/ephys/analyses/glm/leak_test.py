@@ -8,8 +8,9 @@ change to the flash × after exit kernels. How large is that part in the real de
 of each unit?
 
 Comparison: a parametric null, one for each unit. Spikes are simulated from
-the final refit of the unit with the weights of the flash × after exit and the
-flash × after exit × gap kernels set to 0, so the simulated unit has the fixation
+the final refit of the unit with the raw flash × after exit regressors set
+to 0. Their weights are zeroed and the intercept is adjusted for column
+centering, so the in-port rate stays fixed. The simulated unit has the fixation
 effect and every other term of the real unit, and no change of the flash
 response with the period. The full model is then fit to the simulated spikes
 with the real design and the penalty of the unit. The flash × after exit effect of
@@ -24,7 +25,8 @@ paired: each unit has its real effect and its leak.
 - Effect, in the matched measure of every flash comparison (`peaks.py`): the
   part of the after-exit-minus-in-port peak that the flash × after exit terms carry, on the
   paired flashes of `peaks.paired_flashes`: the peak change of the model rate
-  minus the same with the flash × after exit columns set to 0 (spikes/s). The real
+  minus the same with the raw flash × after exit regressors set to 0
+  (spikes/s), keeping the in-port baseline fixed. The real
   part uses the real fit; the leak uses each fit to simulated spikes. `model_trust.py`
   reads it for the excited units of StimulusResponse. The old
   kernel measure (the mean of the kernel difference from `RESPONSE_MS`, Δ log
@@ -70,8 +72,9 @@ from thesis.ephys.analyses.glm.peaks import paired_flashes
 from thesis.ephys.analyses.glm.results import (
     fitted_kernels,
     flash_kernel_at,
+    raw_contribution,
+    zero_raw_columns,
 )
-from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import unit_spikes
 
 SIMULATIONS = 3
@@ -137,7 +140,8 @@ def matched_part(intercept: float, coefficients, history, width: int) -> float:
     removed = _SHARED["removed_columns"]
     log_rate = float(intercept) + design @ coefficients
     changes = []
-    for values in (log_rate, log_rate - design[:, removed] @ coefficients[removed]):
+    contribution = raw_contribution(design, coefficients, _SHARED["metadata"], removed)
+    for values in (log_rate, log_rate - contribution):
         rate = np.exp(values)[_SHARED["window_position"]] / dmat.BINWIDTH_S
         peak = peaks.peaks(rate.mean(1))  # (period, bin) -> (period,)
         changes.append(peak[1] - peak[0])
@@ -217,15 +221,17 @@ def _unit(job: dict) -> dict:
     real_history, mean, scale = dmat.training_zscore(raw, valid)
     real = measures(record, scale)
     real_part = matched_part(record["intercept"], coefficients, real_history, width)
-    null = coefficients.copy()
-    groups = block_slices(metadata, int(record["components"]))
-    for name in REMOVED:
-        if name in groups:  # a term that the design in use has
-            null[groups[name]] = 0
+    removed = _SHARED["removed_columns"]
+    # Keep the raw baseline fixed when the interaction is removed. Zeroing
+    # its standardized coefficients alone would also change in-port rates.
+    null_intercept, null = zero_raw_columns(
+        record["intercept"], coefficients, metadata, removed
+    )
+    null_record = {**record, "intercept": null_intercept}
     rng = np.random.default_rng(SEED + job["unit_id"])
     fits, leak_parts = [], []
     for _ in range(SIMULATIONS):
-        counts, scaled, simulated_scale = simulate(record, null, mean, scale, rng)
+        counts, scaled, simulated_scale = simulate(null_record, null, mean, scale, rng)
         design = dmat._design_with_history(common, scaled, width, valid)
         model = fit_poisson_at_alpha(design, counts.ravel()[valid], job["alpha"])
         result = {"components": record["components"], "coefficients": model.coef_}

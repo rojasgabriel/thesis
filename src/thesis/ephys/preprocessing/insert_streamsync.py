@@ -3,11 +3,19 @@
 Each mapping converts one source clock to the NIDQ or OneBox clock from the
 same ephys dataset. Probe mappings use every available ``imecN`` stream.
 Bpod mappings allow the expected extra final hardware trial-start pulse.
+Matched pulse intervals must agree after clock-rate scaling, within 2 ms plus
+0.1% of each clock interval. This permits small clock drift but rejects dropped
+or extra middle pulses; it does not repair ambiguous pulse sequences.
 """
 
 import argparse
 
 import numpy as np
+
+from thesis.ephys.preprocessing._database import (
+    initialize_tables,
+    read_only_database_imports,
+)
 
 CLOCK_EVENTS = {
     "nidq": {"probe": "0", "bpod": "2"},
@@ -16,7 +24,12 @@ CLOCK_EVENTS = {
 
 
 def _rising_edges(timestamps: np.ndarray, values: np.ndarray | None) -> np.ndarray:
-    return timestamps[::2] if values is None else timestamps[np.asarray(values) == 1]
+    if values is None:
+        return timestamps[::2]
+    values = np.asarray(values)
+    if values.shape != timestamps.shape or not np.isin(values, (0, 1)).all():
+        raise ValueError("sync values must be timestamp-matched binary states")
+    return timestamps[values == 1]
 
 
 def _strictly_matched_count(
@@ -27,8 +40,12 @@ def _strictly_matched_count(
     allow_trailing_clock_pulse: bool = False,
 ) -> int:
     """Return the matched pulse count or raise for an unsafe mapping."""
-    source = np.asarray(source_timestamps)
-    clock = np.asarray(clock_timestamps)
+    source = np.asarray(source_timestamps, dtype=float)
+    clock = np.asarray(clock_timestamps, dtype=float)
+    if source.ndim != 1 or clock.ndim != 1:
+        raise ValueError("sync timestamps must be one-dimensional")
+    if not np.isfinite(source).all() or not np.isfinite(clock).all():
+        raise ValueError("sync timestamps must be finite")
     if 2 * len(source) - 4 <= len(clock) <= 2 * len(source) + 4:
         clock = _rising_edges(clock, clock_values)
     elif 2 * len(clock) - 4 <= len(source) <= 2 * len(clock) + 4:
@@ -43,6 +60,16 @@ def _strictly_matched_count(
         raise ValueError(f"need at least two sync pulses, found {len(source)}")
     if np.any(np.diff(source) <= 0) or np.any(np.diff(clock) <= 0):
         raise ValueError("sync timestamps must increase strictly")
+    source_intervals = np.diff(source)
+    clock_intervals = np.diff(clock)
+    clock_rate = np.median(clock_intervals / source_intervals)
+    errors = np.abs(clock_intervals - clock_rate * source_intervals)
+    tolerance = 0.002 + 0.001 * clock_intervals
+    if np.any(errors > tolerance):
+        raise ValueError(
+            "sync pulse intervals do not match after clock-rate scaling: "
+            f"largest error={errors.max():.6f} clock seconds"
+        )
     return len(source)
 
 
@@ -72,13 +99,14 @@ def _self_check() -> None:
 
 def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
     """Find, validate, and optionally insert mappings for one ephys dataset."""
-    from labdata.schema import (
-        DatasetEvents,
-        EphysRecording,
-        SpikeSorting,
-        StreamSync,
-        dj,
-    )
+    with read_only_database_imports():
+        from labdata.schema import (
+            DatasetEvents,
+            EphysRecording,
+            SpikeSorting,
+            StreamSync,
+            dj,
+        )
 
     if not len(EphysRecording() & SpikeSorting() & dataset_key):
         raise ValueError(f"Dataset has no spike sorting: {dataset_key}")
@@ -106,7 +134,7 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
         allow_trailing_clock_pulse: bool = False,
     ) -> None:
         existing = StreamSync() & source_key
-        if len(existing):
+        if existing.is_declared and len(existing):
             print(f"Already present: {existing.fetch(as_dict=True)}")
             return
         clock_key = {
@@ -190,6 +218,7 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
         print("Dry run; add --apply to insert")
         return
 
+    initialize_tables(StreamSync)
     with dj.conn().transaction:
         StreamSync().insert([row for row, _, _ in candidates], skip_duplicates=True)
         for row, expected_count, force in candidates:

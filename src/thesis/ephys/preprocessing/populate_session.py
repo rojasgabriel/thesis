@@ -7,26 +7,33 @@ kept. Audio recovery from raw OneBox files is a separate optional workflow.
 
 import argparse
 
+from thesis.ephys.preprocessing._database import (
+    initialize_tables,
+    read_only_database_imports,
+)
 from thesis.ephys.preprocessing.insert_streamsync import insert_streamsync
 from thesis.ephys.preprocessing.populate_unit_counts import CRITERIA
 
 
 def populate_session(subject: str, session: str, apply: bool = False) -> None:
-    from labdata.schema import (
-        EphysRecording,
-        SpikeSorting,
-        StreamSync,
-        UnitCount,
-        UnitCountCriteria,
-        UnitMetrics,
-    )
+    with read_only_database_imports():
+        from labdata.schema import (
+            EphysRecording,
+            SpikeSorting,
+            StreamSync,
+            UnitCount,
+            UnitCountCriteria,
+            UnitMetrics,
+        )
 
-    from labdata_plugin.schema import (
-        StimulusResponse,
-        StimulusResponseParam,
-        UnitStability,
-        UnitStabilityParam,
-    )
+        from labdata_plugin.schema import (
+            StimulusResponse,
+            UnitStability,
+            initialize_schema,
+        )
+
+    def existing_count(table, key):
+        return len(table & key) if table.database and table().is_declared else 0
 
     session_key = {"subject_name": subject, "session_name": session}
     sortings = (SpikeSorting & session_key).fetch("KEY")
@@ -41,16 +48,23 @@ def populate_session(subject: str, session: str, apply: bool = False) -> None:
     if not n_units:
         raise ValueError(f"No sorted units for {session_key}")
 
+    if apply:
+        initialize_tables(
+            StreamSync, UnitMetrics, UnitCountCriteria, UnitCount, UnitCount.Unit
+        )
+        initialize_schema()
     insert_streamsync(dataset_key, apply)
     if not apply:
-        print(f"Sorted units: {n_units}; metrics: {len(UnitMetrics & session_key)}")
+        print(
+            f"Sorted units: {n_units}; metrics: {existing_count(UnitMetrics, session_key)}"
+        )
         for criteria in CRITERIA:
             key = {**session_key, "unit_criteria_id": criteria["unit_criteria_id"]}
             print(
                 f"Criteria {criteria['unit_criteria_id']}: "
-                f"counts={len(UnitCount & key)}, "
-                f"stability={len(UnitStability & {**key, 'stability_param_id': 0})}, "
-                f"responses={len(StimulusResponse & {**key, 'stim_response_param_id': 0})}"
+                f"counts={existing_count(UnitCount, key)}, "
+                f"stability={existing_count(UnitStability, {**key, 'stability_param_id': 0})}, "
+                f"responses={existing_count(StimulusResponse, {**key, 'stim_response_param_id': 0})}"
             )
         print("Dry run; add --apply to insert missing results")
         return
@@ -74,8 +88,6 @@ def populate_session(subject: str, session: str, apply: bool = False) -> None:
         raise RuntimeError(f"UnitMetrics is incomplete for {session_key}")
     print(f"UnitMetrics: {n_units}/{n_units}")
 
-    UnitStabilityParam().insert(UnitStabilityParam.contents, skip_duplicates=True)
-    StimulusResponseParam().insert(StimulusResponseParam.contents, skip_duplicates=True)
     for criteria in CRITERIA:
         criteria_key = {"unit_criteria_id": criteria["unit_criteria_id"]}
         existing = (UnitCountCriteria & criteria_key).fetch(as_dict=True)

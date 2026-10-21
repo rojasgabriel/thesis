@@ -22,9 +22,10 @@ flash starts later than the flash, so the window has no flash response.
   the entry has no ratio; the count is in the output.
 - Reference: the rate in `LATE_MS` after the first flash (the full drop),
   over the same rate before the entry.
-- Statistics: the median ratio and a two-sided Wilcoxon signed-rank test of
-  the log ratio over units. The sampling unit is the unit; the units share the
-  trials.
+- Statistics: the median of the finite rate ratios, including zero, and a
+  two-sided Wilcoxon signed-rank test of the rate ratio minus 1 over units.
+  The test uses the ratio scale, so complete suppression is retained without
+  adding spikes. The sampling unit is the unit; the units share the trials.
 - Population rate (for the figure): the trial mean of each unit's rate in
   `BIN_S` bins, divided by its mean over the window, in the short and the
   long delays, aligned to the center entry and to the first flash; the
@@ -108,13 +109,22 @@ def window_rates(spikes: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> fl
 
 
 def _paired(ratio: np.ndarray) -> dict:
-    used = np.isfinite(ratio) & (ratio > 0)
-    log_ratio = np.log(ratio[used])
+    """Summarize valid rate ratios, testing them against 1 on the ratio scale."""
+    used = np.isfinite(ratio) & (ratio >= 0)
+    values = ratio[used]
+    difference = values - 1
+    if not len(values):
+        p_value = np.nan
+    elif not np.any(difference):
+        p_value = 1.0
+    else:
+        p_value = float(wilcoxon(difference).pvalue)
     return {
         "units": int(used.sum()),
-        "median_ratio": float(np.exp(np.median(log_ratio))),
-        "units_lower": int(np.sum(log_ratio < 0)),
-        "wilcoxon_p": float(wilcoxon(log_ratio).pvalue),
+        "median_ratio": float(np.median(values)) if len(values) else np.nan,
+        "units_lower": int(np.sum(difference < 0)),
+        "wilcoxon_p": p_value,
+        "wilcoxon_scale": "rate ratio minus 1",
     }
 
 

@@ -245,8 +245,6 @@ def save_figure(figure, output: Path) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     svg = output.with_suffix(".svg")
     figure.savefig(svg, bbox_inches="tight")
-    for stale in (".pdf", ".png"):
-        output.with_suffix(stale).unlink(missing_ok=True)
     plt.close(figure)
     return svg
 

@@ -485,9 +485,9 @@ class PSTHApp(QtWidgets.QMainWindow):
         image = pg.ImageItem(rates.astype(np.float32), axisOrder="row-major")
         image.setRect(
             QtCore.QRectF(
-                -self.pre_seconds,
+                self.bin_edges[0],
                 0,
-                self.pre_seconds + self.post_seconds,
+                self.bin_edges[-1] - self.bin_edges[0],
                 len(unit_ids),
             )
         )

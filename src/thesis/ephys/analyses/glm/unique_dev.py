@@ -19,11 +19,12 @@ A shuffle permutes design rows among the valid bins of each trial. A block
 that is a variable of the trial (`OVER_TRIALS`: drift, the previous outcome) is
 instead taken from another trial at the same bin (`trial_swap_permutation`),
 because a shuffle inside the trial keeps its value there. A block that is a
-side (±1) on a time course of the trial itself (`SIGN_OVER_TRIALS`: the previous
-side, the side of the response, the turn direction) keeps its own rows and
-takes the sign of the other trial: taking the rows of the other trial would
+side (±1, or 0 for unknown) on a time course of the trial itself
+(`SIGN_OVER_TRIALS`: previous side and turn direction) keeps its own time
+course and takes the actual side code of the other trial. The swap is in raw
+columns before applying the saved centering and scale. Taking the rows of the other trial would
 also move a time course that is aligned to the events of that trial, and
-test the timing and not the side (2026-10-16). All columns of a block move
+test the timing and not the side. All columns of a block move
 together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
 three broad groups (task, video, history) and each regressor of the design
@@ -50,6 +51,7 @@ from thesis.ephys.analyses.glm.dmat import (
     PREVIOUS_SIDE,
     TURN_DIRECTION,
     _design_with_history,
+    _load_selected_trials,
     _load_windows,
     build_unit_history,
     training_zscore,
@@ -72,7 +74,8 @@ OVER_TRIALS = (DRIFT, PREVIOUS_OUTCOME)
 # is shuffled over trials, the time course stays.
 SIGN_OVER_TRIALS = (PREVIOUS_SIDE, TURN_DIRECTION)
 # The name of the shuffle rule, saved in each record.
-SHUFFLE_RULE = "trial variables over trials, sides by sign, 2026-10-16"
+LEGACY_SHUFFLE_RULE = "trial variables over trials, sides by sign, 2026-10-16"
+SHUFFLE_RULE = "trial variables over trials, raw sides with unknowns, 2026-10-18"
 
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
@@ -128,6 +131,34 @@ def trial_swap_permutation(n_trials: int, bins_per_trial: int, seed: int) -> np.
     partner = np.empty(n_trials, dtype=np.int64)
     partner[order] = np.roll(order, -1)
     return (partner[:, None] * bins_per_trial + np.arange(bins_per_trial)).ravel()
+
+
+def shuffled_side_columns(
+    standardized: np.ndarray,
+    mean: np.ndarray,
+    scale: np.ndarray,
+    sides: np.ndarray,
+    partner: np.ndarray,
+    unknown_support: np.ndarray | None = None,
+) -> np.ndarray:
+    """Swap actual side codes while retaining each recipient trial's time course.
+
+    `standardized` is trial × bin × column. A side of 0 means unknown. Its
+    unsigned time course must be supplied in `unknown_support` (unknown trials
+    × bin × column), because a raw zero cannot reveal that time course.
+    """
+    sides = np.asarray(sides)
+    if not np.isin(sides, (-1, 0, 1)).all():
+        raise ValueError("Side codes must be -1, 0, or 1.")
+    raw = np.asarray(standardized, dtype=float) * scale + mean
+    unsigned = raw * sides[:, None, None]
+    unknown = sides == 0
+    if unknown.any():
+        if unknown_support is None or unknown_support.shape != unsigned[unknown].shape:
+            raise ValueError("Unknown sides need their unsigned time course.")
+        unsigned[unknown] = unknown_support
+    shuffled = unsigned * sides[partner, None, None]
+    return ((shuffled - mean) / scale).astype(standardized.dtype)
 
 
 def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
@@ -214,18 +245,25 @@ def _block_task(job: dict) -> dict:
     within = _SHARED["within_trial"]
     between = _SHARED["between_trials"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
-    # For a side on a time course: +1 or -1 in each row, so that a trial keeps
-    # its block and takes the side of its partner in `between`.
+    previous = job.get("reuse_unique")
+    # Shuffle before centering: flipping a centered zero invents an effect in
+    # bins where the raw regressor is off.
     trials = len(prepared["alignments"])
     bins = len(between) // trials
     partner = between.reshape(trials, bins)[:, 0] // bins
-    flips = {}
+    side_blocks = {}
     for name in SIGN_OVER_TRIALS:
         if name in groups:
-            block = np.asarray(common[:, groups[name]]).reshape(trials, bins, -1)
-            side = np.sign(block.sum((1, 2)))
-            side[side == 0] = 1
-            flips[name] = np.repeat(side[partner] * side, bins)
+            columns = groups[name]
+            block = np.asarray(common[:, columns]).reshape(trials, bins, -1)
+            side_blocks[name] = shuffled_side_columns(
+                block,
+                job["common_mean"][columns],
+                job["common_scale"][columns],
+                job["side_codes"][name],
+                partner,
+                job.get("unknown_previous_support") if name == PREVIOUS_SIDE else None,
+            ).reshape(len(common), -1)
     complete_folds, trial_specific = [], []
     for fold_index, (fold, alpha) in enumerate(
         _scored_folds(counts, _SHARED["partitions"], job["alphas"]), start=1
@@ -254,7 +292,11 @@ def _block_task(job: dict) -> dict:
                     f"fold {fold_index}, {comparison}: {error}"
                 ) from error
 
-        complete = score("full model")
+        complete = (
+            float(job["complete_folds"][fold_index - 1])
+            if previous is not None
+            else score("full model")
+        )
         complete_folds.append(complete)
 
         # Shuffle the two scored matrices in place and restore from the source.
@@ -267,15 +309,15 @@ def _block_task(job: dict) -> dict:
             else:
                 source = history[:, columns.start - width : columns.stop - width]
             for matrix, rows in ((fit_design, fit_rows), (test_design, test_rows)):
-                if isinstance(mapping, tuple):  # ("sign", +1 or -1 in each row)
-                    matrix[:, columns] = source[rows] * mapping[1][rows, None]
+                if isinstance(mapping, tuple):  # ("side", raw-space side shuffle)
+                    matrix[:, columns] = side_blocks[mapping[1]][rows]
                 else:
                     matrix[:, columns] = source[
                         rows if mapping is None else mapping[rows]
                     ]
 
         # Control: motion energy of another trial at the same time in the trial.
-        if "video" in order:
+        if "video" in order and previous is None:
             put(groups["video"], between)
             trial_specific.append(complete - score("video swapped between trials"))
             put(groups["video"], None)
@@ -288,8 +330,8 @@ def _block_task(job: dict) -> dict:
             # response, the turn direction, the previous outcome) is shuffled over trials. A
             # shuffle inside a trial keeps its sign there, so it would test only
             # when the column turns on, not the variable.
-            if name in flips:
-                return ("sign", flips[name])
+            if name in side_blocks:
+                return ("side", name)
             return between if name in OVER_TRIALS else within
 
         for name in blocks:
@@ -300,9 +342,13 @@ def _block_task(job: dict) -> dict:
 
         for group in order:
             columns = groups[group]
-            put(columns, shuffle_of(group))
-            removed = score(f"{group} shuffled")
-            put(columns, None)
+            if previous is None or group in SIGN_OVER_TRIALS:
+                put(columns, shuffle_of(group))
+                removed = score(f"{group} shuffled")
+                put(columns, None)
+                unique = complete - removed
+            else:
+                unique = previous["groups"][group]["folds"]["unique"][fold_index - 1]
 
             for name in blocks:
                 put(groups[name], shuffle_of(name))
@@ -311,7 +357,7 @@ def _block_task(job: dict) -> dict:
             for name in blocks:
                 put(groups[name], None)
 
-            per_fold[group]["unique"].append(complete - removed)
+            per_fold[group]["unique"].append(unique)
             per_fold[group]["maximal"].append(alone - reference)
     if len(complete_folds) < 2:
         raise ValueError(
@@ -331,7 +377,15 @@ def _block_task(job: dict) -> dict:
                     else (groups[group],)
                 )
             ),
-            "shuffle": "rows jointly within trial",
+            "shuffle": (
+                "raw side codes over trials, recipient timing retained"
+                if group in SIGN_OVER_TRIALS
+                else (
+                    "rows jointly over trials"
+                    if group in OVER_TRIALS
+                    else "rows jointly within trial"
+                )
+            ),
             "unique_test_deviance_explained": float(unique.mean()),
             "unique_test_deviance_explained_sem": float(sem(unique)),
             "maximal_test_deviance_explained": float(maximal.mean()),
@@ -339,6 +393,8 @@ def _block_task(job: dict) -> dict:
             "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
         }
     if "video" in order:
+        if previous is not None:
+            trial_specific = previous["groups"]["video"]["folds"]["trial_specific"]
         group_results["video"]["trial_specific_test_deviance_explained"] = float(
             np.mean(trial_specific)
         )
@@ -355,6 +411,11 @@ def _block_task(job: dict) -> dict:
         "folds": len(complete_folds),
         "complete_test_deviance_explained": float(np.mean(complete_folds)),
         "groups": group_results,
+        "reused_unique_groups": (
+            [name for name in order if name not in SIGN_OVER_TRIALS]
+            if previous is not None
+            else []
+        ),
     }
     return record
 
@@ -365,8 +426,16 @@ def run_unique(
     fit_dir: Path,
     unit_set: str,
     workers: int | None = None,
+    *,
+    repair_side_shuffle: bool = False,
 ) -> None:
-    """Fit same-width shuffled comparators; plot the summary and the example unit."""
+    """Fit shuffled comparators and write the summary and example-unit data.
+
+    `repair_side_shuffle` preserves legacy records in `unique_centered_sides`.
+    It reuses unaffected unique folds and trial-swapped video scores. It refits
+    the two side-unique tests and every maximal test, whose all-shuffled
+    reference also depends on the side rule. Restarting reuses repaired units.
+    """
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
     with design_path.with_suffix(".json").open() as handle:
@@ -381,6 +450,16 @@ def run_unique(
     video_components = selected_components.pop()
     common_columns = int(metadata["base_columns"]) + video_components
     groups = block_slices(metadata, video_components)
+    trials = _load_selected_trials(prepared)
+    side_codes = {
+        PREVIOUS_SIDE: np.nan_to_num(trials["last_side"].to_numpy(dtype=float)),
+        TURN_DIRECTION: trials["response"].to_numpy(dtype=float),
+    }
+    unknown = side_codes[PREVIOUS_SIDE] == 0
+    before_exit = (
+        prepared["bin_times"].reshape(len(trials), -1)[unknown]
+        < trials["center_exit_s"].to_numpy(dtype=float)[unknown, None]
+    )
 
     with np.load(windows, allow_pickle=False) as saved:
         trial_split = saved["trial_split"].copy()
@@ -404,6 +483,66 @@ def run_unique(
     output_dir = fit_dir / "unique_deviance"
     checkpoint_dir = checkpoints / "unique"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    preserved_dir = checkpoints / "unique_centered_sides"
+    stale = [
+        path
+        for path in checkpoint_dir.glob("unit_*.json")
+        if json.loads(path.read_text()).get("shuffle_rule") != SHUFFLE_RULE
+    ]
+    if stale and not repair_side_shuffle:
+        raise ValueError(
+            f"{len(stale)} records in {checkpoint_dir} use an older shuffle rule. "
+            "Call run_unique(..., repair_side_shuffle=True) to preserve and repair "
+            "the centered-side records, or move that folder aside for a full rerun."
+        )
+    if repair_side_shuffle:
+        for path in stale:
+            if json.loads(path.read_text()).get("shuffle_rule") != LEGACY_SHUFFLE_RULE:
+                raise ValueError(f"Cannot repair an unknown shuffle rule: {path}")
+            if (preserved_dir / path.name).exists():
+                raise FileExistsError(preserved_dir / path.name)
+        if stale:
+            preserved_dir.mkdir(parents=True, exist_ok=True)
+            for path in stale:
+                path.rename(preserved_dir / path.name)
+    preserved = (
+        {
+            int(item["unit_id"]): item
+            for item in load_unit_records(preserved_dir, "unit_*.json")
+        }
+        if repair_side_shuffle
+        else {}
+    )
+    group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *groups)))
+    fold_deviance = {
+        int(item["unit_id"]): [
+            float(fold["test"]["deviance_explained"]) for fold in item["folds"]
+        ]
+        for item in fold_records
+    }
+    for unit_id, record in preserved.items():
+        if unit_id not in fold_deviance:
+            raise ValueError(
+                f"Preserved unique unit {unit_id} has no current fold fit."
+            )
+        if (
+            record.get("shuffle_rule") != LEGACY_SHUFFLE_RULE
+            or record.get("shuffle_seed") != SHUFFLE_SEED
+            or set(record["groups"]) != set(group_order)
+            or any(
+                len(group["folds"]["unique"]) != len(fold_deviance[unit_id])
+                for group in record["groups"].values()
+            )
+            or not np.isclose(
+                record["complete_test_deviance_explained"],
+                np.mean(fold_deviance[unit_id]),
+                atol=1e-6,
+                rtol=1e-5,
+            )
+        ):
+            raise ValueError(
+                f"Preserved unique unit {unit_id} differs from current fits."
+            )
 
     jobs = [
         {
@@ -413,8 +552,14 @@ def run_unique(
             "video_components": video_components,
             "common_columns": common_columns,
             "groups": groups,
+            "common_mean": np.asarray(metadata["training_mean"]),
+            "common_scale": np.asarray(metadata["training_scale"]),
+            "side_codes": side_codes,
+            "unknown_previous_support": before_exit[..., None].astype(float),
+            "reuse_unique": preserved.get(int(units.iloc[row]["unit_id"])),
+            "complete_folds": fold_deviance[int(units.iloc[row]["unit_id"])],
             # The broad groups, then every regressor of this design.
-            "group_order": tuple(dict.fromkeys((*BROAD_GROUPS, *groups))),
+            "group_order": group_order,
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(
                 checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"
@@ -427,18 +572,6 @@ def run_unique(
     if missing:
         raise ValueError(
             f"{missing} units have no cross-validated record; run fit again."
-        )
-    # A saved record is reused when its file exists (`fit._run_one`). A record of
-    # another shuffle rule must not be reused.
-    stale = [
-        path.name
-        for path in checkpoint_dir.glob("unit_*.json")
-        if json.loads(path.read_text()).get("shuffle_rule") != SHUFFLE_RULE
-    ]
-    if stale:
-        raise ValueError(
-            f"{len(stale)} records in {checkpoint_dir} were made with another "
-            "shuffle rule; move that folder aside and run again."
         )
     print(
         f"Starting unique-deviance analysis: {len(jobs)} units, "

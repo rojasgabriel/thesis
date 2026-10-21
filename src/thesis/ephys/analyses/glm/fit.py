@@ -390,6 +390,10 @@ def _init_worker(
     seeds, so each worker derives it rather than receiving it. Sending the
     fold masks with every job instead would ship about 4 GB across 168 units.
     """
+    # Leave CPU time for interactive work, including when a single worker is used.
+    priority = os.getpriority(os.PRIO_PROCESS, 0)
+    if priority < 10:
+        os.setpriority(os.PRIO_PROCESS, 0, 10)
     prepared = _load_windows(windows)
     valid = _valid_bin_mask(prepared)
     train, validation, test = _split_masks(prepared["split"], valid)
@@ -694,7 +698,7 @@ def crossvalidate(
     checkpoints.mkdir(parents=True, exist_ok=True)
     print(
         f"Starting {CV_FOLDS}-fold cross-validation over {n_trials} trials, "
-        f"{len(jobs)} units, {components} motion-energy PCs.",
+        f"{len(jobs)} units, {components} video components.",
         flush=True,
     )
     records = collect_records(
@@ -881,7 +885,7 @@ def refit_final(
     ]
     print(
         f"Starting final full-data fits: {len(final_jobs)} units, "
-        f"{components} motion-energy PCs.",
+        f"{components} video components.",
         flush=True,
     )
     collect_records(

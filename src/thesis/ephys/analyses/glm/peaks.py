@@ -25,6 +25,7 @@ import numpy as np
 
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import build_unit_counts, load_unit_records
+from thesis.ephys.analyses.glm.results import raw_contribution
 from thesis.ephys.units import fetch_unit_table
 
 PSTH_BIN_MS = 10
@@ -84,7 +85,9 @@ def session_peaks(
     `conditions` gives, for each condition, the trial row and the time of each
     flash of it (two arrays). The rates are the observed counts, the rate of
     the final refit (all terms, with the observed spike history; in-sample),
-    and that rate with the columns of the terms in `zeroed` set to 0.
+    and that rate with the raw regressors in `zeroed` set to 0. Removing a
+    raw contribution also adjusts for column centering, so the rate where
+    that regressor was already zero stays fixed.
     Returns `peaks` (unit, rate, condition) in spikes/s.
     """
     model = cli.PoissonGLM(root=root)
@@ -140,7 +143,7 @@ def session_peaks(
             + np.asarray(common[:, :width]) @ weights[:width]
             + history @ weights[width:]
         )
-        without = log_rate - np.asarray(common[:, removed]) @ weights[removed]
+        without = log_rate - raw_contribution(common, weights, metadata, removed)
         sources = (
             observed,
             np.exp(log_rate).reshape(grid),

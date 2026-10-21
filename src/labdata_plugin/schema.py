@@ -1,17 +1,19 @@
 import warnings
 
+from thesis.ephys.preprocessing._database import read_only_database_imports
+
 # Silence the setuptools pkg_resources deprecation notice
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 import datajoint as dj  # noqa: E402
-from labdata.schema import (  # noqa: E402
-    EphysRecording,
-    SpikeSorting,
-    UnitCount,
-    get_user_schema,
-)
 
-rojasbowe_schema = get_user_schema()
+with read_only_database_imports():
+    from labdata.schema import EphysRecording, SpikeSorting, UnitCount, dataschema
+
+_DATABASE = f"{dataschema.database}_user"
+rojasbowe_schema = dj.Schema(
+    connection=dataschema.connection, create_schema=False, create_tables=False
+)
 
 
 @rojasbowe_schema
@@ -22,7 +24,7 @@ class EventMapping(dj.Lookup):
     ---
     event_role                           : varchar(54)
     """
-    contents = [
+    default_contents = [
         {"stream_name": "nidq", "event_name": "ai0", "event_role": "visual_stim"},
         {"stream_name": "nidq", "event_name": "0", "event_role": "trig"},
         {"stream_name": "nidq", "event_name": "1", "event_role": "frames"},
@@ -51,7 +53,7 @@ class UnitStabilityParam(dj.Lookup):
     max_dip_samples                        : int      # maximum spike amplitudes sampled per unit
     """
 
-    contents = [
+    default_contents = [
         {
             "stability_param_id": 0,
             "n_time_windows": 5,
@@ -127,9 +129,11 @@ class UnitStability(dj.Computed):
             time_window_index = np.digitize(unit_spike_times, time_edges)
             window_means = np.array(
                 [
-                    unit_amplitudes[time_window_index == index].mean()
-                    if np.any(time_window_index == index)
-                    else np.nan
+                    (
+                        unit_amplitudes[time_window_index == index].mean()
+                        if np.any(time_window_index == index)
+                        else np.nan
+                    )
                     for index in range(n_time_windows)
                 ]
             )
@@ -227,7 +231,7 @@ class StimulusResponseParam(dj.Lookup):
     min_peak_distance_ms                   : float
     """
 
-    contents = [
+    default_contents = [
         {
             "stim_response_param_id": 0,
             "baseline_start": -0.04,
@@ -388,9 +392,11 @@ class StimulusResponse(dj.Computed):
             )
             component_indices = component_indices[search_bins[component_indices]]
             component_indices = component_indices[
-                response_delta[component_indices] < 0
-                if mode == "dips"
-                else response_delta[component_indices] > 0
+                (
+                    response_delta[component_indices] < 0
+                    if mode == "dips"
+                    else response_delta[component_indices] > 0
+                )
             ]
 
             if not component_indices.size and max_signal > 0:
@@ -521,3 +527,25 @@ class StimulusResponse(dj.Computed):
 
         self.insert1(key)
         self.Unit.insert(unit_response_records)
+
+
+def initialize_schema() -> None:
+    """Create plugin tables and seed defaults only for an explicit apply command."""
+    was_active = rojasbowe_schema.is_activated()
+    rojasbowe_schema.create_schema = True
+    rojasbowe_schema.create_tables = True
+    rojasbowe_schema.activate(_DATABASE)
+    if was_active:
+        # activate() returns early for a schema already bound by a reader.
+        for table, context in rojasbowe_schema.declare_list:
+            rojasbowe_schema._decorate_master(table, context)
+    for table in (EventMapping, UnitStabilityParam, StimulusResponseParam):
+        table().insert(table.default_contents, skip_duplicates=True)
+
+
+# Bind existing tables for readers. A new user schema stays dormant until apply.
+if dataschema.connection.query(
+    "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=%s",
+    args=(_DATABASE,),
+).fetchone():
+    rojasbowe_schema.activate(_DATABASE)

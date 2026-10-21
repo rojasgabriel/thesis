@@ -11,11 +11,13 @@ Run from the repo root:
 """
 
 import argparse
+import shlex
+from pathlib import Path
 
 from labdata.compute.schedulers import slurm_submit
 
 PIPELINE = (
-    'cd "$SLURM_SUBMIT_DIR" && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && '
+    "cd {repository} && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && "
     "uv run glm prepare && "
     "uv run glm fit    --units {units} --workers $LABDATA_N_JOBS && "
     "uv run glm unique --units {units} --workers $LABDATA_N_JOBS"
@@ -30,7 +32,7 @@ def main() -> None:
     parser.add_argument("--walltime", default="12:00:00")
     args = parser.parse_args()
 
-    command = PIPELINE.format(units=args.units)
+    command = PIPELINE.format(repository=shlex.quote(str(Path.cwd())), units=args.units)
     job_id = slurm_submit(
         f"v1_glm_{args.units}",
         command,
@@ -39,6 +41,8 @@ def main() -> None:
         walltime=args.walltime,
         sbatch_append="--nice=100",
     )
+    if job_id is None:
+        raise RuntimeError("Slurm did not accept the GLM job")
     print(f"submitted job {job_id}")
 
 

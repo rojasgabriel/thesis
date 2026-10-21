@@ -46,7 +46,8 @@ and ends it, g to i are controls, and j asks which units.
   of each unit from `ENTRY_LAG_MS` after the entry to the first flash, and in
   `LATE_MS` after the first flash, over its rate before the entry (the gray
   bands of the left panel, labeled "before entry" and "in port, no flash";
-  log axis). A ratio below 1 before the flash is a
+  a linear axis from 0 to 1/8 and a log axis above it). Zero ratios stay in
+  the plot and tests. A ratio below 1 before the flash is a
   drop with no stimulus. The bars above the traces are the 5th to 95th
   percentile of the first flash of each half (tick: the median), in the
   color of its trace. The test uses the long delays; the second band ends at
@@ -61,9 +62,9 @@ and ends it, g to i are controls, and j asks which units.
   terms fit together) against its level in a two-step fit: the design with no
   fixation kernel first, then the fixation kernel alone on top of that fixed
   prediction (`two_step_levels`). The two-step value is a lower bound. Both are
-  in-sample. The axis is `ORDER_LIMITS`; a unit with a two-step value beyond
-  `NO_ESTIMATE` has no estimate (its fit with no penalty did not converge). It
-  is listed in the output and stays in the rank test.
+  in-sample. The axis is `ORDER_LIMITS`. Finite two-step values with magnitude
+  above `EXTREME_TWO_STEP_LEVEL` are listed in the output. They are outside
+  the display limits and stay in all statistics.
 - Panel h (control for stillness): raw rate against motion energy in the
   center port and at a side port (`port_vs_stillness.py`), with its slope test.
   The two animals have different camera views, so motion energy is not the
@@ -135,6 +136,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
+    hierarchical_interval,
     pooled_points,
     pooled_strip,
     save_figure,
@@ -174,7 +176,7 @@ trials, where the flashes go on, and in early withdrawals, where they stop
 (units of both mice pooled, mean and SEM over units). {exit} **g**, Control for the
 order of fitting. The level in fixation when all terms are fit together
 against the level when the fixation kernel is fit last, on what the other
-terms do not explain (a lower bound). {two_step} {outside_e} {no_estimate}
+terms do not explain (a lower bound). {two_step} {outside_e} {extreme_estimates}
 **h**, Control
 for stillness. Raw firing rate against motion energy of the video, in the
 center port and at a side port. {stillness} The two animals
@@ -196,11 +198,10 @@ AFTER = "after_exit"
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
 LEVEL_LIMITS = (-1.6, 1.6)
-# Panel g: a wider axis, so that only the units with no two-step estimate are
-# outside it. A two-step value beyond `NO_ESTIMATE` is a fit with no penalty
-# that did not converge (a unit with very few spikes in fixation).
+# Panel g: report extreme finite two-step values separately from display limits.
+# Their magnitude alone does not establish whether a fit converged.
 ORDER_LIMITS = (-2.5, 1.6)
-NO_ESTIMATE = 3.0
+EXTREME_TWO_STEP_LEVEL = 3.0
 UNIQUE_FLOOR = 1e-4  # panel j: a smaller unique ΔD² is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
@@ -245,7 +246,7 @@ def _time_in_trial() -> np.ndarray:
 def _kernel_block(basis: np.ndarray, since: np.ndarray, keep: np.ndarray) -> np.ndarray:
     """Place the basis rows at each bin's time since an event; zero where not kept."""
     index = np.rint(since / dmat.BINWIDTH_S).astype(int)
-    inside = (index >= 0) & (index < len(basis)) & keep
+    inside = (index >= 0) & keep
     block = np.where(inside[..., None], basis[np.clip(index, 0, len(basis) - 1)], 0.0)
     return block.reshape(-1, basis.shape[1])
 
@@ -261,6 +262,10 @@ def two_step_levels(source: Path, unit_set: str) -> dict:
     cache = source / f"hold_two_step_{unit_set}.npz"
     if cache.exists():
         with np.load(cache, allow_pickle=False) as data:
+            if "held_tail" not in data or not bool(data["held_tail"]):
+                raise ValueError(
+                    f"{cache} uses the old zeroed tail; preserve it and rerun the control."
+                )
             return {key: data[key] for key in data.files}
     first = cli.PoissonGLM(
         root=_fit_variant(source, unit_set, NO_HOLD_SUFFIX, {"HOLD_KERNEL": False})
@@ -273,9 +278,13 @@ def two_step_levels(source: Path, unit_set: str) -> dict:
     basis = dmat.task_temporal_bases()[dmat.HOLD]
     times = 1000 * basis.basis_time
     level = (times >= LEVEL_MS[0]) & (times < LEVEL_MS[1])
-    leave = trials["center_exit_s"].to_numpy(dtype=float) - alignments
     since = np.broadcast_to(_time_in_trial(), (len(alignments), len(_time_in_trial())))
-    hold_columns = _kernel_block(basis.basis, since, since < leave[:, None])[valid]
+    # Use the main design's absolute-time gate, including the exit bin boundary.
+    before_exit = (
+        alignments[:, None] + since
+        < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
+    )
+    hold_columns = _kernel_block(basis.basis, since, before_exit)[valid]
     metadata = json.loads(first.design.with_suffix(".json").read_text())
     common = np.load(first.design, mmap_mode="r", allow_pickle=False)
     joint_metadata = json.loads(joint.design.with_suffix(".json").read_text())
@@ -325,7 +334,7 @@ def two_step_levels(source: Path, unit_set: str) -> dict:
         out["joint"].append(((joint_weights / scale) @ basis.basis.T)[level].mean())
         print(f"Two-step fit of unit {unit_id}.", flush=True)
     out = {key: np.asarray(value) for key, value in out.items()}
-    np.savez(cache, **out)
+    np.savez(cache, held_tail=True, **out)
     return out
 
 
@@ -383,7 +392,7 @@ def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
 
     def window(events, limits_ms, keep):
         """Index of each 1-ms bin around the events, and the bins that count."""
-        fine = (np.arange(*limits_ms) + 0.5) / 1000
+        fine = np.arange(*limits_ms) / 1000
         columns = np.rint(
             (events[:, None] + fine[None, :] - relative[0]) / dmat.BINWIDTH_S
         ).astype(int)
@@ -531,9 +540,12 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
                     | (np.maximum(steps["joint"], steps["two_step"]) > ORDER_LIMITS[1])
                 )
             ),
-            "units_with_no_two_step_estimate": [
+            "units_with_extreme_two_step_estimates": [
                 int(unit)
-                for unit in steps["unit_ids"][np.abs(steps["two_step"]) > NO_ESTIMATE]
+                for unit in steps["unit_ids"][
+                    np.isfinite(steps["two_step"])
+                    & (np.abs(steps["two_step"]) > EXTREME_TWO_STEP_LEVEL)
+                ]
             ],
         },
         "units_outside_the_axis_limits_of_panel_j": int(
@@ -713,15 +725,23 @@ def _draw_onset(figure, slots, results: list[dict]) -> tuple[list, dict]:
             ratio = np.asarray(
                 data["long-delay trials"]["ratio_by_unit"][key], dtype=float
             )
-            groups.append(np.log2(ratio[np.isfinite(ratio) & (ratio > 0)]))
+            groups.append(ratio[np.isfinite(ratio) & (ratio >= 0)])
         summary[key] = pooled_strip(
             strip, position, groups, subjects, TASK if position else OBSERVED_COLOR
         )
-    strip.axhline(0, color=REFERENCE_COLOR, lw=0.8)
+        summary[key]["p_bootstrap"] = hierarchical_interval(
+            [group - 1 for group in groups]
+        )["p_bootstrap"]
+        summary[key]["null_ratio"] = 1
+        summary[key]["units"] = sum(map(len, groups))
+    strip.axhline(1, color=REFERENCE_COLOR, lw=0.8)
     strip.set_xticks([0, 1], ["entry to\nfirst flash", "late\nfixation"])
     strip.set_xlim(-0.5, 1.7)
-    strip.set_ylim(-3, 2)
-    strip.set_yticks([-3, -2, -1, 0, 1, 2], ["1/8", "1/4", "1/2", "1", "2", "4"])
+    strip.set_yscale("symlog", linthresh=1 / 8, base=2)
+    strip.set_ylim(bottom=-0.02)
+    strip.set_yticks(
+        [0, 1 / 8, 1 / 2, 1, 2, 4, 16], ["0", "1/8", "1/2", "1", "2", "4", "16"]
+    )
     strip.set_ylabel("rate over rate\nbefore entry")
     strip.set_title("long delays", fontsize=6, loc="left")
     return [trace, strip], summary
@@ -1095,9 +1115,7 @@ def main() -> None:
         output = save_figure(figure, args.out / "hold_effect")
 
     stats = {s: data["stats"] for s, data in zip(SESSIONS, sessions, strict=True)}
-    stats["log2 rate over the rate before the entry, long delays (panel e)"] = (
-        onset_stats
-    )
+    stats["rate over the rate before the entry, long delays (panel e)"] = onset_stats
     output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
     first, other = sessions[0]["subject"], sessions[1]["subject"]
     st = lambda data: data["stats"]  # noqa: E731
@@ -1175,7 +1193,8 @@ def main() -> None:
             for d in raw[ONSET_NAME]
             for e in [d["long-delay trials"]]
         )
-        + "."
+        + ". Zero rates stay in the plot and tests. The axis is linear from 0"
+        " to 1/8 and logarithmic above it; all finite ratios are shown."
     )
     exit_text = (
         "Each mouse, two-sided Wilcoxon signed-rank tests over units: "
@@ -1233,16 +1252,16 @@ def main() -> None:
             onset=onset_text,
             exit=exit_text,
             outside_e=outside("units_outside_the_axis_limits_of_panel_g"),
-            no_estimate=(
-                "Units with no two-step estimate (the fit with no penalty did not"
-                " converge, because the unit has very few spikes in fixation): "
+            extreme_estimates=(
+                "Finite two-step estimates with magnitude above "
+                f"{EXTREME_TWO_STEP_LEVEL:g}: "
                 + _pair(
                     sessions,
                     lambda d: str(
-                        len(st(d)["two_step"]["units_with_no_two_step_estimate"])
+                        len(st(d)["two_step"]["units_with_extreme_two_step_estimates"])
                     ),
                 )
-                + "; they are outside the axis and in the rank test."
+                + "; they are outside the display limits and stay in all statistics."
             ),
             stillness=stillness_text,
             energy=energy_text,

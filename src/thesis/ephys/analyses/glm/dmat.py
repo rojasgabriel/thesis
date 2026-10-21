@@ -31,6 +31,7 @@ from damn.objects.basis_function_objects import BasisFunction, RaisedCosineBasis
 from damn.objects.design_matrix_objects import DesignMatrix
 from damn.objects.regressor_objects import EventRegressor
 
+from thesis.ephys.cache import atomic_output
 from thesis.ephys.trials import build_trial_table
 
 # The window starts this long before the first flash. With 0.5 s it has about
@@ -416,8 +417,7 @@ def write_stimulus_windows(
         height=info["height"],
         frame_times_source=str(frame_times.resolve()),
     )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("xb") as handle:
+    with atomic_output(output) as handle:
         np.savez_compressed(
             handle, allow_pickle=False, metadata_json=json.dumps(summary), **arrays
         )
@@ -438,13 +438,17 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
     bases = {
         FLASH_COMMON: flash,
         **{name: flash for name in flash_gap_names()},
-        FLASH_AFTER_EXIT: flash,
         FLASH_JUST_BEFORE: flash,
-        "hold": StretchedCosineBasis(
-            HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
-        )
-        if HOLD_LOG_STRETCH_S
-        else RaisedCosineBasis(HOLD_BASES, 0, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S),
+        FLASH_AFTER_EXIT: flash,
+        "hold": (
+            StretchedCosineBasis(
+                HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
+            )
+            if HOLD_LOG_STRETCH_S
+            else RaisedCosineBasis(
+                HOLD_BASES, 0, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S
+            )
+        ),
         "withdrawal": withdrawal,
     }
     if not HOLD_KERNEL:
@@ -591,9 +595,11 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     limits_ms = [f"{1000 * limit:.0f}" for limit in FLASH_GAP_EDGES_S]
     gap_coding = [
         *(f"flashes with a gap up to {limit} ms" for limit in limits_ms),
-        f"flashes with a gap above {limits_ms[-1]} ms, and the first flash of a trial"
-        if limits_ms
-        else "",
+        (
+            f"flashes with a gap above {limits_ms[-1]} ms, and the first flash of a trial"
+            if limits_ms
+            else ""
+        ),
     ]
     specifications = [
         *(
