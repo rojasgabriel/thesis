@@ -24,8 +24,8 @@ The full design had nine regressors: the five above and flash post − pre
 withdrawal (6 columns), flash × motion energy (6), initiation (4), and response
 entry (6), with 25 motion-energy PCs selected on validation. Its fit of
 2026-10-10 (167 units, 294 trials) is in
-`figures/glm/GRB006_20240821_121447_full_design/all_fit_me/`, which git does not
-track. Do not render that folder again with the current code; the code for that
+`GRB006_20240821_121447_full_design/all_fit_me/` of the archive of `figures/glm/`
+(moved to an external disk on 2026-10-21; git does not track it). Do not render that folder again with the current code; the code for that
 design is at commit `fcd34fa`.
 
 - Motion-energy PCs: mean validation D² was 0.0733, 0.0738, 0.0736, 0.0723, and
@@ -660,8 +660,8 @@ still shuffled over trials. With the fix, turn direction is needed by 49% and
 63% of the units.
 
 Result: all 11 regressors pass in both mice; median D² 0.072 and 0.074. The
-fits of the design of 2026-10-13 are in
-`figures/glm/_before_design_2026_10_15/`.
+fits of the design of 2026-10-13 are in `_before_design_2026_10_15/` of the
+archive of `figures/glm/`.
 
 ### Coarse fixation kernel, 2026-10-16
 
@@ -691,8 +691,8 @@ every check and every grid on the new design:
   shared the stretch of the fixation kernel, so a grid of the fixation kernel
   changed it too.
 
-The fits with the 12-cosine kernel are in
-`figures/glm/_before_coarse_kernel_2026_10_16/`.
+The fits with the 12-cosine kernel are in `_before_coarse_kernel_2026_10_16/` of
+the archive of `figures/glm/`.
 
 ### Flash terms as a base and modifiers, 2026-10-17
 
