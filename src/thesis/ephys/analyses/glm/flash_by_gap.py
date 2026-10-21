@@ -17,7 +17,7 @@ gaps and between periods are paired: each unit has a value in each condition.
   entry. The gaps are multiples of 40 ms. Each gap up to `LONG_GAP_MS` is a
   group (40, 80, 120, and 160 ms), and all longer gaps are one group.
 - Kind of unit: from the flash kernels of the model (`flash_kernels.npz`, the
-  mean response over the three gap classes in the fixation). A unit fires more
+  mean response over the two gap classes in the fixation). A unit fires more
   after a flash when that response is above `KIND_LIMIT`, and less when it is
   below -`KIND_LIMIT`. Units between the limits, and units with a mean rate
   below `MIN_RATE` spikes/s around the flashes, are not used.

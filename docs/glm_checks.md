@@ -213,7 +213,7 @@ nice -n 10 uv run glm unique --units all --workers 2
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.flash_movement
 uv run python -m thesis.ephys.analyses.glm.main_figure
 uv run python -m thesis.ephys.analyses.glm.hold_effect
-uv run python -m thesis.ephys.analyses.glm.flash_kernels
+uv run python -m thesis.ephys.analyses.glm.flash_kernels  # unit kinds for flash_by_gap; no figure
 uv run python -m thesis.ephys.analyses.glm.flash_by_gap
 uv run python -m thesis.ephys.analyses.glm.model_trust
 ~~~
