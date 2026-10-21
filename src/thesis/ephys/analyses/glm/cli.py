@@ -75,7 +75,7 @@ class PoissonGLM:
         return self.root / f"{units}_fit_me"
 
     def prepare(self) -> None:
-        from thesis.ephys.analyses.glm.video_svd import write_motion_energy_features
+        from thesis.ephys.analyses.glm.video_svd import write_video_features
 
         if self.windows.exists():
             print(f"Reused prepared windows: {self.windows}", flush=True)
@@ -87,7 +87,7 @@ class PoissonGLM:
         if self.video.exists():
             print(f"Reused motion-energy features: {self.video}", flush=True)
         else:
-            write_motion_energy_features(self.windows, self.video)
+            write_video_features(self.windows, self.video)
             print(f"Completed motion-energy features: {self.video}", flush=True)
         if _common_design_is_current(self.design):
             print(f"Reused common design: {self.design}", flush=True)

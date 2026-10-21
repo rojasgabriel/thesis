@@ -1,10 +1,12 @@
-"""Fit motion-energy SVD on training trials and project all trial frames.
+"""Fit video SVD on training trials and project all trial frames.
 
 Uses the trial selection and split saved by dmat.write_stimulus_windows. Each retained frame
 is the absolute pixel difference from the previous decoded frame when the two
 indices are adjacent; the first frame of a gap is left at zero. PCA fits 200
 training-frame axes at 80 by 64. Scores are z-scored with training frames only.
-`total` is the mean motion energy over the pixels of each frame.
+`total` is the mean motion energy over the pixels of each frame. With
+`raw_video=True`, use grayscale pixels instead of frame differences, and
+include the first frame of each gap in training. The default is unchanged.
 """
 
 from __future__ import annotations
@@ -17,13 +19,20 @@ import numpy as np
 from sklearn.decomposition import PCA
 
 from thesis.ephys.analyses.glm.dmat import training_zscore
+from thesis.ephys.cache import atomic_output
 
 WIDTH = 80
 COMPONENTS = 200
 
 
-def write_motion_energy_features(alignment: Path, output: Path) -> None:
-    """Fit motion-energy SVD on training frames and project all trial frames."""
+def write_video_features(
+    alignment: Path,
+    output: Path,
+    *,
+    raw_video: bool = False,
+    components: int = COMPONENTS,
+) -> None:
+    """Fit raw-video or motion-energy SVD using only the saved training frames."""
     if output.exists():
         raise FileExistsError(output)
     with np.load(alignment, allow_pickle=False) as data:
@@ -72,33 +81,40 @@ def write_motion_energy_features(alignment: Path, output: Path) -> None:
             raise ValueError("Video has more frames than the aligned timestamp array.")
         if process.wait() != 0 or selected != len(indices):
             raise RuntimeError("Video decoding did not complete successfully.")
-    consecutive = np.zeros(len(indices), dtype=bool)
-    consecutive[1:] = np.diff(indices) == 1
-    motion = np.zeros_like(pixels)
-    motion[consecutive] = np.abs(np.diff(pixels, axis=0)[consecutive[1:]])
-    train = (split == 0) & consecutive
-    if COMPONENTS >= min(int(train.sum()), frame_size):
+    train = split == 0
+    if raw_video:
+        values = pixels
+    else:
+        consecutive = np.zeros(len(indices), dtype=bool)
+        consecutive[1:] = np.diff(indices) == 1
+        values = np.zeros_like(pixels)
+        values[consecutive] = np.abs(np.diff(pixels, axis=0)[consecutive[1:]])
+        train &= consecutive
+    if components < 1 or components >= min(int(train.sum()), frame_size):
         raise ValueError("Too many SVD components for the training-frame matrix.")
     print(
         f"Decoded {metadata['n_frames']} frames; retained {len(indices)} trial frames.",
         flush=True,
     )
-    model = PCA(n_components=COMPONENTS, svd_solver="randomized", random_state=0)
-    model.fit(motion[train])
-    scores, score_mean, score_scale = training_zscore(model.transform(motion), train)
+    model = PCA(n_components=components, svd_solver="randomized", random_state=0)
+    model.fit(values[train])
+    scores, score_mean, score_scale = training_zscore(model.transform(values), train)
     summary = {
         "alignment_path": str(alignment.resolve()),
         "source": metadata,
         "width": WIDTH,
         "height": height,
-        "components": COMPONENTS,
-        "feature": "absolute frame-to-frame motion energy",
+        "components": components,
+        "feature": (
+            "raw grayscale frames"
+            if raw_video
+            else "absolute frame-to-frame motion energy"
+        ),
         "training_frames": int(train.sum()),
         "trial_frames": len(indices),
         "training_variance_fraction": float(model.explained_variance_ratio_.sum()),
     }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("xb") as handle:
+    with atomic_output(output) as handle:
         np.savez_compressed(
             handle,
             allow_pickle=False,
@@ -107,7 +123,7 @@ def write_motion_energy_features(alignment: Path, output: Path) -> None:
             frame_trial_row=trial_rows,
             frame_split=split,
             scores=scores,
-            total=motion.mean(axis=1),
+            total=values.mean(axis=1),
             score_mean=score_mean,
             score_scale=score_scale,
             components=model.components_,
