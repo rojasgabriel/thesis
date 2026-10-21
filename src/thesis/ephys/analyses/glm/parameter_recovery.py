@@ -36,15 +36,10 @@ paired: each unit has the error of each fit, on the same simulated spikes.
   the same two measures on the weights of all their columns.
   They are saved in `parameter_recovery.npz` in each session directory;
   `design_optimization.py` draws them.
-- Figure: one row for each session, one panel for each measure: the error of
-  each unit with the parameterization under test against its error with the
-  one in use. A point above the diagonal is a unit that is recovered worse.
-  A point outside `AXIS_LIMIT` is drawn at the limit; it is in the
-  statistics, and the count is in the output.
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
-The sampling unit is the unit. The script writes `parameter_recovery.svg` and
-`parameter_recovery.json` in `figures/glm/`. The design under test is built
+The sampling unit is the unit. The script writes `parameter_recovery.json`
+in `figures/glm/`; `model_trust.py` draws the recovery. The design under test is built
 in a work directory there and removed at the end.
 
     uv run python -m thesis.ephys.analyses.glm.parameter_recovery
@@ -59,10 +54,6 @@ import shutil
 from multiprocessing import Pool
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import wilcoxon
 
@@ -73,22 +64,13 @@ from thesis.ephys.analyses.glm.kernel_reliability import agreement
 from thesis.ephys.analyses.glm.results import fitted_kernels
 from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import unit_spikes
-from thesis.plotting import (
-    CONCEPT_COLORS,
-    FIGURE_STYLE,
-    REFERENCE_COLOR,
-    label_panels,
-    save_figure,
-)
 
 SIMULATIONS = 3
 SEED = 0
-AXIS_LIMIT = 0.6
 MEASURES = (
     *(f"flash × after exit, {gap}" for gap in leak_test.GAPS_MS),
     "fixation level",
 )
-COLORS = (CONCEPT_COLORS["visual"], CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"])
 _OTHER: dict = {}
 
 
@@ -216,127 +198,79 @@ def main() -> None:
     grid = importlib.import_module(f"thesis.ephys.analyses.glm.{args.grid}")
     settings = grid.DESIGNS[args.design]
     stats = {"grid": args.grid, "under_test": args.design, "in_use": grid.IN_USE}
-    with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            len(SESSIONS),
-            len(MEASURES),
-            figsize=(7.4, 2.6 * len(SESSIONS)),
-            layout="constrained",
+    for session in SESSIONS:
+        model = cli.PoissonGLM(root=args.out / session)
+        subject, _, name = session.partition("_")
+        work = args.out / f"{session}_parameter_recovery_work"
+        work.mkdir(exist_ok=True)
+        other = work / "common_design_me.npy"
+        if not other.exists():
+            with dmat.switched(settings):
+                dmat.prepare_common_design(model.windows, model.video, other)
+        final = load_unit_records(
+            model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
         )
-        for row_axes, session in zip(axes, SESSIONS):
-            model = cli.PoissonGLM(root=args.out / session)
-            subject, _, name = session.partition("_")
-            work = args.out / f"{session}_parameter_recovery_work"
-            work.mkdir(exist_ok=True)
-            other = work / "common_design_me.npy"
-            if not other.exists():
-                with dmat.switched(settings):
-                    dmat.prepare_common_design(model.windows, model.video, other)
-            final = load_unit_records(
-                model.fit_dir(args.units) / "checkpoints", "unit_*_final.json"
-            )
-            spikes = unit_spikes(subject, name)
-            jobs = [
-                {
-                    "unit_id": int(item["unit_id"]),
-                    "record": item,
-                    "alpha": float(item["alpha"]),
-                    "spike_times": np.asarray(
-                        spikes[int(item["unit_id"])], dtype=float
-                    ),
-                }
-                for item in final
-            ]
-            with Pool(
-                args.workers, _load, (model.windows, model.design, other, settings)
-            ) as pool:
-                units = pool.map(_unit, jobs)
-            values = np.asarray(
-                [unit["values"] for unit in units]
-            )  # (unit, 3, measure)
-            regressors = units[0]["regressors"]
-            kernel_agreement = np.asarray([unit["agreement"] for unit in units])
-            kernel_size = np.asarray([unit["size"] for unit in units])
-            np.savez(
-                model.root / "parameter_recovery.npz",
-                regressors=np.asarray(regressors),
-                agreement=kernel_agreement,
-                size=kernel_size,
-                unit_ids=np.asarray([job["unit_id"] for job in jobs]),
-                **{
-                    f"{kind}__{name}": np.asarray([unit[kind][name] for unit in units])
-                    for kind in ("true", "recovered")
-                    for name in regressors
-                },
-            )
-            shutil.rmtree(work)
-            truth, in_use, under_test = values[:, 0], values[:, 1], values[:, 2]
-            errors = np.abs(in_use - truth), np.abs(under_test - truth)
-            entry = {"units": len(values), "simulations": SIMULATIONS}
-            entry["recovery of each regressor of the design in use"] = {
-                name: {
-                    "median_agreement": float(np.median(kernel_agreement[:, index])),
-                    "median_size_recovered_over_true": float(
-                        np.median(kernel_size[:, index])
-                    ),
-                }
-                for index, name in enumerate(regressors)
+        spikes = unit_spikes(subject, name)
+        jobs = [
+            {
+                "unit_id": int(item["unit_id"]),
+                "record": item,
+                "alpha": float(item["alpha"]),
+                "spike_times": np.asarray(spikes[int(item["unit_id"])], dtype=float),
             }
-            for index, measure in enumerate(MEASURES):
-                change = errors[1][:, index] - errors[0][:, index]
-                entry[measure] = {
-                    "median_error_in_use": float(np.median(errors[0][:, index])),
-                    "median_error_under_test": float(np.median(errors[1][:, index])),
-                    "median_change_of_error": float(np.median(change)),
-                    "units_with_larger_error": int(np.sum(change > 0)),
-                    "wilcoxon_p": float(wilcoxon(change).pvalue),
-                    "units_outside_the_axis_limit": int(
-                        np.sum(
-                            (errors[0][:, index] > AXIS_LIMIT)
-                            | (errors[1][:, index] > AXIS_LIMIT)
-                        )
-                    ),
-                }
-                ax = row_axes[index]
-                ax.scatter(
-                    np.minimum(errors[0][:, index], AXIS_LIMIT),
-                    np.minimum(errors[1][:, index], AXIS_LIMIT),
-                    s=5,
-                    color=COLORS[index],
-                    alpha=0.6,
-                    lw=0,
-                )
-                ax.plot(
-                    (0, AXIS_LIMIT),
-                    (0, AXIS_LIMIT),
-                    color=REFERENCE_COLOR,
-                    ls="--",
-                    lw=0.8,
-                )
-                ax.set(xlim=(0, AXIS_LIMIT), ylim=(0, AXIS_LIMIT), aspect="equal")
-                ax.set_title(measure, color=COLORS[index], fontsize=8)
-                ax.set_xlabel(f"error, {grid.IN_USE} (in use)")
-                ax.text(
-                    0.04,
-                    0.96,
-                    f"larger error in\n{entry[measure]['units_with_larger_error']} of "
-                    f"{len(values)} units",
-                    transform=ax.transAxes,
-                    va="top",
-                    fontsize=6.5,
-                )
-            level = MEASURES.index("fixation level")
-            large = np.abs(truth[:, level]) > leak_test.MIN_LEVEL
-            entry["fixation level, recovered over true (median)"] = {
-                "in_use": float(np.median(in_use[large, level] / truth[large, level])),
-                "under_test": float(
-                    np.median(under_test[large, level] / truth[large, level])
+            for item in final
+        ]
+        with Pool(
+            args.workers, _load, (model.windows, model.design, other, settings)
+        ) as pool:
+            units = pool.map(_unit, jobs)
+        values = np.asarray([unit["values"] for unit in units])  # (unit, 3, measure)
+        regressors = units[0]["regressors"]
+        kernel_agreement = np.asarray([unit["agreement"] for unit in units])
+        kernel_size = np.asarray([unit["size"] for unit in units])
+        np.savez(
+            model.root / "parameter_recovery.npz",
+            regressors=np.asarray(regressors),
+            agreement=kernel_agreement,
+            size=kernel_size,
+            unit_ids=np.asarray([job["unit_id"] for job in jobs]),
+            **{
+                f"{kind}__{name}": np.asarray([unit[kind][name] for unit in units])
+                for kind in ("true", "recovered")
+                for name in regressors
+            },
+        )
+        shutil.rmtree(work)
+        truth, in_use, under_test = values[:, 0], values[:, 1], values[:, 2]
+        errors = np.abs(in_use - truth), np.abs(under_test - truth)
+        entry = {"units": len(values), "simulations": SIMULATIONS}
+        entry["recovery of each regressor of the design in use"] = {
+            name: {
+                "median_agreement": float(np.median(kernel_agreement[:, index])),
+                "median_size_recovered_over_true": float(
+                    np.median(kernel_size[:, index])
                 ),
             }
-            row_axes[0].set_ylabel(f"{subject}\nerror, {args.design}")
-            stats[session] = entry
-        label_panels(axes[0], x=-0.28, y=1.12)
-        print(save_figure(figure, args.out / "parameter_recovery"))
+            for index, name in enumerate(regressors)
+        }
+        for index, measure in enumerate(MEASURES):
+            change = errors[1][:, index] - errors[0][:, index]
+            entry[measure] = {
+                "median_error_in_use": float(np.median(errors[0][:, index])),
+                "median_error_under_test": float(np.median(errors[1][:, index])),
+                "median_change_of_error": float(np.median(change)),
+                "units_with_larger_error": int(np.sum(change > 0)),
+                "wilcoxon_p": float(wilcoxon(change).pvalue),
+            }
+        level = MEASURES.index("fixation level")
+        large = np.abs(truth[:, level]) > leak_test.MIN_LEVEL
+        entry["fixation level, recovered over true (median)"] = {
+            "in_use": float(np.median(in_use[large, level] / truth[large, level])),
+            "under_test": float(
+                np.median(under_test[large, level] / truth[large, level])
+            ),
+        }
+        stats[session] = entry
     (args.out / "parameter_recovery.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 

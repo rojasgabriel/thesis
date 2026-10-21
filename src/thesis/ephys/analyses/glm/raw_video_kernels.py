@@ -18,8 +18,8 @@ their full 0–1.3 s support, as in kernel_reliability. Signed means can hide
 biphasic changes, so also report full-kernel agreement and RMS size ratios.
 
 Scatters show fold SD on both axes, not independent confidence intervals.
-Curves and pooled summaries use a hierarchical bootstrap of mice then units;
-curve intervals are pointwise and conditional on the saved fits. Two-sided
+Pooled summaries use a hierarchical bootstrap of mice then units,
+conditional on the saved fits. Two-sided
 Wilcoxon tests compare signed and absolute summary changes, with Holm over
 all 12 tests within each mouse. Units share trials; folds share training
 trials. There are only two mice. A small change is not evidence of equivalence.
@@ -51,7 +51,6 @@ from thesis.ephys.analyses.glm.inclusion import holm
 from thesis.ephys.analyses.glm.kernel_reliability import agreement
 from thesis.ephys.analyses.glm.raw_video_test import fingerprint
 from thesis.plotting import (
-    BOOTSTRAPS,
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
@@ -211,70 +210,14 @@ def session_kernels(root: Path, unit_set: str = "sample") -> tuple[dict, dict]:
     return {"session": root.name, "unit_ids": unit_ids, "statistics": stats}, arrays
 
 
-def curve_interval(groups):
-    """Pointwise paired-model median intervals, with mice then units resampled."""
-    rng = np.random.default_rng(0)
-    draws = []
-    for _ in range(BOOTSTRAPS):
-        picked = rng.integers(0, len(groups), len(groups))
-        sample = np.concatenate(
-            [groups[g][rng.integers(0, len(groups[g]), len(groups[g]))] for g in picked]
-        )
-        draws.append(np.median(sample, axis=0))
-    return np.percentile(draws, [2.5, 97.5], axis=0)
-
-
 def plot(sessions, arrays, output):
     pooled = {}
     subjects = [s["session"].split("_")[0] for s in sessions]
     with plt.rc_context(FIGURE_STYLE):
-        curves, curve_axes = plt.subplots(2, 3, figsize=(10, 6), layout="constrained")
         levels, level_axes = plt.subplots(2, 3, figsize=(10, 6), layout="constrained")
-        for letter, (name, (label, window)), ca, la in zip(
-            "abcdef", TERMS.items(), curve_axes.flat, level_axes.flat, strict=True
+        for letter, (name, (label, window)), la in zip(
+            "abcdef", TERMS.items(), level_axes.flat, strict=True
         ):
-            times = arrays[0][f"{name}__times"]
-            if not np.array_equal(times, arrays[1][f"{name}__times"]):
-                raise ValueError("Kernel grids differ between mice.")
-            shown = np.arange(0, len(times), 5)
-            groups = [a[f"{name}__fold_kernels"].mean(2)[:, :, shown] for a in arrays]
-            interval = curve_interval(groups)
-            median = np.median(np.concatenate(groups), axis=0)
-            for i, (text, color) in enumerate(
-                (("motion energy", "black"), ("+ raw video", MODEL_COLOR))
-            ):
-                for group in groups:
-                    ca.plot(
-                        times[shown], group[:, i].T, color=color, alpha=0.06, lw=0.5
-                    )
-                ca.fill_between(
-                    times[shown],
-                    interval[0, i],
-                    interval[1, i],
-                    color=color,
-                    alpha=0.12,
-                )
-                ca.plot(times[shown], median[i], color=color, lw=1.5)
-                ca.text(
-                    0.98,
-                    0.96 - i * 0.09,
-                    text,
-                    color=color,
-                    ha="right",
-                    va="top",
-                    transform=ca.transAxes,
-                )
-            ca.axhline(0, color=REFERENCE_COLOR, ls="--", lw=0.6)
-            event = (
-                "first flash"
-                if name == dmat.HOLD
-                else (
-                    "center exit"
-                    if name in (dmat.RESPONSE_PERIOD, dmat.TURN_DIRECTION)
-                    else "flash"
-                )
-            )
-            ca.set(xlabel=f"time from {event} (ms)", ylabel="kernel (Δ log rate)")
             x = [a[f"{name}__levels"][:, 0] for a in arrays]
             y = [a[f"{name}__levels"][:, 1] for a in arrays]
             for a, first, second in zip(arrays, x, y, strict=True):
@@ -314,14 +257,13 @@ def plot(sessions, arrays, output):
                 xlabel="motion energy: mean kernel\n(Δ log rate)",
                 ylabel="+ raw video: mean kernel\n(Δ log rate)",
             )
-            for axis in (ca, la):
-                axis.text(-0.18, 1.06, letter, weight="bold", transform=axis.transAxes)
-                axis.text(
-                    0.03,
-                    1.06,
-                    label.replace(" (uncorrected)", "\n(uncorrected)"),
-                    transform=axis.transAxes,
-                )
+            la.text(-0.18, 1.06, letter, weight="bold", transform=la.transAxes)
+            la.text(
+                0.03,
+                1.06,
+                label.replace(" (uncorrected)", "\n(uncorrected)"),
+                transform=la.transAxes,
+            )
             pooled[name] = {
                 "signed_change": hierarchical_interval(
                     [second - first for first, second in zip(x, y, strict=True)]
@@ -333,9 +275,7 @@ def plot(sessions, arrays, output):
                     ]
                 ),
             }
-        curves.savefig(output / "raw_video_kernels.svg", bbox_inches="tight")
         levels.savefig(output / "raw_video_kernel_levels.svg", bbox_inches="tight")
-        plt.close(curves)
         plt.close(levels)
     return pooled
 

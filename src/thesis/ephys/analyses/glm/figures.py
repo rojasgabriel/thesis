@@ -1,9 +1,4 @@
-"""Write the figure data and the held-out prediction figure of the V1 GLM.
-
-The prediction figure uses the cross-validation model that held out each plotted
-trial. All rates condition on observed spike history. `main_figure.py` draws
-the other panels from the saved figure data and uses the helpers here.
-"""
+"""Helpers of `main_figure.py`: training rates and the prediction score by rate."""
 
 from __future__ import annotations
 
@@ -16,19 +11,12 @@ matplotlib.use("Agg")
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
 )
-from thesis.plotting import (
-    MODEL_COLOR,
-    OBSERVED_COLOR,
-)
 
-COUNT_BIN_MS = 10
-MIN_RATE_TRIAL_FRACTION = 0.5
 # Firing-rate groups of main-figure panel d, from the lowest rate to the highest.
 # Shades of gray: the rate is not a concept of the model, and a darker shade is
 # a higher rate.
 RATE_GROUP_COLORS = {"low": "0.68", "medium": "0.42", "high": "black"}
 RATE_GROUP_BINS = 4
-PREDICTION_SEED = 2008
 
 
 def training_rate_and_deviance(
@@ -58,45 +46,6 @@ def training_rate_and_deviance(
     if not np.isfinite(test_deviance).all():
         raise ValueError("Cross-validated deviance must be finite.")
     return training_rate, test_deviance
-
-
-def _raster_events(
-    counts: np.ndarray, times: np.ndarray, valid: np.ndarray
-) -> list[np.ndarray]:
-    return [
-        np.repeat(times[keep], row[keep].astype(int, copy=False))
-        for row, keep in zip(np.asarray(counts), np.asarray(valid), strict=True)
-    ]
-
-
-def binned_rates(
-    values: np.ndarray, valid: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return the unsmoothed mean firing rate in complete 10-ms bins.
-
-    The second value marks the bins to plot: those where at least
-    `MIN_RATE_TRIAL_FRACTION` of the trials are valid. Late bins come from the
-    few trials with a late response entry, so their rate is not reliable.
-    """
-    values = np.atleast_2d(np.asarray(values, dtype=float))
-    valid = np.atleast_2d(np.asarray(valid, dtype=bool))
-    if values.shape != valid.shape or values.shape[1] < COUNT_BIN_MS:
-        raise ValueError("Count values and valid rows must share a usable time grid.")
-    samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
-    bins = values.shape[1] // samples
-    values = values[:, : bins * samples].reshape(len(values), bins, samples)
-    complete = valid[:, : bins * samples].reshape(len(valid), bins, samples).all(axis=2)
-    totals = values.sum(axis=2)
-    numerator = np.where(complete, totals, 0).sum(axis=0)
-    denominator = complete.sum(axis=0).astype(float)
-    mean = np.divide(
-        numerator,
-        denominator,
-        out=np.full(bins, np.nan),
-        where=denominator > 0,
-    )
-    enough = denominator >= MIN_RATE_TRIAL_FRACTION * len(values)
-    return mean / (samples * BINWIDTH_S), enough
 
 
 def _plot_bits_deviance_by_rate(
@@ -177,101 +126,3 @@ def _plot_bits_deviance_by_rate(
     axis.set_ylim(bottom=0)
     axis.set_xlabel("test prediction (bits/spike)")
     axis.set_ylabel(r"test deviance explained ($D^2$)")
-
-
-def draw_prediction(
-    axes,
-    relative_times: np.ndarray,
-    observed: np.ndarray,
-    predicted: np.ndarray,
-    conditional: np.ndarray,
-    valid: np.ndarray,
-) -> None:
-    """Draw held-out observed spikes, predicted spikes, and both rates on three axes."""
-    observed = np.asarray(observed)
-    predicted = np.asarray(predicted)
-    conditional = np.asarray(conditional)
-    valid = np.asarray(valid, dtype=bool)
-    if not (
-        observed.shape == predicted.shape == conditional.shape == valid.shape
-        and observed.ndim == 2
-    ):
-        raise ValueError(
-            "Observed, predicted, conditional, and valid grids must match."
-        )
-    if observed.shape[1] != len(relative_times) or not valid.any():
-        raise ValueError("Prediction grids must match a nonempty time axis.")
-    if np.any(np.diff(valid.astype(int), axis=1) > 0):
-        raise ValueError("Each plotted trial must contain one leading valid interval.")
-    trial_count = observed.shape[0]
-    shown = valid.any(axis=0)
-    edges = (
-        relative_times[np.flatnonzero(shown)[0]] - BINWIDTH_S / 2,
-        relative_times[np.flatnonzero(shown)[-1]] + BINWIDTH_S / 2,
-    )
-
-    for axis, counts, color in zip(
-        axes[:2], (observed, predicted), (OBSERVED_COLOR, MODEL_COLOR), strict=True
-    ):
-        for trial, keep in enumerate(valid, start=1):
-            missing = np.flatnonzero(~keep & shown)
-            if missing.size:
-                axis.fill_betweenx(
-                    (trial - 0.4, trial + 0.4),
-                    relative_times[missing[0]] - BINWIDTH_S / 2,
-                    edges[1],
-                    color="0.94",
-                    linewidth=0,
-                    zorder=0,
-                )
-        axis.eventplot(
-            _raster_events(counts, relative_times, valid),
-            colors=color,
-            lineoffsets=np.arange(1, trial_count + 1),
-            linelengths=0.8,
-            linewidths=0.3,
-        )
-        axis.set_ylim(0.5, trial_count + 0.5)
-        axis.set_yticks([1, (trial_count + 1) // 2, trial_count])
-        axis.axvline(0, color="0.75", linewidth=0.8, zorder=0)
-
-    samples = round(COUNT_BIN_MS / (1000 * BINWIDTH_S))
-    binned_times = (
-        relative_times[: len(relative_times) // samples * samples]
-        .reshape(-1, samples)
-        .mean(axis=1)
-    )
-    for values, label, color in zip(
-        (observed, conditional),
-        ("observed", "predicted"),
-        (OBSERVED_COLOR, MODEL_COLOR),
-        strict=True,
-    ):
-        rate, keep = binned_rates(values, valid)
-        axes[2].plot(
-            binned_times[keep],
-            rate[keep],
-            color=color,
-            linewidth=1.15,
-            label=label,
-            drawstyle="steps-mid",
-        )
-    for row, (label, color) in enumerate(
-        (("observed", OBSERVED_COLOR), ("predicted", MODEL_COLOR))
-    ):
-        axes[2].text(
-            0.98,
-            0.97 - 0.09 * row,
-            label,
-            color=color,
-            transform=axes[2].transAxes,
-            ha="right",
-            va="top",
-        )
-    axes[2].axvline(0, color="0.75", linewidth=0.8, zorder=0)
-
-    axes[0].set_ylabel("observed\nheld-out trials")
-    axes[1].set_ylabel("predicted\nheld-out trials")
-    axes[2].set_ylabel(f"firing rate (spikes/s)\n{COUNT_BIN_MS}-ms bins")
-    axes[2].set_xlim(*edges)
-    axes[2].set_xlabel("time from first flash (s)")

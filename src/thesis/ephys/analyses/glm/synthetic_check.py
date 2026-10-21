@@ -44,7 +44,7 @@ of the fixation kernel are an exception: the L2 penalty makes that kernel too
 small and gives a part of the level to the flash × after exit kernels
 (`leak_test.py`), so they report the bias and do not stop the command. Use --out to keep the
 artifacts. It writes the planted and the recovered kernels of each unit to
-`synthetic_recovery.json` there; `model_checks.py` draws them.
+`synthetic_recovery.json` there.
 """
 
 from __future__ import annotations
