@@ -31,6 +31,18 @@ paired: each unit has its real effect and its leak.
   reads it for the excited units of StimulusResponse. The old
   kernel measure (the mean of the kernel difference from `RESPONSE_MS`, Δ log
   rate) stays in the output.
+- Effect in the measure of the main comparison (`flash_movement.py`, result
+  3 of `docs/glm.md`): the same pairs (last in-port and first after-exit flash
+  of a trial, both with the same gap class; complete windows on the valid
+  grid), 10-ms bins, the in-port -40..0 ms baseline, the peak from 30..120 ms,
+  and the flash × after exit part = (after exit minus in port of the model
+  rate) minus the same without the raw flash × after exit contribution, for
+  each gap class. It is divided by the observed mean rate of the unit over the
+  valid interval of the paired trials, as in `flash_movement.py`. The real
+  part uses the final refit with the observed history; the leak uses each fit
+  to simulated spikes with their own history. Both are fits to all trials, so
+  real minus leak compares like with like. The held-out real part of
+  `flash_movement.json` minus the same leak is also given.
 - Also given: the fixation level of the refit (the mean of the fixation
   kernel from `LEVEL_MS`) against the level that was simulated, to show how
   much of the level the fit keeps in the fixation kernel.
@@ -42,9 +54,11 @@ paired: each unit has its real effect and its leak.
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script simulates and refits each unit and
 writes `leak_test.json` in `--out` and `leak_test.npz` in each session
-directory.
+directory. The excited units are those of `raw_video_trust_classification.json`
+(the units of `flash_movement.py`); `flash_movement.json` must exist.
 
-    uv run python -m thesis.ephys.analyses.glm.leak_test
+    THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
+        thesis.ephys.analyses.glm.leak_test
 """
 
 from __future__ import annotations
@@ -60,7 +74,7 @@ matplotlib.use("Agg")
 import numpy as np
 from scipy.stats import spearmanr, wilcoxon
 
-from thesis.ephys.analyses.glm import cli, dmat, peaks
+from thesis.ephys.analyses.glm import cli, dmat, flash_movement, peaks
 from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     fit_poisson_at_alpha,
@@ -76,6 +90,7 @@ from thesis.ephys.analyses.glm.results import (
     zero_raw_columns,
 )
 from thesis.ephys.units import unit_spikes
+from thesis.plotting import hierarchical_interval
 
 SIMULATIONS = 3
 SEED = 0
@@ -115,8 +130,24 @@ def _load(windows: Path, design: Path) -> None:
     )  # (period, trial, bin)
     used = np.zeros(len(alignments) * len(relative), dtype=bool)
     used[flat.ravel()] = True
+    # The pairs of the main comparison (`flash_movement.py`), by gap class.
+    trials = dmat._load_selected_trials(prepared)
+    groups, _ = flash_movement.paired_flashes_by_gap(trials)
+    _, pair_windows, _ = flash_movement.valid_pair_windows(groups, prepared)
+    pair_rows = np.zeros(len(alignments) * len(relative), dtype=bool)
+    for window in pair_windows:
+        pair_rows[window.ravel()] = True
+    paired_trials = np.zeros(len(alignments), dtype=bool)
+    for window in pair_windows:
+        paired_trials[np.unique(window // len(relative))] = True
     names = _SHARED["metadata"]["column_names"]
     _SHARED.update(
+        pair_rows=pair_rows,
+        pair_position=[
+            np.searchsorted(np.flatnonzero(pair_rows), window)
+            for window in pair_windows
+        ],
+        paired_trials=paired_trials,
         window_rows=used,
         window_position=np.searchsorted(np.flatnonzero(used), flat),
         removed_columns=[
@@ -146,6 +177,30 @@ def matched_part(intercept: float, coefficients, history, width: int) -> float:
         peak = peaks.peaks(rate.mean(1))  # (period, bin) -> (period,)
         changes.append(peak[1] - peak[0])
     return float(changes[0] - changes[1])
+
+
+def comparison_part(intercept: float, coefficients, history, width: int) -> np.ndarray:
+    """Return the flash × after exit part of the main comparison, by gap class (spikes/s).
+
+    The after-exit-minus-in-port peak of the model rate on the pairs of
+    `flash_movement.py`, minus the same without the raw flash × after exit
+    contribution, with the peak measure of `flash_movement.matched_rate_peaks`.
+    """
+    design = dmat._design_with_history(
+        _SHARED["common"], history, width, _SHARED["pair_rows"]
+    )
+    coefficients = np.asarray(coefficients, dtype=float)
+    log_rate = float(intercept) + design @ coefficients
+    contribution = raw_contribution(
+        design, coefficients, _SHARED["metadata"], _SHARED["removed_columns"]
+    )
+    rates = np.exp(np.stack([log_rate, log_rate - contribution])) / dmat.BINWIDTH_S
+    parts = []
+    for position in _SHARED["pair_position"]:  # (period, trial, bin)
+        peak = flash_movement.matched_rate_peaks(rates[:, position].mean(2))
+        change = peak[:, 1] - peak[:, 0]  # (with, without)
+        parts.append(change[0] - change[1])
+    return np.asarray(parts)
 
 
 def measures(result: dict, history_scale: np.ndarray) -> np.ndarray:
@@ -221,6 +276,19 @@ def _unit(job: dict) -> dict:
     real_history, mean, scale = dmat.training_zscore(raw, valid)
     real = measures(record, scale)
     real_part = matched_part(record["intercept"], coefficients, real_history, width)
+    real_comparison = comparison_part(
+        record["intercept"], coefficients, real_history, width
+    )
+    # The denominator of `flash_movement.py`: the observed mean rate over the
+    # valid interval of the paired trials.
+    observed = build_unit_counts(alignments, job["spike_times"]).reshape(
+        len(alignments), -1
+    )
+    valid_bins = valid.reshape(len(alignments), -1)
+    paired = _SHARED["paired_trials"]
+    scale_rate = (observed * valid_bins)[paired].sum() / (
+        valid_bins[paired].sum() * dmat.BINWIDTH_S
+    )
     removed = _SHARED["removed_columns"]
     # Keep the raw baseline fixed when the interaction is removed. Zeroing
     # its standardized coefficients alone would also change in-port rates.
@@ -229,7 +297,7 @@ def _unit(job: dict) -> dict:
     )
     null_record = {**record, "intercept": null_intercept}
     rng = np.random.default_rng(SEED + job["unit_id"])
-    fits, leak_parts = [], []
+    fits, leak_parts, leak_comparisons = [], [], []
     for _ in range(SIMULATIONS):
         counts, scaled, simulated_scale = simulate(null_record, null, mean, scale, rng)
         design = dmat._design_with_history(common, scaled, width, valid)
@@ -237,6 +305,9 @@ def _unit(job: dict) -> dict:
         result = {"components": record["components"], "coefficients": model.coef_}
         fits.append(measures(result, simulated_scale))
         leak_parts.append(matched_part(model.intercept_, model.coef_, scaled, width))
+        leak_comparisons.append(
+            comparison_part(model.intercept_, model.coef_, scaled, width)
+        )
     null_level = measures({**record, "coefficients": null}, scale)[2]
     return {
         "unit_id": job["unit_id"],
@@ -244,6 +315,9 @@ def _unit(job: dict) -> dict:
         "leak": np.asarray(fits),
         "real_part": real_part,
         "leak_part": np.asarray(leak_parts),
+        "real_comparison": real_comparison / scale_rate,
+        "leak_comparison": np.asarray(leak_comparisons) / scale_rate,
+        "comparison_scale": float(scale_rate),
         "simulated_level": null_level,
         "spikes_simulated_over_real": float(
             counts.ravel()[valid].sum()
@@ -312,8 +386,84 @@ def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> di
         simulated_level=simulated_level,
         real_part=np.asarray([unit["real_part"] for unit in units]),
         leak_part=np.asarray([unit["leak_part"] for unit in units]),
+        comparison_gaps=np.asarray(flash_movement.GAP_LABELS),
+        real_comparison=np.asarray([unit["real_comparison"] for unit in units]),
+        leak_comparison=np.asarray([unit["leak_comparison"] for unit in units]),
+        comparison_scale=np.asarray([unit["comparison_scale"] for unit in units]),
     )
     return entry
+
+
+def comparison_statistics(out: Path) -> dict:
+    """Return real minus leak in the main comparison, by gap class and unit group.
+
+    Normalized peak changes, as in `flash_movement.py`. "final refit": the real
+    part of the final refit minus the leak; "held out": the real part of
+    `flash_movement.json` (held-out folds) minus the same leak. Within each
+    mouse, a two-sided Wilcoxon signed-rank test over units; pooled, the median
+    with a hierarchical bootstrap (mice, then units).
+    """
+    excited = json.loads((out / "raw_video_trust_classification.json").read_text())
+    report = json.loads((out / "flash_movement.json").read_text())["sessions"]
+    values = {}
+    for session in SESSIONS:
+        subject = session.split("_")[0]
+        with np.load(out / session / "leak_test.npz") as saved:
+            ids = saved["unit_ids"].tolist()
+            real = saved["real_comparison"]  # (unit, gap)
+            leak = saved["leak_comparison"].mean(1)
+        held = report[subject]
+        peaks_by_unit = dict(
+            zip(
+                held["unit_ids"], np.asarray(held["normalized_rate_peaks"]), strict=True
+            )
+        )
+        # (gap, source, period) -> after exit minus in port, full minus without.
+        change = {
+            unit: peaks[..., 1] - peaks[..., 0] for unit, peaks in peaks_by_unit.items()
+        }
+        held_out = np.asarray([change[unit][:, 1] - change[unit][:, 2] for unit in ids])
+        values[subject] = {
+            "excited": np.isin(ids, list(excited[session])),
+            "real (final refit)": real,
+            "leak": leak,
+            "real (held out)": held_out,
+        }
+    stats = {}
+    for group in ("excited units", "all units"):
+        for index, gap in enumerate(flash_movement.GAP_LABELS):
+            entry = {}
+            for name, real_key in (
+                ("final refit", "real (final refit)"),
+                ("held out", "real (held out)"),
+            ):
+                by_mouse = {}
+                for subject, data in values.items():
+                    keep = data["excited"] if group == "excited units" else slice(None)
+                    real = data[real_key][keep, index]
+                    leak = data["leak"][keep, index]
+                    rest = real - leak
+                    by_mouse[subject] = {
+                        "units": int(len(rest)),
+                        "mean_real": float(np.mean(real)),
+                        "mean_leak": float(np.mean(leak)),
+                        "mean_real_minus_leak": float(np.mean(rest)),
+                        "median_real_minus_leak": float(np.median(rest)),
+                        "units_with_real_above_leak": int(np.sum(rest > 0)),
+                        "wilcoxon_p": float(wilcoxon(rest).pvalue),
+                    }
+                    by_mouse[subject]["_rest"] = rest
+                entry[name] = {
+                    **{
+                        s: {k: v for k, v in m.items() if k != "_rest"}
+                        for s, m in by_mouse.items()
+                    },
+                    "pooled": hierarchical_interval(
+                        [m["_rest"] for m in by_mouse.values()]
+                    ),
+                }
+            stats[f"{group}, {gap}"] = entry
+    return stats
 
 
 def main() -> None:
@@ -326,6 +476,9 @@ def main() -> None:
         session: simulate_session(args.out, session, args.units, args.workers)
         for session in SESSIONS
     }
+    stats["main comparison (normalized), real minus leak"] = comparison_statistics(
+        args.out
+    )
     (args.out / "leak_test.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 

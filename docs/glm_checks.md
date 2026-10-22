@@ -4,7 +4,7 @@
 - **Why:** predictive accuracy, repeatability, recovery, and control comparisons answer different questions. They do not all establish that a fitted flash effect is independent of locomotion.
 - **Finding:** prediction is useful, but known-weight recovery and zero-effect simulations show limits on reading the weights. Raw video does not remove those limits.
 - **Next:** use these checks to qualify the three main figures. Side preference is a related result, not part of the main sensory-enhancement argument.
-- **Scope:** GRB006 / GRB064 order; one session per mouse. Current design: 2026-10-17; corrected controls checked: 2026-10-19. The current held-out rate comparison and supporting kernel-peak scatter are uncorrected. The earlier correction was computed from a different fit and event selection.
+- **Scope:** GRB006 / GRB064 order; one session per mouse. Current design: 2026-10-17; corrected controls checked: 2026-10-19. The held-out rate comparison of the main analysis is leak-corrected in its own measure (2026-10-21); the supporting kernel-peak scatter is not.
 
 ## Does the fit support interpretation of the flash component?
 
@@ -23,7 +23,7 @@
 
 - **Question:** can a fitted flash × exit effect appear when it is absent from simulated spikes?
 - **Why:** a repeated flash kernel can resemble a sustained rate change. The penalty can assign background changes to flash terms.
-- **Finding:** corrected matched-rate peak changes are **+1.99 / −0.38 spikes/s** in **23 / 15** excited units (p = 0.13 / 0.28); pooled **+0.76**, 95% interval **−5.35 to 3.30**. Corrected kernel-mean effects across all units have opposite signs (**+0.039 / −0.153 Δ log rate**). Known fixation levels recover at only **0.75 / 0.84** of their size, despite high repeatability. These results do not establish an unchanged sensory response.
+- **Finding:** in the measure of the main comparison, the leak is small: **+0.04 / +0.03** normalized at long gaps in the excited units, against a held-out contribution of **+0.67 / −0.17**; corrected **+0.63 / −0.20**, pooled **+0.11** (95% interval −0.48 to 0.21). In the older matched-rate measure (different pairs, spikes/s), corrected peak changes are **+1.99 / −0.38 spikes/s** in **23 / 15** excited units (p = 0.13 / 0.28); pooled **+0.76**, 95% interval **−5.35 to 3.30**. Corrected kernel-mean effects across all units have opposite signs (**+0.039 / −0.153 Δ log rate**). Known fixation levels recover at only **0.75 / 0.84** of their size, despite high repeatability. These results do not establish an unchanged sensory response.
 - **Next:** treat the new kernel-peak scatter as descriptive until that exact measure is checked for bias. The earlier matched-rate correction cannot simply be subtracted from its kernel peaks.
 
 ![Collinearity, known-weight recovery, repeatability, and flash × exit leak correction](../figures/glm/model_trust.svg)
