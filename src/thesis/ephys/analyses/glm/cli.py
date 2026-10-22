@@ -3,7 +3,8 @@
 `PoissonGLM` fixes the artifact layout for one session and drives the pipeline
 stages in order: prepare (windows, motion-energy PCs, shared design), fit
 (selection, cross-validation, refit, and the population figures), and unique
-(per-block deviance, its figure, and the example-unit figures). `main` is the `glm` console command.
+(per-regressor deviance, its figure, and the example-unit figures). `main` is
+the `glm` console command.
 """
 
 from __future__ import annotations
@@ -27,11 +28,12 @@ PIPELINE = """\
 pipeline
   uv run glm prepare                 trial windows, motion-energy PCs, design
   uv run glm fit --units all         penalty, cross-validation, refit, summary
-  uv run glm unique --units all      deviance per block, example-unit figures
+  uv run glm unique --units all      deviance per regressor, example figures
 
 Artifacts go to figures/glm/<subject>_<session>/. Restart checkpoints stay in
 the fit directory's checkpoints/ folder; figures stay in that fit directory.
-Use --units sample for a 20-unit smoke run. The example unit is the one whose flash block explains the most deviance per second.
+Use --units sample for a 20-unit smoke run. The example unit is unit 197 if it
+was fit, else the unit whose flash kernel explains the most deviance per second.
 """
 
 
@@ -73,7 +75,7 @@ class PoissonGLM:
         return self.root / f"{units}_fit_me"
 
     def prepare(self) -> None:
-        from thesis.ephys.analyses.glm.video_svd import write_motion_energy_features
+        from thesis.ephys.analyses.glm.video_svd import write_video_features
 
         if self.windows.exists():
             print(f"Reused prepared windows: {self.windows}", flush=True)
@@ -85,7 +87,7 @@ class PoissonGLM:
         if self.video.exists():
             print(f"Reused motion-energy features: {self.video}", flush=True)
         else:
-            write_motion_energy_features(self.windows, self.video)
+            write_video_features(self.windows, self.video)
             print(f"Completed motion-energy features: {self.video}", flush=True)
         if _common_design_is_current(self.design):
             print(f"Reused common design: {self.design}", flush=True)
@@ -110,13 +112,6 @@ class PoissonGLM:
 
         run_unique(self.windows, self.design, self.fit_dir(units), units, workers)
 
-    def joint(self, units: str = "sample", workers: int | None = None) -> None:
-        from thesis.ephys.analyses.glm.unique_dev import run_unique
-
-        run_unique(
-            self.windows, self.design, self.fit_dir(units), units, workers, joint=True
-        )
-
 
 def _unit_set(value: str) -> str:
     if not re.fullmatch(r"all|sample[1-9]?", value):
@@ -138,8 +133,7 @@ def main() -> None:
     for name, help_text in (
         ("prepare", "Trial windows, motion-energy PCs, and the shared design"),
         ("fit", "Compare PC counts, cross-validate, refit, and plot"),
-        ("unique", "Unique and maximal explained deviance per block"),
-        ("joint", "Joint unique deviance of regressors that are shuffled together"),
+        ("unique", "Unique and maximal explained deviance per regressor"),
     ):
         command = subparsers.add_parser(
             name, help=help_text, description=help_text + "."

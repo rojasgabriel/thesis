@@ -25,6 +25,7 @@ def _load_data(
     from labdata_plugin.schema import (
         StimulusResponse,
         StimulusResponseParam,
+        initialize_schema,
     )
     from thesis.ephys.events import fetch_session_events
     from thesis.ephys.units import fetch_unit_table
@@ -35,6 +36,7 @@ def _load_data(
         "unit_criteria_id": unit_criteria_id,
         "stim_response_param_id": stim_response_param_id,
     }
+    initialize_schema()
     StimulusResponse().populate(key)
     params = (StimulusResponseParam & key).fetch1()
     rows = pd.DataFrame(

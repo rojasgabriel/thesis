@@ -17,12 +17,24 @@ import numpy as np
 
 from thesis.ephys.analyses.glm.dmat import (
     BINWIDTH_S,
+    FIXATION,
+    FLASH_AFTER_EXIT,
+    FLASH_COMMON,
+    FLASH_GAP,
+    FLASH_GAP_EDGES_S,
+    FLASH_JUST_BEFORE,
+    FLASH_JUST_BEFORE_S,
     HISTORY_COLUMNS,
+    HOLD,
+    RESPONSE_PERIOD,
+    TURN_DIRECTION,
     _load_selected_trials,
     _load_windows,
     _valid_bin_mask,
     build_unit_history,
+    exit_basis,
     flash_events,
+    flash_gap_names,
     spike_history_basis,
     task_temporal_bases,
     training_zscore,
@@ -35,22 +47,37 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-# The design codes flashes as a common kernel plus a state contrast (pre-withdrawal
-# -0.5, post-withdrawal +0.5) and a centered synaptic-resource term. These are the
-# three flash conditions that occur, each as a (state value, resource-level key).
-# The level key selects a centered resource value from the design metadata:
-# "first" (raw resource 1, a full pool) or "late" (the mean raw resource of
-# adapted flashes, R < 1; equal to "first" if no flash is adapted). The first
-# flash is always pre-withdrawal, so first-and-post never occurs and is omitted.
 EXAMPLE_UNIT_ID = 197
-FLASH_COMMON = "visual_flash"
-FLASH_STATE = "flash_pre_post_withdrawal"
-FLASH_ADAPT = "flash_adaptation"
-FLASH_CONDITIONS = {
-    "flash_first": (-0.5, "first"),
-    "flash_later_pre": (-0.5, "late"),
-    "flash_later_post": (0.5, "late"),
-}
+
+
+def raw_contribution(design, coefficients, metadata, columns):
+    """Return a raw regressor's log-rate contribution before column centering.
+
+    A raw zero must carry no contribution, even when its standardized value
+    is nonzero. Removing this quantity leaves the other raw terms fixed.
+
+    >>> meta = {'training_mean': [2.], 'training_scale': [2.]}
+    >>> raw_contribution(np.array([[-1.], [1.]]), [6.], meta, [0]).tolist()
+    [0.0, 12.0]
+    """
+    columns = np.asarray(columns, dtype=int)
+    offset = (
+        np.asarray(metadata["training_mean"])[columns]
+        / np.asarray(metadata["training_scale"])[columns]
+    )
+    return (np.asarray(design)[:, columns] + offset) @ np.asarray(coefficients)[columns]
+
+
+def zero_raw_columns(intercept, coefficients, metadata, columns):
+    """Remove raw terms while preserving the intercept of the other raw terms."""
+    columns = np.asarray(columns, dtype=int)
+    coefficients = np.asarray(coefficients, dtype=float).copy()
+    offset = (
+        np.asarray(metadata["training_mean"])[columns]
+        / np.asarray(metadata["training_scale"])[columns]
+    ) @ coefficients[columns]
+    coefficients[columns] = 0
+    return float(intercept) - float(offset), coefficients
 
 
 def fitted_trial_contributions(
@@ -96,6 +123,10 @@ def fitted_trial_contributions(
     return contributions, linear_predictor, expected_count
 
 
+# State blocks with several columns: raised cosines over this time (s) from
+# the first flash or the center exit, built in `dmat.build_task_design`.
+
+
 def fitted_kernels(
     result: dict, design_metadata: dict, history_scale: np.ndarray
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -120,8 +151,20 @@ def fitted_kernels(
     cursor = 0
     for item in design_metadata["task_manifest"]:
         name = item["name"]
-        basis = bases[name]
         stop = cursor + int(item["columns"])
+        if name in (RESPONSE_PERIOD, TURN_DIRECTION):  # the basis from the exit
+            exit = exit_basis()
+            kernels[name] = (
+                1000 * exit.basis_time,
+                exit.basis @ weights[cursor:stop],
+            )
+            cursor = stop
+            continue
+        if name not in bases:  # a state column: one weight, shown as a step
+            kernels[name] = (np.asarray([0.0, 1.0]), np.repeat(weights[cursor], 2))
+            cursor = stop
+            continue
+        basis = bases[name]
         if stop - cursor != basis.basis.shape[1]:
             raise ValueError(f"Basis size differs from saved metadata for {name}.")
         kernels[name] = (
@@ -142,31 +185,42 @@ def fitted_kernels(
     return kernels
 
 
-def flash_condition_display(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
-    task_names: list[str],
-    adapt_levels: dict[str, float],
-) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[str]]:
-    """Replace the raw flash regressors with one kernel per flash condition.
+# Flash kernels of the kernel figure: the gap from the flash before (ms), for a
+# flash in the fixation, and the two periods for a flash at `PERIOD_GAP_MS`.
+FLASH_GAPS_MS = (40, 100)  # one gap in each gap class of the design
+PERIOD_GAP_MS = 100
 
-    A flash's log-rate contribution is the common kernel plus the state contrast
-    scaled by its pre/post value plus the adaptation kernel scaled by its centered
-    adaptation index. Evaluating that at representative levels gives one
-    interpretable kernel per occurring condition.
+
+def flash_condition_kernels(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+) -> dict[str, np.ndarray]:
+    """Return the flash kernel of the model for some flashes (Δ log rate)."""
+    out = {f"gap_{gap}": flash_kernel_at(kernels, gap, False) for gap in FLASH_GAPS_MS}
+    out["fixation"] = flash_kernel_at(kernels, PERIOD_GAP_MS, False)
+    out["after_exit"] = flash_kernel_at(kernels, PERIOD_GAP_MS, True)
+    return out
+
+
+def flash_kernel_at(
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]], gap_ms: float, after_exit: bool
+) -> np.ndarray:
+    """Return the flash kernel of the model for a flash at one gap and period.
+
+    The kernel of the gap class of that gap (or, with no classes, the common
+    kernel plus the flash-just-before kernel for a short gap), plus the flash ×
+    move kernel for a flash after the exit (coded 0 in the port, 1 after).
     """
-    flash_blocks = (FLASH_COMMON, FLASH_STATE, FLASH_ADAPT)
-    display = {
-        name: values for name, values in kernels.items() if name not in flash_blocks
-    }
-    times, common = kernels[FLASH_COMMON]
-    state, adapt = kernels[FLASH_STATE][1], kernels[FLASH_ADAPT][1]
-    for name, (state_value, level_key) in FLASH_CONDITIONS.items():
-        values = common + state_value * state + adapt_levels[level_key] * adapt
-        if not np.isfinite(values).all():
-            raise ValueError("Combined flash kernels must be finite.")
-        display[name] = (times, values)
-    remaining = [name for name in task_names if name not in flash_blocks]
-    return display, [*FLASH_CONDITIONS, *remaining]
+    gap_s = gap_ms / 1000
+    classes = flash_gap_names()
+    if classes:
+        by_gap = kernels[classes[int(np.searchsorted(FLASH_GAP_EDGES_S, gap_s))]][1]
+    else:
+        by_gap = kernels[FLASH_COMMON][1]
+    if FLASH_JUST_BEFORE in kernels and gap_s <= FLASH_JUST_BEFORE_S:
+        by_gap = by_gap + kernels[FLASH_JUST_BEFORE][1]
+    if after_exit and FLASH_AFTER_EXIT in kernels:
+        by_gap = by_gap + kernels[FLASH_AFTER_EXIT][1]
+    return by_gap
 
 
 def _select_count_typical_trial(observed: np.ndarray) -> int:
@@ -205,10 +259,17 @@ def example_unit_id(unique_records: list[dict], results: list[dict]) -> int:
     final = {int(item["unit_id"]): item for item in results}
     if EXAMPLE_UNIT_ID in final:
         return EXAMPLE_UNIT_ID
+    # The flash regressors of the design: the common kernel, or one for each gap class.
+    flash = [
+        name
+        for name in unique_records[0]["groups"]
+        if name in (FLASH_COMMON, FLASH_JUST_BEFORE) or name.startswith(FLASH_GAP)
+    ]
     best = max(
         unique_records,
-        key=lambda record: block_deviance_rate(
-            record, final[int(record["unit_id"])], FLASH_COMMON
+        key=lambda record: sum(
+            block_deviance_rate(record, final[int(record["unit_id"])], name)
+            for name in flash
         ),
     )
     return int(best["unit_id"])
@@ -279,14 +340,6 @@ def write_figure_data(
         example_history_raw, valid
     )
     kernels = fitted_kernels(example_result, design_metadata, kernel_history_scale)
-    adapt_levels = next(
-        item["adapt_levels_centered"]
-        for item in design_metadata["task_manifest"]
-        if item["name"] == "flash_adaptation"
-    )
-    display_kernels, display_task_names = flash_condition_display(
-        kernels, task_names, adapt_levels
-    )
     example_counts = build_unit_counts(prepared["alignments"], example_spikes)
     count_grid = example_counts.reshape(len(trial_split), bin_count)
     history_grid = example_history_raw.reshape(
@@ -359,10 +412,7 @@ def write_figure_data(
     center_entry = float(trial["center_entry_s"])
     center_exit = float(trial["center_exit_s"])
     response_entry = float(trial["response_port_entry_s"])
-    response_time = float(trial["response_port_entry_s"]) - alignment
-    modeled_flash_times, state_values, resource_values = flash_events(
-        trials.iloc[[selected_trial_row]]
-    )
+    modeled_flash_times = flash_events(trials.iloc[[selected_trial_row]])
     modeled_flashes = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
     if (
         len(modeled_flashes) == 0
@@ -372,9 +422,9 @@ def write_figure_data(
         raise ValueError("Every displayed flash must be represented exactly once.")
     events = {
         "visual_flash": modeled_flash_times - alignment,
-        "initiation": np.asarray([center_entry - alignment]),
+        FIXATION: np.asarray([center_entry - alignment, 0.0]),
+        HOLD: np.asarray([0.0, center_exit - alignment]),  # first flash to exit
         "withdrawal": np.asarray([center_exit - alignment]),
-        "response_entry": np.asarray([response_time]),
     }
     with np.load(
         windows.with_name("video_me_features.npz"), allow_pickle=False
@@ -405,8 +455,11 @@ def write_figure_data(
         arrays[f"contrib__{name}"] = values
     for name, values in events.items():
         arrays[f"event__{name}"] = values
-    kernel_keys = list(display_kernels)
-    for name, (kernel_times, kernel_values) in display_kernels.items():
+    arrays["flash_lags"] = kernels[FLASH_AFTER_EXIT][0]
+    for name, values in flash_condition_kernels(kernels).items():
+        arrays[f"flashcond__{name}"] = values
+    kernel_keys = list(kernels)
+    for name, (kernel_times, kernel_values) in kernels.items():
         arrays[f"kern_t__{name}"] = kernel_times
         arrays[f"kern_v__{name}"] = kernel_values
 
@@ -420,10 +473,8 @@ def write_figure_data(
         "test_trials": trial_count,
         "model_design_trial": int(test_trial_numbers[typical_trial]),
         "model_design_flashes": len(modeled_flash_times),
-        "model_design_pre_withdrawal_flashes": int(np.count_nonzero(state_values < 0)),
-        "model_design_first_flashes": int(np.count_nonzero(resource_values == 1.0)),
         "model_design_valid_bins": int(displayed_rows.sum()),
-        "display_task_names": list(display_task_names),
+        "display_task_names": list(task_names),
         "kernel_keys": kernel_keys,
         "task_manifest": design_metadata["task_manifest"],
     }

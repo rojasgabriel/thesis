@@ -243,12 +243,33 @@ def _find_sess_ev_sources(
     raise ValueError(f"No complete ephys event set found for {subject} {sess}")
 
 
-def _build_stimulus_pulses(stim_edges: np.ndarray) -> pd.DataFrame:
-    """Merge raw stimulus TTL edges into one row per pulse."""
+def _build_stimulus_pulses(
+    stim_edges: np.ndarray, event_values: np.ndarray | None = None
+) -> pd.DataFrame:
+    """Pair digital edges, or merge legacy analog bursts, into stimulus pulses."""
     stim_edges = np.asarray(stim_edges, dtype=float)
-
     max_within_pulse_gap_s = 0.020
-    if stim_edges.size > 0:
+    if event_values is not None:
+        values = np.asarray(event_values)
+        if (
+            stim_edges.ndim != 1
+            or values.shape != stim_edges.shape
+            or not np.isin(values, (0, 1)).all()
+            or not np.isfinite(stim_edges).all()
+            or np.any(np.diff(stim_edges) <= 0)
+            or len(values) % 2
+            or not np.array_equal(values, np.tile([1, 0], len(values) // 2))
+        ):
+            raise ValueError(
+                "Visual digital events must contain ordered onset-offset pairs"
+            )
+        pulse_onsets = stim_edges[::2]
+        pulse_durations_s = stim_edges[1::2] - pulse_onsets
+        # Some photodiode streams contain a fast carrier (33 us high in GRB064),
+        # rather than one state pair per flash. Keep their legacy burst parser.
+        if np.all(pulse_durations_s < 0.002):
+            event_values = None
+    if event_values is None and stim_edges.size > 0:
         sorted_stim_edges = np.sort(stim_edges)
         pulse_boundaries = (
             np.where(np.diff(sorted_stim_edges) > max_within_pulse_gap_s)[0] + 1
@@ -259,12 +280,16 @@ def _build_stimulus_pulses(stim_edges: np.ndarray) -> pd.DataFrame:
         pulse_durations_s = np.array(
             [pulse_edges[-1] - pulse_edges[0] for pulse_edges in pulse_edge_groups]
         )
-    else:
+    elif event_values is None:
         pulse_onsets = np.array([])
         pulse_durations_s = np.array([])
 
     width_tolerance_s = 2e-3
-    if pulse_durations_s.size and np.allclose(pulse_durations_s, 0.0):
+    if (
+        event_values is None
+        and pulse_durations_s.size
+        and np.allclose(pulse_durations_s, 0.0)
+    ):
         # Historical GRB006 repairs insert onset-only visual events instead of
         # raw TTL edges, so treat the mapped row as a 15 ms-only stim stream.
         pulse_widths_ms = np.full(pulse_durations_s.shape, 15.0)
@@ -302,9 +327,10 @@ def fetch_session_events(
     events are preferred; otherwise synchronized Bpod command times are used.
     If neither source exists, audio roles are omitted and a warning is emitted.
 
-    Raw digital edges on the stim channel are noisy: a single logical pulse
-    toggles many times. They are merged into discrete bursts by splitting on
-    any gap > 20 ms, then each burst's duration is classified against the two
+    Clean digital stimulus states pair onsets with offsets. Legacy analog or
+    fast-carrier edges can toggle many times per flash; those edges are merged
+    by splitting on gaps > 20 ms. A state stream with all high intervals below
+    2 ms is treated as a carrier. Each pulse duration is classified against the two
     expected pulse widths (15 ms and 30 ms, ±2 ms tolerance). Bursts that
     match neither are labeled "unknown" and excluded from the width-specific
     streams but remain in the pulse table with a missing `width_ms` value.
@@ -322,14 +348,10 @@ def fetch_session_events(
     )
     if not include_frames:
         ev_sources.pop("frames", None)
-    sess_ev: dict[str, np.ndarray] = {
-        "stim": np.asarray(
-            (DatasetEvents.Digital() & ev_sources["visual_stim"]).fetch1(
-                "event_timestamps"
-            ),
-            dtype=float,
-        )
-    }
+    stim_timestamps, stim_values = (
+        DatasetEvents.Digital() & ev_sources["visual_stim"]
+    ).fetch1("event_timestamps", "event_values")
+    sess_ev: dict[str, np.ndarray] = {"stim": np.asarray(stim_timestamps, dtype=float)}
     for ev_role in ("trial_start", "frames", "left_port", "center_port", "right_port"):
         if ev_role not in ev_sources:
             continue
@@ -354,7 +376,10 @@ def fetch_session_events(
             sess_ev[f"{ev_role}_exit"] = ev_timestamps[ev_values == 0]
 
     sess_ev.update(_fetch_audio_events(subject, session))
-    return sess_ev, _build_stimulus_pulses(sess_ev["stim"])
+    # ai0 is the noisy analog/legacy stream. Its burst grouping is unchanged.
+    if ev_sources["visual_stim"]["event_name"] == "ai0":
+        stim_values = None
+    return sess_ev, _build_stimulus_pulses(sess_ev["stim"], stim_values)
 
 
 def _self_check() -> None:

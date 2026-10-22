@@ -2,15 +2,18 @@
 
 Scientific comparison
 ---------------------
-For GRB006 session 20240821_121447, predict V1 spikes from these terms: a
-common flash kernel, a pre/post-withdrawal contrast, a synaptic-resource
-flash-adaptation term, a flash × motion-energy interaction (the flash kernel
-scaled by the total motion energy at the flash), an initiation kernel truncated
-at the first flash,
-peri-withdrawal movement, response entry, validation-selected additive video
-motion-energy PCs, and the strictly past spike history of each unit. The model
-has no response-side, coupling, session-drift, go-cue, outcome, or punishment
-terms.
+For each session of `flash_kernels.SESSIONS` (GRB006 and GRB064), predict V1
+spikes from the regressors of `dmat.py` (design of 2026-10-15, 11 regressors):
+the flash kernels of the two gap classes, the flash × after exit kernel (a flash
+after the center exit), the pre-stimulus column (center entry to first flash),
+the fixation kernel (first flash to center exit, to 0.7 s, then held), the
+response period and turn direction (the same log-spaced basis from the center
+exit, without and with the sign of the side of the response), the previous
+choice, the session drift, the motion-energy PCs of the video, and the strictly
+past spike history of each unit. All terms are additive in log rate. Each
+window is from `dmat.PRE_S` before to `dmat.POST_S` after the first flash; before
+the center entry no event term is on. `docs/glm.md` gives the terms that were
+tested and left out.
 
 Units: each unit must pass quality criterion set 1 (`unit_criteria_id=1`) and
 stability set 0 (`stability_param_id=0`). No sensory-response filter is
@@ -21,8 +24,9 @@ random sample (seed 20260914) of 20 of the remaining units.
 Trials and alignment: use completed left or right trials without early
 withdrawal. Each trial must have a measured first flash and finite
 center-entry, center-exit, and response-entry times. Each window is aligned to
-the first measured flash. It covers -99.5 ms to +2539.5 ms in 1-ms bins. Bins
-after response entry are excluded.
+the first measured flash. It covers `dmat.PRE_S` (0.5 s) before to
+`dmat.POST_S` (2.1 s) after it in 1-ms bins. Bins after response entry are
+excluded.
 
 Baseline: the null model is a constant rate. This rate is the mean count in the
 fit rows. In model selection, the fit rows are the training rows. In a
@@ -30,8 +34,8 @@ cross-validation fold, the fit rows are all valid rows outside the held-out
 fold. D² and bits/spike compare the model with this null.
 
 Split and sampling unit: whole trials are split randomly 60/20/20. The
-motion-energy PC count with the highest mean validation D² over units is
-selected. That count stays fixed in all folds. Held-out performance is the mean
+motion-energy PC count is fixed at 10; the training and validation rows also
+score the model without motion energy. Held-out performance is the mean
 D² over ten whole-trial cross-validation folds. In each fold, the L2 penalty is
 chosen on a random 25% of the remaining trials. A fold with no test spikes for
 a unit is skipped. A unit with fewer than two scored folds stops the run. The
@@ -68,16 +72,39 @@ from thesis.ephys.analyses.glm.dmat import (
 )
 from thesis.ephys.units import fetch_unit_table
 
-EXCLUDED_UNIT_IDS = {212: "unstable out-of-fold spike-history extrapolation"}
+# Units that are not fit, for each session (subject, session): unit and reason.
+EXCLUDED_UNITS = {
+    ("GRB006", "20240821_121447"): {
+        212: "unstable out-of-fold spike-history extrapolation"
+    },
+    ("GRB064", "20260916_132939"): {
+        414: "no spikes in the validation trials",
+        437: "no spikes in the validation trials",
+    },
+}
+
+
+def excluded_units(subject: str, session: str) -> dict[int, str]:
+    """Return the excluded units of a session with the reason for each."""
+    return EXCLUDED_UNITS.get((subject, session), {})
 
 
 def load_unit_records(directory: Path, pattern: str) -> list[dict]:
     """Read per-unit JSON records, skipping units excluded from the analysis."""
+    # The session is in the name of the artifact directory.
+    excluded = next(
+        (
+            units
+            for (subject, session), units in EXCLUDED_UNITS.items()
+            if f"{subject}_{session}" in str(directory)
+        ),
+        {},
+    )
     records = []
     for path in sorted(directory.glob(pattern)):
         with path.open() as handle:
             record = json.load(handle)
-        if int(record["unit_id"]) not in EXCLUDED_UNIT_IDS:
+        if int(record["unit_id"]) not in excluded:
             records.append(record)
     return records
 
@@ -112,9 +139,12 @@ def analysis_unit_indices(units, unit_set: str) -> np.ndarray:
     `sample` nor another replicate.
     """
     unit_ids = units["unit_id"].to_numpy(dtype=int)
-    for unit_id in sorted(set(unit_ids) & set(EXCLUDED_UNIT_IDS)):
-        print(f"Excluded unit {unit_id}: {EXCLUDED_UNIT_IDS[unit_id]}.", flush=True)
-    keep = np.flatnonzero(~np.isin(unit_ids, list(EXCLUDED_UNIT_IDS)))
+    excluded = excluded_units(
+        str(units["subject_name"].iloc[0]), str(units["session_name"].iloc[0])
+    )
+    for unit_id in sorted(set(unit_ids) & set(excluded)):
+        print(f"Excluded unit {unit_id}: {excluded[unit_id]}.", flush=True)
+    keep = np.flatnonzero(~np.isin(unit_ids, list(excluded)))
     if unit_set == "all":
         return keep
     replicate = int(unit_set.removeprefix("sample") or 0)
@@ -360,6 +390,10 @@ def _init_worker(
     seeds, so each worker derives it rather than receiving it. Sending the
     fold masks with every job instead would ship about 4 GB across 168 units.
     """
+    # Leave CPU time for interactive work, including when a single worker is used.
+    priority = os.getpriority(os.PRIO_PROCESS, 0)
+    if priority < 10:
+        os.setpriority(os.PRIO_PROCESS, 0, 10)
     prepared = _load_windows(windows)
     valid = _valid_bin_mask(prepared)
     train, validation, test = _split_masks(prepared["split"], valid)
@@ -664,7 +698,7 @@ def crossvalidate(
     checkpoints.mkdir(parents=True, exist_ok=True)
     print(
         f"Starting {CV_FOLDS}-fold cross-validation over {n_trials} trials, "
-        f"{len(jobs)} units, {components} motion-energy PCs.",
+        f"{len(jobs)} units, {components} video components.",
         flush=True,
     )
     records = collect_records(
@@ -787,7 +821,12 @@ def fit_models(
     summary = {
         "unit_set": unit_set,
         "units": len(jobs),
-        "excluded_unit_ids": sorted(EXCLUDED_UNIT_IDS),
+        "excluded_unit_ids": sorted(
+            excluded_units(
+                prepared["metadata"]["subject_name"],
+                prepared["metadata"]["session_name"],
+            )
+        ),
         "mean_validation_deviance_explained": mean_validation_deviance,
         "selected_video_components": selected_video_components,
         "video_component_selection_rule": "highest mean validation D2",
@@ -846,12 +885,9 @@ def refit_final(
     ]
     print(
         f"Starting final full-data fits: {len(final_jobs)} units, "
-        f"{components} motion-energy PCs.",
+        f"{components} video components.",
         flush=True,
     )
     collect_records(
         "final full-data fit", _final_task, final_jobs, windows, design, workers
     )
-    from thesis.ephys.analyses.glm.figures import plot_fit
-
-    plot_fit(output_dir)

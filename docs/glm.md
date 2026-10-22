@@ -1,321 +1,52 @@
-# V1 GLM
+# Movement and sensory responses in V1
 
-Poisson encoding model for GRB006 session `20240821_121447`. Predict V1 spikes
-from a common flash kernel, a pre/post-withdrawal contrast, a flash-adaptation
-term, a flash × motion-energy interaction, an initiation kernel truncated at
-the first flash, peri-withdrawal
-movement, response entry, and additive camera motion-energy PCs. Each unit
-also has a strictly past self-history filter.
-Coefficients are conditional associations, not causal effects.
+- **Question:** how does movement affect sensory responses in V1?
+- **Thread:** establish the apparent enhancement → model the overlapping signals → compare the flash-related component between stationary and movement periods.
+- **Scope:** these are task periods before and after center exit, not a direct locomotion measurement. GRB006 / GRB064 values below use that order. The matched held-out comparison uses normalized linear scatters as of 2026-10-21. Model validation, video controls, side preference, and full methods are in [the supplement](glm_checks.md).
 
-`prepare` reuses saved windows and video features by file presence. It reuses
-the saved design when the metadata has the current task regressor names, the
-current column count for each regressor, and the current adaptation parameters.
-It does not compare basis time ranges or spacing, and it does not check whether
-the windows or video files changed. If you change a basis and keep its column
-count, or if you rebuild the windows or video features, delete
-`common_design_me.npy` and `common_design_me.json` before you run `prepare`.
-Only one `glm` command can use a subject/session output directory
-at a time.
+## 1. Are flash responses larger during the movement period?
 
-## Data
+- **Question:** do flash-aligned firing rates and peaks increase after the mouse leaves the center port?
+- **Why:** the PSTHs establish the observation; the paired scatter tests whether it extends across units. They belong in one figure.
+- **Finding:** the matched comparison includes **23 / 15** stable flash-excited units. At long gaps, **119 / 56** pairs give mean normalized peak increases of **2.63 / 1.34**. At short gaps, **49 / 41** pairs give **0.010 / 0.015**, with median zero in both mice. Panels a–b show PSTHs pooled over these pairs; c–d show normalized long-gap and short-gap scatters. Both peaks use the stationary pre-flash baseline within their gap class, so a background-rate change remains.
+- **Next:** this apparent enhancement could reflect a changed flash response, another signal that changes firing, or both. Build an encoding model to estimate these contributions together.
 
-- Units: quality 1, stability 0. No sensory-response filter. Exclude unit 212
-  because of unstable out-of-fold spike-history extrapolation. Draw a fixed
-  random sample of 20 from the remaining units for `--units sample`
-  (`SAMPLE_SEED = 20260914`). `--units sample1`, `sample2`, ... each draw 20
-  other units; no unit is in two samples.
-- Trials: completed left/right trials without early withdrawal. Drop a trial
-  that has no initiation, first measured flash, withdrawal, or response-entry
-  time. The remaining trials must have these events in that order. If a trial
-  does not, `prepare` stops with an error that lists its trial number; it does
-  not drop the trial.
-- Align to the first measured flash, not the Bpod stimulus command.
-- Grid: DAMN 1 ms, pre=100 ms, post=2.54 s (2,639 centers). Keep the full
-  window. Fitting **masks bins after that trial’s response entry**; it does not
-  shorten the grid. Only flashes from initiation through response entry enter
-  the design.
-- Split whole trials randomly 60/20/20 (`SPLIT_SEED = 20260912`). Models fit on the
-  training block. The validation block chooses the motion-energy PC count. To
-  score each PC count, validation also picks a penalty for each unit and model,
-  but no later step uses these penalties: each cross-validation fold picks its
-  own. The third block is not scored on its own; held-out performance comes from
-  cross-validation over whole trials.
-- `fit` then cross-validates at that PC count: 10 folds over whole trials
-  (`CV_SEED = 20260913`). Each trial belongs to one test fold. A fold with no
-  test spikes for a unit is skipped; at least two scored folds are required.
-  Reports per-unit mean and SEM across the scored folds. It finally refits each
-  unit on every valid trial at the median fold penalty and writes
-  `unit_*_final.json`. The kernel and model-design figures read that model. The
-  prediction figure reads the saved fold models instead, so no plotted trial
-  was in the training data of its model. The final model's score comes from the
-  fold records. `unique` refits within those folds using their
-  selected penalties.
+![Observed flash responses: population PSTHs and paired stationary/movement peak scatters for long and short preceding gaps](../figures/glm/flash_observation.svg)
 
-The PC count is selected once before cross-validation. PCA and common-design
-scaling also use the original training split, rather than being recomputed
-inside each fold. These scores are not a fully nested estimate of the complete
-selection and preprocessing procedure.
+## 2. Can an encoding model account for the overlapping signals?
 
-## Design
+- **Question:** can flash history, task events, response side, video, and spike history account for the firing?
+- **Why:** these signals overlap during movement. A flash-aligned average cannot separate their fitted contributions.
+- **Finding:** the Poisson GLM has **11 regressors, 75 columns, and 1-ms bins**. Median held-out D² is **0.072 / 0.075** relative to constant-rate prediction. All 11 terms pass both inclusion tests. The model contains a common flash kernel, a short-gap modifier, and a flash × after-exit modifier, alongside task and video terms.
+- **Next:** compare observed and held-out predicted peaks on the same flashes, then remove flash × exit while keeping the other fitted contributions fixed. This connects the fitted term to the measured enhancement; predictive accuracy alone does not establish unique separation.
 
-Common columns use a z-score on **valid** original training bins; that scaling
-is fixed for selection, cross-validation, and the final refit. Self-history
-scaling uses the training rows for selection, the non-test rows in each fold,
-and all valid rows for the final refit. Intercept unpenalized. No session-time
-drift, go cue, outcome, or punishment kernel.
+![Encoding-model design, example prediction, fitted kernels, and population prediction scores](../figures/glm/main_figure.svg)
 
-| Group | Representation | Columns |
-| --- | --- | ---: |
-| Common flash | Every modeled flash; 6 causal linearly spaced raised cosines, 0–150 ms | 6 |
-| Flash state contrast | Same flash bases, scaled −0.5 before withdrawal and +0.5 at or after withdrawal | 6 |
-| Flash adaptation | Same flash bases, scaled by centered synaptic resource; each flash uses 50% of the resource, which recovers with a 200-ms time constant | 6 |
-| Flash × motion energy | Same flash bases, scaled by the total motion energy of the video frame at the flash (mean over pixels), centered and in SD over all modeled flashes | 6 |
-| Initiation | 4 causal raised cosines, 0–90 ms, zeroed at and after the first flash | 4 |
-| Withdrawal | 9 raised cosines, −300–+300 ms | 9 |
-| Response entry | 6 bases before the event, −300 to −1 ms; the entry bin gets no value | 6 |
-| Motion energy | One contemporaneous value per selected PC; no temporal basis | 1 / PC |
-| Self-history | 10 log-spaced raised cosines at strictly past lags, 1–100 ms | 10 |
+## 3. Is the enhancement independent of locomotion?
 
-No response-side, same-bin history, cross-unit coupling, or previous-trial
-terms. Motion-energy coefficients are contemporaneous nuisance associations.
-Pose tracking is not included.
+- **Question:** how much of the peak enhancement is carried by the fitted flash × exit term, after accounting for the other modeled signals?
+- **Why:** compare observed peaks, held-out full-model peaks, and peaks after removing only that term. All three columns use the same units, paired flashes, complete windows, baseline rule, peak calculation, and observed normalization rate per unit. Rows separate long and short preceding gaps.
+- **Finding:** at long gaps, mean normalized enhancement is **2.63 / 1.34 observed**, **1.89 / 0.95 in the full model**, and **1.23 / 1.12 without flash × exit**. Most of the full-model enhancement remains after removal. The term contributes **+0.67 / −0.17** on average; its contribution is not consistently positive across mice. The full model also underpredicts the observed long-gap enhancement. The fit makes little of this term from nothing: in simulations with no flash × exit effect, the same measure gives **+0.04 / +0.03**. With that leak removed, the excited-unit contribution is **+0.63 / −0.20** (p = 0.32 / 0.33); pooled median **+0.11**, 95% interval **−0.48 to 0.21**. At short gaps it is **+0.00 / −0.07**. Over all units, the long-gap contribution is positive in GRB006 (median +0.19, p < 0.001) and not in GRB064 (−0.04, p = 0.55).
+- **Next:** the leak does not explain the term, but its sign differs between the mice; a third mouse is needed. Check the prediction error before assigning a sensory mechanism. The comparison measures the allocation to one fitted term; it does not establish a causal effect or independence from locomotion. Other signals, including observed spike history, remain fixed and can retain the enhancement.
 
-## Video
+![Matched flash peaks: observed, held-out full model, and the same prediction without flash × exit; rows show long and short preceding gaps](../figures/glm/flash_comparison.svg)
 
-NIDQ ch1 falling edges in decoded-frame order. Do not use container times.
+## How to read the comparison
 
-640×512 grayscale → 80×64. Feature is `|frame[t] − frame[t−1]|` when decoded
-indices are adjacent; the first frame of a gap is zeros. PCA on training
-frames that have a real difference, 200 axes. Scores scaled on those training
-frames. Validation prefixes: 10, 25, 50, 100, 200.
+- All three columns use 10-ms bins, a stationary baseline from −40 to 0 ms, and separately selected peaks from 30–120 ms. Each source uses its own stationary baseline and subtracts that same baseline from both task periods. The scatter divides these peaks by each unit's **mean observed rate over the full valid model interval of the same paired trials**, pooling spike counts and valid seconds across gap groups. The same denominator scales every source and condition. PSTHs remain in spikes/s; unchanged absolute peaks and spikes/s summaries remain in the report.
+- Flashes are aligned to the nearest bin on the model's native 1-ms grid. Only completed GLM trials with both full response windows inside its valid interval enter any column. This drops one long-gap GRB006 pair from the previous raw comparison. Native-grid alignment also causes small changes from the earlier flash-centered histograms.
+- The model columns use saved whole-trial held-out fits. Spike history is scaled using each fold's fitting rows. Removing the raw flash × exit contribution preserves the column-centering offset; no coefficients are refitted.
+- Red is GRB006; blue is GRB064. Open circles show the mean of all **167 / 76** eligible units; filled circles show the mean of the saved **23 / 15 flash-excited units**. Both use alpha 0.8 and **SEM across units on both axes**. The population includes the flash-excited units. No individual units are drawn. PSTHs and the numerical findings above still use only the flash-excited group. Scatter means summarize normalized peaks, so units contribute relative to their own mean rates.
+- Per-unit uncertainty remains in the report: paired-trial bootstrap SD, using the same draws across columns and recomputing the observed full-trial normalization rate in every draw. These estimates are conditional on the saved models. The displayed group SEM bars describe variation across units; they do not propagate trial-sampling or model-fitting uncertainty, and the two nested groups are not independent.
+- Rate scatters use common **linear axes**, with limits set by the group means and full SEM bars. Every unit enters its group mean, including zero and negative peaks. A normalized value of 1 means a baseline-subtracted peak equal to that unit's pooled mean observed full-trial rate. The full-trial mean stays positive for all units and bootstrap draws; a flash-window mean did not.
+- Both comparisons use the model's gap split: **≤50 ms** (nominal 40 ms) versus **>50 ms** (nominal 80+ ms). Retain the last in-port and first after-exit 15-ms flash only when both have the same gap class. Gaps use the immediately preceding measured pulse of any width.
+- Exclusions: **117 / 60** mixed-gap pairs, **0 / 2** pairs without a preceding pulse, and **1 / 0** pairs with an incomplete model window. Trial IDs, measured gaps, unit peaks, and fitted-term contributions are saved in the figure report.
+- Raw and predicted peaks include background activity and responses to nearby flashes. The [isolated-kernel scatters](glm_checks.md#what-do-the-isolated-flash-kernel-peaks-show) are supporting views on a different scale. The leak correction (`leak_test.py`) uses this exact measure: pairs, windows, baseline, peak and denominator. The leak comes from fits to all trials of simulated spikes. Real minus leak is given for the held-out real part and for the final refit; they agree (excited units, long gaps: +0.81 / −0.23 from the final refit).
+- The log-link model adds terms in log rate, so non-flash terms can scale firing without changing the flash kernel. It does not compare separate additive-rate and multiplicative-rate model families.
+- Run the main and supporting flash figures from saved fits and cached trials:
 
-## Fit
+~~~bash
+THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.flash_movement
+~~~
 
-`count_t ~ Poisson(exp(intercept + X_t β))` at 1 ms on unmasked bins.
-
-DAMN supplies the 1 ms grid, the spike counts, and the event convolution, and it
-clips each kernel at the trial-window edges. NumPy `np.interp` puts the
-motion-energy scores on the grid; bins outside the camera frame times get zero.
-The code, not DAMN, sets the initiation kernel to zero at and after the first
-flash.
-Fits use sklearn `PoissonRegressor` (log link, unpenalized intercept, L2,
-LBFGS). Each unit's design appends its standardized self-history regressor.
-
-Per unit and model: fixed L2 grid from 1e−6 to 1e4 in powers of ten. Fit from
-strong to weak penalties, with a cold retry after a failed warm start. Drop
-penalties that still fail to converge and break loss ties toward the stronger
-penalty. The grid does not expand automatically. Choose the motion-energy PC
-count by mean per-unit validation D². Each cross-validation fold selects its
-penalty using an inner validation split. The null is a constant rate from the
-training rows for selection, or all non-test rows for a cross-validation fold.
-`cross_validation_summary.json` gives the median and IQR over units of the
-cross-validated D² (each unit's mean over its test folds). No output gives an
-IQR for bits/spike; the summary figure shows histograms of D² and bits/spike
-over units, each with its median. One session: no population p-value.
-
-```bash
-uv run python -m thesis.ephys.preprocessing.audit_camera_pulses \
-    --output figures/glm/GRB006_20240821_121447/camera_pulses.json
-uv run glm prepare
-uv run glm fit --units all
-```
-
-Run the camera pulse audit one time before the first `prepare`. It reads the
-NIDQ ch1 edges from the database, removes a short glitch pulse only when the
-remaining falling-edge count then equals the decoded frame count, and writes
-`frame_times.npy` next to its `--output` file. `prepare` stops with
-`FileNotFoundError` if `frame_times.npy` is not in the session output directory.
-The audit is written for GRB006 `20240821_121447` only, and it does not replace
-existing output files.
-
-`prepare` writes `stimulus_windows_me.npz`, `video_me_features.npz`, and
-`common_design_me.npy` under `figures/glm/<subject>_<session>/`. Pass
-`--subject`, `--session`, or `--root` to work on another dataset. These flags
-change only the data source and the output directory. The unit-212 exclusion
-(`EXCLUDED_UNIT_IDS` in `fit.py`) applies only to GRB006 `20240821_121447`;
-change it before you fit another session. `prepare` also needs exactly one local cam0 back-view
-(`BackStereoView`) video. `fit` writes
-named summaries under `all_fit_me/`. Restartable per-unit records stay under
-`all_fit_me/checkpoints/`. The same command writes the population summary
-(`summary.svg`) in `all_fit_me/`. Its panel d plots D² against bits/spike with
-the units grouped by firing rate. `unique` writes the
-kernel, model-design, and held-out prediction SVGs there, because these three
-figures show the example unit and its selection needs the `unique` results.
-The example unit is unit 197 when it was fit (`EXAMPLE_UNIT_ID` in
-`results.py`; 55 spikes/s and a clear flash response in GRB006
-`20240821_121447`). For a fit without it, the example is the unit whose visual
-flash regressor explains the most deviance per second (`example_unit_id`): unique
-flash ΔD² × bits/spike ÷ D² × firing rate. Unique flash ΔD² alone is not used.
-It is a fraction of the null deviance of the unit, so its maximum selects a unit
-with few spikes, and the rasters of that unit are too sparse to compare.
-`figure_data.json` records the id.
-Use `--units sample` for a 20-unit smoke run; its checkpoints, summaries, and
-figures stay separately in `sample_fit_me/`, and its example unit is the best
-of those 20 units. Derived example arrays are saved as
-`figure_data.npz` and `figure_data.json` in the fit directory. Interrupted
-figure-data writes are replaced on retry under the session lock. Existing
-figures at the session root are older exports and are not updated by these
-commands.
-
-Fit checkpoints are reused by file presence. If inputs or model settings
-change, clear the affected checkpoints before rerunning.
-
-The prediction figure shows the example unit. Each plotted trial uses its saved
-out-of-fold model, so that model did not train on the trial. Predicted rasters
-are Poisson draws from one-step-ahead expected counts conditioned on observed
-spike history, not free-running simulations. The trace compares observed and
-predicted firing rates in complete 10-ms bins without smoothing. It shows only
-the bins where at least half of the plotted trials are still valid; the rasters
-show every valid bin. Post-response
-bins are excluded from rates, likelihood, and scores. Raster gaps after response
-entry are shaded within the displayed interval.
-
-The model-design figure uses one real test trial from the example unit. The trial is
-nearest the unit's median pre-response spike count. Panel a shows every
-modeled flash (the measured flashes from initiation through response entry),
-the other task
-events and their filter support, the first three continuous motion-energy PC
-scores, and strictly past history support. Panel b
-shows the exact fitted terms `X_g β_g` for visual, other task, all selected
-motion-energy, and history columns. Their sum plus the intercept is checked
-against the full linear predictor. Panel c compares the observed spike raster
-with Poisson draws from the fitted conditional counts. This explanatory panel
-uses the final model fit on all valid bins; held-out predictions stay in the
-separate prediction figure. Post-response bins are not shown. The single kernel figure shows task and self-history traces
-for the example unit.
-
-## Unique explained deviance
-
-Within each cross-validation fold, shuffle one regressor and refit at that fold's
-full-model alpha. Shuffle only among valid bins, within trial. Motion-energy
-PCs stay one regressor.
-
-`unique ΔD² = complete D² − one-removed D²`
-`maximal ΔD² = regressor-alone D² − all-shuffled D²`
-
-`trial-specific ΔD² (motion energy) = complete D² − D² with motion energy from another trial`
-
-The third value is a control for motion energy only. It replaces the regressor with
-the motion energy of another trial at the same time in the trial. This keeps the
-average time course of motion energy in a trial. If the trial-specific ΔD² is
-near zero and the unique ΔD² is not, the regressor predicts spikes through the time
-in the trial and not through the movement of that trial. `summary.json` gives it
-as `video_trial_specific`.
-
-All run inside the same 10 folds as `fit`, at the penalty that fold selected,
-so they are comparable with the cross-validated deviance. Reported as the mean
-across folds with its SEM. Following
-[Oesch et al. 2026](https://doi.org/10.1038/s41467-026-70639-1) and
-[Musall et al. 2019](https://www.nature.com/articles/s41593-019-0502-4).
-
-```bash
-uv run glm unique --units all
-```
-
-The same command writes `deviance_explained.svg` and the three example-unit
-figures in the selected fit directory (`all_fit_me/` or `sample_fit_me/`).
-`deviance_explained.svg` has five panels: (a) full-model D², (b) maximal and
-(c) unique ΔD² for each regressor, as box plots without unit points or outlier
-markers; (d) the median unique ΔD² of each regressor against its column count, on
-logarithmic axes; (e) the fraction of units for which the regressor gives unique
-ΔD² > 0 (one-sided t-test of the fold values against zero, p < 0.05), with a
-dotted line at the chance level of 0.05. Panel e shows, for each regressor, the
-fraction of units that gain, that lose, and that have no reliable change.
-
-## Joint shuffle
-
-```bash
-uv run glm joint --units all
-```
-
-`joint` shuffles flash post − pre withdrawal and flash × motion energy together
-and writes `unique_deviance/joint_summary.json`. If two regressors replace each
-other, the drop in D² when both are shuffled is much larger than the sum of the
-two single drops. Result of 2026-10-10 (167 units): the joint drop has a median
-of 0.0014 and the sum of the single drops 0.0015, so the two regressors do not
-replace each other. Their joint maximal ΔD² is 0.0094, so the other regressors
-carry about 86% of what the two can explain.
-
-## Kernel comparison
-
-```bash
-uv run python -m thesis.ephys.analyses.glm.kernel_comparison
-```
-
-This script makes no new fits. It reads one fit set (`--units`, `all` by
-default) in the session output directory and writes `kernel_comparison.svg` and
-`kernel_comparison.json`. Panel a compares the size of the visual flash weights
-and of the motion-energy weights (the norm of the regressor's coefficients) for
-every unit. Panels b and c show the common visual flash kernel and the
-motion-energy weight map of three example units: one that the flash predicts,
-one that motion energy predicts, and one that both predict. Motion energy has no
-temporal kernel, so its panel is a map over the video frame. The module
-docstring gives the selection rule.
-
-## Synthetic check
-
-Run this after you change the design, fit, or unique-deviance code:
-
-```bash
-uv run python -m thesis.ephys.analyses.glm.synthetic_check
-```
-
-It needs no database. It plants known flash, state, adaptation, flash ×
-motion-energy, withdrawal, motion-energy, and history effects in 80 simulated
-trials. Then it runs
-`prepare`, `fit`, and `unique` on them and checks that the effects come back. It
-compares 2 and 5 motion-energy PCs instead of 10–200 and takes about 1 minute.
-It raises `AssertionError` with the failed checks. Pass `--out DIR` (a new
-directory) to keep the artifacts and look at the figures.
-
-## Related methods
-
-Same family as [Truccolo et al. 2005](https://pubmed.ncbi.nlm.nih.gov/15356183/)
-and [Pillow et al. 2008](https://sites.stat.columbia.edu/liam/research/pubs/pillow-nature-08.pdf),
-with a self-history regressor but no coupling between units.
-[Talluri et al. 2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC10620084/)
-(video SVD, ridge, trial CV),
-[Stringer et al. 2019](https://pmc.ncbi.nlm.nih.gov/articles/PMC6525101/)
-(video as broad behavior). Basis counts and windows remain assumptions.
-
-## Results
-
-Full fit of 2026-10-10: 167 units, 294 trials, the design above. Artifacts are
-in `figures/glm/GRB006_20240821_121447/all_fit_me/`, which git does not track.
-
-- Motion-energy PCs: 25 selected. Mean validation D² is 0.0733, 0.0738, 0.0736,
-  0.0723, and 0.0690 for 10, 25, 50, 100, and 200 PCs, so the choice between 10
-  and 50 is not a strong one.
-- Full model: median cross-validated D² 0.071 (IQR 0.042 to 0.101), median
-  0.51 bits/spike.
-
-| Block | Columns | Median unique ΔD² | Share of median full-model D² | Units with unique ΔD² > 0 |
-| --- | ---: | ---: | ---: | ---: |
-| Spike history | 10 | 0.0253 | 35.9% | 91% |
-| Visual flash | 6 | 0.0044 | 6.2% | 80% |
-| Withdrawal | 9 | 0.0029 | 4.1% | 75% |
-| Motion energy | 25 | 0.0019 | 2.6% | 56% |
-| Flash adaptation | 6 | 0.0016 | 2.3% | 66% |
-| Flash state contrast | 6 | 0.0009 | 1.2% | 46% |
-| Flash × motion energy | 6 | 0.0005 | 0.7% | 30% |
-| Response entry | 6 | 0.0003 | 0.4% | 17% |
-| Initiation | 4 | 0.0001 | 0.1% | 18% |
-
-The last column is the fraction of units with a one-sided t-test of the fold
-values against zero at p < 0.05; a regressor with no effect gives about 5%. The
-folds share training trials, so this test is somewhat too easy to pass.
-
-- Initiation and response entry explain almost nothing. No regressor was removed.
-- Flash × motion energy is weak. Its maximal ΔD² (0.0024) is about 5 times its
-  unique ΔD², so other regressors carry most of what it explains.
-- Motion energy is trial-specific. With the regressor taken from another trial, the
-  median loss is 0.0023 (IQR 0.0009 to 0.0046), and 89% of the units lose
-  deviance. This is not smaller than the unique ΔD² from the shuffle within a
-  trial.
-- Lags were not added for motion energy. A check on this fit (removed from the
-  code on 2026-10-10) found a correlation of about 0.011 between the spike count
-  and PC 1 within ±100 ms, and at most 0.0013 for the residual of the final
-  refit with each of PCs 1 to 10.
-- An earlier fit of 100 units in 5 samples, without the flash × motion-energy
-  regressor, gave the same order of regressors and similar values.
+- [Validation, controls, related results, and full methods](glm_checks.md) · [Earlier design decisions](glm_decisions.md)

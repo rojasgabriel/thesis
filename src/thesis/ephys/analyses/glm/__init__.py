@@ -7,3 +7,8 @@ holds the `glm` command.
 Run the pipeline through the `glm` command (entry point
 `thesis.ephys.analyses.glm.cli:main`).
 """
+
+# Load this before the database plugin does: after `labdata_plugin` loads, the
+# name `thesis` points to the plugin, and a first import of `thesis.plotting`
+# fails (the figures are imported late, after the fit).
+import thesis.plotting  # noqa: F401

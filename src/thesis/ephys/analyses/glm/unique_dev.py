@@ -15,11 +15,20 @@ the motion-energy block taken from another trial at the same time in the trial
 energy in a trial, so this value is the part of the unique ΔD² that needs the
 movement of that specific trial.
 
-A shuffle permutes design rows among the valid bins of each trial. All columns
-of a block move together. One permutation (`SHUFFLE_SEED`) is shared by all
+A shuffle permutes design rows among the valid bins of each trial. A block
+that is a variable of the trial (`OVER_TRIALS`: drift, the previous outcome) is
+instead taken from another trial at the same bin (`trial_swap_permutation`),
+because a shuffle inside the trial keeps its value there. A block that is a
+side (±1, or 0 for unknown) on a time course of the trial itself
+(`SIGN_OVER_TRIALS`: previous side and turn direction) keeps its own time
+course and takes the actual side code of the other trial. The swap is in raw
+columns before applying the saved centering and scale. Taking the rows of the other trial would
+also move a time course that is aligned to the events of that trial, and
+test the timing and not the side. All columns of a block move
+together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
-three broad groups (task, video, history) and the eight groups in
-`DETAILED_GROUPS`.
+three broad groups (task, video, history) and each regressor of the design
+(the task manifest of the saved design).
 
 Units, event alignment, excluded bins and units, and the D² null (a constant
 rate equal to the fit-trial mean) are the same as in `fit.py`. The sampling
@@ -33,11 +42,16 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import sem, ttest_1samp, wilcoxon
+from scipy.stats import sem
 
 from thesis.ephys.analyses.glm.dmat import (
+    DRIFT,
     HISTORY_COLUMNS,
+    PREVIOUS_OUTCOME,
+    PREVIOUS_SIDE,
+    TURN_DIRECTION,
     _design_with_history,
+    _load_selected_trials,
     _load_windows,
     build_unit_history,
     training_zscore,
@@ -54,22 +68,17 @@ from thesis.ephys.analyses.glm.fit import (
 )
 from thesis.ephys.units import fetch_unit_table
 
+# The regressors that are a variable of the trial, shuffled over trials.
+OVER_TRIALS = (DRIFT, PREVIOUS_OUTCOME)
+# The regressors that are a side (±1) on a time course of the trial: the sign
+# is shuffled over trials, the time course stays.
+SIGN_OVER_TRIALS = (PREVIOUS_SIDE, TURN_DIRECTION)
+# The name of the shuffle rule, saved in each record.
+LEGACY_SHUFFLE_RULE = "trial variables over trials, sides by sign, 2026-10-16"
+SHUFFLE_RULE = "trial variables over trials, raw sides with unknowns, 2026-10-18"
+
 SHUFFLE_SEED = 20260910
 BROAD_GROUPS = ("task", "video", "history")
-DETAILED_GROUPS = (
-    "visual_flash",
-    "flash_pre_post_withdrawal",
-    "flash_adaptation",
-    "flash_motion_energy",
-    "initiation",
-    "withdrawal",
-    "response_entry",
-    "video",
-    "history",
-)
-GROUP_ORDER = tuple(dict.fromkeys((*BROAD_GROUPS, *DETAILED_GROUPS)))
-# Regressors that are shuffled together, to test whether they replace each other.
-JOINT_GROUPS = {"flash_movement": ("flash_pre_post_withdrawal", "flash_motion_energy")}
 RELIABLE_ALPHA = 0.05
 UNIQUE = "unique_test_deviance_explained"
 MAXIMAL = "maximal_test_deviance_explained"
@@ -92,8 +101,6 @@ def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:
         cursor = stop
     if cursor != task_columns:
         raise ValueError("Task manifest and task-column count differ.")
-    for name, members in JOINT_GROUPS.items():
-        groups[name] = tuple(groups[member] for member in members)
     return groups
 
 
@@ -126,6 +133,34 @@ def trial_swap_permutation(n_trials: int, bins_per_trial: int, seed: int) -> np.
     return (partner[:, None] * bins_per_trial + np.arange(bins_per_trial)).ravel()
 
 
+def shuffled_side_columns(
+    standardized: np.ndarray,
+    mean: np.ndarray,
+    scale: np.ndarray,
+    sides: np.ndarray,
+    partner: np.ndarray,
+    unknown_support: np.ndarray | None = None,
+) -> np.ndarray:
+    """Swap actual side codes while retaining each recipient trial's time course.
+
+    `standardized` is trial × bin × column. A side of 0 means unknown. Its
+    unsigned time course must be supplied in `unknown_support` (unknown trials
+    × bin × column), because a raw zero cannot reveal that time course.
+    """
+    sides = np.asarray(sides)
+    if not np.isin(sides, (-1, 0, 1)).all():
+        raise ValueError("Side codes must be -1, 0, or 1.")
+    raw = np.asarray(standardized, dtype=float) * scale + mean
+    unsigned = raw * sides[:, None, None]
+    unknown = sides == 0
+    if unknown.any():
+        if unknown_support is None or unknown_support.shape != unsigned[unknown].shape:
+            raise ValueError("Unknown sides need their unsigned time course.")
+        unsigned[unknown] = unknown_support
+    shuffled = unsigned * sides[partner, None, None]
+    return ((shuffled - mean) / scale).astype(standardized.dtype)
+
+
 def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
     """Pair saved alphas with the folds that contained test spikes."""
     folds = [fold for fold in partitions if counts[fold["test"]].sum() > 0]
@@ -150,7 +185,7 @@ def _write_summary(records: list[dict], output_dir: Path) -> dict:
         "maximal_test_deviance_explained_sem",
     )
     rows = []
-    for group in GROUP_ORDER:
+    for group in records[0]["groups"]:  # the groups of the fitted design
         values = np.asarray(
             [
                 record["groups"][group]["unique_test_deviance_explained"]
@@ -210,6 +245,25 @@ def _block_task(job: dict) -> dict:
     within = _SHARED["within_trial"]
     between = _SHARED["between_trials"]
     per_fold = {name: {"unique": [], "maximal": []} for name in order}
+    previous = job.get("reuse_unique")
+    # Shuffle before centering: flipping a centered zero invents an effect in
+    # bins where the raw regressor is off.
+    trials = len(prepared["alignments"])
+    bins = len(between) // trials
+    partner = between.reshape(trials, bins)[:, 0] // bins
+    side_blocks = {}
+    for name in SIGN_OVER_TRIALS:
+        if name in groups:
+            columns = groups[name]
+            block = np.asarray(common[:, columns]).reshape(trials, bins, -1)
+            side_blocks[name] = shuffled_side_columns(
+                block,
+                job["common_mean"][columns],
+                job["common_scale"][columns],
+                job["side_codes"][name],
+                partner,
+                job.get("unknown_previous_support") if name == PREVIOUS_SIDE else None,
+            ).reshape(len(common), -1)
     complete_folds, trial_specific = [], []
     for fold_index, (fold, alpha) in enumerate(
         _scored_folds(counts, _SHARED["partitions"], job["alphas"]), start=1
@@ -238,53 +292,72 @@ def _block_task(job: dict) -> dict:
                     f"fold {fold_index}, {comparison}: {error}"
                 ) from error
 
-        complete = score("full model")
+        complete = (
+            float(job["complete_folds"][fold_index - 1])
+            if previous is not None
+            else score("full model")
+        )
         complete_folds.append(complete)
 
         # Shuffle the two scored matrices in place and restore from the source.
         # Each fold copies its train and test rows only once. `mapping` is a row
         # permutation, or None to restore the real rows.
         def put(columns, mapping):
-            if isinstance(columns, tuple):  # a joint group of several regressors
-                for part in columns:
-                    put(part, mapping)
-                return
             width = job["common_columns"]
             if columns.stop <= width:
                 source = np.asarray(common[:, columns])
             else:
                 source = history[:, columns.start - width : columns.stop - width]
             for matrix, rows in ((fit_design, fit_rows), (test_design, test_rows)):
-                matrix[:, columns] = source[rows if mapping is None else mapping[rows]]
+                if isinstance(mapping, tuple):  # ("side", raw-space side shuffle)
+                    matrix[:, columns] = side_blocks[mapping[1]][rows]
+                else:
+                    matrix[:, columns] = source[
+                        rows if mapping is None else mapping[rows]
+                    ]
 
         # Control: motion energy of another trial at the same time in the trial.
-        if "video" in order:
+        if "video" in order and previous is None:
             put(groups["video"], between)
             trial_specific.append(complete - score("video swapped between trials"))
             put(groups["video"], None)
 
         # These detailed blocks are non-overlapping and cover the full model.
-        blocks = [groups[name] for name in DETAILED_GROUPS]
-        for columns in blocks:
-            put(columns, within)
+        blocks = [name for name in order if name != "task"]
+
+        def shuffle_of(name):
+            # A variable of the trial (drift, the previous side, the side of the
+            # response, the turn direction, the previous outcome) is shuffled over trials. A
+            # shuffle inside a trial keeps its sign there, so it would test only
+            # when the column turns on, not the variable.
+            if name in side_blocks:
+                return ("side", name)
+            return between if name in OVER_TRIALS else within
+
+        for name in blocks:
+            put(groups[name], shuffle_of(name))
         reference = score("all regressor groups shuffled")
-        for columns in blocks:
-            put(columns, None)
+        for name in blocks:
+            put(groups[name], None)
 
         for group in order:
             columns = groups[group]
-            put(columns, within)
-            removed = score(f"{group} shuffled")
-            put(columns, None)
+            if previous is None or group in SIGN_OVER_TRIALS:
+                put(columns, shuffle_of(group))
+                removed = score(f"{group} shuffled")
+                put(columns, None)
+                unique = complete - removed
+            else:
+                unique = previous["groups"][group]["folds"]["unique"][fold_index - 1]
 
-            for other in blocks:
-                put(other, within)
+            for name in blocks:
+                put(groups[name], shuffle_of(name))
             put(columns, None)
             alone = score(f"only {group} unshuffled")
-            for other in blocks:
-                put(other, None)
+            for name in blocks:
+                put(groups[name], None)
 
-            per_fold[group]["unique"].append(complete - removed)
+            per_fold[group]["unique"].append(unique)
             per_fold[group]["maximal"].append(alone - reference)
     if len(complete_folds) < 2:
         raise ValueError(
@@ -304,7 +377,15 @@ def _block_task(job: dict) -> dict:
                     else (groups[group],)
                 )
             ),
-            "shuffle": "rows jointly within trial",
+            "shuffle": (
+                "raw side codes over trials, recipient timing retained"
+                if group in SIGN_OVER_TRIALS
+                else (
+                    "rows jointly over trials"
+                    if group in OVER_TRIALS
+                    else "rows jointly within trial"
+                )
+            ),
             "unique_test_deviance_explained": float(unique.mean()),
             "unique_test_deviance_explained_sem": float(sem(unique)),
             "maximal_test_deviance_explained": float(maximal.mean()),
@@ -312,6 +393,8 @@ def _block_task(job: dict) -> dict:
             "folds": {"unique": unique.tolist(), "maximal": maximal.tolist()},
         }
     if "video" in order:
+        if previous is not None:
+            trial_specific = previous["groups"]["video"]["folds"]["trial_specific"]
         group_results["video"]["trial_specific_test_deviance_explained"] = float(
             np.mean(trial_specific)
         )
@@ -324,84 +407,17 @@ def _block_task(job: dict) -> dict:
         "depth": job["depth"],
         "video_components": job["video_components"],
         "shuffle_seed": SHUFFLE_SEED,
+        "shuffle_rule": SHUFFLE_RULE,
         "folds": len(complete_folds),
         "complete_test_deviance_explained": float(np.mean(complete_folds)),
         "groups": group_results,
+        "reused_unique_groups": (
+            [name for name in order if name not in SIGN_OVER_TRIALS]
+            if previous is not None
+            else []
+        ),
     }
     return record
-
-
-def block_table(samples: dict[str, list[dict]]) -> dict:
-    """Summarize each block within each sample and over all units."""
-    complete = np.concatenate(
-        [
-            [record["complete_test_deviance_explained"] for record in records]
-            for records in samples.values()
-        ]
-    )
-    table = {
-        "samples": list(samples),
-        "units": int(len(complete)),
-        "complete_d2_median": float(np.median(complete)),
-        "reliable_alpha": RELIABLE_ALPHA,
-        "blocks": {},
-    }
-    for group in DETAILED_GROUPS:
-        per_sample = []
-        for records in samples.values():
-            entries = [record["groups"][group] for record in records]
-            unique = np.asarray([entry[UNIQUE] for entry in entries])
-            # Does this unit gain or lose? Test its fold values against zero,
-            # one-sided in each direction.
-            gain_p, loss_p = (
-                np.asarray(
-                    [
-                        ttest_1samp(
-                            entry["folds"]["unique"], 0, alternative=side
-                        ).pvalue
-                        for entry in entries
-                    ]
-                )
-                for side in ("greater", "less")
-            )
-            per_sample.append(
-                {
-                    "columns": int(entries[0]["columns"]),
-                    "unique": unique,
-                    "maximal": np.asarray([entry[MAXIMAL] for entry in entries]),
-                    "reliable_fraction": float(np.mean(gain_p < RELIABLE_ALPHA)),
-                    "gain": gain_p < RELIABLE_ALPHA,
-                    "loss": loss_p < RELIABLE_ALPHA,
-                    "wilcoxon_p": float(wilcoxon(unique, alternative="greater").pvalue),
-                }
-            )
-        pooled_unique = np.concatenate([item["unique"] for item in per_sample])
-        share = float(np.median(pooled_unique)) / table["complete_d2_median"]
-        reliable = [item["reliable_fraction"] for item in per_sample]
-        table["blocks"][group] = {
-            "columns": [item["columns"] for item in per_sample],
-            "unique_median_by_sample": [
-                float(np.median(item["unique"])) for item in per_sample
-            ],
-            "maximal_median_by_sample": [
-                float(np.median(item["maximal"])) for item in per_sample
-            ],
-            "reliable_fraction_by_sample": reliable,
-            "gain_fraction": float(
-                np.mean(np.concatenate([item["gain"] for item in per_sample]))
-            ),
-            "loss_fraction": float(
-                np.mean(np.concatenate([item["loss"] for item in per_sample]))
-            ),
-            "wilcoxon_p_by_sample": [item["wilcoxon_p"] for item in per_sample],
-            "unique_median": float(np.median(pooled_unique)),
-            "unique_q25_q75": np.quantile(pooled_unique, [0.25, 0.75]).tolist(),
-            "maximal_median": float(
-                np.median(np.concatenate([item["maximal"] for item in per_sample]))
-            ),
-            "share_of_complete_d2": share,
-        }
-    return table
 
 
 def run_unique(
@@ -410,14 +426,15 @@ def run_unique(
     fit_dir: Path,
     unit_set: str,
     workers: int | None = None,
-    joint: bool = False,
+    *,
+    repair_side_shuffle: bool = False,
 ) -> None:
-    """Fit same-width shuffled comparators; plot the summary and the example unit.
+    """Fit shuffled comparators and write the summary and example-unit data.
 
-    With `joint`, score only the groups in `JOINT_GROUPS` (regressors shuffled
-    together) and write `unique_deviance/joint_summary.json`. If the joint
-    unique ΔD² is much larger than the sum of the single values, the regressors
-    in the group replace each other.
+    `repair_side_shuffle` preserves legacy records in `unique_centered_sides`.
+    It reuses unaffected unique folds and trial-swapped video scores. It refits
+    the two side-unique tests and every maximal test, whose all-shuffled
+    reference also depends on the side rule. Restarting reuses repaired units.
     """
     prepared = _load_windows(windows)
     common = np.load(design_path, mmap_mode="r", allow_pickle=False)
@@ -433,6 +450,16 @@ def run_unique(
     video_components = selected_components.pop()
     common_columns = int(metadata["base_columns"]) + video_components
     groups = block_slices(metadata, video_components)
+    trials = _load_selected_trials(prepared)
+    side_codes = {
+        PREVIOUS_SIDE: np.nan_to_num(trials["last_side"].to_numpy(dtype=float)),
+        TURN_DIRECTION: trials["response"].to_numpy(dtype=float),
+    }
+    unknown = side_codes[PREVIOUS_SIDE] == 0
+    before_exit = (
+        prepared["bin_times"].reshape(len(trials), -1)[unknown]
+        < trials["center_exit_s"].to_numpy(dtype=float)[unknown, None]
+    )
 
     with np.load(windows, allow_pickle=False) as saved:
         trial_split = saved["trial_split"].copy()
@@ -454,8 +481,68 @@ def run_unique(
     )
     unit_rows = analysis_unit_indices(units, unit_set)
     output_dir = fit_dir / "unique_deviance"
-    checkpoint_dir = checkpoints / ("unique_joint" if joint else "unique")
+    checkpoint_dir = checkpoints / "unique"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    preserved_dir = checkpoints / "unique_centered_sides"
+    stale = [
+        path
+        for path in checkpoint_dir.glob("unit_*.json")
+        if json.loads(path.read_text()).get("shuffle_rule") != SHUFFLE_RULE
+    ]
+    if stale and not repair_side_shuffle:
+        raise ValueError(
+            f"{len(stale)} records in {checkpoint_dir} use an older shuffle rule. "
+            "Call run_unique(..., repair_side_shuffle=True) to preserve and repair "
+            "the centered-side records, or move that folder aside for a full rerun."
+        )
+    if repair_side_shuffle:
+        for path in stale:
+            if json.loads(path.read_text()).get("shuffle_rule") != LEGACY_SHUFFLE_RULE:
+                raise ValueError(f"Cannot repair an unknown shuffle rule: {path}")
+            if (preserved_dir / path.name).exists():
+                raise FileExistsError(preserved_dir / path.name)
+        if stale:
+            preserved_dir.mkdir(parents=True, exist_ok=True)
+            for path in stale:
+                path.rename(preserved_dir / path.name)
+    preserved = (
+        {
+            int(item["unit_id"]): item
+            for item in load_unit_records(preserved_dir, "unit_*.json")
+        }
+        if repair_side_shuffle
+        else {}
+    )
+    group_order = tuple(dict.fromkeys((*BROAD_GROUPS, *groups)))
+    fold_deviance = {
+        int(item["unit_id"]): [
+            float(fold["test"]["deviance_explained"]) for fold in item["folds"]
+        ]
+        for item in fold_records
+    }
+    for unit_id, record in preserved.items():
+        if unit_id not in fold_deviance:
+            raise ValueError(
+                f"Preserved unique unit {unit_id} has no current fold fit."
+            )
+        if (
+            record.get("shuffle_rule") != LEGACY_SHUFFLE_RULE
+            or record.get("shuffle_seed") != SHUFFLE_SEED
+            or set(record["groups"]) != set(group_order)
+            or any(
+                len(group["folds"]["unique"]) != len(fold_deviance[unit_id])
+                for group in record["groups"].values()
+            )
+            or not np.isclose(
+                record["complete_test_deviance_explained"],
+                np.mean(fold_deviance[unit_id]),
+                atol=1e-6,
+                rtol=1e-5,
+            )
+        ):
+            raise ValueError(
+                f"Preserved unique unit {unit_id} differs from current fits."
+            )
 
     jobs = [
         {
@@ -465,7 +552,14 @@ def run_unique(
             "video_components": video_components,
             "common_columns": common_columns,
             "groups": groups,
-            "group_order": tuple(JOINT_GROUPS) if joint else GROUP_ORDER,
+            "common_mean": np.asarray(metadata["training_mean"]),
+            "common_scale": np.asarray(metadata["training_scale"]),
+            "side_codes": side_codes,
+            "unknown_previous_support": before_exit[..., None].astype(float),
+            "reuse_unique": preserved.get(int(units.iloc[row]["unit_id"])),
+            "complete_folds": fold_deviance[int(units.iloc[row]["unit_id"])],
+            # The broad groups, then every regressor of this design.
+            "group_order": group_order,
             "alphas": fold_alphas[int(units.iloc[row]["unit_id"])],
             "output": str(
                 checkpoint_dir / f"unit_{int(units.iloc[row]['unit_id'])}.json"
@@ -494,54 +588,11 @@ def run_unique(
         shuffle_seed=SHUFFLE_SEED,
     )
 
-    if joint:
-        single = {
-            int(item["unit_id"]): item
-            for item in load_unit_records(checkpoints / "unique", "unit_*.json")
-        }
-        summary = {"units": len(records)}
-        for name, members in JOINT_GROUPS.items():
-            joint_unique = np.asarray(
-                [record["groups"][name][UNIQUE] for record in records]
-            )
-            single_sum = np.asarray(
-                [
-                    sum(
-                        single[int(record["unit_id"])]["groups"][member][UNIQUE]
-                        for member in members
-                    )
-                    for record in records
-                ]
-            )
-            summary[name] = {
-                "members": list(members),
-                "joint_unique_median": float(np.median(joint_unique)),
-                "sum_of_single_unique_median": float(np.median(single_sum)),
-                "joint_minus_sum_median": float(np.median(joint_unique - single_sum)),
-                "fraction_units_joint_above_sum": float(
-                    np.mean(joint_unique > single_sum)
-                ),
-                "joint_maximal_median": float(
-                    np.median([record["groups"][name][MAXIMAL] for record in records])
-                ),
-            }
-        output_dir.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(output_dir / "joint_summary.json", summary)
-        print(json.dumps(summary, indent=2))
-        return
-
     summary = _write_summary(records, output_dir)
-    from thesis.ephys.analyses.glm.figures import (
-        plot_deviance_explained,
-        plot_example_unit,
-    )
-    from thesis.ephys.analyses.glm.results import example_unit_id
+    from thesis.ephys.analyses.glm.results import example_unit_id, write_figure_data
 
-    figure_path = plot_deviance_explained(
-        {unit_set: records}, fit_dir / "deviance_explained"
-    )
-    print(json.dumps({**summary, "figure": str(figure_path)}, indent=2))
+    print(json.dumps(summary, indent=2))
     final_records = load_unit_records(checkpoints, "unit_*_final.json")
-    plot_example_unit(
+    write_figure_data(
         windows, design_path, fit_dir, example_unit_id(records, final_records)
     )
