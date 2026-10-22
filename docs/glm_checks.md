@@ -3,7 +3,7 @@
 - **Question:** which checks support the comparison in [the main analysis](glm.md), and what remains uncertain?
 - **Why:** predictive accuracy, repeatability, recovery, and control comparisons answer different questions. They do not all establish that a fitted flash effect is independent of locomotion.
 - **Finding:** prediction is useful, but known-weight recovery and zero-effect simulations show limits on reading the weights. Raw video does not remove those limits.
-- **Next:** use these checks to qualify the three main figures. Side preference is a related result, not part of the main sensory-enhancement argument.
+- **Next:** use these checks to qualify the three main figures. Side preference is a check of the turn term, not part of the main sensory-enhancement argument.
 - **Scope:** GRB006 / GRB064 order; one session per mouse. Current design: 2026-10-17; corrected controls checked: 2026-10-19. The held-out rate comparison of the main analysis is leak-corrected in its own measure (2026-10-21); the supporting kernel-peak scatter is not.
 
 ## Does the fit support interpretation of the flash component?
@@ -46,6 +46,15 @@
 
 ![Observed and predicted flash-response time courses by gap and task period](../figures/glm/flash_by_gap.svg)
 
+### Which flash response does the model miss after the exit?
+
+- **Question:** the full model predicts less long-gap enhancement than observed. Which flashes does it miss, and does the missing part need a flash?
+- **Why:** an observed peak is the maximum of a noisy mean, so it is larger than the peak of a smooth predicted rate even when the model is correct. Spikes drawn from the held-out model rate have the same bias, so observed minus that "model + noise" peak is the miss. A miss that is there with no flash is an exit transient; a miss only with a flash is a change of the flash response.
+- **Finding:** in the 38 flash-excited units, the miss is near 0 for flashes in the port and for the 2nd and later flashes after the exit. It is **+0.93 / +0.65** (p = 0.006 / 0.007) for the first flash after the exit, about 50 ms after the exit. In trials with no flash at that time, the model predicts the rate (miss **−0.64 / +0.13**). The miss with a flash minus with no flash is **+1.46 / +0.26** (p < 0.001 / 0.073); pooled **+0.73**, 95% interval **0.28 to 1.11**. The observed first response peaks earlier and is sharper than the model response (panel b).
+- **Next:** this is a characterization, not a model term. The flash × after-exit kernel has one shape for all flashes after the exit, so the model shows where a fixed flash kernel stops being correct: a short, earlier and larger response at movement onset. A term built from this miss would be chosen on the data that found it ([decision log](glm_decisions.md#first-flash-after-the-exit-candidate-2026-10-21)). A term for it must have its form set in advance (for example, flash gain as a function of time since the exit, or of movement) and be tested on data that did not choose it. There are only 27 / 21 no-flash trials, and their pseudo flash comes later in the stimulus train.
+
+![Model miss by flash rank after the exit, and with and without a flash at the same time after the exit](../figures/glm/first_flash_after_exit.svg)
+
 ## Do the conclusions depend on the video model?
 
 ### Does raw video improve held-out spike prediction?
@@ -84,12 +93,12 @@
 
 ![Raw-video pilot collinearity, recovery, and leak checks](../figures/glm/raw_video_trust.svg)
 
-## Related result: does turn direction account for side preference?
+## Check: does the turn term take the side preference?
 
 ### Does removing the fitted turn contribution remove the predicted preference?
 
 - **Question:** how much of the observed left–right firing preference is carried by the fitted turn term?
-- **Why:** activity after exit can differ by response side as well as task period. That side-linked component is a separate question from flash-response gain.
+- **Why:** activity after exit can differ by response side as well as task period. That side-linked component is a separate question from flash-response gain. The turn term was added because the raw GRB006 rates showed this preference, and a side-signed term after the exit is built to fit it. So a close agreement is expected: this checks the fit, and it is not an independent finding.
 - **Finding:** observed versus predicted side-index agreement falls from **ρ = 0.990 / 0.992** to **0.521 / 0.790** when the fitted turn contribution is removed. Median absolute error rises from **0.009 → 0.146 / 0.006 → 0.154**. Keeping turn lowers error in **161/167 / 74/76 units**; pooled paired error reduction is **0.122**, 95% interval **0.105–0.147**. This removes one contribution without refitting; other terms and observed spike history remain.
 - **Next:** test whether raw-video components absorb this contribution. The current comparison shows fitted allocation, not unique information or a causal effect of turning.
 
@@ -100,7 +109,7 @@
 - **Question:** does the side-preference result depend on omitting raw-video components?
 - **Why:** motion energy captures frame changes. Raw pixels can carry additional position, posture, and illumination signals that share information with response side.
 - **Finding:** with 10 added raw-video components, full-model agreement is **ρ = 0.988 / 0.992** and falls to **0.348 / 0.505** without turn. Median error rises from **0.010 → 0.152 / 0.009 → 0.187**; pooled paired error reduction is **0.128**, 95% interval **0.104–0.170**. The fitted turn contribution remains large, although its allocation among shared signals changes.
-- **Next:** the fitted term accounts for much of the preference under both video models. Linking it to choice decoding remains open. This is a related result about side-linked activity; it does not settle the sensory-response question.
+- **Next:** the fitted term takes much of the preference under both video models, as it was built to. Linking it to choice decoding remains open. This is a check of the turn term; it does not settle the sensory-response question.
 
 ![Side preference after adding raw video, with and without the turn contribution](../figures/glm/raw_video_full/side_preference.svg)
 
@@ -185,7 +194,7 @@
 
 - **Question:** does a more detailed temporal design improve prediction enough to retain it?
 - **Why:** extra bases or gap classes can add flexibility without useful predictive gain.
-- **Finding:** paired comparisons on four fixed 20-unit GRB006 samples retain 150-ms flash kernels, a short-gap modifier, the held 700-ms fixation kernel, and the exit-aligned response period. Finer gap classes, more video PCs, and longer exit windows give no clear improvement. Recovery and collinearity also inform the choice; GRB064 takes no part in selection.
+- **Finding:** paired comparisons on four fixed 20-unit GRB006 samples retain 150-ms flash kernels, a short-gap modifier, the held 700-ms fixation kernel, and the exit-aligned response period. Finer gap classes, more video PCs, and longer exit windows give no clear improvement. Recovery and collinearity also inform the choice. GRB064 takes no part in the choice of forms. It did take part in the choice of terms: the candidate tests of 2026-10-15 used both mice, and flash × motion energy stayed out because it failed in GRB064. So GRB064 is held out for the forms, not for the set of terms; only a third mouse can test the set of terms.
 - **Next:** keep this design fixed for the comparisons above. Earlier choices are in [the decision history](glm_decisions.md).
 
 ![Design-choice grids on 80 GRB006 units](../figures/glm/GRB006_20240821_121447/design_optimization.svg)
@@ -215,6 +224,7 @@ uv run python -m thesis.ephys.analyses.glm.main_figure
 uv run python -m thesis.ephys.analyses.glm.hold_effect
 uv run python -m thesis.ephys.analyses.glm.flash_kernels  # unit kinds for flash_by_gap; no figure
 uv run python -m thesis.ephys.analyses.glm.flash_by_gap
+THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.first_flash_after_exit
 uv run python -m thesis.ephys.analyses.glm.model_trust
 ~~~
 

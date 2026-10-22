@@ -10,7 +10,9 @@ Predictions use saved whole-trial test folds, with history scaled on each
 fold's fitting rows. Compare the full prediction with its turn-direction
 contribution removed in log rate, without refitting. Other terms, including
 observed spike history, stay fixed. This tests the contribution of the fitted
-term, not unique information or a causal effect of turning. Shared variance
+term, not unique information or a causal effect of turning. The turn term was
+added because the raw rates showed this preference, so the agreement is a
+check of the fit, not an independent finding. Shared variance
 and observed history can retain side preference when the term is removed.
 
 The unit is the sampling unit; comparisons are paired. Pool both mice in

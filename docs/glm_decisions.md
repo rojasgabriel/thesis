@@ -730,6 +730,38 @@ evidence, the side column, flash × move × gap). The comparisons of
 `matched_flashes.py` that no figure reads are gone too. All of them are in
 the git history.
 
+### First flash after the exit, candidate, 2026-10-21
+
+The model missed only the response to the first flash after the exit
+(`first_flash_after_exit.py`). A third flash kernel, 1 for the first flash at
+or after the exit (the flash basis), was added to the design in use and fit
+on all units (`candidate_terms.py`, fits in `<session>_first_flash_after_exit`).
+
+- It passes both inclusion tests in both mice: 59 of 167 and 30 of 76 units
+  need it (35% and 39%; Holm p < 0.001). All other regressors still pass.
+  Median D² is 0.0719 and 0.0748 (0.072 and 0.075 without it).
+- The miss at the first flash after the exit falls from +0.93 / +0.65 to
+  +0.63 / +0.38 (p = 0.003 / 0.022); the other flashes stay near 0. With a flash
+  minus with no flash: +1.13 / −0.19, pooled +0.41 (−0.26 to 0.92).
+- The fitted first response is almost as high as the observed one, but it
+  peaks about 10 ms later (about 45 against 35 ms). The flash basis has 8
+  cosines over 150 ms, about 21 ms apart.
+- Form (`first_flash_grid.py`, 80 grid units of GRB006, validation D²
+  against 150 ms with 8 cosines): 150 ms with 12 cosines −0.00002 (p = 0.76),
+  with 16 −0.00004 (p = 0.68), 100 ms with 8 +0.00004 (p = 0.62); no term
+  −0.0002 (p = 0.072). No form predicts reliably better, so the kernel keeps
+  the flash basis. A finer basis does not make the earlier peak worth its
+  columns.
+- Not in the model (Gabriel, 2026-10-21). The term was made from the
+  residual that it removes, on the same data, so passing the inclusion rule
+  does not show that it is real; a rank indicator ("first") also mixes the
+  rank of the flash with its time after the exit (0 to 250 ms), and a
+  modifier cannot shift latency. The result is reported as a
+  characterization (`first_flash_after_exit.py`). The term and the grid were
+  removed from the code; they are in the git history (`46d3d7d`, `0f4e510`).
+  A term for this must have its form set in advance and be tested on data
+  that did not choose it.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
