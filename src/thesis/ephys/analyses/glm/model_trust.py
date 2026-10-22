@@ -2,8 +2,8 @@
 
 Question: the design is fixed (`design_optimization.py` chose the form of each
 term by prediction). Can its weights be trusted? Four tests, each on the
-design in use, in both mice (`SESSIONS`; GRB064 took no part in the design
-choices). The units of both mice are pooled in the plots; the black marker is
+design in use, in both mice (`SESSIONS`; GRB064 took no part in the choice of
+the forms of the terms, but it did in the choice of the terms). The units of both mice are pooled in the plots; the black marker is
 the pooled median with its hierarchical-bootstrap 95% interval (mice, then
 units), and the open circles are the median of each mouse (left: GRB006,
 right: GRB064). The tests are within each mouse.
@@ -110,7 +110,8 @@ HISTORY_MIN_RATE = 5.0
 FIXATION_TAIL_MS = 700
 CAPTION = """\
 **Can the weights of the model be read?** The design in use, in {subject} and
-in {held_out} (an animal that took no part in the design choices). Units of
+in {held_out} (an animal that took no part in the choice of the forms of the
+terms; it did take part in the choice of the terms). Units of
 both mice are pooled; the black marker is the pooled median with its
 hierarchical-bootstrap 95% interval, and the open circles are the median of
 each mouse (left: {subject}; right: {held_out}). **a–c, Collinearity of the
