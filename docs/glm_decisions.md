@@ -747,8 +747,14 @@ added to the design in use and fit on all units (`candidate_terms.py`, fits in
 - The fitted first response is almost as high as the observed one, but it
   peaks about 10 ms later (about 45 against 35 ms). The flash basis has 8
   cosines over 150 ms, about 21 ms apart.
-- Not yet in the model: by the inclusion rule it belongs there, and the form
-  of its kernel has no grid yet. Decision open (Gabriel).
+- Form (`first_flash_grid.py`, 80 grid units of GRB006, validation D²
+  against 150 ms with 8 cosines): 150 ms with 12 cosines −0.00002 (p = 0.76),
+  with 16 −0.00004 (p = 0.68), 100 ms with 8 +0.00004 (p = 0.62); no term
+  −0.0002 (p = 0.072). No form predicts reliably better, so the kernel keeps
+  the flash basis. A finer basis does not make the earlier peak worth its
+  columns.
+- Not yet in the model: by the inclusion rule it belongs there. Decision open
+  (Gabriel).
 
 ## Moved from glm.md (2026-10-17)
 
