@@ -55,6 +55,24 @@
 
 ![Model miss by flash rank after the exit, and with and without a flash at the same time after the exit](../figures/glm/first_flash_after_exit.svg)
 
+<a id="penalty-sensitivity"></a>
+
+### Does the flash × exit result depend on the penalty of the fixation kernel?
+
+- **Question:** with one L2 penalty for all terms, the fixation kernel is too small and part of the rate step at the exit can go to the flash × after-exit kernel. Do the results change when the penalty on the fixation kernel alone is 100 times weaker?
+- **Why:** the leak test simulates from the fit itself, so it has the same small fixation kernel and can underestimate this. A fit with the fixation kernel free to take its level is a direct check.
+- **Finding:** both mice were fit again with `HOLD_PENALTY_SCALE = 10` (`penalty_sensitivity.py`). Prediction does not change (median D² 0.0719 / 0.0745). The fixation level of the kernel becomes **−0.69 / −0.68** (from −0.35 / −0.50), and a refit keeps **0.86 / 0.98** of a simulated level (from 0.71 / 0.82). The full-model enhancement of result 3 is the same (1.92 / 0.94), but without flash × exit it is **1.51** / 1.11 (from 1.23 / 1.12). The leak-corrected flash × exit part becomes **+0.28** (p = 0.80) / −0.19 (p = 0.36) in the excited units, pooled −0.02 (−0.47 to 0.15), and **+0.14** (p = 0.27) / −0.12 (p = 0.068) over all units.
+- **Next:** the positive GRB006 flash × exit part is partly the fixation level. With the fixation kernel free, neither mouse has a flash × exit effect. The model in use keeps one penalty (common practice); this fit is the sensitivity analysis.
+
+### Is the predicted rate calibrated over its range?
+
+- **Question:** is the held-out predicted rate correct where it is low and where it is high?
+- **Why:** a model can predict well on average and still compress its range, which would make the size of every effect too small.
+- **Finding:** held-out 1-ms bins of each unit sorted into 20 groups by predicted rate (`calibration.py`). From the 5th to the 70th percentile the model is too high (observed / predicted **0.86 to 0.98**); from the 75th to the 95th it is too low (**1.03 to 1.12**). Both mice have the same curve, and the fit with the weaker fixation penalty has the same curve.
+- **Next:** the model compresses its range by about 10%, so its effect sizes are a little too small; this does not depend on the penalty of the fixation kernel. The cause is not known: one gain on the linear predictor and a cubic output function were tested earlier and did not help ([decision log](glm_decisions.md)).
+
+![Observed over predicted spike count by predicted-rate percentile, with the model in use and the weaker fixation penalty](../figures/glm/calibration.svg)
+
 ## Do the conclusions depend on the video model?
 
 ### Does raw video improve held-out spike prediction?
@@ -225,6 +243,8 @@ uv run python -m thesis.ephys.analyses.glm.hold_effect
 uv run python -m thesis.ephys.analyses.glm.flash_kernels  # unit kinds for flash_by_gap; no figure
 uv run python -m thesis.ephys.analyses.glm.flash_by_gap
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.first_flash_after_exit
+THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.penalty_sensitivity  # refits both mice
+THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.calibration
 uv run python -m thesis.ephys.analyses.glm.model_trust
 ~~~
 
@@ -265,6 +285,5 @@ nice -n 10 uv run python -m thesis.ephys.analyses.glm.synthetic_check --out <new
 
 ### Which checks remain incomplete?
 
-- Calibration and weaker-fixation-penalty checks are not fully updated for the current design. Their older composite is omitted from the current figure sequence.
 - The synthetic pipeline check passes. It does not resolve the known fixation-weight bias or validate the new kernel-peak measure against leak.
 - Two mice with one session each do not establish replication across animals. There is no useful pupil measurement, and video does not isolate locomotion, posture, or illumination.
