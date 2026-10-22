@@ -125,6 +125,17 @@ HOLD_LOG_STRETCH_S = 0.05
 # saved scale of the columns has the factor in it, so the kernels are read in
 # the same way. A factor above 10 stops the convergence.
 HOLD_PENALTY_SCALE = 1.0
+# Banded ridge (Nunez-Elizalde, Huth and Gallant 2019; Dupré la Tour et al.
+# 2022): one L2 penalty for each band of regressors. A band's factor multiplies
+# its z-scored columns, so the penalty on its weights is the factor squared
+# times weaker; the saved column scale has the factor, so kernels are read in
+# the same way. Bands (`penalty_band`): "flash" (the sensory terms), "task"
+# (the task terms), "nuisance" (session drift and motion energy). Spike history
+# is built for each unit and is the reference band, at 1: only the ratios of
+# the bands matter, because the overall penalty is chosen for each unit. All 1
+# is one penalty for all terms (the model in use). The factors are chosen with
+# `band_grid.py`; the fixation factor above multiplies that of its band.
+BAND_SCALES = {"flash": 1.0, "task": 1.0, "nuisance": 1.0}
 # Pre-stimulus: one column that is 1 from the center entry to the first flash,
 # where no other term is on. Its weight has no common sign over units; it sets
 # the rate of each unit in the port before the stimulus.
@@ -211,6 +222,13 @@ for _switch in filter(None, os.environ.get("THESIS_GLM_TERMS", "").split(",")):
     globals()[_switch] = True
 HOLD = "hold"
 HISTORY_COLUMNS = 10
+
+
+def penalty_band(item: dict) -> str:
+    """Return the penalty band of a regressor of the task manifest."""
+    if item["name"] == DRIFT:
+        return "nuisance"
+    return "flash" if item["group"] == "sensory" else "task"
 
 
 def switched(settings: dict) -> ExitStack:
@@ -925,11 +943,13 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
     train_rows, _, _ = _split_masks(prepared["split"], valid)
     scaled_base, base_mean, base_scale = training_zscore(task_values, train_rows)
     cursor = 0
-    for item in task_manifest:  # a weaker penalty on the fixation kernel
+    for item in task_manifest:  # the penalty of each band (banded ridge)
+        factor = BAND_SCALES[penalty_band(item)]
         if item["name"] == HOLD:
-            columns = slice(cursor, cursor + item["columns"])
-            scaled_base[:, columns] *= HOLD_PENALTY_SCALE
-            base_scale[columns] /= HOLD_PENALTY_SCALE
+            factor *= HOLD_PENALTY_SCALE
+        columns = slice(cursor, cursor + item["columns"])
+        scaled_base[:, columns] *= factor
+        base_scale[columns] /= factor
         cursor += item["columns"]
     base_names = [
         f"{item['name']}_basis_{index + 1:02d}"
@@ -967,6 +987,8 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
             sample_times, frame_times, scores[:, component], left=0, right=0
         )
         scaled, mean, scale = training_zscore(block[:, None], train_rows)
+        scaled *= BAND_SCALES["nuisance"]
+        scale /= BAND_SCALES["nuisance"]
         matrix[:, base_columns + component] = scaled[:, 0].astype(np.float32)
         video_mean.extend(mean.tolist())
         video_scale.extend(scale.tolist())
@@ -993,6 +1015,7 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "training_scale": base_scale.tolist() + video_scale,
         "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
         "hold_penalty_scale": HOLD_PENALTY_SCALE,
+        "band_scales": BAND_SCALES,
     }
     matrix.flush()
     del matrix
@@ -1045,4 +1068,5 @@ def _common_design_is_current(output: Path) -> bool:
             *(columns for _, columns in state),
         ]
         and metadata.get("hold_penalty_scale", 1.0) == HOLD_PENALTY_SCALE
+        and metadata.get("band_scales", dict.fromkeys(BAND_SCALES, 1.0)) == BAND_SCALES
     )
