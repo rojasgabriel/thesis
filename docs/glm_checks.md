@@ -46,6 +46,15 @@
 
 ![Observed and predicted flash-response time courses by gap and task period](../figures/glm/flash_by_gap.svg)
 
+### Which flash response does the model miss after the exit?
+
+- **Question:** the full model predicts less long-gap enhancement than observed. Which flashes does it miss, and does the missing part need a flash?
+- **Why:** an observed peak is the maximum of a noisy mean, so it is larger than the peak of a smooth predicted rate even when the model is correct. Spikes drawn from the held-out model rate have the same bias, so observed minus that "model + noise" peak is the miss. A miss that is there with no flash is an exit transient; a miss only with a flash is a change of the flash response.
+- **Finding:** in the 38 flash-excited units, the miss is near 0 for flashes in the port and for the 2nd and later flashes after the exit. It is **+0.93 / +0.65** (p = 0.006 / 0.007) for the first flash after the exit, about 50 ms after the exit. In trials with no flash at that time, the model predicts the rate (miss **−0.64 / +0.13**). The miss with a flash minus with no flash is **+1.46 / +0.26** (p < 0.001 / 0.073); pooled **+0.73**, 95% interval **0.28 to 1.11**. The observed first response peaks earlier and is sharper than the model response (panel b).
+- **Next:** the flash × after-exit kernel has one shape for all flashes after the exit, so it cannot make a short change at movement onset. A kernel for the first flash after the exit, or a flash × time-from-exit term, would test this. There are only 27 / 21 no-flash trials, and their pseudo flash comes later in the stimulus train.
+
+![Model miss by flash rank after the exit, and with and without a flash at the same time after the exit](../figures/glm/first_flash_after_exit.svg)
+
 ## Do the conclusions depend on the video model?
 
 ### Does raw video improve held-out spike prediction?
@@ -215,6 +224,7 @@ uv run python -m thesis.ephys.analyses.glm.main_figure
 uv run python -m thesis.ephys.analyses.glm.hold_effect
 uv run python -m thesis.ephys.analyses.glm.flash_kernels  # unit kinds for flash_by_gap; no figure
 uv run python -m thesis.ephys.analyses.glm.flash_by_gap
+THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.first_flash_after_exit
 uv run python -m thesis.ephys.analyses.glm.model_trust
 ~~~
 
