@@ -174,6 +174,10 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # response to later flashes after the exit.
 FIRST_FLASH_AFTER_EXIT_TERM = False
 FIRST_FLASH_AFTER_EXIT = "first_flash_after_exit"
+# Its own basis (`first_flash_grid.py`): by default that of the other flash
+# kernels.
+FIRST_FLASH_WINDOW_S = 0.15
+FIRST_FLASH_BASES = 8
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
 # response (+1 right, -1 left) times the `exit_basis` (`TURN_DIRECTION_BASES`
 # raised cosines, even in log(t + `EXIT_LOG_STRETCH_S`), from the center exit
@@ -447,7 +451,9 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         **{name: flash for name in flash_gap_names()},
         FLASH_JUST_BEFORE: flash,
         FLASH_AFTER_EXIT: flash,
-        FIRST_FLASH_AFTER_EXIT: flash,
+        FIRST_FLASH_AFTER_EXIT: RaisedCosineBasis(
+            FIRST_FLASH_BASES, 0, FIRST_FLASH_WINDOW_S + BINWIDTH_S, BINWIDTH_S
+        ),
         "hold": (
             StretchedCosineBasis(
                 HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
