@@ -44,10 +44,10 @@ from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor
 from thesis.ephys.units import fetch_unit_table
 
 # Earlier runs (other suffixes, other candidates) are in docs/glm_decisions.md.
-# This run: the previous outcome again (2026-10-17), with the window from 0.5 s
-# before the first flash, which has the time before the center entry.
-ROOT_SUFFIX = "_previous_outcome"
-CANDIDATES = {"PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME}
+# This run (2026-10-21): a kernel for the first flash after the exit, the only
+# response the model missed (`first_flash_after_exit.py`).
+ROOT_SUFFIX = "_first_flash_after_exit"
+CANDIDATES = {"FIRST_FLASH_AFTER_EXIT_TERM": dmat.FIRST_FLASH_AFTER_EXIT}
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4
 

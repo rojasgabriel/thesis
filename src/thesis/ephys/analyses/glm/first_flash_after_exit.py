@@ -40,7 +40,9 @@ the same bins, `SEED`) have the same bias. The miss is observed minus model
   stimulus train. Two mice.
 
 The script writes `first_flash_after_exit.svg` and
-`first_flash_after_exit.json` in `figures/glm/`.
+`first_flash_after_exit.json` in `figures/glm/`. With `--suffix`, it reads the
+fits of a candidate design (`candidate_terms.py`, session directory plus the
+suffix) and adds the suffix to the output names.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \\
         thesis.ephys.analyses.glm.first_flash_after_exit
@@ -48,6 +50,7 @@ The script writes `first_flash_after_exit.svg` and
 
 from __future__ import annotations
 
+import argparse
 import json
 
 import matplotlib
@@ -150,9 +153,9 @@ def events(trials, prepared) -> tuple[dict, dict]:
     }
 
 
-def session_values(session: str, excited: list[int]) -> dict:
+def session_values(session: str, excited: list[int], suffix: str = "") -> dict:
     """Return the observed and model + noise peaks and traces of the excited units."""
-    root = OUTPUT / session
+    root = OUTPUT / f"{session}{suffix}"
     metadata = json.loads((root / "common_design_me.json").read_text())
     records = {
         int(item["unit_id"]): item
@@ -233,8 +236,13 @@ def summary(groups: list[np.ndarray], subjects: list[str]) -> dict:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--suffix", default="", help="Fit directory suffix.")
+    args = parser.parse_args()
     classes = json.loads((OUTPUT / "raw_video_trust_classification.json").read_text())
-    sessions = [session_values(session, classes[session]) for session in SESSIONS]
+    sessions = [
+        session_values(session, classes[session], args.suffix) for session in SESSIONS
+    ]
     subjects = [data["subject"] for data in sessions]
     names = sessions[0]["names"]
     miss = [data["observed"] - data["model"] for data in sessions]
@@ -328,8 +336,9 @@ def main() -> None:
             for text in names_drawn[: -len(subjects)]:
                 text.remove()
         label_panels([rank_axis, flash_axis, control_axis], x=-0.3, y=1.08)
-        print(save_figure(figure, OUTPUT / "first_flash_after_exit"))
-    (OUTPUT / "first_flash_after_exit.json").write_text(json.dumps(stats, indent=1))
+        print(save_figure(figure, OUTPUT / f"first_flash_after_exit{args.suffix}"))
+    output = OUTPUT / f"first_flash_after_exit{args.suffix}.json"
+    output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 
 

@@ -167,6 +167,13 @@ FLASH_AFTER_EXIT_TERM = True
 # flash after the center exit "after exit", and this term "flash × after exit". These are
 # task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
+# First flash after the exit, a candidate (`candidate_terms.py`, 2026-10-21): a
+# third flash kernel, 1 for the first flash at or after the center exit and 0
+# for every other flash. The model missed only that response
+# (`first_flash_after_exit.py`): it is larger, earlier and sharper than the
+# response to later flashes after the exit.
+FIRST_FLASH_AFTER_EXIT_TERM = False
+FIRST_FLASH_AFTER_EXIT = "first_flash_after_exit"
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
 # response (+1 right, -1 left) times the `exit_basis` (`TURN_DIRECTION_BASES`
 # raised cosines, even in log(t + `EXIT_LOG_STRETCH_S`), from the center exit
@@ -440,6 +447,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         **{name: flash for name in flash_gap_names()},
         FLASH_JUST_BEFORE: flash,
         FLASH_AFTER_EXIT: flash,
+        FIRST_FLASH_AFTER_EXIT: flash,
         "hold": (
             StretchedCosineBasis(
                 HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
@@ -457,6 +465,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_COMMON]
     if not FLASH_AFTER_EXIT_TERM:
         del bases[FLASH_AFTER_EXIT]
+    if not FIRST_FLASH_AFTER_EXIT_TERM:
+        del bases[FIRST_FLASH_AFTER_EXIT]
     if not FLASH_JUST_BEFORE_TERM:
         del bases[FLASH_JUST_BEFORE]
     if not WITHDRAWAL_KERNEL:
@@ -556,6 +566,37 @@ def flash_after_exit(trials) -> np.ndarray:
     return np.where(first, 0.0, after)
 
 
+def first_flash_after_exit(trials) -> np.ndarray:
+    """Return 1 for the first modeled flash at or after the center exit, else 0.
+
+    In the order of `flash_events`. The first flash of a trial is never one.
+    """
+    after = flash_after_exit(trials)
+    starts = np.cumsum([0, *(len(t) for t in _modeled_flashes(trials))])[:-1]
+    first = np.zeros_like(after)
+    for start, stop in zip(starts, [*starts[1:], len(after)], strict=True):
+        hits = np.flatnonzero(after[start:stop])
+        if len(hits):
+            first[start + hits[0]] = 1.0
+    return first
+
+
+def _modeled_flashes(trials) -> list[np.ndarray]:
+    """Return the modeled flashes of each trial: center entry to response entry."""
+    return [
+        np.asarray(flashes, dtype=float)[
+            (np.asarray(flashes, dtype=float) >= entry)
+            & (np.asarray(flashes, dtype=float) <= response)
+        ]
+        for flashes, entry, response in zip(
+            trials["stim_pulse_times_s"],
+            trials["center_entry_s"],
+            trials["response_port_entry_s"],
+            strict=True,
+        )
+    ]
+
+
 def _bumps(position: np.ndarray, count: int) -> np.ndarray:
     """Return `count` raised cosines with even spacing over a position of 0 to 1.
 
@@ -627,6 +668,13 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             "1 for a flash after the center exit, 0 in the fixation; "
             "the first flash is 0",
+        ),
+        (
+            FIRST_FLASH_AFTER_EXIT,
+            flashes,
+            first_flash_after_exit(trials),
+            "sensory",
+            "1 for the first flash at or after the center exit, 0 for the others",
         ),
         (
             "hold",
