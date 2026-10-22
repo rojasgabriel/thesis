@@ -734,9 +734,8 @@ the git history.
 
 The model missed only the response to the first flash after the exit
 (`first_flash_after_exit.py`). A third flash kernel, 1 for the first flash at
-or after the exit (`dmat.FIRST_FLASH_AFTER_EXIT_TERM`, the flash basis), was
-added to the design in use and fit on all units (`candidate_terms.py`, fits in
-`<session>_first_flash_after_exit`).
+or after the exit (the flash basis), was added to the design in use and fit
+on all units (`candidate_terms.py`, fits in `<session>_first_flash_after_exit`).
 
 - It passes both inclusion tests in both mice: 59 of 167 and 30 of 76 units
   need it (35% and 39%; Holm p < 0.001). All other regressors still pass.
@@ -753,8 +752,15 @@ added to the design in use and fit on all units (`candidate_terms.py`, fits in
   −0.0002 (p = 0.072). No form predicts reliably better, so the kernel keeps
   the flash basis. A finer basis does not make the earlier peak worth its
   columns.
-- Not yet in the model: by the inclusion rule it belongs there. Decision open
-  (Gabriel).
+- Not in the model (Gabriel, 2026-10-21). The term was made from the
+  residual that it removes, on the same data, so passing the inclusion rule
+  does not show that it is real; a rank indicator ("first") also mixes the
+  rank of the flash with its time after the exit (0 to 250 ms), and a
+  modifier cannot shift latency. The result is reported as a
+  characterization (`first_flash_after_exit.py`). The term and the grid were
+  removed from the code; they are in the git history (`46d3d7d`, `0f4e510`).
+  A term for this must have its form set in advance and be tested on data
+  that did not choose it.
 
 ## Moved from glm.md (2026-10-17)
 

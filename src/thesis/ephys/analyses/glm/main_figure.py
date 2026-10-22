@@ -109,7 +109,6 @@ REGRESSORS = {
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × after exit", VISUAL),
-    "first_flash_after_exit": ("first flash after exit", VISUAL),
     "fixation": ("pre-stimulus", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
@@ -285,17 +284,6 @@ def design_rows(components: int) -> list[tuple]:
                 "flashes after the exit",
             )
         )
-    if dmat.FIRST_FLASH_AFTER_EXIT_TERM:
-        rows.append(
-            (
-                "first_flash_after_exit",
-                dmat.FIRST_FLASH_BASES,
-                "flash",
-                "first after",
-                None,
-                "the first flash after the exit",
-            )
-        )
     if dmat.FIXATION_COLUMN:
         rows.append(("fixation", 1, "span", entry, 0.0, "entry to first flash"))
     if dmat.HOLD_KERNEL:
@@ -384,7 +372,6 @@ def _plot_design(axis, components: int) -> None:
         "short": flashes[gaps <= edge],
         "long": flashes[gaps > edge],
         "after": flashes[flashes >= leave],
-        "first after": flashes[flashes >= leave][:1],
     }
     # Before the entry no event term is on: the baseline of the event kernels.
     axis.axvspan(start, entry, color=REFERENCE_COLOR, alpha=0.15, lw=0)
