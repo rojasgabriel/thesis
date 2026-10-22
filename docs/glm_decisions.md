@@ -730,6 +730,26 @@ evidence, the side column, flash × move × gap). The comparisons of
 `matched_flashes.py` that no figure reads are gone too. All of them are in
 the git history.
 
+### First flash after the exit, candidate, 2026-10-21
+
+The model missed only the response to the first flash after the exit
+(`first_flash_after_exit.py`). A third flash kernel, 1 for the first flash at
+or after the exit (`dmat.FIRST_FLASH_AFTER_EXIT_TERM`, the flash basis), was
+added to the design in use and fit on all units (`candidate_terms.py`, fits in
+`<session>_first_flash_after_exit`).
+
+- It passes both inclusion tests in both mice: 59 of 167 and 30 of 76 units
+  need it (35% and 39%; Holm p < 0.001). All other regressors still pass.
+  Median D² is 0.0719 and 0.0748 (0.072 and 0.075 without it).
+- The miss at the first flash after the exit falls from +0.93 / +0.65 to
+  +0.63 / +0.38 (p = 0.003 / 0.022); the other flashes stay near 0. With a flash
+  minus with no flash: +1.13 / −0.19, pooled +0.41 (−0.26 to 0.92).
+- The fitted first response is almost as high as the observed one, but it
+  peaks about 10 ms later (about 45 against 35 ms). The flash basis has 8
+  cosines over 150 ms, about 21 ms apart.
+- Not yet in the model: by the inclusion rule it belongs there, and the form
+  of its kernel has no grid yet. Decision open (Gabriel).
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
