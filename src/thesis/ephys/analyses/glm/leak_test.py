@@ -394,14 +394,13 @@ def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> di
     return entry
 
 
-def comparison_statistics(out: Path) -> dict:
-    """Return real minus leak in the main comparison, by gap class and unit group.
+def comparison_values(out: Path) -> dict:
+    """Return the per-unit values of the main comparison, by subject.
 
-    Normalized peak changes, as in `flash_movement.py`. "final refit": the real
-    part of the final refit minus the leak; "held out": the real part of
-    `flash_movement.json` (held-out folds) minus the same leak. Within each
-    mouse, a two-sided Wilcoxon signed-rank test over units; pooled, the median
-    with a hierarchical bootstrap (mice, then units).
+    Normalized, (unit, gap) for each of "real (final refit)", "leak" (the
+    mean over simulations) and "real (held out)" (from `flash_movement.json`),
+    with the unit ids, the excited units of `raw_video_trust_classification.json`,
+    and the simulated fixation level.
     """
     excited = json.loads((out / "raw_video_trust_classification.json").read_text())
     report = json.loads((out / "flash_movement.json").read_text())["sessions"]
@@ -412,6 +411,7 @@ def comparison_statistics(out: Path) -> dict:
             ids = saved["unit_ids"].tolist()
             real = saved["real_comparison"]  # (unit, gap)
             leak = saved["leak_comparison"].mean(1)
+            level = saved["simulated_level"]
         held = report[subject]
         peaks_by_unit = dict(
             zip(
@@ -428,7 +428,22 @@ def comparison_statistics(out: Path) -> dict:
             "real (final refit)": real,
             "leak": leak,
             "real (held out)": held_out,
+            "unit_ids": ids,
+            "level": level,
         }
+    return values
+
+
+def comparison_statistics(out: Path) -> dict:
+    """Return real minus leak in the main comparison, by gap class and unit group.
+
+    Normalized peak changes, as in `flash_movement.py`. "final refit": the real
+    part of the final refit minus the leak; "held out": the real part of
+    `flash_movement.json` (held-out folds) minus the same leak. Within each
+    mouse, a two-sided Wilcoxon signed-rank test over units; pooled, the median
+    with a hierarchical bootstrap (mice, then units).
+    """
+    values = comparison_values(out)
     stats = {}
     for group in ("excited units", "all units"):
         for index, gap in enumerate(flash_movement.GAP_LABELS):

@@ -114,7 +114,7 @@
 - Early withdrawal: after-exit rate, early/completed, is 1.01 / 0.98. GRB064 has a separate 78-unit selection for this model-free control.
 - Fixation versus flash importance: ρ = −0.084 / −0.194 (p = 0.28 / 0.093); there is no clear correlation.
 - Main-model checks: largest group GVIF^(1/p) is 3.4 / 3.9; largest condition index is 8.4 / 9.9. Split-half agreement among units that need each term is 0.72 / 0.74 for turn and 0.90 / 0.94 for fixation. Agreement is 1 − ‖a − b‖² / (‖a‖² + ‖b‖²). Read spike-history kernels only in units firing at least 5 spikes/s.
-- Leak correction: three simulations per unit, with the raw flash × exit regressor at zero and the in-port baseline held fixed. Corrected kernel p = 0.0068 / 1.0 × 10⁻⁶. Peak panels show −15 to 25 spikes/s: three units per mouse are outside g; three / four are outside h. All values enter tests and intervals.
+- Leak correction: three simulations per unit, with the raw flash × exit regressor at zero and the in-port baseline held fixed. Corrected kernel p = 0.0068 / 1.0 × 10⁻⁶. Panels g–i use the measure of the main comparison (peak change over the mean rate of the unit; held-out real part) and show −3 to 4: two GRB006 units are outside g and two outside h; none in GRB064. All values enter tests and intervals.
 - Side index: (right rate − left rate) / (right rate + left rate), from 100 ms after exit to response entry; require at least 50 ms per trial. Positive means right preference. Trial-bootstrap intervals are shown on both axes, conditional on saved predictions.
 
 ### Data
