@@ -762,7 +762,7 @@ on all units (`candidate_terms.py`, fits in `<session>_first_flash_after_exit`).
   A term for this must have its form set in advance and be tested on data
   that did not choose it.
 
-### Banded ridge, set up 2026-10-22 (grid not run)
+### Banded ridge, 2026-10-22 and 2026-10-23
 
 The weaker fixation penalty changes the GRB006 flash × after exit result
 (`penalty_sensitivity.py`), and its factor of 10 was chosen by hand. Decided
@@ -786,6 +786,19 @@ al. 2022).
 - Prediction was flat for the fixation penalty, so the grid may keep 1 for
   every band; that result would show by a fixed rule that the data do not
   choose the penalties.
+- Result (2026-10-23, `band_grid/comparison.json` in the GRB006 session
+  directory, 80 units): no factor predicts reliably better. Three predict
+  reliably worse: flash ×1/3 (median −0.0010, 23 of 80 units better, Holm
+  p = 7e-5), flash ×10 (−0.0001, 34 of 80, p = 0.017) and task ×1/3 (−0.0006,
+  27 of 80, p = 0.003). Task ×3 and ×10 and every nuisance factor do not
+  differ (Holm p = 1). So every band keeps 1: one penalty for all terms is the
+  choice of the rule, step 2 and a refit are not needed, and the model does
+  not change.
+- The task band is not identified by prediction: a penalty 100 times weaker
+  on the whole band predicts the same (p = 1). So the size of the task
+  kernels, as of the fixation kernel alone, depends on a penalty that the
+  data do not choose; the weaker-fixation-penalty fit stays the sensitivity
+  analysis.
 
 ## Moved from glm.md (2026-10-17)
 
