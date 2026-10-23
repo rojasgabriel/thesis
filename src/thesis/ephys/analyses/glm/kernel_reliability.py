@@ -103,7 +103,7 @@ def agreement(first: np.ndarray, second: np.ndarray) -> np.ndarray:
 
 def fit_session(subject: str, session: str, unit_set: str, workers: int) -> None:
     """Fit each unit of one session on the two halves; write the `.npz` and `.json`."""
-    model = cli.PoissonGLM(subject, session, Path(f"figures/glm/{subject}_{session}"))
+    model = cli.PoissonGLM(subject, session, Path(f"results/glm/{subject}_{session}"))
     checkpoints = model.fit_dir(unit_set) / "checkpoints"
     final = {
         int(item["unit_id"]): item

@@ -40,7 +40,7 @@ the same bins, `SEED`) have the same bias. The miss is observed minus model
   stimulus train. Two mice.
 
 The script writes `first_flash_after_exit.svg` and
-`first_flash_after_exit.json` in `figures/glm/`.
+`first_flash_after_exit.json` in `results/glm/`.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \\
         thesis.ephys.analyses.glm.first_flash_after_exit

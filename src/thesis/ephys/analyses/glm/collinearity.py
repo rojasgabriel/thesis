@@ -49,7 +49,7 @@ for each unit.
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script writes `collinearity.json` in
-`figures/glm/` and `collinearity.npz` in each session directory.
+`results/glm/` and `collinearity.npz` in each session directory.
 
     uv run python -m thesis.ephys.analyses.glm.collinearity
 """
@@ -160,7 +160,7 @@ def group_statistics(correlation: np.ndarray, groups: dict[str, slice]) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()

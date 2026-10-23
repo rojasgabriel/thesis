@@ -54,6 +54,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
+    figure_path,
     hierarchical_interval,
     pooled_points,
 )
@@ -275,13 +276,15 @@ def plot(sessions, arrays, output):
                     ]
                 ),
             }
-        levels.savefig(output / "raw_video_kernel_levels.svg", bbox_inches="tight")
+        levels.savefig(
+            figure_path(output / "raw_video_kernel_levels.svg"), bbox_inches="tight"
+        )
         plt.close(levels)
     return pooled
 
 
 def main():
-    output = Path("figures/glm")
+    output = Path("results/glm")
     results, arrays = zip(
         *(session_kernels(output / name) for name in SESSIONS), strict=True
     )

@@ -240,9 +240,24 @@ def label_panels(axes, x: float = -0.14, y: float = 1.05) -> None:
         )
 
 
+def figure_path(path: Path) -> Path:
+    """Return where a figure file goes: `results/...` maps to `figures/...`.
+
+    Analyses write their data (fits, caches, tables) under `results/` and their
+    figures and captions in the same place under `figures/`, so each module
+    keeps one output root.
+    """
+    # ponytail: one prefix rule; give the modules a figure root if layouts diverge.
+    path = Path(path)
+    if not path.is_absolute() and path.parts[:1] == ("results",):
+        path = Path("figures", *path.parts[1:])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def save_figure(figure, output: Path) -> Path:
-    """Save as SVG next to any older PDF or PNG of the same name, and close."""
-    output.parent.mkdir(parents=True, exist_ok=True)
+    """Save as SVG in the figure tree (`figure_path`), and close."""
+    output = figure_path(output)
     svg = output.with_suffix(".svg")
     figure.savefig(svg, bbox_inches="tight")
     plt.close(figure)

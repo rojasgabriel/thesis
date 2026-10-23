@@ -55,6 +55,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
+    figure_path,
     hierarchical_interval,
     pooled_strip,
 )
@@ -439,7 +440,7 @@ def plot(sessions, output):
             for tick in ax.get_xticklabels():
                 if tick.get_text() == "+ raw video":
                     tick.set_color(MODEL_COLOR)
-        fig.savefig(output / "raw_video_trust.svg", bbox_inches="tight")
+        fig.savefig(figure_path(output / "raw_video_trust.svg"), bbox_inches="tight")
         plt.close(fig)
     return pooled
 
@@ -449,7 +450,7 @@ def main():
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--plot-only", action="store_true")
     args = parser.parse_args()
-    output = Path("figures/glm")
+    output = Path("results/glm")
     summary_path = output / "raw_video_trust.json"
     if args.plot_only:
         report = json.loads(summary_path.read_text())

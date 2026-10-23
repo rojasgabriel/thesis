@@ -21,7 +21,7 @@ database events or use AVI presentation timestamps.
 
     uv run python -m thesis.ephys.preprocessing.audit_camera_pulses \
         --subject GRB064 --session 20260916_132939 \
-        --output figures/glm/GRB064_20260916_132939/camera_pulses.json
+        --output results/glm/GRB064_20260916_132939/camera_pulses.json
 """
 
 from __future__ import annotations

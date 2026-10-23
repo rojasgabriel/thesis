@@ -91,6 +91,7 @@ from thesis.ephys.analyses.glm.main_figure import REGRESSORS, TASK, VISUAL
 from thesis.plotting import (
     FIGURE_STYLE,
     REFERENCE_COLOR,
+    figure_path,
     hierarchical_interval,
     label_panels,
     pooled_points,
@@ -147,7 +148,7 @@ after exit effect. **h**, Real minus leak at the two gap classes. {leak}
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     args = parser.parse_args()
     stats = {}
     rng = np.random.default_rng(0)
@@ -554,7 +555,7 @@ def main() -> None:
         print(save_figure(figure, args.out / "model_trust"))
     recovery_stats = json.loads((args.out / "parameter_recovery.json").read_text())
     (args.out / "model_trust_stats.json").write_text(json.dumps(stats, indent=1))
-    (args.out / "model_trust_caption.md").write_text(
+    figure_path(args.out / "model_trust_caption.md").write_text(
         CAPTION.format(
             subject=subjects[0],
             held_out=subjects[1],
