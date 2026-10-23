@@ -30,7 +30,7 @@ pipeline
   uv run glm fit --units all         penalty, cross-validation, refit, summary
   uv run glm unique --units all      deviance per regressor, example figures
 
-Artifacts go to figures/glm/<subject>_<session>/. Restart checkpoints stay in
+Artifacts go to results/glm/<subject>_<session>/. Restart checkpoints stay in
 the fit directory's checkpoints/ folder; figures stay in that fit directory.
 Use --units sample for a 20-unit smoke run. The example unit is unit 197 if it
 was fit, else the unit whose flash kernel explains the most deviance per second.
@@ -57,7 +57,7 @@ class PoissonGLM:
 
     subject: str = "GRB006"
     session: str = "20240821_121447"
-    root: Path = Path("figures/glm/GRB006_20240821_121447")
+    root: Path = Path("results/glm/GRB006_20240821_121447")
 
     @property
     def windows(self) -> Path:
@@ -145,7 +145,7 @@ def main() -> None:
         command.add_argument(
             "--root",
             type=Path,
-            help="Artifact directory. Defaults to figures/glm/<subject>_<session>.",
+            help="Artifact directory. Defaults to results/glm/<subject>_<session>.",
         )
         if name == "prepare":
             continue
@@ -167,7 +167,7 @@ def main() -> None:
     model = PoissonGLM(
         subject=args.subject,
         session=args.session,
-        root=args.root or Path("figures/glm") / f"{args.subject}_{args.session}",
+        root=args.root or Path("results/glm") / f"{args.subject}_{args.session}",
     )
     with _artifact_lock(model.root):
         if args.command == "prepare":

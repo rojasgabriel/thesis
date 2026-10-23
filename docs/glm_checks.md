@@ -232,7 +232,7 @@ nice -n 10 uv run glm unique --units all --workers 2
 - Defaults are GRB006. Repeat with --subject GRB064 --session 20260916_132939.
 - Before first prepare, supply frame_times.npy and one local cam0 video. The camera-pulse audit helper is specific to GRB006.
 - Sample mode uses 20 fixed units, seed 20260914; sample1, sample2, … use disjoint groups.
-- Outputs: `figures/glm/<subject>_<session>/`. Restart records: `all_fit_me/checkpoints/`.
+- Outputs: data (fits, designs, caches, result tables) in `results/glm/<subject>_<session>/` and `results/glm/`; figures and captions at the same paths under `figures/glm/`. Restart records: `all_fit_me/checkpoints/`. The trial and unit cache stays in `figures/cache` (`THESIS_CACHE_DIR`).
 - Preserve affected designs/checkpoints before changing inputs. Design reuse checks do not detect every basis or input change.
 - Figures read completed fits and control arrays. The main document uses flash_movement (observations and matched held-out rate predictions) and main_figure; the other commands below draw supporting views:
 

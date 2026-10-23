@@ -56,7 +56,7 @@ Absolute peaks and statistics remain in the report. Supporting kernel
 scatters stay linear because their values are already changes in log rate.
 
 Writes flash_observation.svg, flash_comparison.svg, flash_model.svg (supporting), PNG previews, and
-flash_movement.json under figures/glm. Older working figures remain intact.
+flash_movement.json under results/glm. Older working figures remain intact.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
         thesis.ephys.analyses.glm.flash_movement
@@ -89,7 +89,7 @@ from thesis.ephys.analyses.glm.results import flash_kernel_at, raw_contribution
 from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
 from thesis.ephys.units import fetch_unit_table
 
-OUTPUT = Path("figures/glm")
+OUTPUT = Path("results/glm")
 GAPS_MS = (100, 40)
 GAP_LABELS = ("preceding gap ≥80 ms", "preceding gap 40 ms")
 PERIOD_COLORS = ("C0", "C1")
@@ -537,7 +537,6 @@ def match_scatter_limits(axes):
 
 
 def write_figure(figure, name):
-    figure.savefig(OUTPUT / f"{name}.png", dpi=180, bbox_inches="tight")
     print(save_figure(figure, OUTPUT / name))
 
 

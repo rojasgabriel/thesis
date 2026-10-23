@@ -842,7 +842,7 @@ def _direction(p_value: float, ratio: float) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument(
         "--fit",
@@ -860,7 +860,8 @@ def main() -> None:
 
     raw = {
         name: [
-            json.loads((args.out.parent / name / session / f"{name}.json").read_text())
+            # The model-free controls are not GLM outputs; they stay in figures/<name>.
+            json.loads((Path("figures") / name / session / f"{name}.json").read_text())
             for session in SESSIONS
         ]
         for name in (ONSET_NAME, EXIT_NAME)
@@ -1116,7 +1117,7 @@ def main() -> None:
 
     stats = {s: data["stats"] for s, data in zip(SESSIONS, sessions, strict=True)}
     stats["rate over the rate before the entry, long delays (panel e)"] = onset_stats
-    output.with_name("hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
+    (args.out / "hold_effect_stats.json").write_text(json.dumps(stats, indent=1))
     first, other = sessions[0]["subject"], sessions[1]["subject"]
     st = lambda data: data["stats"]  # noqa: E731
     paired_text = " ".join(

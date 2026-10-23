@@ -41,6 +41,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
+    figure_path,
     hierarchical_interval,
     pooled_points,
     pooled_strip,
@@ -138,7 +139,7 @@ def prepare(root: Path) -> Path:
                     f"raw pc {i + 1}: {100 * data['explained_variance_ratio'][i]:.1f}%",
                     transform=ax.transAxes,
                 )
-            fig.savefig(output / "raw_components.svg", bbox_inches="tight")
+            fig.savefig(figure_path(output / "raw_components.svg"), bbox_inches="tight")
             plt.close(fig)
     matrix = np.lib.format.open_memmap(
         design_path,
@@ -266,7 +267,7 @@ def plot(sessions: list[dict], output: Path) -> dict:
         axes[1].set(xticks=[], xlim=(-0.25, 0.48), ylabel="change in held-out D²")
         for letter, axis in zip("ab", axes, strict=True):
             axis.text(-0.15, 1.06, letter, weight="bold", transform=axis.transAxes)
-        fig.savefig(output / "raw_video_test.svg", bbox_inches="tight")
+        fig.savefig(figure_path(output / "raw_video_test.svg"), bbox_inches="tight")
         plt.close(fig)
     return pooled
 
@@ -278,19 +279,19 @@ def main():
     args = parser.parse_args()
     results = []
     for session in SESSIONS:
-        root = Path("figures/glm") / session
+        root = Path("results/glm") / session
         design = prepare(root)
         if not args.prepare_only:
             results.append(compare(root, design, args.workers))
     if results:
-        pooled = plot(results, Path("figures/glm"))
+        pooled = plot(results, Path("results/glm"))
         report = {
             "comparison": "10 motion-energy PCs versus those PCs plus 10 raw-video PCs",
             "preprocessing": "original training split, not nested within folds",
             "pooled_d2_change": pooled,
             "sessions": results,
         }
-        Path("figures/glm/raw_video_test.json").write_text(json.dumps(report, indent=2))
+        Path("results/glm/raw_video_test.json").write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))
 
 

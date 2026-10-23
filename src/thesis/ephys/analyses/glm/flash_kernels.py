@@ -92,7 +92,7 @@ def session_kernels(root: Path, unit_set: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     for session in SESSIONS:

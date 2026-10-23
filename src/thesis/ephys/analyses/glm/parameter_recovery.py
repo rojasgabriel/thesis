@@ -39,7 +39,7 @@ paired: each unit has the error of each fit, on the same simulated spikes.
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script writes `parameter_recovery.json`
-in `figures/glm/`; `model_trust.py` draws the recovery. The design under test is built
+in `results/glm/`; `model_trust.py` draws the recovery. The design under test is built
 in a work directory there and removed at the end.
 
     uv run python -m thesis.ephys.analyses.glm.parameter_recovery
@@ -189,7 +189,7 @@ def _unit(job: dict) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--grid", default="hold_grid", help="Grid module.")
     parser.add_argument("--design", default="fine\nkernel", help="Name in its DESIGNS.")

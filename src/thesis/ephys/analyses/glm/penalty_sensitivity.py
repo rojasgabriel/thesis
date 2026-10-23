@@ -42,7 +42,7 @@ from thesis.ephys.analyses.glm import cli, dmat, flash_movement, grid, leak_test
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 
-MAIN = Path("figures/glm")
+MAIN = Path("results/glm")
 OUT = MAIN / "weaker_fixation_penalty"
 SCALE = 10.0
 CLASSES = "raw_video_trust_classification.json"

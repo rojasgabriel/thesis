@@ -39,7 +39,7 @@ from thesis.plotting import FIGURE_STYLE, label_panels, save_figure
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     args = parser.parse_args()
     task = dmat.task_temporal_bases()
     flash, hold = task[dmat.gap_flash_terms()[0]], task["hold"]

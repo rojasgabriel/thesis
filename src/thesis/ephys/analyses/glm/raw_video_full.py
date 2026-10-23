@@ -43,7 +43,13 @@ from thesis.ephys.analyses.glm import raw_video_kernels as kernels
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.inclusion import holm
 from thesis.ephys.analyses.glm.raw_video_test import compare, fingerprint, plot, prepare
-from thesis.plotting import FIGURE_STYLE, MODEL_COLOR, REFERENCE_COLOR, pooled_strip
+from thesis.plotting import (
+    FIGURE_STYLE,
+    MODEL_COLOR,
+    REFERENCE_COLOR,
+    figure_path,
+    pooled_strip,
+)
 
 
 def guard(path, inputs):
@@ -200,7 +206,7 @@ def split_plot(sessions, arrays, output):
             ax.get_xticklabels()[1].set_color(MODEL_COLOR)
             lo, hi = ax.get_ylim()
             ax.set_ylim(lo - 0.08 * (hi - lo), hi + 0.15 * (hi - lo))
-        fig.savefig(output / "split_half.svg", bbox_inches="tight")
+        fig.savefig(figure_path(output / "split_half.svg"), bbox_inches="tight")
         plt.close(fig)
     return pooled
 
@@ -210,7 +216,7 @@ def main():
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--plot-only", action="store_true")
     args = parser.parse_args()
-    output = Path("figures/glm/raw_video_full")
+    output = Path("results/glm/raw_video_full")
     output.mkdir(exist_ok=True)
     if args.plot_only:
         comparisons = json.loads((output / "prediction.json").read_text())["sessions"]
@@ -233,7 +239,7 @@ def main():
         return
     comparisons, split_stats, split_arrays, task_stats, task_arrays = [], [], [], [], []
     for session in SESSIONS:
-        root = Path("figures/glm") / session
+        root = Path("results/glm") / session
         design = prepare(root)
         destination = root / "raw_video_test/all_fit_raw"
         destination.mkdir(exist_ok=True)

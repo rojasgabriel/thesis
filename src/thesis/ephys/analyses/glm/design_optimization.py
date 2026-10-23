@@ -79,7 +79,13 @@ from thesis.ephys.analyses.glm import (
 )
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.main_figure import DRIFT_COLOR, MOTION, TASK, VISUAL
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
+from thesis.plotting import (
+    FIGURE_STYLE,
+    REFERENCE_COLOR,
+    figure_path,
+    label_panels,
+    save_figure,
+)
 
 # name of the grid: (its module, the parameterization in use, color, x label)
 GRIDS = {
@@ -325,7 +331,7 @@ def main() -> None:
     (args.root / "design_optimization_stats.json").write_text(
         json.dumps(stats, indent=1)
     )
-    (args.root / "design_optimization_caption.md").write_text(
+    figure_path(args.root / "design_optimization_caption.md").write_text(
         CAPTION.format(
             units=first["units"],
             sets=first["units"] // 20,

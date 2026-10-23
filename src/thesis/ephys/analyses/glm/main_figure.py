@@ -665,7 +665,7 @@ def session_population(root: Path, unit_set: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     # The example unit is from the first session; the population panels are
@@ -762,7 +762,7 @@ def main() -> None:
             top_edge = axis.get_position().y1 + (0.06 if axis is population else 0.02)
             figure.text(left, top_edge, letter, fontweight="bold", fontsize=10)
         output = save_figure(figure, args.out / "main_figure")
-    output.with_name("main_figure_stats.json").write_text(
+    (args.out / "main_figure_stats.json").write_text(
         json.dumps(
             {
                 name: {

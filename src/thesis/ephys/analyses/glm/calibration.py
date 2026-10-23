@@ -22,7 +22,7 @@ the observed spike count over the predicted count; 1 is a calibrated model.
 
 The ratios of each fit are saved in `calibration.npz` in its fit directory and
 not computed again. The script writes `calibration.svg` and `calibration.json`
-in `figures/glm/`.
+in `results/glm/`.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \\
         thesis.ephys.analyses.glm.calibration

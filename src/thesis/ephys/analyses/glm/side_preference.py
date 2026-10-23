@@ -59,6 +59,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
     REFERENCE_COLOR,
+    figure_path,
     hierarchical_interval,
     pooled_points,
 )
@@ -299,14 +300,14 @@ def plot_sessions(sessions: list[dict], output: Path, raw_video: bool = False) -
             ax.text(
                 -0.16, 1.06, "ab"[column - 1], transform=ax.transAxes, weight="bold"
             )
-        fig.savefig(output / "side_preference.svg", bbox_inches="tight")
+        fig.savefig(figure_path(output / "side_preference.svg"), bbox_inches="tight")
         plt.close(fig)
     return pooled
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("figures/glm"))
+    parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--raw-video", action="store_true")
     args = parser.parse_args()
     sessions = [
