@@ -39,8 +39,8 @@ gaps and between periods are paired: each unit has a value in each condition.
   the band goes to the longest one.
 - Measure in the output: the matched peak of `peaks.py` (spikes/s; baseline
   from the still rate before the flash), for each gap group, in the port and after the exit,
-  on the observed rate and the model rate, for the excited units of
-  StimulusResponse; and the two-sided Wilcoxon signed-rank test of move minus
+  on the observed rate and the model rate, for the flash-excited units of
+  `raw_video_trust_classification.json` (StimulusResponse of 2026-10-18); and the two-sided Wilcoxon signed-rank test of move minus
   still for each gap group. The traces are of all units of each kind, as
   above.
 - The units of both mice are pooled in the traces (the title gives the units
@@ -195,8 +195,11 @@ def session_traces(root: Path, unit_set: str) -> dict:
             model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
         )
     }
-    excited = peaks.excited_units(
-        prepared["metadata"]["subject_name"], prepared["metadata"]["session_name"]
+    # The saved flash-excited units, the same as in every other figure.
+    excited = set(
+        json.loads((root.parent / "raw_video_trust_classification.json").read_text())[
+            root.name
+        ]
     )
     in_peak = lags < peaks.PEAK_MS[1]  # the bins of the matched peak
     out = {key: [] for key in ("trace", "kind", "peak")}
