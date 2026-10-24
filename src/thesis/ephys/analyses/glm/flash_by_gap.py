@@ -40,7 +40,7 @@ gaps and between periods are paired: each unit has a value in each condition.
 - Measure in the output: the matched peak of `peaks.py` (spikes/s; baseline
   from the still rate before the flash), for each gap group, in the port and after the exit,
   on the observed rate and the model rate, for the flash-excited units of
-  `raw_video_trust_classification.json` (StimulusResponse of 2026-10-18); and the two-sided Wilcoxon signed-rank test of move minus
+  `raw_video_trust_classification.json` (StimulusResponse of 2026-10-24, after the gain fix); and the two-sided Wilcoxon signed-rank test of move minus
   still for each gap group. The traces are of all units of each kind, as
   above.
 - The units of both mice are pooled in the traces (the title gives the units

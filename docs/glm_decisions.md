@@ -855,6 +855,30 @@ the gain fix), design of 2026-10-23. Validation D², paired against 10 PCs
 - Kept: 10 PCs. More PCs need a separate video penalty and add no
   prediction.
 
+### Units after the amplifier-gain fix, 2026-10-24
+
+The unit metrics used an amplifier gain of ×80; the correct gain is ×100. The
+lab fixed it, and Joao Couto recomputed `UnitCount` with labdata 0.1.25: noise
+units get `passes = -1`, and the criteria use abs(depth drift) < 6. The
+project criteria (`populate_unit_counts.py`) now match the database, and
+`UnitStability` and `StimulusResponse` were populated again.
+
+- Units: 168 → 173 / 78 → 81 stable (172 / 79 fit after exclusions); no unit
+  was lost. Flash-excited: 23 → 30 / 15 → 15. Spike times, flash times and
+  classifier code did not change.
+- All fits added the new units (the old records were kept); every check and
+  figure was run again. The old cache, lists and results are in
+  `results/glm/_before_gain_fix_2026_10_24/`. The raw-video control was not run
+  again (design of 2026-10-17).
+- Effects: 0.549 / 0.475 bits per spike (from 0.552 / 0.485); all 12 terms
+  pass. Result 3 in GRB006: observed 2.63 → 2.33, full model 1.98 → 1.73,
+  leak-corrected flash × exit +0.54 → +0.76 (p = 0.23; median +0.17), pooled
+  +0.07 → +0.14 (−0.19 to 0.29). GRB064 is the same. The conclusions do not
+  change.
+- Found during the rerun: the recovery fit of `flash_recovery.py` has c at its
+  bound of 1.5; with c free, τ = 54 ms (not 118 ms). The model term keeps
+  τ = 120 ms until a decision ([recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)).
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
