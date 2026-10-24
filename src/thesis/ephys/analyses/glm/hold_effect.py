@@ -220,7 +220,6 @@ def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> 
     """Fit the design with some `dmat` attributes replaced, in a sibling directory."""
     root = source.with_name(source.name + suffix)
     model = cli.PoissonGLM(root=root)
-    directory = model.fit_dir(unit_set)
     root.mkdir(exist_ok=True)
     for name in INPUTS:
         if not (root / name).exists():
@@ -230,11 +229,9 @@ def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> 
     with dmat.switched(attributes):
         if not model.design.exists():
             dmat.prepare_common_design(model.windows, model.video, model.design)
-        # Each stage keeps its finished units, so a stopped fit goes on.
-        checkpoints = directory / "checkpoints"
-        finals = len(list(checkpoints.glob("unit_*_final.json")))
-        if not finals or finals < len(list(checkpoints.glob("unit_*_validation.json"))):
-            model.fit(unit_set)
+        # Each stage reuses its finished units, so this fits only the units
+        # that are new or stopped (for example after a change of unit table).
+        model.fit(unit_set)
     return root
 
 
