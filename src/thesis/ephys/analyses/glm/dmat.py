@@ -543,16 +543,32 @@ def flash_gaps(trials) -> np.ndarray:
     return np.concatenate(gaps_by_trial)
 
 
+def recovery_value(gaps_s, center: float) -> np.ndarray:
+    """Return the value of the recovery term at each gap (s), for a design center.
+
+    r = 1 - exp(-gap / FLASH_RECOVERY_TAU_S) minus the center, for a gap above
+    `short_gap_s()`; 0 for a short gap. An infinite gap (the first flash of a
+    trial) has r = 1.
+    """
+    gaps = np.asarray(gaps_s, dtype=float)
+    recovered = 1 - np.exp(-gaps / FLASH_RECOVERY_TAU_S)
+    return np.where(gaps > short_gap_s(), recovered - center, 0.0)
+
+
+def recovery_center(trials) -> float:
+    """Return the mean recovery r of the long-gap modeled flashes of a session."""
+    gaps = flash_gaps(trials)
+    long = gaps > short_gap_s()
+    return float(np.mean(1 - np.exp(-gaps[long] / FLASH_RECOVERY_TAU_S)))
+
+
 def flash_recovery(trials) -> np.ndarray:
     """Return the centered recovery value of each modeled flash (`FLASH_RECOVERY`).
 
-    In the order of `flash_events`: r = 1 - exp(-gap / FLASH_RECOVERY_TAU_S)
-    minus its mean, for a flash with a gap above `short_gap_s()`; 0 otherwise.
+    In the order of `flash_events`; the center is `recovery_center`, saved in
+    the design metadata so that the kernels can be read at any gap.
     """
-    gaps = flash_gaps(trials)
-    long = gaps > short_gap_s()
-    recovered = 1 - np.exp(-gaps / FLASH_RECOVERY_TAU_S)  # 1 for an infinite gap
-    return np.where(long, recovered - recovered[long].mean(), 0.0)
+    return recovery_value(flash_gaps(trials), recovery_center(trials))
 
 
 def flash_events(trials) -> np.ndarray:
@@ -1049,6 +1065,10 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "training_scale": base_scale.tolist() + video_scale,
         "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
         "hold_penalty_scale": HOLD_PENALTY_SCALE,
+        "flash_recovery_center": recovery_center(trials)
+        if FLASH_RECOVERY_TERM
+        else None,
+        "flash_recovery_tau_s": FLASH_RECOVERY_TAU_S if FLASH_RECOVERY_TERM else None,
         "band_scales": BAND_SCALES,
     }
     matrix.flush()

@@ -24,6 +24,7 @@ from thesis.ephys.analyses.glm.dmat import (
     FLASH_GAP_EDGES_S,
     FLASH_JUST_BEFORE,
     FLASH_JUST_BEFORE_S,
+    FLASH_RECOVERY,
     HISTORY_COLUMNS,
     HOLD,
     RESPONSE_PERIOD,
@@ -35,6 +36,7 @@ from thesis.ephys.analyses.glm.dmat import (
     exit_basis,
     flash_events,
     flash_gap_names,
+    recovery_value,
     spike_history_basis,
     task_temporal_bases,
     training_zscore,
@@ -193,22 +195,31 @@ PERIOD_GAP_MS = 100
 
 def flash_condition_kernels(
     kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    recovery_center: float | None = None,
 ) -> dict[str, np.ndarray]:
     """Return the flash kernel of the model for some flashes (Δ log rate)."""
-    out = {f"gap_{gap}": flash_kernel_at(kernels, gap, False) for gap in FLASH_GAPS_MS}
-    out["fixation"] = flash_kernel_at(kernels, PERIOD_GAP_MS, False)
-    out["after_exit"] = flash_kernel_at(kernels, PERIOD_GAP_MS, True)
+    out = {
+        f"gap_{gap}": flash_kernel_at(kernels, gap, False, recovery_center)
+        for gap in FLASH_GAPS_MS
+    }
+    out["fixation"] = flash_kernel_at(kernels, PERIOD_GAP_MS, False, recovery_center)
+    out["after_exit"] = flash_kernel_at(kernels, PERIOD_GAP_MS, True, recovery_center)
     return out
 
 
 def flash_kernel_at(
-    kernels: dict[str, tuple[np.ndarray, np.ndarray]], gap_ms: float, after_exit: bool
+    kernels: dict[str, tuple[np.ndarray, np.ndarray]],
+    gap_ms: float,
+    after_exit: bool,
+    recovery_center: float | None = None,
 ) -> np.ndarray:
     """Return the flash kernel of the model for a flash at one gap and period.
 
     The kernel of the gap class of that gap (or, with no classes, the common
     kernel plus the flash-just-before kernel for a short gap), plus the flash ×
-    move kernel for a flash after the exit (coded 0 in the port, 1 after).
+    move kernel for a flash after the exit (coded 0 in the port, 1 after), plus
+    the recovery kernel times its value at that gap (`dmat.recovery_value`;
+    `recovery_center` is the `flash_recovery_center` of the design metadata).
     """
     gap_s = gap_ms / 1000
     classes = flash_gap_names()
@@ -220,6 +231,12 @@ def flash_kernel_at(
         by_gap = by_gap + kernels[FLASH_JUST_BEFORE][1]
     if after_exit and FLASH_AFTER_EXIT in kernels:
         by_gap = by_gap + kernels[FLASH_AFTER_EXIT][1]
+    if FLASH_RECOVERY in kernels:
+        if recovery_center is None:
+            raise ValueError("The recovery kernel needs the recovery center.")
+        by_gap = by_gap + kernels[FLASH_RECOVERY][1] * float(
+            recovery_value(gap_s, recovery_center)
+        )
     return by_gap
 
 
@@ -456,7 +473,9 @@ def write_figure_data(
     for name, values in events.items():
         arrays[f"event__{name}"] = values
     arrays["flash_lags"] = kernels[FLASH_AFTER_EXIT][0]
-    for name, values in flash_condition_kernels(kernels).items():
+    for name, values in flash_condition_kernels(
+        kernels, design_metadata.get("flash_recovery_center")
+    ).items():
         arrays[f"flashcond__{name}"] = values
     kernel_keys = list(kernels)
     for name, (kernel_times, kernel_values) in kernels.items():

@@ -206,12 +206,14 @@ def comparison_part(intercept: float, coefficients, history, width: int) -> np.n
 def measures(result: dict, history_scale: np.ndarray) -> np.ndarray:
     """Return after exit minus in port at each gap, and the fixation level, of one fit."""
     kernels = fitted_kernels(result, _SHARED["metadata"], history_scale)
+    center = _SHARED["metadata"].get("flash_recovery_center")
     lags = kernels[dmat.FLASH_AFTER_EXIT][0]
     window = (lags >= RESPONSE_MS[0]) & (lags < RESPONSE_MS[1])
     out = [
-        (flash_kernel_at(kernels, gap, True) - flash_kernel_at(kernels, gap, False))[
-            window
-        ].mean()
+        (
+            flash_kernel_at(kernels, gap, True, center)
+            - flash_kernel_at(kernels, gap, False, center)
+        )[window].mean()
         for gap in GAPS_MS.values()
     ]
     time, hold = kernels[dmat.HOLD]

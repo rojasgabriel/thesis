@@ -285,6 +285,17 @@ def design_rows(components: int) -> list[tuple]:
                 "flashes after the exit",
             )
         )
+    if dmat.FLASH_RECOVERY_TERM:
+        rows.append(
+            (
+                "flash_recovery",
+                dmat.FLASH_BASES,
+                "flash",
+                "long",
+                None,
+                f"long gaps, × recovery (τ {1000 * dmat.FLASH_RECOVERY_TAU_S:.0f} ms)",
+            )
+        )
     if dmat.FIXATION_COLUMN:
         rows.append(("fixation", 1, "span", entry, 0.0, "entry to first flash"))
     if dmat.HOLD_KERNEL:
