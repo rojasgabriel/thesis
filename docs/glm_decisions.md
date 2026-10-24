@@ -878,9 +878,16 @@ project criteria (`populate_unit_counts.py`) now match the database, and
   mean leak is +0.26, as before); old unit 162 (+14.6) still dominates the mean.
   The median is the robust value. GRB064 is the same. The conclusions do not
   change.
-- Found during the rerun: the recovery fit of `flash_recovery.py` has c at its
-  bound of 1.5 and fits worse (χ² 11.1 against 4.0 on 4 df); with c free,
-  τ = 54 ms (about 11 to 97). The model term keeps τ = 120 ms until a decision ([recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)).
+- Found during the rerun: the recovery fit of `flash_recovery.py` had c at a
+  bound of 1.5 (no recorded reason), which set τ to about 120 ms. With c free,
+  τ = 54 ms (29 to 91), 0 up to 68 ms, and a better fit (χ² 4.0 against 11.1
+  on 4 df). `tau_grid.py` (80 grid units, rule fixed before the run): τ = 40,
+  60, 80 and 160 ms predict the same as 120 ms (Holm p ≥ 0.72), so the model
+  keeps τ = 120 ms.
+- The early-withdrawal trials of the cached GRB006 trial table
+  (`figures/cache`, 2026-10-13) have no flash times (the database has them
+  for 207 of 209); completed trials are the same. The GLM uses completed
+  trials only. `exit_without_stimulus` for GRB006 was run from the database.
 
 ## Moved from glm.md (2026-10-17)
 

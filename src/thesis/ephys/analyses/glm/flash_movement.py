@@ -548,6 +548,7 @@ def write_figure(figure, name):
 def plot(sessions):
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(2, 2, figsize=(7.6, 6.1), layout="constrained")
+        axes[0, 1].sharey(axes[0, 0])  # one rate scale for both mice
         for axis, data in zip(axes[0], sessions, strict=True):
             unit_means = data["traces"][data["responsive"]]
             for period, (name, color) in enumerate(

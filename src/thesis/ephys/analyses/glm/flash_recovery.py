@@ -259,8 +259,14 @@ def main() -> None:
                 [40, 160, 280, 400, 520, 650],
                 ["40", "160", "280", "400", "520", "first\nof trial"],
             )
-            axis.set_ylim(0, max(mean + interval) * 1.25)
         axes[0].set_ylabel("flash peak (/ mean rate)")
+        # One scale for both mice.
+        top = max(
+            (p.mean(0) + 1.96 * p.std(0, ddof=1) / np.sqrt(len(p))).max()
+            for _, p in data.values()
+        )
+        for axis in axes:
+            axis.set_ylim(0, top * 1.25)
         label_panels(axes, x=-0.2, y=1.05)
         print(save_figure(figure, OUT / "flash_recovery"))
     (OUT / "flash_recovery.json").write_text(json.dumps(report, indent=1))
