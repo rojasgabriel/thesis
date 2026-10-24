@@ -36,7 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
-from thesis.ephys.analyses.glm import cli, dmat
+from thesis.ephys.analyses.glm import cli, dmat, unique_dev
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices, load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.hold_effect import _fit_variant
@@ -68,7 +68,10 @@ def main() -> None:
         # The unique step reads the bases of the design, so the switches stay on.
         with dmat.switched(switches):
             model.unique(args.units)
-    records = load_unit_records(unique_dir, "unit_*.json")
+    records = unique_dev.add_bits_per_spike(
+        load_unit_records(unique_dir, "unit_*.json"),
+        model.fit_dir(args.units) / "checkpoints",
+    )
     metadata = dmat._load_windows(cli.PoissonGLM(root=args.root).windows)["metadata"]
     table = fetch_unit_table(
         metadata["subject_name"],
@@ -95,7 +98,9 @@ def main() -> None:
     # Every regressor of the design (the broad group "task" is their sum).
     names = [name for name in records[0]["groups"] if name != "task"]
     fold_gains = {
-        name: [np.asarray(item["groups"][name]["folds"]["unique"]) for item in records]
+        name: [
+            np.asarray(item["groups"][name]["folds"]["unique_bits"]) for item in records
+        ]
         for name in names
     }
     tests = decide({name: regressor_tests(fold_gains[name]) for name in names})
@@ -113,6 +118,9 @@ def main() -> None:
     )
     full = np.asarray([item["complete_test_deviance_explained"] for item in records])
     stats["median_d2_of_the_design_with_all_candidates"] = float(np.median(full))
+    stats["median_bits_per_spike_of_the_design_with_all_candidates"] = float(
+        np.median([item["complete_bits_per_spike"] for item in records])
+    )
     output = args.root / f"candidate_terms{ROOT_SUFFIX}.json"
     output.write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
