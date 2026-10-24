@@ -178,7 +178,8 @@ FLASH_AFTER_EXIT_TERM = True
 # flash after the center exit "after exit", and this term "flash × after exit". These are
 # task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
-# Flash recovery, a candidate (`candidate_terms.py`, 2026-10-23): graded
+# Flash recovery (in the model from 2026-10-23; it passed the inclusion rule in
+# both mice, 25% and 29% of units, `candidate_terms.py`): graded
 # adaptation. The flash kernel scaled by the recovery r = 1 - exp(-gap / tau)
 # for a flash more than the short gap after the flash before (the first flash
 # of a trial has r = 1), centered on the mean r of those flashes, and 0 for a
@@ -186,7 +187,7 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # stays the response after a typical long gap, and this kernel is the change
 # per unit of recovery. tau is set in advance from the in-port flashes of
 # GRB006 (`flash_recovery.py`: 121 ms, 95% 88 to 157 ms; GRB064 alone 92 ms).
-FLASH_RECOVERY_TERM = False
+FLASH_RECOVERY_TERM = True
 FLASH_RECOVERY = "flash_recovery"
 FLASH_RECOVERY_TAU_S = 0.12
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
