@@ -19,6 +19,19 @@
 
 <a id="flash-exit-bias"></a>
 
+### Do the flash weights agree with the StimulusResponse table?
+
+- **Question:** the table calls a unit flash-excited from its raw response to the first flash of each trial (30–120 ms against −40–0 ms). Do the units it calls excited have positive flash weights in the model?
+- **Why:** a sanity check of the model (Joao Couto's suggestion). Both measures answer "does this unit respond to the flash?" by different methods.
+- **Finding:** units: the 172 / 79 GLM units. Data: the log rate ratio, recomputed from the spikes; it equals the stored `rate_delta` within 0.0001 spikes/s.
+  - **(a) Flash weights** (the flash kernel at the first flash, 30–120 ms): they separate the table's excited units from the other units (AUC **0.89** [0.82, 0.94] / **0.99** [0.96, 1.00]); Spearman ρ **0.61 / 0.80**. Only 2 of the 45 excited units (GRB006 units 7 and 27) have weights ≤ 0. The weights are smaller than the data response: the model gives a part of the first-flash response, mostly the drop in rate, to the fixation kernel, which starts at the same flash.
+  - **(b) All terms locked to the first flash** (flash kernel + fixation kernel − pre-stimulus step) fall near the identity line: ρ **0.86 / 0.95**, AUC **0.93 / 0.94**.
+  - So the model reproduces the first-flash response, and the flash weights carry its sign. The size is shared with the fixation kernel (the known leak; [penalty](#does-the-flash--exit-result-depend-on-the-penalty-of-the-fixation-kernel)).
+  - The table calls **88 / 36** units suppressed at the first flash, which is the fixation drop. With a 95% fold interval as the rule, the model calls about half of the table's excited units "not responsive" (15 of 30 / 7 of 15). The rule is stricter, not opposite: no excited unit is suppressed by the flash weights.
+- **Next:** none for the model.
+
+![Model flash response against the data first-flash response, by StimulusResponse class](../figures/glm/flash_weight_check.svg)
+
 ### Can the fit create an apparent flash × exit effect?
 
 - **Question:** can a fitted flash × exit effect appear when it is absent from simulated spikes?
@@ -263,6 +276,7 @@ uv run python -m thesis.ephys.analyses.glm.main_figure
 uv run python -m thesis.ephys.analyses.glm.hold_effect
 uv run python -m thesis.ephys.analyses.glm.flash_kernels  # unit kinds for flash_by_gap; no figure
 uv run python -m thesis.ephys.analyses.glm.flash_by_gap
+THESIS_CACHE_DIR=figures/cache uv run python -m thesis.ephys.analyses.glm.flash_weight_check
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.first_flash_after_exit
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.penalty_sensitivity  # refits both mice
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.calibration
