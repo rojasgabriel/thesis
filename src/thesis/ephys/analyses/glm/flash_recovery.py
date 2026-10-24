@@ -1,9 +1,9 @@
 """Estimate how fast V1 flash responses recover from adaptation.
 
 Question: the response to a flash depends on the gap from the flash before.
-How long does it take to recover, and at what level does it end? The answer
-sets the time constant of the recovery term of the GLM
-(`dmat.FLASH_RECOVERY_TAU_S`).
+How long does it take to recover, and at what level does it end? The time
+constant of the recovery term of the GLM (`dmat.FLASH_RECOVERY_TAU_S`) is
+chosen by prediction (`tau_grid.py`), not from this fit.
 
 Comparison: no model. In-port flashes only (from the first flash to the
 center exit), so the task period does not change with the gap.
@@ -20,8 +20,11 @@ center exit), so the task period does not change with the gap.
   The sampling unit is the unit; points are the mean over units with a 95%
   interval (1.96 SEM).
 - Fit: response = A (1 - c exp(-gap / tau)), weighted by the SEM of each
-  group, on GRB006 only, without the 40-ms group (the response to the flash
-  before falls into its baseline and peak windows). The first flash of a trial
+  group, with c free (`C_MAX` only keeps the fit finite). With c > 1 the curve
+  is 0 at the delay tau ln c and rises after it. Until 2026-10-24 c had a bound
+  of 1.5, which set tau to about 120 ms. The fit is on GRB006 only, without
+  the 40-ms group (the response to the flash before falls into its baseline
+  and peak windows). The first flash of a trial
   enters with a gap of `FIRST_GAP_S` (fully recovered). tau has a bootstrap
   interval over units. GRB064 is the check: tau is fixed from GRB006 and only
   A and c are fit; its own tau is also given.
@@ -56,6 +59,7 @@ from thesis.plotting import FIGURE_STYLE, label_panels, save_figure
 OUT = Path("results/glm")
 LONGEST_GROUP = 7
 FIRST_GAP_S = 10.0
+C_MAX = 50.0
 MIN_FLASHES = 15
 BOOTSTRAPS = 1000
 CENTERS_S = (LAGS_MS.reshape(-1, 10).mean(-1) + 0.5) / 1000
@@ -124,7 +128,7 @@ def fit(gaps, peaks, use, tau=None) -> tuple[float, float, float]:
             mean,
             p0=(2, 0.9, 0.1),
             sigma=sem,
-            bounds=([0, 0, 0.005], [50, 1.5, 2]),
+            bounds=([0, 0, 0.005], [50, C_MAX, 2]),
         )
         return tuple(float(v) for v in values)
     values, _ = curve_fit(
@@ -133,9 +137,14 @@ def fit(gaps, peaks, use, tau=None) -> tuple[float, float, float]:
         mean,
         p0=(2, 0.9),
         sigma=sem,
-        bounds=([0, 0], [50, 1.5]),
+        bounds=([0, 0], [50, C_MAX]),
     )
     return float(values[0]), float(values[1]), float(tau)
+
+
+def delay(c: float, tau: float) -> float:
+    """Return the gap (s) where the fitted curve is 0: tau ln c, or 0 for c <= 1."""
+    return float(tau * np.log(max(c, 1.0)))
 
 
 def tau_interval(gaps, peaks, use) -> list[float]:
@@ -163,6 +172,7 @@ def main() -> None:
         "c": c,
         "tau_s": tau,
         "tau_interval_95_s": tau_interval(gaps, peaks, use),
+        "delay_s": delay(c, tau),
     }
     gaps64, peaks64 = data["GRB064"]
     use64 = gaps64 > dmat.short_gap_s()
@@ -172,6 +182,7 @@ def main() -> None:
         "A_with_GRB006_tau": A64,
         "c_with_GRB006_tau": c64,
         "own_tau_s": own[2],
+        "own_delay_s": delay(own[1], own[2]),
         "own_tau_interval_95_s": tau_interval(gaps64, peaks64, use64),
     }
     for subject, (g, p) in data.items():
@@ -186,7 +197,12 @@ def main() -> None:
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(1, 2, figsize=(7.0, 2.8), layout="constrained")
         for axis, subject, (a, cc), note in (
-            (axes[0], "GRB006", (A, c), f"fit without 40 ms: τ = {1000 * tau:.0f} ms"),
+            (
+                axes[0],
+                "GRB006",
+                (A, c),
+                f"fit without 40 ms: τ = {1000 * tau:.0f} ms, 0 until {1000 * delay(c, tau):.0f} ms",
+            ),
             (
                 axes[1],
                 "GRB064",
