@@ -790,17 +790,17 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-    { name = "decorator" },
-    { name = "ipython-pygments-lexers" },
-    { name = "jedi" },
-    { name = "matplotlib-inline" },
-    { name = "pexpect", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "prompt-toolkit" },
-    { name = "pygments" },
-    { name = "stack-data" },
-    { name = "traitlets" },
-    { name = "typing-extensions" },
+    { name = "colorama", marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "decorator", marker = "python_full_version < '3.12'" },
+    { name = "ipython-pygments-lexers", marker = "python_full_version < '3.12'" },
+    { name = "jedi", marker = "python_full_version < '3.12'" },
+    { name = "matplotlib-inline", marker = "python_full_version < '3.12'" },
+    { name = "pexpect", marker = "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "prompt-toolkit", marker = "python_full_version < '3.12'" },
+    { name = "pygments", marker = "python_full_version < '3.12'" },
+    { name = "stack-data", marker = "python_full_version < '3.12'" },
+    { name = "traitlets", marker = "python_full_version < '3.12'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c5/25/daae0e764047b0a2480c7bbb25d48f4f509b5818636562eeac145d06dfee/ipython-9.10.1.tar.gz", hash = "sha256:e170e9b2a44312484415bdb750492699bf329233b03f2557a9692cce6466ada4", size = 4426663, upload-time = "2026-03-27T09:53:26.244Z" }
 wheels = [
@@ -816,16 +816,16 @@ resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '3.14'",
 ]
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-    { name = "decorator" },
-    { name = "ipython-pygments-lexers" },
-    { name = "jedi" },
-    { name = "matplotlib-inline" },
-    { name = "pexpect", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "prompt-toolkit" },
-    { name = "pygments" },
-    { name = "stack-data" },
-    { name = "traitlets" },
+    { name = "colorama", marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "decorator", marker = "python_full_version >= '3.12'" },
+    { name = "ipython-pygments-lexers", marker = "python_full_version >= '3.12'" },
+    { name = "jedi", marker = "python_full_version >= '3.12'" },
+    { name = "matplotlib-inline", marker = "python_full_version >= '3.12'" },
+    { name = "pexpect", marker = "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "prompt-toolkit", marker = "python_full_version >= '3.12'" },
+    { name = "pygments", marker = "python_full_version >= '3.12'" },
+    { name = "stack-data", marker = "python_full_version >= '3.12'" },
+    { name = "traitlets", marker = "python_full_version >= '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3a/73/7114f80a8f9cabdb13c27732dce24af945b2923dcab80723602f7c8bc2d8/ipython-9.12.0.tar.gz", hash = "sha256:01daa83f504b693ba523b5a407246cabde4eb4513285a3c6acaff11a66735ee4", size = 4428879, upload-time = "2026-03-27T09:42:45.312Z" }
 wheels = [
@@ -1059,7 +1059,7 @@ wheels = [
 
 [[package]]
 name = "labdata"
-version = "0.1.15"
+version = "0.1.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -1071,9 +1071,9 @@ dependencies = [
     { name = "safe-exit" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/90/72d9d4f175bf1c663fb45920a5a094277615d244ad33e4337ca166fe485b/labdata-0.1.15.tar.gz", hash = "sha256:a4552420acec457ecd2bbf29e77ed38189bfe25e4ec55cdafd9b039a3dd532e4", size = 243020, upload-time = "2026-08-07T23:06:25.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/5a/611ef1a1af6c405503084589f266493003e0b4f5805aac4c44435464ec6a/labdata-0.1.25.tar.gz", hash = "sha256:31cd5a9a433f06450e4c218699042c6d0a461545d7ac77f4c1be77bf79976e87", size = 514052, upload-time = "2026-10-24T18:24:24.888Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/fa/0bc5b203d20c50dc4e37ac6614a7bafb248a75a750cdcd728e9d69eb37cb/labdata-0.1.15-py3-none-any.whl", hash = "sha256:26d565350a00628f5a9825b686c0411e6e334d1d0ff027c4e3f8e0cd15bc04be", size = 266408, upload-time = "2026-08-07T23:06:23.836Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/1e/2ee84a072094347e77efda26ea0d098e4be76ceb97357f9753724cc58456/labdata-0.1.25-py3-none-any.whl", hash = "sha256:b4b6b99b5e929a9627bcd5761ae4101d794ae84518622a7e7789f6fd2cc1c248", size = 548814, upload-time = "2026-10-24T18:24:23.405Z" },
 ]
 
 [[package]]
@@ -2339,7 +2339,7 @@ requires-dist = [
     { name = "h5py" },
     { name = "ipykernel", specifier = ">=7.3.0" },
     { name = "ipympl", specifier = ">=0.10.0" },
-    { name = "labdata", specifier = ">=0.1.15" },
+    { name = "labdata", specifier = ">=0.1.25" },
     { name = "matlab-dpca", git = "https://github.com/rojasgabriel/matlab_dpca_in_python?rev=8055ce10ff8d185bd7beb1d4563a4e2ecd3e92a8" },
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "numpy", specifier = ">=2.4.6" },
