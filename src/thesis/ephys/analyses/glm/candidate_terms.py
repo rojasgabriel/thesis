@@ -44,10 +44,10 @@ from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor
 from thesis.ephys.units import fetch_unit_table
 
 # Earlier runs (other suffixes, other candidates) are in docs/glm_decisions.md.
-# This run: the previous outcome again (2026-10-17), with the window from 0.5 s
-# before the first flash, which has the time before the center entry.
-ROOT_SUFFIX = "_previous_outcome"
-CANDIDATES = {"PREVIOUS_OUTCOME_COLUMN": dmat.PREVIOUS_OUTCOME}
+# This run (2026-10-23): graded adaptation (`dmat.FLASH_RECOVERY`), with the
+# recovery time constant set in advance from in-port flashes (`flash_recovery.py`).
+ROOT_SUFFIX = "_flash_recovery"
+CANDIDATES = {"FLASH_RECOVERY_TERM": dmat.FLASH_RECOVERY}
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4
 
