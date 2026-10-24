@@ -4,6 +4,11 @@
 - **Why:** predictive accuracy, repeatability, recovery, and control comparisons answer different questions. They do not all establish that a fitted flash effect is independent of locomotion.
 - **Finding:** prediction is useful, but known-weight recovery and zero-effect simulations show limits on reading the weights. Raw video does not remove those limits.
 - **Next:** use these checks to qualify the three main figures. Side preference is a check of the turn term, not part of the main sensory-enhancement argument.
+- **One model:** every result comes from one model: the design of 2026-10-17 (11 regressors, one penalty for all terms), fit on both mice in `results/glm/<session>/all_fit_me/`. Some checks fit a changed copy of it, only to test it, never to report a result:
+  - **Weaker fixation penalty** (`results/glm/weaker_fixation_penalty/`): the fixation penalty 100 times weaker; used by the penalty and calibration checks.
+  - **Raw video** (`results/glm/<session>/raw_video_test/`): 10 raw-video components added; used by the video checks.
+  - **Grid designs** (`band_grid`, `first_flash_grid` and the form grids): one setting changed, fit on the 80 grid units only, to choose forms.
+  - **Simulated spikes** (leak test, parameter recovery, synthetic check): the model fit to spikes simulated with a known truth, to measure fitting bias.
 - **Scope:** GRB006 / GRB064 order; one session per mouse. Current design: 2026-10-17; corrected controls checked: 2026-10-19. The held-out rate comparison of the main analysis is leak-corrected in its own measure (2026-10-21); the supporting kernel-peak scatter is not.
 
 ## Does the fit support interpretation of the flash component?

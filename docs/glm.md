@@ -2,7 +2,7 @@
 
 - **Question:** how does movement affect sensory responses in V1?
 - **Thread:** establish the apparent enhancement → model the overlapping signals → compare the flash-related component between stationary and movement periods.
-- **Scope:** these are task periods before and after center exit, not a direct locomotion measurement. GRB006 / GRB064 values below use that order. The matched held-out comparison uses normalized linear scatters as of 2026-10-21. Model validation, video controls, side preference, and full methods are in [the supplement](glm_checks.md).
+- **Scope:** these are task periods before and after center exit, not a direct locomotion measurement. GRB006 / GRB064 values below use that order. The matched held-out comparison uses normalized linear scatters as of 2026-10-21. Model validation, video controls, side preference, and full methods are in [the supplement](glm_checks.md). All results come from one model; the supplement lists the fits that only check it.
 
 ## 1. Are flash responses larger during the movement period?
 
