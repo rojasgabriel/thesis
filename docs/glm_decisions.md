@@ -829,6 +829,32 @@ adaptation.
 - Reporting changed to held-out bits per spike (Gabriel, 2026-10-23); the
   inclusion decisions are the same as with D².
 
+### 200 motion-energy PCs with a video penalty, 2026-10-24
+
+Papers use about 200 video PCs, but `pc_grid.py` found 200 worse than 10. Our
+model has one penalty for each unit, shared by all columns, and most units
+choose a weak one (10⁻⁴ to 10⁻³). `pc_penalty_grid.py` fits 200 PCs with the
+video penalty 100 and 1000 times stronger than the other terms (video columns
+× 0.1 and × 0.032), on the 80 GRB006 units of the grids (unit table of before
+the gain fix), design of 2026-10-23. Validation D², paired against 10 PCs
+(median 0.075), Holm over four designs:
+
+| Design | Median change | Units better | Holm p |
+| --- | ---: | ---: | ---: |
+| 0 PCs | −0.0001 | 36/80 | 1.0 |
+| 200 PCs, penalty in use | −0.0045 | 11/80 | 1e-10 |
+| 200 PCs, video penalty ×100 | +0.0001 | 42/80 | 1.0 |
+| 200 PCs, video penalty ×1000 | −0.00004 | 38/80 | 1.0 |
+
+- The loss of 200 PCs comes from the shared, weak penalty: with a video
+  penalty, 200 PCs equal 10 PCs. They do not predict better.
+- No motion energy also equals 10 PCs on these units. Motion energy alone
+  explains a median D² of 0.0036 / 0.0030 (task terms alone 0.025 / 0.035).
+  The cameras see the body from behind (GRB006) or below (GRB064), not the
+  face, and the task terms take the movements that are locked to the task.
+- Kept: 10 PCs. More PCs need a separate video penalty and add no
+  prediction.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
