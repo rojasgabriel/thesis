@@ -17,7 +17,7 @@
 
 - **Question:** can flash history, task events, response side, video, and spike history account for the firing?
 - **Why:** these signals overlap during movement. A flash-aligned average cannot separate their fitted contributions.
-- **Finding:** the Poisson GLM has **12 regressors, 83 columns, and 1-ms bins**. Median held-out prediction is **0.549 / 0.475 bits per spike** (D² **0.073 / 0.075**) over a constant rate. All 12 terms pass both inclusion tests. The flash part is a flash kernel (the response in the port after a long gap) with three modifiers: a short gap, the period after the exit, and recovery from adaptation (the gap above 50 ms, through 1 − exp(−gap / 120 ms); [recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)), alongside task and video terms.
+- **Finding:** the Poisson GLM has **12 regressors, 83 columns, and 1-ms bins**. Median held-out prediction is **0.549 / 0.475 bits per spike** (D² **0.073 / 0.075**) over a constant rate. All 12 terms pass both inclusion tests. The flash part is a flash kernel (the response in the port after a long gap) with three modifiers: a short gap, the period after the exit, and recovery from adaptation (the gap above 50 ms, through 1 − exp(−gap / 50 ms); [recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)), alongside task and video terms.
 - **Next:** compare observed and held-out predicted peaks on the same flashes, then remove flash × exit while keeping the other fitted contributions fixed. This connects the fitted term to the measured enhancement; predictive accuracy alone does not establish unique separation.
 
 ![Encoding-model design, example prediction, fitted kernels, and population prediction scores](../figures/glm/main_figure.svg)

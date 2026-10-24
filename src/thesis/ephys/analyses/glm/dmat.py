@@ -185,11 +185,13 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # of a trial has r = 1), centered on the mean r of those flashes, and 0 for a
 # short-gap flash (the short-gap modifier codes those). So the flash kernel
 # stays the response after a typical long gap, and this kernel is the change
-# per unit of recovery. tau is set in advance from the in-port flashes of
-# GRB006 (`flash_recovery.py`: 121 ms, 95% 88 to 157 ms; GRB064 alone 92 ms).
+# per unit of recovery. tau is set from the in-port flashes of GRB006
+# (`flash_recovery.py`, c free: 54 ms, 95% 29 to 91 ms; GRB064 alone 67 ms),
+# rounded to 10 ms. Until 2026-10-24 it was 120 ms, from a fit with c bounded
+# at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
 FLASH_RECOVERY_TERM = True
 FLASH_RECOVERY = "flash_recovery"
-FLASH_RECOVERY_TAU_S = 0.12
+FLASH_RECOVERY_TAU_S = 0.05
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
 # response (+1 right, -1 left) times the `exit_basis` (`TURN_DIRECTION_BASES`
 # raised cosines, even in log(t + `EXIT_LOG_STRETCH_S`), from the center exit
@@ -1124,4 +1126,6 @@ def _common_design_is_current(output: Path) -> bool:
         ]
         and metadata.get("hold_penalty_scale", 1.0) == HOLD_PENALTY_SCALE
         and metadata.get("band_scales", dict.fromkeys(BAND_SCALES, 1.0)) == BAND_SCALES
+        and metadata.get("flash_recovery_tau_s")
+        == (FLASH_RECOVERY_TAU_S if FLASH_RECOVERY_TERM else None)
     )
