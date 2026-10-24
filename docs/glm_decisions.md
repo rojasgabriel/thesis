@@ -873,11 +873,14 @@ project criteria (`populate_unit_counts.py`) now match the database, and
 - Effects: 0.549 / 0.475 bits per spike (from 0.552 / 0.485); all 12 terms
   pass. Result 3 in GRB006: observed 2.63 → 2.33, full model 1.98 → 1.73,
   leak-corrected flash × exit +0.54 → +0.76 (p = 0.23; median +0.17), pooled
-  +0.07 → +0.14 (−0.19 to 0.29). GRB064 is the same. The conclusions do not
+  +0.07 → +0.14 (−0.19 to 0.29). The GRB006 mean moves because of one new unit:
+  unit 552 has a leak of −11.4 and real − leak +6.3 (without 552 and 296 the
+  mean leak is +0.26, as before); old unit 162 (+14.6) still dominates the mean.
+  The median is the robust value. GRB064 is the same. The conclusions do not
   change.
 - Found during the rerun: the recovery fit of `flash_recovery.py` has c at its
-  bound of 1.5; with c free, τ = 54 ms (not 118 ms). The model term keeps
-  τ = 120 ms until a decision ([recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)).
+  bound of 1.5 and fits worse (χ² 11.1 against 4.0 on 4 df); with c free,
+  τ = 54 ms (about 11 to 97). The model term keeps τ = 120 ms until a decision ([recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)).
 
 ## Moved from glm.md (2026-10-17)
 
