@@ -152,14 +152,19 @@ def observed_peaks(rate, centers):
 
 def kernel_peaks(coefficients, metadata, basis, lags):
     """Return (gap, period) peaks with other raw contributions held fixed."""
+    names = (
+        dmat.FLASH_COMMON,
+        dmat.FLASH_JUST_BEFORE,
+        dmat.FLASH_AFTER_EXIT,
+        dmat.FLASH_RECOVERY,
+    )
+    present = {c.split("_basis_")[0] for c in metadata["column_names"]}
     terms = {
         name: (lags, task_kernel(coefficients, metadata, name, basis))
-        for name in (
-            dmat.FLASH_COMMON,
-            dmat.FLASH_JUST_BEFORE,
-            dmat.FLASH_AFTER_EXIT,
-        )
+        for name in names
+        if name in present
     }
+    center = metadata.get("flash_recovery_center")
     # The basis includes its 150-ms endpoint; 10-ms bins are half-open.
     inside = (np.round(lags, 6) >= 0) & (np.round(lags, 6) < 150)
     centers = lags[inside].reshape(-1, 10).mean(-1) + 0.5
@@ -167,7 +172,7 @@ def kernel_peaks(coefficients, metadata, basis, lags):
     return np.asarray(
         [
             [
-                flash_kernel_at(terms, gap, after)[inside]
+                flash_kernel_at(terms, gap, after, center)[inside]
                 .reshape(-1, 10)
                 .mean(-1)[window]
                 .max()

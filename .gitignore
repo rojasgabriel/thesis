@@ -185,3 +185,4 @@ logs/
 
 # Analysis data: fits, caches, result tables (figures go to figures/)
 results/
+*.swp

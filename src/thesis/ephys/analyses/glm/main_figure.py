@@ -83,7 +83,12 @@ from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.analyses.glm.results import FLASH_GAPS_MS
-from thesis.ephys.analyses.glm.unique_dev import MAXIMAL, RELIABLE_ALPHA, UNIQUE
+from thesis.ephys.analyses.glm.unique_dev import (
+    MAXIMAL_BITS,
+    RELIABLE_ALPHA,
+    UNIQUE_BITS,
+    add_bits_per_spike,
+)
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
@@ -94,7 +99,7 @@ from thesis.plotting import (
     separate_axes,
 )
 
-FLOOR = 1e-4
+FLOOR = 1e-3
 RATE_BIN_MS = 20
 MIN_TRIAL_FRACTION = 0.5
 VISUAL, TASK, MOTION, HISTORY = (
@@ -109,6 +114,7 @@ REGRESSORS = {
     "flash_gap_2": ("flash, 80+ ms gap", VISUAL),
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × after exit", VISUAL),
+    "flash_recovery": ("flash × recovery", VISUAL),
     "fixation": ("pre-stimulus", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
@@ -282,6 +288,17 @@ def design_rows(components: int) -> list[tuple]:
                 "after",
                 None,
                 "flashes after the exit",
+            )
+        )
+    if dmat.FLASH_RECOVERY_TERM:
+        rows.append(
+            (
+                "flash_recovery",
+                dmat.FLASH_BASES,
+                "flash",
+                "long",
+                None,
+                f"long gaps, × recovery (τ {1000 * dmat.FLASH_RECOVERY_TAU_S:.0f} ms)",
             )
         )
     if dmat.FIXATION_COLUMN:
@@ -554,7 +571,7 @@ def inclusion_tests(records: list[dict]) -> dict[str, dict]:
         {
             name: regressor_tests(
                 [
-                    np.asarray(item["groups"][name]["folds"]["unique"])
+                    np.asarray(item["groups"][name]["folds"]["unique_bits"])
                     for item in records
                 ]
             )
@@ -565,7 +582,7 @@ def inclusion_tests(records: list[dict]) -> dict[str, dict]:
 
 
 def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
-    """Unique (filled) and maximal (open) ΔD² of each regressor, units of all mice pooled.
+    """Unique (filled) and maximal (open) bits per spike of each regressor, units pooled.
 
     The marker is the pooled median with its hierarchical-bootstrap 95%
     interval (mice, then units).
@@ -586,7 +603,10 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
 
     for position, name in enumerate(order):
         color = REGRESSORS[name][1]
-        for key, offset, face in ((UNIQUE, -0.17, color), (MAXIMAL, 0.17, "white")):
+        for key, offset, face in (
+            (UNIQUE_BITS, -0.17, color),
+            (MAXIMAL_BITS, 0.17, "white"),
+        ):
             draw(
                 position + offset,
                 [
@@ -614,29 +634,26 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
         )
     draw(
         len(order),
-        [
-            [item["complete_test_deviance_explained"] for item in s["records"]]
-            for s in sessions
-        ],
+        [[item["complete_bits_per_spike"] for item in s["records"]] for s in sessions],
         "black",
         "black",
     )
     axis.text(
         1.03,
         len(order) + 0.5,
-        "units with unique\n" + r"$\Delta D^2$ > 0",
+        "units with a unique\ngain > 0",
         transform=axis.get_yaxis_transform(),
         fontsize=6,
     )
     axis.set_xscale("log")
-    axis.set_xlim(FLOOR, 3e-1)
+    axis.set_xlim(FLOOR, 3)
     axis.set_yticks(
         range(len(order) + 1),
-        [*(REGRESSORS[name][0] for name in order), r"full model ($D^2$)"],
+        [*(REGRESSORS[name][0] for name in order), "full model"],
     )
     for tick, name in zip(axis.get_yticklabels(), order, strict=False):
         tick.set_color(REGRESSORS[name][1])
-    axis.set_xlabel(r"$\Delta D^2$ (filled: unique; open: maximal)")
+    axis.set_xlabel("held-out bits per spike\n(filled: unique; open: maximal)")
 
 
 def session_population(root: Path, unit_set: str) -> dict:
@@ -644,7 +661,10 @@ def session_population(root: Path, unit_set: str) -> dict:
     fit_dir = cli.PoissonGLM(root=root).fit_dir(unit_set)
     final = load_unit_records(fit_dir / "checkpoints", "unit_*_final.json")
     selections = load_unit_records(fit_dir / "checkpoints", "unit_*_validation.json")
-    records = load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
+    records = add_bits_per_spike(
+        load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json"),
+        fit_dir / "checkpoints",
+    )
     rate, deviance = training_rate_and_deviance(final, selections)
     tests = inclusion_tests(records)
     return {
@@ -674,11 +694,11 @@ def main() -> None:
     with np.load(fit_dir / "figure_data.npz", allow_pickle=False) as saved:
         data = {key: saved[key] for key in saved.files}
     sessions = [session_population(args.out / name, args.units) for name in SESSIONS]
-    # The regressors in the order of their median unique ΔD².
+    # The regressors in the order of their median unique gain (bits per spike).
     order = sorted(
         sessions[0]["tests"],
         key=lambda name: np.median(
-            [item["groups"][name][UNIQUE] for item in sessions[0]["records"]]
+            [item["groups"][name][UNIQUE_BITS] for item in sessions[0]["records"]]
         ),
     )
 

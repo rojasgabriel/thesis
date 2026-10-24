@@ -4,7 +4,7 @@
 - **Why:** predictive accuracy, repeatability, recovery, and control comparisons answer different questions. They do not all establish that a fitted flash effect is independent of locomotion.
 - **Finding:** prediction is useful, but known-weight recovery and zero-effect simulations show limits on reading the weights. Raw video does not remove those limits.
 - **Next:** use these checks to qualify the three main figures. Side preference is a check of the turn term, not part of the main sensory-enhancement argument.
-- **Scope:** GRB006 / GRB064 order; one session per mouse. Current design: 2026-10-17; corrected controls checked: 2026-10-19. The held-out rate comparison of the main analysis is leak-corrected in its own measure (2026-10-21); the supporting kernel-peak scatter is not.
+- **Scope:** GRB006 / GRB064 order; one session per mouse. Model of 2026-10-23, with flash recovery (`dmat.FLASH_RECOVERY`). The raw-video control and the design grids ran on the design of 2026-10-17, without flash recovery. The held-out rate comparison of the main analysis is leak-corrected in its own measure; the supporting kernel-peak scatter is not.
 
 ## Does the fit support interpretation of the flash component?
 
@@ -12,7 +12,7 @@
 
 - **Question:** how do the flash-only kernel peaks differ between stationary and movement periods at the same preceding gap?
 - **Why:** these show the fitted flash component directly, while the main comparison measures its contribution to peak rates on the actual trials.
-- **Finding:** mean kernel-peak changes in the flash-excited group are **+0.224 / +0.046 Δ log rate** at long gaps and **+0.072 / −0.060** at short gaps. Open circles show the mean of all **167 / 76** eligible units; filled circles show the same **23 / 15 flash-excited units** in both gap panels. These are final-fit kernel peaks; bars show SEM across units on both axes. Per-unit spread across saved fold fits remains in the report but is not drawn.
+- **Finding:** mean kernel-peak changes in the flash-excited group are **+0.201 / +0.015 Δ log rate** at long gaps and **+0.104 / −0.061** at short gaps. Open circles show the mean of all **167 / 76** eligible units; filled circles show the same **23 / 15 flash-excited units** in both gap panels. These are final-fit kernel peaks, with the recovery term at the gap of each condition; bars show SEM across units on both axes.
 - **Next:** use the main held-out rate comparison to connect this component to the observed enhancement. Kernel peaks cannot be directly subtracted from peak rates, and their bias needs checking with this exact measure.
 
 ![Supporting flash-kernel peak comparison at matched long and short gaps](../figures/glm/flash_model.svg)
@@ -23,7 +23,7 @@
 
 - **Question:** can a fitted flash × exit effect appear when it is absent from simulated spikes?
 - **Why:** a repeated flash kernel can resemble a sustained rate change. The penalty can assign background changes to flash terms.
-- **Finding:** in the measure of the main comparison, the leak is small: **+0.04 / +0.03** normalized at long gaps in the excited units, against a held-out contribution of **+0.67 / −0.17**; corrected **+0.63 / −0.20**, pooled **+0.11** (95% interval −0.48 to 0.21). In the older matched-rate measure (different pairs, spikes/s), corrected peak changes are **+1.99 / −0.38 spikes/s** in **23 / 15** excited units (p = 0.13 / 0.28); pooled **+0.76**, 95% interval **−5.35 to 3.30**. Corrected kernel-mean effects across all units have opposite signs (**+0.039 / −0.153 Δ log rate**). Known fixation levels recover at only **0.75 / 0.84** of their size, despite high repeatability. These results do not establish an unchanged sensory response.
+- **Finding:** in the measure of the main comparison, the leak is **+0.22 / −0.05** normalized at long gaps in the excited units, against a held-out contribution of **+0.76 / +0.01**; corrected **+0.54 / +0.06** (p = 0.46 / 0.80), pooled **+0.07** (95% interval −0.19 to 0.27). Corrected kernel-mean effects across all units have opposite signs (**+0.03 / −0.16 Δ log rate**, p = 0.039 / < 0.001). Known fixation levels recover at only **0.71 / 0.82** of their size, despite high repeatability. These results do not establish an unchanged sensory response.
 - **Next:** treat the new kernel-peak scatter as descriptive until that exact measure is checked for bias. The earlier matched-rate correction cannot simply be subtracted from its kernel peaks.
 
 ![Collinearity, known-weight recovery, repeatability, and flash × exit leak correction](../figures/glm/model_trust.svg)
@@ -50,10 +50,28 @@
 
 - **Question:** the full model predicts less long-gap enhancement than observed. Which flashes does it miss, and does the missing part need a flash?
 - **Why:** an observed peak is the maximum of a noisy mean, so it is larger than the peak of a smooth predicted rate even when the model is correct. Spikes drawn from the held-out model rate have the same bias, so observed minus that "model + noise" peak is the miss. A miss that is there with no flash is an exit transient; a miss only with a flash is a change of the flash response.
-- **Finding:** in the 38 flash-excited units, the miss is near 0 for flashes in the port and for the 2nd and later flashes after the exit. It is **+0.93 / +0.65** (p = 0.006 / 0.007) for the first flash after the exit, about 50 ms after the exit. In trials with no flash at that time, the model predicts the rate (miss **−0.64 / +0.13**). The miss with a flash minus with no flash is **+1.46 / +0.26** (p < 0.001 / 0.073); pooled **+0.73**, 95% interval **0.28 to 1.11**. The observed first response peaks earlier and is sharper than the model response (panel b).
-- **Next:** this is a characterization, not a model term. The flash × after-exit kernel has one shape for all flashes after the exit, so the model shows where a fixed flash kernel stops being correct: a short, earlier and larger response at movement onset. A term built from this miss would be chosen on the data that found it ([decision log](glm_decisions.md#first-flash-after-the-exit-candidate-2026-10-21)). A term for it must have its form set in advance (for example, flash gain as a function of time since the exit, or of movement) and be tested on data that did not choose it. There are only 27 / 21 no-flash trials, and their pseudo flash comes later in the stimulus train.
+- **Finding:** in the 38 flash-excited units (model with flash recovery), the miss is near 0 for flashes in the port and for the 2nd and later flashes after the exit. It is **+0.86 / +0.59** (p = 0.008 / 0.008) for the first flash after the exit, about 50 ms after the exit. In trials with no flash at that time, the model predicts the rate (miss **−0.60 / +0.24**). The miss with a flash minus with no flash is **+1.44 / +0.13** (p < 0.001 / 0.15); pooled **+0.73**, 95% interval **0.23 to 1.25**. The observed first response peaks earlier and is sharper than the model response (panel b).
+- **Next:** the gap and the state account for part of this; the next section separates them. A term for the first flash after the exit was tested and not adopted, because it was made from this miss ([decision log](glm_decisions.md#first-flash-after-the-exit-candidate-2026-10-21)). There are only 27 / 21 no-flash trials, and their pseudo flash comes later in the stimulus train.
 
 ![Model miss by flash rank after the exit, and with and without a flash at the same time after the exit](../figures/glm/first_flash_after_exit.svg)
+
+### How fast do flash responses recover from adaptation?
+
+- **Question:** the response to a flash depends on the gap from the flash before. How long does it take to recover?
+- **Why:** most flashes come 40 or 80 ms after another, so most responses are adapted. A model with one kernel for all gaps above 50 ms misses the rare long-gap flashes, and the first flash after the exit usually has a long gap.
+- **Finding:** in-port flash peaks of GRB006 rise with the gap and level off by about 300 ms, at the level of the first flash of a trial. Response = A (1 − c exp(−gap / τ)) gives **τ = 121 ms** (95% 88 to 157; without the 40-ms group, where the flash before overlaps the measure). GRB064 follows the same curve with τ fixed, and on its own gives 92 ms (75 to 141). The model uses τ = 120 ms (`dmat.FLASH_RECOVERY`); the term passed the inclusion rule in both mice (25% / 29% of units) and adds **+0.0036 / +0.0032 bits per spike** in the flash-excited units (18 of 23, 13 of 15 better).
+- **Next:** the term takes about a third to a half of the miss at long gaps. It shares a direction with the start of the fixation kernel (first canonical correlation 0.72 / 0.70, `model_trust.svg` panel c): the first flash of each trial is fully recovered and starts the fixation kernel.
+
+![In-port flash peak against the gap from the flash before, with the recovery fit](../figures/glm/flash_recovery.svg)
+
+### What changes the flash response at the exit?
+
+- **Question:** how much of the larger flash response after the exit is a gain on all activity, how much is the gap from the flash before, and what is left?
+- **Why:** with a log link, a term that raises the rate after the exit multiplies every response. If only that gain acts, the flash peak grows by the same factor as the rate before the flash.
+- **Finding:** grouped by period, rank and gap (38 flash-excited units, pooled, hierarchical bootstrap): later flashes after the exit grow by the gain of the rate before them (peak ×**2.23** against ×**1.78** at 50–100 ms; ×**1.81** against ×**1.81** at 100–200 ms). The first flash after the exit grows more than that gain at 50–100 and 100–200 ms gaps (peak ×**4.59** and ×**3.43**, against ×**1.44** and ×**1.22**), but close to it at 200+ ms (×**2.18** against ×**1.86**), where the in-port response has recovered. Its peak comes at about **35 ms**, against 55–85 ms in the port. The model, with recovery, still misses it at 100+ ms gaps (**+0.72** and **+0.55**).
+- **Next:** this fits a reset of adaptation at the exit (for example, the panel falls on a new part of the visual field when the head moves) times the state gain; the rig has no head tracking to test it. With these, the only flash-specific change at the exit is the first flash; the flash × exit term is not consistent between the mice.
+
+![Flash peak, latency, gain test and model miss by period, rank and gap](../figures/glm/exit_flash_responses.svg)
 
 <a id="penalty-sensitivity"></a>
 
@@ -61,19 +79,21 @@
 
 - **Question:** with one L2 penalty for all terms, the fixation kernel is too small and part of the rate step at the exit can go to the flash × after-exit kernel. Do the results change when the penalty on the fixation kernel alone is 100 times weaker?
 - **Why:** the leak test simulates from the fit itself, so it has the same small fixation kernel and can underestimate this. A fit with the fixation kernel free to take its level is a direct check.
-- **Finding:** both mice were fit again with `HOLD_PENALTY_SCALE = 10` (`penalty_sensitivity.py`). Prediction does not change (median D² 0.0719 / 0.0745). The fixation level of the kernel becomes **−0.69 / −0.68** (from −0.35 / −0.50), and a refit keeps **0.86 / 0.98** of a simulated level (from 0.71 / 0.82). The full-model enhancement of result 3 is the same (1.92 / 0.94), but without flash × exit it is **1.51** / 1.11 (from 1.23 / 1.12). The leak-corrected flash × exit part becomes **+0.28** (p = 0.80) / −0.19 (p = 0.36) in the excited units, pooled −0.02 (−0.47 to 0.15), and **+0.14** (p = 0.27) / −0.12 (p = 0.068) over all units.
-- **Next:** the positive GRB006 flash × exit part is partly the fixation level. With the fixation kernel free, neither mouse has a flash × exit effect. A penalty for each band, chosen by prediction with a rule fixed in advance (banded ridge, `band_grid.py`, 80 grid units of GRB006), keeps one penalty for all terms: no band factor predicts better, and a weaker penalty on the whole task band predicts the same (Holm p = 1). So prediction does not choose the size of the task kernels, and this fit stays the sensitivity analysis ([decision log](glm_decisions.md#banded-ridge-2026-10-22-and-2026-10-23)).
+- **Finding:** both mice were fit again with `HOLD_PENALTY_SCALE = 10` (`penalty_sensitivity.py`, model of 2026-10-23). Prediction does not change (median D² 0.0734 / 0.0751 against 0.0722 / 0.0750). The fixation level of the kernel becomes **−0.67 / −0.71** (from −0.35 / −0.50), and a refit keeps **0.88 / 0.99** of a simulated level (from 0.72 / 0.82). The full-model enhancement of result 3 is the same (1.98 / 1.20), and without flash × exit it is **1.53** / 1.20 (from 1.22 / 1.20). The leak-corrected flash × exit part becomes **+0.44** (p = 0.66) / −0.05 (p = 0.93) in the excited units, pooled +0.02 (−0.09 to 0.15), and **+0.23** (p = 0.057) / +0.02 (p = 0.93) over all units.
+- **Next:** with the fixation kernel free, the GRB006 flash × exit part falls and neither mouse has a reliable effect. A penalty for each band, chosen by prediction with a rule fixed in advance (banded ridge, `band_grid.py`, 80 grid units of GRB006, design of 2026-10-17), keeps one penalty for all terms: no band factor predicts better, and a weaker penalty on the whole task band predicts the same (Holm p = 1). So prediction does not choose the size of the task kernels, and this fit stays a check ([decision log](glm_decisions.md#banded-ridge-2026-10-22-and-2026-10-23)).
 
 ### Is the predicted rate calibrated over its range?
 
 - **Question:** is the held-out predicted rate correct where it is low and where it is high?
 - **Why:** a model can predict well on average and still compress its range, which would make the size of every effect too small.
-- **Finding:** held-out 1-ms bins of each unit sorted into 20 groups by predicted rate (`calibration.py`). From the 5th to the 70th percentile the model is too high (observed / predicted **0.86 to 0.98**); from the 75th to the 95th it is too low (**1.03 to 1.12**). Both mice have the same curve, and the fit with the weaker fixation penalty has the same curve.
+- **Finding:** held-out 1-ms bins of each unit sorted into 20 groups by predicted rate (`calibration.py`). From the 5th to the 70th percentile the model is too high (observed / predicted **0.84 to 0.97**); from the 75th to the 95th it is too low (**1.02 to 1.13**). Both mice have the same curve, and the fit with the weaker fixation penalty has the same curve.
 - **Next:** the model compresses its range by about 10%, so its effect sizes are a little too small; this does not depend on the penalty of the fixation kernel. The cause is not known: one gain on the linear predictor and a cubic output function were tested earlier and did not help ([decision log](glm_decisions.md)).
 
 ![Observed over predicted spike count by predicted-rate percentile, with the model in use and the weaker fixation penalty](../figures/glm/calibration.svg)
 
 ## Do the conclusions depend on the video model?
+
+These fits are of the design of 2026-10-17, without flash recovery.
 
 ### Does raw video improve held-out spike prediction?
 
@@ -117,7 +137,7 @@
 
 - **Question:** how much of the observed left–right firing preference is carried by the fitted turn term?
 - **Why:** activity after exit can differ by response side as well as task period. That side-linked component is a separate question from flash-response gain. The turn term was added because the raw GRB006 rates showed this preference, and a side-signed term after the exit is built to fit it. So a close agreement is expected: this checks the fit, and it is not an independent finding.
-- **Finding:** observed versus predicted side-index agreement falls from **ρ = 0.990 / 0.992** to **0.521 / 0.790** when the fitted turn contribution is removed. Median absolute error rises from **0.009 → 0.146 / 0.006 → 0.154**. Keeping turn lowers error in **161/167 / 74/76 units**; pooled paired error reduction is **0.122**, 95% interval **0.105–0.147**. This removes one contribution without refitting; other terms and observed spike history remain.
+- **Finding:** observed versus predicted side-index agreement falls from **ρ = 0.989 / 0.992** to **0.531 / 0.802** when the fitted turn contribution is removed. Median absolute error rises from **0.009 → 0.143 / 0.007 → 0.152**. Keeping turn lowers error in **165/167 / 72/76 units**; pooled paired error reduction is **0.116**, 95% interval **0.105–0.145**. This removes one contribution without refitting; other terms and observed spike history remain.
 - **Next:** test whether raw-video components absorb this contribution. The current comparison shows fitted allocation, not unique information or a causal effect of turning.
 
 ![Observed side preference with the full prediction and without the fitted turn contribution](../figures/glm/side_preference.svg)
@@ -139,9 +159,9 @@
 - Fixation/exit kernels: median fixation levels are −0.35 / −0.50 Δ log rate; 89% / 82% are negative. Fitting fixation last gives −0.26 / −0.22. Five extreme finite two-step estimates are outside the plot but remain in the statistics.
 - Onset control: long-delay pre-flash rate / pre-entry rate is 0.94 / 0.70 (p = 0.017 / 5 × 10⁻⁷). Zero ratios remain; tests use ratio minus 1. Approach and entry are unresolved.
 - Early withdrawal: after-exit rate, early/completed, is 1.01 / 0.98. GRB064 has a separate 78-unit selection for this model-free control.
-- Fixation versus flash importance: ρ = −0.084 / −0.194 (p = 0.28 / 0.093); there is no clear correlation.
-- Main-model checks: largest group GVIF^(1/p) is 3.4 / 3.9; largest condition index is 8.4 / 9.9. Split-half agreement among units that need each term is 0.72 / 0.74 for turn and 0.90 / 0.94 for fixation. Agreement is 1 − ‖a − b‖² / (‖a‖² + ‖b‖²). Read spike-history kernels only in units firing at least 5 spikes/s.
-- Leak correction: three simulations per unit, with the raw flash × exit regressor at zero and the in-port baseline held fixed. Corrected kernel p = 0.0068 / 1.0 × 10⁻⁶. Panels g–i use the measure of the main comparison (peak change over the mean rate of the unit; held-out real part) and show −3 to 4: two GRB006 units are outside g and two outside h; none in GRB064. All values enter tests and intervals.
+- Fixation versus flash importance (unique bits per spike of the flash terms, with recovery): ρ = −0.03 / −0.18 (p = 0.70 / 0.11); there is no clear correlation.
+- Main-model checks: largest group GVIF^(1/p) is 4.2 (limit 5); largest condition index is 10.5 (limit 30). Split-half agreement among units that need each term is 0.72 / 0.77 for turn, 0.89 / 0.94 for fixation and 0.67 / 0.70 for flash recovery. Agreement is 1 − ‖a − b‖² / (‖a‖² + ‖b‖²). Read spike-history kernels only in units firing at least 5 spikes/s.
+- Leak correction: three simulations per unit, with the raw flash × exit regressor at zero and the in-port baseline held fixed. Corrected kernel p = 0.039 / < 0.001. Panels g–i use the measure of the main comparison (peak change over the mean rate of the unit; held-out real part). All values enter tests and intervals.
 - Side index: (right rate − left rate) / (right rate + left rate), from 100 ms after exit to response entry; require at least 50 ms per trial. Positive means right preference. Trial-bootstrap intervals are shown on both axes, conditional on saved predictions.
 
 ### Data
@@ -162,6 +182,7 @@
 - **Flash:** 8 causal raised cosines, 0–150 ms; base response after a long gap, in port.
 - **Flash × short gap:** the same 8 bases for gaps ≤50 ms.
 - **Flash × after exit:** the same 8 bases on flashes after exit; zero in port.
+- **Flash × recovery:** the same 8 bases, scaled by 1 − exp(−gap / 120 ms) minus its mean over the long-gap flashes of the session, for gaps above 50 ms (the first flash of a trial is fully recovered); zero for short gaps. The design metadata stores the center (`flash_recovery_center`).
 - **Pre-stimulus:** 1 column from center entry to first flash; code key “fixation.”
 - **Fixation:** 10 log-spaced cosines, log(t + 50 ms), to 700 ms; hold the last value until exit; code key “hold.”
 - **Response period:** 8 log-spaced cosines, log(t + 25 ms), from exit to 1.3 s; hold the last value until response entry.
@@ -196,7 +217,7 @@
 
 ### Unique explained deviance and inclusion
 
-- Unique ΔD² = full-model D² − D² with one block shuffled.
+- Unique ΔD² = full-model D² − D² with one block shuffled. It is reported in held-out bits per spike: in a fold, ΔD² times the full model's bits/D² of that fold (`unique_dev.add_bits_per_spike`; the factor depends only on the data). The inclusion decisions are the same in either measure.
 - Maximal ΔD² = D² with only that block intact − all-shuffled D².
 - Refit comparators within the same ten trial folds, at each fold's selected penalty.
 - Shuffle valid bins within trial; keep a block's columns together.
@@ -205,7 +226,7 @@
 - Motion-energy control swaps the video of another trial at the same within-trial time.
 - Inclusion requires positive population gain (one-sided Wilcoxon) and more units with reliable gain than the nominal 5% chance rate (binomial test).
 - A unit “needs” a term when its fold gains pass a one-sided t-test at p < 0.05. Apply Holm correction across regressors to the population tests.
-- All 11 terms pass in both mice. Turn is needed by **83/167 / 45/76** units; previous choice by **31/167 / 16/76**.
+- All 12 terms pass in both mice. Turn is needed by **90/167 / 45/76** units; previous choice by **36/167 / 16/76**; flash recovery by **41/167 / 22/76**.
 - Shared training trials and shared neural trials make these tests approximate.
 
 ### Design choices

@@ -51,7 +51,7 @@ from scipy.stats import spearmanr, wilcoxon
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices, load_unit_records
 from thesis.ephys.analyses.glm.hold_effect import LEVEL_MS
-from thesis.ephys.analyses.glm.unique_dev import UNIQUE
+from thesis.ephys.analyses.glm.unique_dev import UNIQUE_BITS, add_bits_per_spike
 from thesis.ephys.units import fetch_unit_table
 
 WINDOW_MS = (-40, 150)
@@ -254,12 +254,20 @@ def main() -> None:
     )
     records = {
         int(item["unit_id"]): item["groups"]
-        for item in load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json")
+        for item in add_bits_per_spike(
+            load_unit_records(fit_dir / "checkpoints" / "unique", "unit_*.json"),
+            fit_dir / "checkpoints",
+        )
     }
-    # "flash": the flash terms that code the gap, together.
+    # "flash": the flash terms that code the gap (with flash recovery), together.
+    gap_terms = [*dmat.gap_flash_terms(), dmat.FLASH_RECOVERY]
     properties = {
-        "unique dD2, flash": [
-            sum(records[unit][group][UNIQUE] for group in dmat.gap_flash_terms())
+        "unique bits per spike, flash": [
+            sum(
+                records[unit][group][UNIQUE_BITS]
+                for group in gap_terms
+                if group in records[unit]
+            )
             for unit in unit_ids
         ]
     }
@@ -275,7 +283,7 @@ def main() -> None:
         unit_ids=unit_ids,
         lags_ms=lags,
         fixation_level=level,
-        flash_unique=np.asarray(properties["unique dD2, flash"]),
+        flash_unique=np.asarray(properties["unique bits per spike, flash"]),
         **{f"rate__{name}": values for name, values in rates.items()},
     )
     output = args.root / "matched_flashes.json"

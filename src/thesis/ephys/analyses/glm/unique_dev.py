@@ -82,6 +82,40 @@ BROAD_GROUPS = ("task", "video", "history")
 RELIABLE_ALPHA = 0.05
 UNIQUE = "unique_test_deviance_explained"
 MAXIMAL = "maximal_test_deviance_explained"
+UNIQUE_BITS = "unique_bits_per_spike"
+MAXIMAL_BITS = "maximal_bits_per_spike"
+
+
+def add_bits_per_spike(records: list[dict], checkpoints: Path) -> list[dict]:
+    """Add the unique and maximal gains in bits per spike to each unique record.
+
+    In one test fold, D² and bits per spike are the same log-likelihood gain over
+    a constant rate, divided by the null deviance and by the spike count times
+    ln 2. That factor does not depend on the model, so a fold's ΔD² times the
+    bits/D² of the full model in that fold (`unit_*_folds.json`) is its Δ bits
+    per spike, with the same sign. Adds `UNIQUE_BITS`, `MAXIMAL_BITS`, the fold
+    values (`unique_bits`, `maximal_bits`), and `complete_bits_per_spike`.
+    """
+    folds = {
+        int(item["unit_id"]): [fold["test"] for fold in item["folds"]]
+        for item in load_unit_records(checkpoints, "unit_*_folds.json")
+    }
+    for record in records:
+        tests = folds[int(record["unit_id"])]
+        factor = np.asarray(
+            [t["bits_per_spike"] / t["deviance_explained"] for t in tests]
+        )
+        record["complete_bits_per_spike"] = float(
+            np.mean([t["bits_per_spike"] for t in tests])
+        )
+        for group in record["groups"].values():
+            for kind, key in (("unique", UNIQUE_BITS), ("maximal", MAXIMAL_BITS)):
+                values = np.asarray(group["folds"][kind], dtype=float)
+                if len(values) != len(factor):
+                    raise ValueError(f"Unit {record['unit_id']}: folds do not match.")
+                group["folds"][f"{kind}_bits"] = (values * factor).tolist()
+                group[key] = float(np.mean(values * factor))
+    return records
 
 
 def block_slices(metadata: dict, video_components: int) -> dict[str, slice]:

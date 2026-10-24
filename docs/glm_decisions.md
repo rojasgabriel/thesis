@@ -800,6 +800,35 @@ al. 2022).
   data do not choose; the weaker-fixation-penalty fit stays the sensitivity
   analysis.
 
+### Flash recovery in the model, 2026-10-23
+
+The model missed long-gap flashes in the port too (`exit_flash_responses.py`):
+the design coded every gap above 50 ms the same, but in-port responses grow
+2.6 to 4.3 times from a 50–100 ms gap to a 200+ ms gap. The old log-gap term
+(2026-10-12) had gone out in the choice of the form, because the grid sees
+little gain from rare long-gap flashes, and it correlated −0.86 with fast
+adaptation.
+
+- Form set before the test: the flash basis scaled by r = 1 − exp(−gap / τ),
+  centered, for gaps above 50 ms; τ = 120 ms from the in-port flashes of
+  GRB006 (`flash_recovery.py`: 121 ms, 95% 88 to 157; GRB064 alone 92 ms).
+  Correlation 0.00 with the short-gap modifier.
+- Inclusion (`candidate_terms.py`, all units): 42 of 167 and 22 of 76 units
+  need it (Holm p = 2e-16 and 7e-9); all other terms still pass. Bits per
+  spike: median +0.0006 per unit; in the flash-excited units +0.0036 / +0.0032
+  (18 of 23, 13 of 15 better).
+- Adopted (Gabriel, 2026-10-23): the candidate fit is the model; the earlier
+  fits are in `results/glm/_before_flash_recovery_2026_10_23/`. All checks
+  and figures were run again; the raw-video control and the design grids are
+  still of the design of 2026-10-17.
+- Effects: result 3 full model 1.89 / 0.95 → 1.98 / 1.21 (observed 2.63 /
+  1.34); leak-corrected flash × exit +0.63 / −0.20 → +0.54 / +0.06; the miss
+  at the first flash after the exit falls at 200+ ms gaps but stays at
+  100–200 ms. Largest GVIF^(1/p) 4.2; the term shares a direction with the
+  start of the fixation kernel (first canonical correlation 0.72 / 0.70).
+- Reporting changed to held-out bits per spike (Gabriel, 2026-10-23); the
+  inclusion decisions are the same as with D².
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
