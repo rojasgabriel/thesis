@@ -79,8 +79,8 @@ and ends it, g to i are controls, and j asks which units.
   flash before, and the time from the exit. The fixation is not matched to
   them for time: the fixation has almost the same length in all trials.
 - Panel j (which units): each unit's fixation level (mean of its fixation
-  kernel over `LEVEL_MS`, main model) against the unique ΔD² of its visual
-  flash regressor. A value below `UNIQUE_FLOOR` is drawn there, and a level
+  kernel over `LEVEL_MS`, main model) against the unique gain (held-out bits
+  per spike) of its visual flash terms. A value below `UNIQUE_FLOOR` is drawn there, and a level
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
 
@@ -185,7 +185,7 @@ both. **i**, Control for the movement after the withdrawal. The firing rate
 around a flash in fixation, and around a flash after the withdrawal with less
 and with more motion energy of the video (lower and upper half; mean and SEM
 over units; the first flash of a trial is not used). {energy}
-**j**, The level in fixation against the unique ΔD² of the visual flash.
+**j**, The level in fixation against the unique gain of the visual flash terms (bits per spike).
 {relation} {outside_j}
 """
 NO_HOLD_SUFFIX = "_no_hold_term"
@@ -202,7 +202,7 @@ LEVEL_LIMITS = (-1.6, 1.6)
 # Their magnitude alone does not establish whether a fit converged.
 ORDER_LIMITS = (-2.5, 1.6)
 EXTREME_TWO_STEP_LEVEL = 3.0
-UNIQUE_FLOOR = 1e-4  # panel j: a smaller unique ΔD² is drawn here
+UNIQUE_FLOOR = 1e-3  # panel j: a smaller unique gain (bits per spike) is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
@@ -571,7 +571,9 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
         "by_energy": flashes["after exit, lower against upper half of motion energy"][
             "response, second / first group"
         ],
-        "relation": flashes["fixation level against unique dD2, flash (Spearman)"],
+        "relation": flashes[
+            "fixation level against unique bits per spike, flash (Spearman)"
+        ],
     }
 
 
@@ -1089,7 +1091,7 @@ def main() -> None:
         )
         matched_axis.set_ylabel("normalized firing rate")
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-        relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
+        relation.set_xlabel("unique gain of the flash terms\n(bits per spike)")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
         panel_axes += [
             paired,
