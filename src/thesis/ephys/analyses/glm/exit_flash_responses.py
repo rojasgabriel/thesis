@@ -62,6 +62,7 @@ from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_fi
 OUT = Path("results/glm")
 GAPS = ((0.05, 0.1), (0.1, 0.2), (0.2, np.inf))
 GAP_LABELS = ("50–100", "100–200", "200+")
+MARKERS = ("o", "s", "^")  # the gap in the gain test (panel c)
 GROUPS = ("in port", "later after exit", "1st after exit")
 COLORS = {"in port": "0.35", "later after exit": "C0", "1st after exit": "C3"}
 FIRST = "first of trial"
@@ -324,9 +325,9 @@ def main() -> None:
                 transform=peak_axis.transAxes,
                 va="top",
             )
-        top = max(max(v["ratio"] for v in g.values()) for g in gain.values())
-        upper = max(max(v["interval"][1] for v in g.values()) for g in gain.values())
-        limit = max(top, upper) * 1.08
+        x_limit = 1.15 * max(g["before"]["interval"][1] for g in gain.values())
+        y_limit = 1.3 * max(g["peak"]["interval"][1] for g in gain.values())  # key room
+        limit = max(x_limit, y_limit)
         gain_axis.plot([0, limit], [0, limit], color=REFERENCE_COLOR, lw=0.8, ls="--")
         for key_text, entry in gain.items():
             group = next(g for g in GROUPS if g in key_text)
@@ -337,30 +338,23 @@ def main() -> None:
                 [y["ratio"]],
                 xerr=[[x["ratio"] - x["interval"][0]], [x["interval"][1] - x["ratio"]]],
                 yerr=[[y["ratio"] - y["interval"][0]], [y["interval"][1] - y["ratio"]]],
-                fmt="o",
+                fmt=MARKERS[index],
                 color=COLORS[group],
-                ms=4,
+                ms=4.5,
                 capsize=2,
                 lw=0.8,
             )
-            gain_axis.annotate(
-                GAP_LABELS[index],
-                (x["ratio"], y["ratio"]),
-                xytext=(4, -9),
-                textcoords="offset points",
-                fontsize=6,
-                color=COLORS[group],
-            )
-        gain_axis.set(xlim=(0, limit), ylim=(0, limit), aspect="equal")
+        gain_axis.set(xlim=(0, x_limit), ylim=(0, y_limit))
         gain_axis.set_xlabel("rate before the flash,\nafter exit / in port")
         gain_axis.set_ylabel("flash peak, after exit / in port")
         gain_axis.text(
+            0.03,
             0.97,
-            0.04,
-            "dashed: one gain on all activity\nlabels: gap (ms)",
+            "dashed: one gain on all activity\ngap (ms): "
+            + ", ".join(f"{s} {g}" for s, g in zip("○□△", GAP_LABELS, strict=True)),
             transform=gain_axis.transAxes,
-            ha="right",
-            va="bottom",
+            ha="left",
+            va="top",
             fontsize=6,
         )
         label_panels(axes.flat, x=-0.22, y=1.05)
