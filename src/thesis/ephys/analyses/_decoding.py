@@ -17,8 +17,14 @@ def load_decoding_data(
     stability_param_id: int | None,
     window_start_s: float,
     window_stop_s: float,
+    include_mua: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
-    """Return units, eligible trials, and trial-by-unit firing rates."""
+    """Return units, eligible trials, and trial-by-unit firing rates.
+
+    With `include_mua`, the units are every cluster of the criteria that is not
+    noise (`passes` 1 = single unit, 0 = multi-unit; -1 = noise is left out),
+    with no stability filter: UnitStability has rows for single units only.
+    """
     if window_stop_s <= window_start_s:
         raise ValueError("window_stop_s must be greater than window_start_s")
 
@@ -34,12 +40,19 @@ def load_decoding_data(
         )
     eligible = eligible.reset_index(drop=True)
 
-    unit_table = fetch_unit_table(
-        subject,
-        session,
-        unit_criteria_id=unit_criteria_id,
-        stability_param_id=stability_param_id,
-    )
+    if include_mua:
+        if stability_param_id is not None:
+            raise ValueError(
+                "Multi-units have no stability rows; drop the stability filter."
+            )
+        unit_table = _units_with_mua(subject, session, unit_criteria_id)
+    else:
+        unit_table = fetch_unit_table(
+            subject,
+            session,
+            unit_criteria_id=unit_criteria_id,
+            stability_param_id=stability_param_id,
+        )
     first_stim_s = eligible["stim_pulse_times_s"].str[0].to_numpy(dtype=float)
     starts_s = first_stim_s + window_start_s
     stops_s = first_stim_s + window_stop_s
@@ -53,3 +66,17 @@ def load_decoding_data(
         ) / duration_s
 
     return unit_table, eligible, firing_rates
+
+
+def _units_with_mua(subject: str, session: str, unit_criteria_id: int) -> pd.DataFrame:
+    """Return the spike times of all single- and multi-units (not noise)."""
+    from labdata.schema import SpikeSorting, UnitCount
+
+    query = {
+        "subject_name": subject,
+        "session_name": session,
+        "unit_criteria_id": unit_criteria_id,
+    }
+    units = SpikeSorting.Unit & (UnitCount.Unit & query & "passes >= 0")
+    table = pd.DataFrame(units.get_spike_times(include_metrics=False))
+    return table.rename(columns={"spike_times": "spike_times_s"})

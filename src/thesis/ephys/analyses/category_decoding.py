@@ -137,6 +137,10 @@ def _scores(
     return random_scores, blocked_scores, n_trials
 
 
+# The y axis of both panels in every session (display only).
+ACCURACY_LIMITS = (0.2, 1.02)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -153,6 +157,11 @@ def _parse_args() -> argparse.Namespace:
     )
     optional.add_argument(
         "--quick", action="store_true", help="Use 3 resamples and shuffles"
+    )
+    optional.add_argument(
+        "--include-mua",
+        action="store_true",
+        help="Add the multi-units (no stability filter)",
     )
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
@@ -173,6 +182,7 @@ def main() -> None:
         unit_criteria_id=args.unit_criteria_id,
         stability_param_id=args.stability_param_id,
         window_start_s=WINDOW_START_S,
+        include_mua=args.include_mua,
         window_stop_s=WINDOW_STOP_S,
     )
     category = trials["stim_category"].eq("high_rate").to_numpy(dtype=int)
@@ -191,6 +201,7 @@ def main() -> None:
         "session": args.session,
         "unit_criteria_id": args.unit_criteria_id,
         "stability_param_id": args.stability_param_id,
+        "include_mua": args.include_mua,
         "n_units": len(units),
         "n_eligible_trials": len(trials),
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
@@ -253,6 +264,21 @@ def main() -> None:
                 ha="right",
             )
             ax.set_ylabel(f"balanced {name} accuracy")
+            # One scale for every session, so that sessions and mice compare.
+            ax.set_ylim(*ACCURACY_LIMITS)
+            outside = sum(
+                int(
+                    np.sum(
+                        (np.asarray(v) < ACCURACY_LIMITS[0])
+                        | (np.asarray(v) > ACCURACY_LIMITS[1])
+                    )
+                )
+                for v in values
+            )
+            if outside:
+                print(
+                    f"{name}: {outside} values outside the axis limits (kept in the statistics)"
+                )
             ax.tick_params(labelleft=True)
         label_panels(axes, -0.22)
         fig.tight_layout(w_pad=2.0)
@@ -262,7 +288,12 @@ def main() -> None:
         plt.show()
     if not args.no_save:
         output_dir = (
-            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "category_decoding"
+            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
+            / "category_decoding"
+            / (
+                f"{args.subject}_{args.session}"
+                + ("_with_mua" if args.include_mua else "")
+            )
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")

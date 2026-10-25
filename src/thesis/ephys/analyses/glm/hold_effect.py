@@ -599,7 +599,14 @@ def _draw_examples(figure, examples, data: dict) -> list:
             if name == "flash":
                 axis.plot(exits, trial_rows, color=TASK, linewidth=1)
             axis.set_xlim(*limits)
-            axis.tick_params(labelbottom=False)
+            if row == 0:
+                axis.tick_params(labelbottom=False)
+            else:
+                axis.set_xlabel(
+                    "time from first flash (ms)"
+                    if name == "flash"
+                    else "time from center exit (ms)"
+                )
             if column == 0:
                 axis.set_ylabel("trial")
                 axis.text(

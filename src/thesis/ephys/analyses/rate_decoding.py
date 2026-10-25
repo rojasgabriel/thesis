@@ -95,6 +95,11 @@ def _unit_rate_correlations(
     )
 
 
+# The y axes of panels c and d in every session (display only).
+DECODED_LIMITS_HZ = (2, 22)
+RESIDUAL_LIMITS_HZ = (-10, 10)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -111,6 +116,11 @@ def _parse_args() -> argparse.Namespace:
     )
     optional.add_argument(
         "--quick", action="store_true", help="Use a smaller ridge grid"
+    )
+    optional.add_argument(
+        "--include-mua",
+        action="store_true",
+        help="Add the multi-units (no stability filter)",
     )
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
@@ -131,6 +141,7 @@ def main() -> None:
         unit_criteria_id=args.unit_criteria_id,
         stability_param_id=args.stability_param_id,
         window_start_s=WINDOW_START_S,
+        include_mua=args.include_mua,
         window_stop_s=WINDOW_STOP_S,
     )
     rate_hz = trials["visual_stim_rate_hz"].to_numpy(dtype=float)
@@ -185,6 +196,7 @@ def main() -> None:
         "session": args.session,
         "unit_criteria_id": args.unit_criteria_id,
         "stability_param_id": args.stability_param_id,
+        "include_mua": args.include_mua,
         "n_units": len(units),
         "n_trials": len(trials),
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
@@ -280,6 +292,9 @@ def main() -> None:
         axes[2].set_ylabel("decoded rate (Hz)")
         axes[3].axhline(0, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
         axes[3].set_ylabel("residual rate (Hz)")
+        # One scale for every session, so that sessions and mice compare.
+        axes[2].set_ylim(*DECODED_LIMITS_HZ)
+        axes[3].set_ylim(*RESIDUAL_LIMITS_HZ)
         for row, (label, color) in enumerate(
             (("decoder", OBSERVED_COLOR), ("shuffle", "0.5"))
         ):
@@ -299,7 +314,12 @@ def main() -> None:
         plt.show()
     if not args.no_save:
         output_dir = (
-            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "rate_decoding"
+            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
+            / "rate_decoding"
+            / (
+                f"{args.subject}_{args.session}"
+                + ("_with_mua" if args.include_mua else "")
+            )
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
