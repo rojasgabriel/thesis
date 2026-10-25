@@ -4,15 +4,16 @@ Question: is the apparent sensory enhancement independent of locomotion?
 The measured comparison is stationary versus movement task periods; video
 covariates do not isolate locomotion itself. No new model fits are made.
 
-Observation: last 15-ms in-port and first 15-ms after-exit flash from the
-same trial. Keep pairs only when both flashes have the same preceding-gap
-class: <=50 ms (nominal 40 ms) or >50 ms (nominal 80+ ms), exactly the model
-split. Use the immediately preceding measured pulse of any width; exclude
-first flashes without a preceding pulse and mixed-gap pairs. Report all
-exclusion counts and selected trial IDs. Caveat: in the <=50 ms class every
-pair is two consecutive flashes 40 ms apart across the exit, so the two peak
-windows overlap by 50 ms and share the baseline; many units get the same peak
-in both periods. That class is not a valid comparison until it is re-paired. Align to measured flash onset, use
+Observation: one pair of 15-ms flashes per trial and preceding-gap class,
+<=50 ms (nominal 40 ms) or >50 ms (nominal 80+ ms), exactly the model split:
+the last in-port flash of that class and the first after-exit flash of that
+class at least `MIN_PAIR_SEPARATION_S` after it, so the two 30..120-ms peak
+windows do not overlap. (Before 2026-10-25 the pair was the last in-port and
+the first after-exit flash; in the 40-ms class these were always consecutive
+flashes 40 ms apart, with overlapping windows and often equal peaks.) The gap
+is to the immediately preceding measured pulse of any width; the first pulse
+of a trial has none and is not used. A trial can give a pair to each class.
+Report all exclusion counts and selected trial IDs. Align to measured flash onset, use
 10-ms bins, and subtract the stationary -40..0-ms baseline within each gap
 class from both peaks (30..120 ms). Restrict all sources to the GLM's selected
 completed trials and full paired windows inside its valid native 1-ms grid.
@@ -104,16 +105,20 @@ OUTPUT = Path("results/glm")
 GAPS_MS = (100, 40)
 GAP_LABELS = ("preceding gap ≥80 ms", "preceding gap 40 ms")
 PERIOD_COLORS = (PERIOD_COLOR_OF["in port"], PERIOD_COLOR_OF["after exit"])
+MIN_PAIR_SEPARATION_S = 0.09  # the 30..120-ms peak windows do not overlap
 RATE_SOURCES = ("observed", "full model", "without flash × exit")
 
 
 def paired_flashes_by_gap(trials):
-    """Keep the original last/first pair only if both preceding gaps match."""
+    """Pair, in each gap class, the last in-port and a later after-exit flash."""
     groups = [
         {"stationary": [], "movement": [], "trial_ids": [], "gaps_ms": []}
         for _ in GAPS_MS
     ]
-    counts = {"original_pairs": 0, "no_preceding_pulse": 0, "mixed_gap_pairs": 0}
+    counts = {
+        "trials_with_flashes_in_both_periods": 0,
+        "no_pair_in_class": dict.fromkeys(GAP_LABELS, 0),
+    }
     for _, trial in trials.iterrows():
         entry, leave, response = (
             trial["center_entry_s"],
@@ -130,26 +135,35 @@ def paired_flashes_by_gap(trials):
             )
         if np.any(np.diff(times) <= 0):
             raise ValueError("Measured pulse times must be strictly increasing.")
-        selected = np.flatnonzero(widths == 15)
-        stationary = selected[(times[selected] >= entry) & (times[selected] < leave)]
-        movement = selected[(times[selected] >= leave) & (times[selected] <= response)]
-        if not len(stationary) or not len(movement):
+        flash = widths == 15
+        stationary = flash & (times >= entry) & (times < leave)
+        movement = flash & (times >= leave) & (times <= response)
+        if not stationary.any() or not movement.any():
             continue
-        counts["original_pairs"] += 1
-        pair = np.array([stationary[-1], movement[0]])
-        if np.any(pair == 0):
-            counts["no_preceding_pulse"] += 1
-            continue
-        gaps = times[pair] - times[pair - 1]
+        counts["trials_with_flashes_in_both_periods"] += 1
+        gaps = np.diff(times, prepend=np.nan)  # the first pulse has no gap
         short = gaps <= dmat.FLASH_JUST_BEFORE_S
-        if short[0] != short[1]:
-            counts["mixed_gap_pairs"] += 1
-            continue
-        group = groups[int(short[0])]
-        group["stationary"].append(float(times[pair[0]]))
-        group["movement"].append(float(times[pair[1]]))
-        group["trial_ids"].append(int(trial["trial_num"]))
-        group["gaps_ms"].append((1000 * gaps).tolist())
+        for index, label in enumerate(GAP_LABELS):
+            in_class = np.isfinite(gaps) & (short == (GAPS_MS[index] <= 50))
+            before = np.flatnonzero(stationary & in_class)
+            after = (
+                np.flatnonzero(
+                    movement
+                    & in_class
+                    & (times >= times[before[-1]] + MIN_PAIR_SEPARATION_S)
+                )
+                if len(before)
+                else []
+            )
+            if not len(after):
+                counts["no_pair_in_class"][label] += 1
+                continue
+            pair = np.array([before[-1], after[0]])
+            group = groups[index]
+            group["stationary"].append(float(times[pair[0]]))
+            group["movement"].append(float(times[pair[1]]))
+            group["trial_ids"].append(int(trial["trial_num"]))
+            group["gaps_ms"].append((1000 * gaps[pair]).tolist())
     return groups, counts
 
 
