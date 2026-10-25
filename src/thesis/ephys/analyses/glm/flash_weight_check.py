@@ -30,7 +30,9 @@ Units: the stable units of the GLM (`fit.py`: unit criteria 1, stability 0,
 exclusions). The sampling unit is the unit; each statistic is within one mouse
 (AUC of the model value for the table's excited units, with a bootstrap 95%
 interval over units; Spearman ρ; cross-table of classes). The figure pools both
-mice (marker shape).
+mice (marker shape). Each unit has its SE on both axes; over the units, the
+contours of each table class (Gaussian kernel density, both mice pooled) hold
+90% (thin) and 50% (thick) of its units.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
         thesis.ephys.analyses.glm.flash_weight_check
@@ -43,7 +45,7 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import gaussian_kde, spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -77,6 +79,8 @@ CLASSES = {
 MARKERS = MOUSE_MARKERS
 # Display limit of both axes. All points are inside; a few error bars go past it.
 LIMITS = (-3.0, 3.0)
+# Contours of each class: the regions that hold 90% and 50% of its units.
+CONTOUR_SHARES = (0.9, 0.5)
 
 
 def table_values(subject: str, session: str, unit_ids: list[int]) -> dict:
@@ -246,6 +250,27 @@ def statistics(table: dict, model: dict) -> dict:
     return stats
 
 
+def class_contours(axis, sessions: dict, name: str, kind: str, color: str) -> None:
+    """Draw the density contours that hold `CONTOUR_SHARES` of a class's units."""
+    points = np.hstack(
+        [
+            np.vstack([table["log_ratio"], model[name]])[
+                :, np.asarray(table["class"]) == kind
+            ]
+            for table, model in sessions.values()
+        ]
+    )
+    density = gaussian_kde(points)
+    grid = np.linspace(*LIMITS, 200)
+    x, y = np.meshgrid(grid, grid)
+    z = density(np.vstack([x.ravel(), y.ravel()])).reshape(x.shape)
+    # The level that a share of the units lies above, for each share.
+    levels = np.quantile(density(points), [1 - s for s in CONTOUR_SHARES])
+    axis.contour(
+        x, y, z, levels=np.sort(levels), colors=color, linewidths=(0.8, 1.6), zorder=4
+    )
+
+
 def plot(sessions: dict) -> Path:
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(1, 2, figsize=(7.2, 3.6))
@@ -266,9 +291,11 @@ def plot(sessions: dict) -> Path:
                         mec=color,
                         ecolor=color,
                         elinewidth=0.4,
-                        alpha=0.8,
+                        alpha=0.35,
                         zorder=3 if kind != "not responsive" else 2,
                     )
+            for kind, color in CLASSES.items():
+                class_contours(axis, sessions, name, kind, color)
             lo, hi = LIMITS
             axis.plot(
                 [lo, hi], [lo, hi], color=REFERENCE_COLOR, ls="--", lw=0.6, zorder=1
@@ -287,6 +314,14 @@ def plot(sessions: dict) -> Path:
                 transform=axes[0].transAxes,
                 va="top",
             )
+        axes[0].text(
+            0.03,
+            0.97 - 0.07 * len(CLASSES),
+            "contours: 50% (thick), 90% (thin) of a class",
+            color="0.3",
+            transform=axes[0].transAxes,
+            va="top",
+        )
         for row, (subject, marker) in enumerate(MARKERS.items()):
             axes[1].plot(
                 0.05,
