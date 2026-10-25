@@ -9,13 +9,16 @@ same trial. Keep pairs only when both flashes have the same preceding-gap
 class: <=50 ms (nominal 40 ms) or >50 ms (nominal 80+ ms), exactly the model
 split. Use the immediately preceding measured pulse of any width; exclude
 first flashes without a preceding pulse and mixed-gap pairs. Report all
-exclusion counts and selected trial IDs. Align to measured flash onset, use
+exclusion counts and selected trial IDs. Caveat: in the <=50 ms class every
+pair is two consecutive flashes 40 ms apart across the exit, so the two peak
+windows overlap by 50 ms and share the baseline; many units get the same peak
+in both periods. That class is not a valid comparison until it is re-paired. Align to measured flash onset, use
 10-ms bins, and subtract the stationary -40..0-ms baseline within each gap
 class from both peaks (30..120 ms). Restrict all sources to the GLM's selected
 completed trials and full paired windows inside its valid native 1-ms grid.
 Round flash anchors to the nearest model bin. Other flashes can enter the window.
-PSTHs pool the same-gap pairs and show the population mean and SEM across
-unit trial means. Saved per-unit peak uncertainty is SD across paired-trial
+PSTHs show each gap class on its own, above the scatter of that class: the
+population mean and SEM across unit trial means. Saved per-unit peak uncertainty is SD across paired-trial
 bootstrap draws, stratified by gap class and conditional on saved models.
 
 Primary model comparison: observed counts, saved whole-trial held-out rate
@@ -403,11 +406,12 @@ def session_data(session, excited):
         rate_values.append(peaks)
         rate_spread.append(spreads)
         contribution_draw_sd.append(contribution_sd)
-        traces.append(np.concatenate(unit_traces, axis=1).mean(1))
+        traces.append(np.stack([trace.mean(1) for trace in unit_traces]))
         print(
             f"{session}: reconstructed {position + 1}/{len(ids)} held-out units",
             flush=True,
         )
+    traces = np.asarray(traces)  # (unit, gap, period, bin), observed spikes/s
     rate_values = np.asarray(rate_values)  # (unit, gap, source, period)
     rate_spread = np.asarray(rate_spread)
     normalized_values = np.asarray(normalized_values)
@@ -434,7 +438,7 @@ def session_data(session, excited):
         "trial_groups": dict(zip(GAP_LABELS, groups, strict=True)),
         "selection": selection,
         "centers": centers,
-        "traces": np.asarray(traces),
+        "traces": traces,
         "observed": normalized_values[:, :, 0],
         "observed_sd": normalized_spread[:, :, 0],
         "full_model": normalized_values[:, :, 1],
@@ -551,49 +555,68 @@ def match_scatter_limits(axes):
         axis.plot(limits, limits, color="0.65", linestyle="--", linewidth=0.7, zorder=0)
 
 
+def psth_panel(axis, data, gap, labels):
+    """Mean rate of the flash-excited units around the flashes of one gap class."""
+    unit_means = data["traces"][data["responsive"], gap]
+    for period, (name, color) in enumerate(
+        zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
+    ):
+        mean = unit_means[:, period].mean(0)
+        spread = stats.sem(unit_means[:, period], axis=0)
+        axis.plot(1000 * data["centers"], mean, color=color)
+        axis.fill_between(
+            1000 * data["centers"],
+            mean - spread,
+            mean + spread,
+            color=color,
+            alpha=0.15,
+            linewidth=0,
+        )
+        if labels:
+            axis.text(
+                0.04,
+                0.95 - 0.12 * period,
+                name,
+                color=color,
+                transform=axis.transAxes,
+                va="top",
+            )
+    axis.axvline(0, color="0.7", linestyle="--", linewidth=0.7)
+    if GAPS_MS[gap] == 40:  # the flash before is inside the window
+        axis.axvline(-40, color="0.7", linestyle="--", linewidth=0.7)
+    axis.set_title(
+        f"{data['subject']}\n{int(data['responsive'].sum())} units, "
+        f"{data['trials'][gap]} pairs"
+    )
+    axis.set(
+        xlim=(LAGS_MS[0] - 5, LAGS_MS[-1] + 1),
+        xlabel="time from flash (ms)",
+        ylabel="firing rate (spikes/s)",
+    )
+
+
 def write_figure(figure, name):
     print(save_figure(figure, OUTPUT / name))
 
 
 def plot(sessions):
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(2, 2, figsize=(7.6, 6.1), layout="constrained")
-        axes[0, 1].sharey(axes[0, 0])  # one rate scale for both mice
-        for axis, data in zip(axes[0], sessions, strict=True):
-            unit_means = data["traces"][data["responsive"]]
-            for period, (name, color) in enumerate(
-                zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
-            ):
-                mean = unit_means[:, period].mean(0)
-                spread = stats.sem(unit_means[:, period], axis=0)
-                axis.plot(1000 * data["centers"], mean, color=color)
-                axis.fill_between(
-                    1000 * data["centers"],
-                    mean - spread,
-                    mean + spread,
-                    color=color,
-                    alpha=0.15,
-                    linewidth=0,
+        # One column per gap class: the PSTH of each mouse above the scatter.
+        figure = plt.figure(figsize=(7.6, 6.4), layout="constrained")
+        grid = figure.add_gridspec(2, 4, height_ratios=(1.0, 1.9))
+        panels, psths, scatters = [], [], []
+        for gap, label in enumerate(GAP_LABELS):
+            for mouse, data in enumerate(sessions):
+                # One rate scale for both mice and both gaps.
+                axis = figure.add_subplot(
+                    grid[0, 2 * gap + mouse], sharey=psths[0] if psths else None
                 )
-                axis.text(
-                    0.02 + period * 0.5,
-                    1.02,
-                    name,
-                    color=color,
-                    transform=axis.transAxes,
-                    va="bottom",
-                )
-            axis.axvline(0, color="0.7", linestyle="--", linewidth=0.7)
-            axis.text(
-                0.98,
-                0.95,
-                f"{data['subject']}\n{int(data['responsive'].sum())} flash-excited units",
-                transform=axis.transAxes,
-                ha="right",
-                va="top",
-            )
-            axis.set(xlabel="time from flash (ms)", ylabel="firing rate (spikes/s)")
-        for gap, (axis, label) in enumerate(zip(axes[1], GAP_LABELS, strict=True)):
+                psth_panel(axis, data, gap, labels=mouse == 0)
+                if mouse:
+                    axis.set_ylabel("")
+                psths.append(axis)
+                panels.append(axis)
+            axis = figure.add_subplot(grid[1, 2 * gap : 2 * gap + 2])
             peak_scatter(axis, sessions, "observed", gap)
             axis.text(
                 0.98, 1.03, label, transform=axis.transAxes, ha="right", va="bottom"
@@ -602,8 +625,10 @@ def plot(sessions):
                 xlabel="stationary peak / mean observed rate",
                 ylabel="movement peak / mean observed rate",
             )
-        match_scatter_limits(axes[1])
-        label_panels(axes.ravel(), x=-0.12, y=1.12)
+            scatters.append(axis)
+            panels.append(axis)
+        match_scatter_limits(scatters)
+        label_panels(panels, x=-0.12, y=1.08)
         write_figure(figure, "flash_observation")
 
         figure, axes = plt.subplots(1, 2, figsize=(7.6, 3.5), layout="constrained")
