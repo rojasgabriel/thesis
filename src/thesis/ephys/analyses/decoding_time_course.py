@@ -69,7 +69,7 @@ N_RESAMPLES = 50
 N_SHUFFLES = 20
 SEED = 0
 COLORS = {"category": CONCEPT_COLORS["visual"], "choice": CONCEPT_COLORS["task"]}
-ACCURACY_LIMITS = (0.3, 1.02)
+ACCURACY_LIMITS = (0.25, 1.02)  # the lowest band edge is 0.295
 UNITS = "all"  # set by --units
 
 
@@ -222,15 +222,16 @@ def plot(results: list[dict]) -> Path:
             )
             axes[row, 1].text(
                 0.98,
-                0.04,
+                0.005,
                 "shuffle",
                 color="0.5",
                 transform=axes[row, 1].transAxes,
                 ha="right",
+                va="bottom",
             )
             axes[row, 0].text(
                 data["median_exit_after_first_flash_s"] + 0.02,
-                0.33,
+                0.26,  # below the lowest band edge (0.295)
                 "median exit",
                 color=CONCEPT_COLORS["task"],
                 fontsize=7,
