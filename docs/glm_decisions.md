@@ -889,6 +889,23 @@ project criteria (`populate_unit_counts.py`) now match the database, and
   for 207 of 209); completed trials are the same. The GLM uses completed
   trials only. `exit_without_stimulus` for GRB006 was run from the database.
 
+### Recovery τ of 50 ms, refit 2026-10-24
+
+Gabriel chose τ from the recovery curve fit with c free (54 ms, 95% 29 to
+91), rounded to 10 ms: `dmat.FLASH_RECOVERY_TAU_S = 0.05`. Prediction does not
+choose τ (`tau_grid.py`), and the form was set from the data, not from the
+model's residuals. Every fit, check and figure was run again; the τ = 120 ms
+fits are in `results/glm/_before_tau_50_2026_10_24/`. A design now records
+its τ, and a design with another τ is not reused.
+
+- Prediction: 0.552 / 0.472 bits per spike (from 0.549 / 0.475); all 12 terms
+  pass; flash recovery is needed by 49/172 and 24/79 units (from 43 and 22).
+- Result 3: full model 1.70 / 1.15 (from 1.73 / 1.21), without flash × exit
+  1.31 / 1.17 (from 1.23 / 1.20). Leak-corrected, excited units: +0.66 / −0.07
+  (p = 0.38 / 0.80; medians +0.10 / −0.04), pooled +0.07 (−0.29 to 0.25).
+  With the weaker fixation penalty: +0.62 / −0.07 (p = 0.43 / 0.60).
+- The conclusions do not change.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
