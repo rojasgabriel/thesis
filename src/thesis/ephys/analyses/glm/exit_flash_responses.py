@@ -64,7 +64,9 @@ GAPS = ((0.05, 0.1), (0.1, 0.2), (0.2, np.inf))
 GAP_LABELS = ("50–100", "100–200", "200+")
 MARKERS = ("o", "s", "^")  # the gap in the gain test (panel c)
 GROUPS = ("in port", "later after exit", "1st after exit")
-COLORS = {"in port": "0.35", "later after exit": "C0", "1st after exit": "C3"}
+# The period colors of the other figures: still (in the port) blue, moving
+# (after the exit) orange, the first flash after the exit dark orange.
+COLORS = {"in port": "C0", "later after exit": "#FDAE61", "1st after exit": "#B34700"}
 FIRST = "first of trial"
 DRAWS = 30
 SEED = 6

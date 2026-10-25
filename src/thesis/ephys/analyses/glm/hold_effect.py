@@ -885,7 +885,7 @@ def main() -> None:
             height_ratios=(1.5, 1.35, 1.9, 1.9, 1.9),
             hspace=0.55,
         )
-        examples = rows[0].subgridspec(2, 2, hspace=0.25, wspace=0.08)
+        examples = rows[0].subgridspec(2, 2, hspace=0.25, wspace=0.16)
         # A narrow empty column keeps the letter of c away from b.
         top = rows[1].subgridspec(
             2, 5, height_ratios=(1, 4), width_ratios=(1, 1, 0.12, 1, 1), wspace=0.3
