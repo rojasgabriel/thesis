@@ -583,7 +583,8 @@ def _draw_examples(figure, examples, data: dict) -> list:
     trial_rows = np.arange(len(exits))
     first = None
     for row, (unit_id, label) in enumerate(
-        ((suppressed, "suppressed"), (excited, "excited"))
+        # The label is the rate in the fixation, not the response to a flash.
+        ((suppressed, "lower rate in fixation"), (excited, "higher rate in fixation"))
     ):
         for column, (name, limits) in enumerate(
             (("flash", FLASH_WINDOW_MS), ("exit", EXIT_WINDOW_MS))
