@@ -30,9 +30,9 @@ Units: the stable units of the GLM (`fit.py`: unit criteria 1, stability 0,
 exclusions). The sampling unit is the unit; each statistic is within one mouse
 (AUC of the model value for the table's excited units, with a bootstrap 95%
 interval over units; Spearman ρ; cross-table of classes). The figure pools both
-mice (marker shape). Each unit has its SE on both axes; over the units, the
-contours of each table class (Gaussian kernel density, both mice pooled) hold
-90% (thin) and 50% (thick) of its units.
+mice. The figure shows only the density of each table class (Gaussian kernel
+density, both mice pooled): the filled region holds 50% of its units, the line
+90%. Single units and their SEs are not drawn; they are in the report.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
         thesis.ephys.analyses.glm.flash_weight_check
@@ -77,8 +77,8 @@ CLASSES = {
     "not responsive": REFERENCE_COLOR,
 }
 MARKERS = MOUSE_MARKERS
-# Display limit of both axes. All points are inside; a few error bars go past it.
-LIMITS = (-3.0, 3.0)
+# Display limit of both axes; every 90% contour is inside.
+LIMITS = (-2.0, 2.0)
 # Contours of each class: the regions that hold 90% and 50% of its units.
 CONTOUR_SHARES = (0.9, 0.5)
 
@@ -266,9 +266,9 @@ def class_contours(axis, sessions: dict, name: str, kind: str, color: str) -> No
     z = density(np.vstack([x.ravel(), y.ravel()])).reshape(x.shape)
     # The level that a share of the units lies above, for each share.
     levels = np.quantile(density(points), [1 - s for s in CONTOUR_SHARES])
-    axis.contour(
-        x, y, z, levels=np.sort(levels), colors=color, linewidths=(0.8, 1.6), zorder=4
-    )
+    outer, inner = levels
+    axis.contourf(x, y, z, levels=[inner, np.inf], colors=color, alpha=0.35, zorder=3)
+    axis.contour(x, y, z, levels=[outer], colors=color, linewidths=1.0, zorder=4)
 
 
 def plot(sessions: dict) -> Path:
@@ -276,24 +276,6 @@ def plot(sessions: dict) -> Path:
         figure, axes = plt.subplots(1, 2, figsize=(7.2, 3.6))
         titles = ("flash weights", "all first-flash terms")
         for axis, name, title in zip(axes, ("weights", "all"), titles, strict=True):
-            for subject, (table, model) in sessions.items():
-                classes = np.asarray(table["class"])
-                for kind, color in CLASSES.items():
-                    keep = classes == kind
-                    axis.errorbar(
-                        np.asarray(table["log_ratio"])[keep],
-                        np.asarray(model[name])[keep],
-                        xerr=np.asarray(table["se"])[keep],
-                        yerr=np.asarray(model[f"{name}_se"])[keep],
-                        fmt=MARKERS[subject],
-                        ms=3.5,
-                        mfc="none" if kind == "not responsive" else color,
-                        mec=color,
-                        ecolor=color,
-                        elinewidth=0.4,
-                        alpha=0.35,
-                        zorder=3 if kind != "not responsive" else 2,
-                    )
             for kind, color in CLASSES.items():
                 class_contours(axis, sessions, name, kind, color)
             lo, hi = LIMITS
@@ -317,29 +299,11 @@ def plot(sessions: dict) -> Path:
         axes[0].text(
             0.03,
             0.97 - 0.07 * len(CLASSES),
-            "contours: 50% (thick), 90% (thin) of a class",
+            "filled: 50% of a class; line: 90%",
             color="0.3",
             transform=axes[0].transAxes,
             va="top",
         )
-        for row, (subject, marker) in enumerate(MARKERS.items()):
-            axes[1].plot(
-                0.05,
-                0.95 - 0.07 * row,
-                marker,
-                color="0.3",
-                mfc="none",
-                ms=4,
-                transform=axes[1].transAxes,
-            )
-            axes[1].text(
-                0.09,
-                0.95 - 0.07 * row,
-                subject,
-                color="0.3",
-                transform=axes[1].transAxes,
-                va="center",
-            )
         label_panels(axes)
         figure.tight_layout()
         return save_figure(figure, OUT / "flash_weight_check")
