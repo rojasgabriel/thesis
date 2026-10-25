@@ -26,9 +26,12 @@ on the same scales.
 
 Units: the GLM units (`fetch_unit_table` with criteria 1 and stability 0,
 without `fit.excluded_units`); flash-excited units from
-`raw_video_trust_classification.json`. Example neuron: the flash-excited unit
-with the largest in-port flash response among units with a mean rate of at
-least `MIN_EXAMPLE_RATE_HZ`. Trials: the completed trials of the GLM. Mean rate
+`raw_video_trust_classification.json`. Example neuron: among the units that
+are flash-excited by that table and by the flash weights of the GLM
+(`flash_weight_check.json`), with a mean rate of at least
+`MIN_EXAMPLE_RATE_HZ`, the unit whose response to in-port flashes is easiest to
+see in single trials: (after − before) / √(after + before), the spikes per
+flash in `PEAK_WINDOW_S` and those expected from `BASELINE_WINDOW_S`. Trials: the completed trials of the GLM. Mean rate
 of a unit: its rate from 0.5 s before the first flash to 1.5 s after it, over
 these trials. Display limits of the heatmaps: values past them take the end
 color; none is removed.
@@ -134,7 +137,13 @@ def session_data(session: str, excited: set[int]) -> dict:
         for i in range(len(ids))
         if ids[i] in excited and mean_rate[i] >= MIN_EXAMPLE_RATE_HZ
     ]
-    example = max(candidates, key=lambda i: flash_response[i, peak].mean())
+    # Spikes per flash in the response window, and those expected from the rate
+    # before the flash; their discriminability for Poisson counts.
+    duration = np.ptp(PEAK_WINDOW_S)
+    after = flash_rate[:, peak].mean(1) * duration
+    before = flash_rate[:, base].mean(1) * duration
+    visible = (after - before) / np.sqrt(np.maximum(after + before, 1e-9))
+    example = max(candidates, key=lambda i: visible[i])
     return {
         "subject": subject,
         "units": units,
@@ -441,7 +450,15 @@ def plot_flash_population(sessions: list[dict]) -> tuple[Path, dict]:
 
 def main() -> None:
     classes = json.loads((GLM / "raw_video_trust_classification.json").read_text())
-    sessions = [session_data(s, set(classes[s])) for s in SESSIONS]
+    model = json.loads((GLM / "flash_weight_check.json").read_text())
+    sessions = [
+        session_data(
+            s,
+            set(classes[s])
+            & set(model[s]["weights"]["units_by_model_class"]["excited"]),
+        )
+        for s in SESSIONS
+    ]
     report = {
         d["subject"]: {
             "example_unit_id": int(d["ids"][d["example"]]),
