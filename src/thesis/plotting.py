@@ -90,37 +90,42 @@ def hierarchical_interval(groups, seed: int = 0) -> dict:
 
 
 def pooled_points(
-    axis, xs, ys, subjects, color, seed: int = 0, count_hidden: bool = False
+    axis,
+    xs,
+    ys,
+    subjects,
+    color,
+    seed: int = 0,
+    count_hidden: bool = False,
+    subject_colors=None,
 ) -> None:
     """Draw the units of all mice pooled, with the medians of the mice and of all.
 
     Units are small light dots. The median of each mouse is a small open
     circle with its name. The pooled median is a large dot with the
-    hierarchical-bootstrap 95% interval of each median as error bars.
+    hierarchical-bootstrap 95% interval of each median as error bars. With
+    `subject_colors`, the units and the median of each mouse take the color
+    of the mouse; the pooled median keeps `color`.
     """
-    axis.scatter(
-        np.concatenate(xs),
-        np.concatenate(ys),
-        s=8,
-        color=color,
-        alpha=0.3,
-        lw=0,
-        zorder=2,
-    )
+    colors = subject_colors or [color] * len(xs)
+    for x, y, mouse_color in zip(xs, ys, colors, strict=False):
+        axis.scatter(x, y, s=8, color=mouse_color, alpha=0.3, lw=0, zorder=2)
     # The label of the higher median goes up and the lower one down.
     rank = np.argsort(np.argsort([np.median(y) for y in ys]))
     for k, (x, y, subject) in enumerate(zip(xs, ys, subjects, strict=True)):
         mx, my = np.median(x), np.median(y)
-        axis.scatter(mx, my, s=22, facecolor="white", edgecolor=color, lw=1, zorder=3)
+        axis.scatter(
+            mx, my, s=22, facecolor="white", edgecolor=colors[k], lw=1, zorder=3
+        )
         # One line for each mouse, so that close medians keep legible names.
         axis.annotate(
             subject,
             (mx, my),
             xytext=(12, 9 if rank[k] == len(ys) - 1 else -13),
             textcoords="offset points",
-            color=color,
+            color=colors[k],
             fontsize=5.5,
-            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
+            arrowprops={"arrowstyle": "-", "color": colors[k], "lw": 0.4},
         )
     axis.text(
         0.03,
@@ -166,34 +171,50 @@ def pooled_points(
     )
 
 
-def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) -> dict:
+def pooled_strip(
+    axis,
+    position: float,
+    groups,
+    subjects,
+    color,
+    seed: int = 0,
+    subject_colors=None,
+) -> dict:
     """Draw one column of pooled units, the median of each mouse, and the pooled median.
 
-    Returns the statistics of `hierarchical_interval`.
+    With `subject_colors`, the units and the median of each mouse take the
+    color of the mouse; the pooled median keeps `color`. Returns the
+    statistics of `hierarchical_interval`.
     """
     rng = np.random.default_rng(seed)
-    values = np.concatenate(groups)
-    axis.scatter(
-        position + rng.uniform(-0.15, 0.15, len(values)),
-        values,
-        s=8,
-        color=color,
-        alpha=0.3,
-        lw=0,
-        zorder=2,
-    )
+    colors = subject_colors or [color] * len(groups)
+    jitter = rng.uniform(-0.15, 0.15, sum(len(g) for g in groups))
+    start = 0
+    for group, mouse_color in zip(groups, colors, strict=False):
+        axis.scatter(
+            position + jitter[start : start + len(group)],
+            group,
+            s=8,
+            color=mouse_color,
+            alpha=0.3,
+            lw=0,
+            zorder=2,
+        )
+        start += len(group)
     stats = hierarchical_interval(groups, seed)
     medians = stats["median_of_each_mouse"]
     # The label of the higher median goes up and the lower one down, so that
     # close medians keep legible names.
     rank = np.argsort(np.argsort(medians))
-    for median, subject, place in zip(medians, subjects, rank, strict=True):
+    for median, subject, place, mouse_color in zip(
+        medians, subjects, rank, colors, strict=True
+    ):
         axis.scatter(
             position + 0.25,
             median,
             s=22,
             facecolor="white",
-            edgecolor=color,
+            edgecolor=mouse_color,
             lw=1,
             zorder=3,
         )
@@ -202,9 +223,9 @@ def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) 
             (position + 0.25, median),
             xytext=(8, 7 if place == len(medians) - 1 else -9),
             textcoords="offset points",
-            color=color,
+            color=mouse_color,
             fontsize=5.5,
-            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
+            arrowprops={"arrowstyle": "-", "color": mouse_color, "lw": 0.4},
         )
     low, high = stats["interval_95"]
     axis.errorbar(

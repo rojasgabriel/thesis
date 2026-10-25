@@ -87,7 +87,8 @@ from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.kernel_reliability import agreement, kernel_times
 from thesis.ephys.analyses.glm.leak_test import comparison_values
-from thesis.ephys.analyses.glm.main_figure import REGRESSORS, TASK, VISUAL
+from thesis.ephys.analyses.glm.main_figure import REGRESSORS
+from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
 from thesis.plotting import (
     FIGURE_STYLE,
     REFERENCE_COLOR,
@@ -485,7 +486,8 @@ def main() -> None:
             [p["leak"][:, long_gap] for p in parts],
             [p["real"][:, long_gap] for p in parts],
             subjects,
-            VISUAL,
+            "black",
+            subject_colors=SUBJECT_COLORS[: len(subjects)],
         )
         # The mouse labels go to the empty upper left, off the data.
         for text in part_axis.texts:
@@ -502,7 +504,14 @@ def main() -> None:
             rests = [p["real"][:, gap] - p["leak"][:, gap] for p in parts]
             stats["leak, flash × after exit part, real minus leak (normalized)"][
                 gap_names[position]
-            ] = pooled_strip(rest_axis, 1.6 * position, rests, subjects, VISUAL) | {
+            ] = pooled_strip(
+                rest_axis,
+                1.6 * position,
+                rests,
+                subjects,
+                "black",
+                subject_colors=SUBJECT_COLORS[: len(subjects)],
+            ) | {
                 subject: {
                     "units": len(rest),
                     "mean": float(np.mean(rest)),
@@ -537,7 +546,8 @@ def main() -> None:
             [p["level"] for p in parts],
             [p["leak"][:, long_gap] for p in parts],
             subjects,
-            TASK,
+            "black",
+            subject_colors=SUBJECT_COLORS[: len(subjects)],
         )
         level_axis.axhline(0, color=REFERENCE_COLOR, lw=0.6)
         level_axis.set_xlabel("fixation level of the unit\n(Δ log rate)")
