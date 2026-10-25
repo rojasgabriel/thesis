@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
@@ -80,3 +83,56 @@ def _units_with_mua(subject: str, session: str, unit_criteria_id: int) -> pd.Dat
     units = SpikeSorting.Unit & (UnitCount.Unit & query & "passes >= 0")
     table = pd.DataFrame(units.get_spike_times(include_metrics=False))
     return table.rename(columns={"spike_times": "spike_times_s"})
+
+
+def decoder():
+    """Return the linear decoder of the decoding analyses (z-score, logistic)."""
+    return make_pipeline(
+        StandardScaler(),
+        LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000),
+    )
+
+
+def balanced_indices(
+    category: np.ndarray,
+    choice: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Return trial indices with equal numbers in the four category x choice groups."""
+    category_choice_pairs = [(cat, response) for cat in (0, 1) for response in (-1, 1)]
+    counts = [
+        np.sum((category == cat) & (choice == response))
+        for cat, response in category_choice_pairs
+    ]
+    n_trials_per_pair = int(min(counts))
+    if n_trials_per_pair < 2:
+        raise ValueError(
+            "Too few category x choice trials; least represented pair has "
+            f"{n_trials_per_pair}"
+        )
+    return np.sort(
+        np.concatenate(
+            [
+                rng.choice(
+                    np.flatnonzero((category == cat) & (choice == response)),
+                    n_trials_per_pair,
+                    replace=False,
+                )
+                for cat, response in category_choice_pairs
+            ]
+        )
+    )
+
+
+def window_rates(
+    units: pd.DataFrame, starts_s: np.ndarray, stops_s: np.ndarray
+) -> np.ndarray:
+    """Return the rate (spikes/s) of each unit in each trial window, (trial, unit)."""
+    rates = np.empty((len(starts_s), len(units)), dtype=float)
+    duration = np.asarray(stops_s) - np.asarray(starts_s)
+    for unit, spike_times_s in enumerate(units["spike_times_s"]):
+        spikes = np.sort(np.asarray(spike_times_s, dtype=float))
+        rates[:, unit] = (
+            np.searchsorted(spikes, stops_s) - np.searchsorted(spikes, starts_s)
+        ) / duration
+    return rates

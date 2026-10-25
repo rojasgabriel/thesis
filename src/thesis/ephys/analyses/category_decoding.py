@@ -32,11 +32,10 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 
+from thesis.ephys.analyses._decoding import balanced_indices as _balanced_indices
+from thesis.ephys.analyses._decoding import decoder as _decoder
 from thesis.ephys.analyses._decoding import load_decoding_data
 from thesis.plotting import (
     FIGURE_STYLE,
@@ -52,43 +51,6 @@ CV_FOLDS = 10
 N_RESAMPLES = 20
 N_SHUFFLES = 100
 RANDOM_SEED = 0
-
-
-def _decoder():
-    return make_pipeline(
-        StandardScaler(),
-        LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000),
-    )
-
-
-def _balanced_indices(
-    category: np.ndarray,
-    choice: np.ndarray,
-    rng: np.random.Generator,
-) -> np.ndarray:
-    category_choice_pairs = [(cat, response) for cat in (0, 1) for response in (-1, 1)]
-    counts = [
-        np.sum((category == cat) & (choice == response))
-        for cat, response in category_choice_pairs
-    ]
-    n_trials_per_pair = int(min(counts))
-    if n_trials_per_pair < 2:
-        raise ValueError(
-            "Too few category x choice trials; least represented pair has "
-            f"{n_trials_per_pair}"
-        )
-    return np.sort(
-        np.concatenate(
-            [
-                rng.choice(
-                    np.flatnonzero((category == cat) & (choice == response)),
-                    n_trials_per_pair,
-                    replace=False,
-                )
-                for cat, response in category_choice_pairs
-            ]
-        )
-    )
 
 
 def _scores(
