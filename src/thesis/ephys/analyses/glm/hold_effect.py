@@ -195,6 +195,7 @@ EXAMPLE_MIN_RATE = 2.0
 # The suppressed example unit must have a rate in this range (spikes/s): enough
 # spikes to see the hold, few enough to see single spikes.
 SUPPRESSED_RATES = (5.0, 20.0)
+EXAMPLE_PSTH_BIN_MS = 20  # panel a: the bin of the PSTH under each raster
 AFTER = "after_exit"
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
@@ -589,12 +590,30 @@ def _draw_examples(figure, examples, data: dict) -> list:
         for column, (name, limits) in enumerate(
             (("flash", FLASH_WINDOW_MS), ("exit", EXIT_WINDOW_MS))
         ):
-            axis = figure.add_subplot(examples[row, column])
+            axis = figure.add_subplot(examples[2 * row, column])
             spike_ms, rows = rates["rasters"][unit_id][name]
             keep = (spike_ms >= limits[0]) & (spike_ms < limits[1])
             axis.plot(
                 spike_ms[keep], rows[keep], "|", color=OBSERVED_COLOR, markersize=1.5
             )
+            # The PSTH of the same spikes: mean and SEM over trials.
+            psth = figure.add_subplot(examples[2 * row + 1, column], sharex=axis)
+            edges = np.arange(limits[0], limits[1] + 1e-9, EXAMPLE_PSTH_BIN_MS)
+            counts = np.histogram2d(
+                rows[keep], spike_ms[keep], bins=(np.arange(len(exits) + 1), edges)
+            )[0] / (EXAMPLE_PSTH_BIN_MS / 1000)
+            mean = counts.mean(0)
+            sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
+            centers = (edges[:-1] + edges[1:]) / 2
+            psth.plot(centers, mean, color=OBSERVED_COLOR, linewidth=1)
+            psth.fill_between(
+                centers, mean - sem, mean + sem, color=OBSERVED_COLOR, alpha=0.2, lw=0
+            )
+            psth.axvline(0, color=VISUAL if name == "flash" else TASK, linewidth=0.8)
+            psth.set_ylim(bottom=0)
+            if column == 0:
+                psth.set_ylabel("spikes/s")
+            axis.tick_params(labelbottom=False)
             # The event at time 0, and in the left column the exit of each trial.
             event = VISUAL if name == "flash" else TASK
             axis.axvline(0, color=event, linewidth=0.8)
@@ -602,9 +621,9 @@ def _draw_examples(figure, examples, data: dict) -> list:
                 axis.plot(exits, trial_rows, color=TASK, linewidth=1)
             axis.set_xlim(*limits)
             if row == 0:
-                axis.tick_params(labelbottom=False)
+                psth.tick_params(labelbottom=False)
             else:
-                axis.set_xlabel(
+                psth.set_xlabel(
                     "time from first flash (ms)"
                     if name == "flash"
                     else "time from center exit (ms)"
@@ -876,7 +895,7 @@ def main() -> None:
     }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 10.4))
+        figure = plt.figure(figsize=(7.4, 11.4))
         rows = figure.add_gridspec(
             5,
             1,
@@ -884,10 +903,13 @@ def main() -> None:
             right=0.98,
             top=0.98,
             bottom=0.05,
-            height_ratios=(1.5, 1.35, 1.9, 1.9, 1.9),
+            height_ratios=(2.4, 1.35, 1.9, 1.9, 1.9),
             hspace=0.55,
         )
-        examples = rows[0].subgridspec(2, 2, hspace=0.25, wspace=0.16)
+        # Each raster has its PSTH (mean rate over trials) below it.
+        examples = rows[0].subgridspec(
+            4, 2, height_ratios=(1, 0.6, 1, 0.6), hspace=0.45, wspace=0.16
+        )
         # A narrow empty column keeps the letter of c away from b.
         top = rows[1].subgridspec(
             2, 5, height_ratios=(1, 4), width_ratios=(1, 1, 0.12, 1, 1), wspace=0.3

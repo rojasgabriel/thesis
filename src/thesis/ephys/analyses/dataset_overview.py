@@ -69,6 +69,7 @@ OUT = Path("results/dataset_overview")
 VISUAL, TASK = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
 STILL, MOVING = PERIOD_COLORS["in port"], PERIOD_COLORS["after exit"]
 EXAMPLE_TRIALS = 10
+TRIAL_PSTH_BIN_S = 0.02
 LONG_GAP_S = 0.08
 MIN_EXAMPLE_RATE_HZ = 3.0
 TRIAL_WINDOW_S = (-0.3, 1.5)
@@ -165,9 +166,46 @@ def session_data(session: str, excited: set[int]) -> dict:
 
 def plot_trials(sessions: list[dict]) -> Path:
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(len(sessions), 1, figsize=(6.5, 4.6), sharex=True)
-        for axis, data in zip(axes, sessions, strict=True):
+        # Each raster has the PSTH of the same neuron, over all trials, below it.
+        figure, grid = plt.subplots(
+            2 * len(sessions),
+            1,
+            figsize=(6.5, 6.4),
+            sharex=True,
+            gridspec_kw={"height_ratios": [1, 0.45] * len(sessions)},
+        )
+        axes = grid[0::2]
+        for axis, psth, data in zip(axes, grid[1::2], sessions, strict=True):
             spikes = data["spikes"][data["example"]]
+            edges = np.arange(
+                TRIAL_WINDOW_S[0], TRIAL_WINDOW_S[1] + 1e-9, TRIAL_PSTH_BIN_S
+            )
+            counts = (
+                np.diff(
+                    np.searchsorted(spikes, data["first"][:, None] + edges[None, :]),
+                    axis=1,
+                )
+                / TRIAL_PSTH_BIN_S
+            )
+            mean = counts.mean(0)
+            sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
+            centers = (edges[:-1] + edges[1:]) / 2
+            psth.plot(centers, mean, color=OBSERVED_COLOR, linewidth=1)
+            psth.fill_between(
+                centers, mean - sem, mean + sem, color=OBSERVED_COLOR, alpha=0.2, lw=0
+            )
+            psth.axvline(0, color=VISUAL, linewidth=0.8)
+            psth.set_ylim(bottom=0)
+            psth.set_ylabel("spikes/s")
+            psth.text(
+                1.0,
+                0.95,
+                f"mean of {len(counts)} trials",
+                transform=psth.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+            )
             rows = (
                 np.linspace(0, len(data["first"]) - 1, EXAMPLE_TRIALS)
                 .round()
@@ -252,7 +290,7 @@ def plot_trials(sessions: list[dict]) -> Path:
                 va="bottom",
                 ha="right",
             )
-        axes[-1].set_xlabel("time from the first flash (s)")
+        grid[-1].set_xlabel("time from the first flash (s)")
         label_panels(axes, x=-0.06, y=1.02)
         figure.tight_layout()
         return save_figure(figure, OUT / "dataset_trials")
