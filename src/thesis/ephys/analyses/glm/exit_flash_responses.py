@@ -24,7 +24,12 @@ left out: the response to the flash before falls into their windows.
 - Gain test (panel c): for an after-exit group at a gap, the peak and the
   rate before the flash, each over the in-port value at the same gap. A pure
   gain on all activity puts the point on the identity line.
-- Units: the flash-excited units of `raw_video_trust_classification.json`,
+- Group (`--group`): "excited" (default), the flash-excited units of
+  `raw_video_trust_classification.json`; "flash-suppressed", the units whose
+  flash weights are below 0 (`flash_weight_check.json`, weight + 1.96 SE < 0),
+  with the dip (the rate before the flash minus the smallest bin from 30 to
+  120 ms) in place of the peak; outputs with `_flash_suppressed`.
+- Units: the units of the group,
   pooled over both mice. Intervals: hierarchical bootstrap (mice, then units),
   95%; ratios are of pooled means. The sampling unit is the unit.
 - Panels: a, flash peak by gap; b, latency by gap; c, the gain test; d, the
@@ -39,6 +44,7 @@ The script writes `exit_flash_responses.svg` (figures/glm) and
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -94,10 +100,15 @@ def trace(rate: np.ndarray) -> np.ndarray:
     return rate.mean(0).reshape(-1, 10).mean(-1)
 
 
+DIP = False  # set by --group: the dip below the rate before, not the peak
+
+
 def before_and_peak(rate: np.ndarray) -> tuple[float, float]:
-    """Return the rate before the flash and the peak above it."""
+    """Return the rate before the flash and the peak above it (with `DIP`, the dip below it)."""
     values = trace(rate)
     before = values[BASELINE].mean()
+    if DIP:
+        return float(before), float(before - values[PEAK].min())
     return float(before), float(values[PEAK].max() - before)
 
 
@@ -218,7 +229,7 @@ def interval(sessions, function, boot) -> list[float]:
 
 
 def latency(sessions, key, picks=None) -> float:
-    """Return the peak time (ms) of the pooled mean trace."""
+    """Return the peak time (ms) of the pooled mean trace (with `DIP`, of its lowest bin)."""
     if picks is None:
         traces = np.concatenate([s["values"][key]["trace"] for s in sessions])
     else:
@@ -226,12 +237,29 @@ def latency(sessions, key, picks=None) -> float:
             [sessions[m]["values"][key]["trace"][i] for m, i in picks]
         )
     mean = traces.mean(0)
+    if DIP:
+        return float(1000 * CENTERS_S[np.argmin(np.where(PEAK, mean, np.inf))])
     return float(1000 * CENTERS_S[np.argmax(np.where(PEAK, mean, -np.inf))])
 
 
 def main() -> None:
-    excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
-    sessions = [session_values(s, sorted(excited[s])) for s in SESSIONS]
+    global DIP
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--group", choices=("excited", "flash-suppressed"), default="excited"
+    )
+    group = parser.parse_args().group
+    DIP = group == "flash-suppressed"
+    suffix = "_flash_suppressed" if DIP else ""
+    if DIP:
+        check = json.loads((OUT / "flash_weight_check.json").read_text())
+        units = {
+            s: check[s]["weights"]["units_by_model_class"]["suppressed"]
+            for s in SESSIONS
+        }
+    else:
+        units = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+    sessions = [session_values(s, sorted(units[s])) for s in SESSIONS]
     keys = [k for k in sessions[0]["values"] if all(k in s["values"] for s in sessions)]
     boot = draws(sessions)
     stats = {"flashes": {s["subject"]: s["flashes"] for s in sessions}, "groups": {}}
@@ -326,9 +354,10 @@ def main() -> None:
                 )
             axis.set_xticks([*gap_x, len(GAPS) + 0.2], [*GAP_LABELS, "first\nof trial"])
             axis.set_xlabel("gap from the flash before (ms)")
-        peak_axis.set_ylabel("flash peak (/ mean rate)")
-        latency_axis.set_ylabel("peak latency (ms)")
-        miss_axis.set_ylabel("observed − model + noise\npeak (/ mean rate)")
+        word = "dip" if DIP else "peak"
+        peak_axis.set_ylabel(f"flash {word} (/ mean rate)")
+        latency_axis.set_ylabel(f"{word} latency (ms)")
+        miss_axis.set_ylabel(f"observed − model + noise\n{word} (/ mean rate)")
         miss_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
         for row, group in enumerate(GROUPS):
             peak_axis.text(
@@ -360,7 +389,7 @@ def main() -> None:
             )
         gain_axis.set(xlim=(0, x_limit), ylim=(0, y_limit))
         gain_axis.set_xlabel("rate before the flash,\nafter exit / in port")
-        gain_axis.set_ylabel("flash peak, after exit / in port")
+        gain_axis.set_ylabel(f"flash {word}, after exit / in port")
         gain_axis.text(
             0.03,
             0.97,
@@ -384,8 +413,8 @@ def main() -> None:
                 fontsize=6,
             )
         label_panels(axes.flat, x=-0.22, y=1.05)
-        print(save_figure(figure, OUT / "exit_flash_responses"))
-    (OUT / "exit_flash_responses.json").write_text(json.dumps(stats, indent=1))
+        print(save_figure(figure, OUT / f"exit_flash_responses{suffix}"))
+    (OUT / f"exit_flash_responses{suffix}.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats["gain_test"], indent=1))
 
 

@@ -221,6 +221,14 @@ def statistics(table: dict, model: dict) -> dict:
             for t in CLASSES
             for m in CLASSES
         }
+        units_by_class = {
+            m: [
+                int(u)
+                for u, c in zip(model["unit_ids"], model_class, strict=True)
+                if c == m
+            ]
+            for m in CLASSES
+        }
         rho = spearmanr(x, y)
         stats[name] = {
             "auc_table_excited": auc(y, excited),
@@ -228,6 +236,7 @@ def statistics(table: dict, model: dict) -> dict:
             "spearman_rho": float(rho.statistic),
             "spearman_p": float(rho.pvalue),
             "cross_table": cross,
+            "units_by_model_class": units_by_class,
             "table excited with model value <= 0": [
                 int(u)
                 for u, e, v in zip(model["unit_ids"], excited, y, strict=True)
