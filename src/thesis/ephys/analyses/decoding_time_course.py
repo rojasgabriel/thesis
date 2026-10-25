@@ -16,9 +16,12 @@ decoder can use the other variable.
   stable single units of the GLM (outputs with `_sua`).
 - Trials: the decoder trials (completed, non-boundary, with flashes).
 - Score: held-out balanced accuracy, `CV_FOLDS` random folds, mean over
-  `N_RESAMPLES` balanced resamples. Chance: the same with the label shuffled
-  within each level of the other variable, `N_SHUFFLES` times; the band is
-  its 2.5 to 97.5 percentile. The sampling unit is the trial.
+  `N_RESAMPLES` balanced resamples. The colored band is the 2.5 to 97.5
+  percentile over the resamples: it shows how much the score depends on which
+  trials balance the groups; it is not a bootstrap over trials.
+- Chance: the same with the label shuffled within each level of the other
+  variable, `N_SHUFFLES` times for each decoder; the gray band spans the 2.5
+  to 97.5 percentiles of both decoders. The sampling unit is the trial.
 - Sessions: `SESSIONS`, one per mouse (the behavior sessions).
 
 The script writes `figures/decoding_time_course/decoding_time_course.svg` and
@@ -62,7 +65,7 @@ STEP_S = 0.05
 FIRST_FLASH_CENTERS_S = np.arange(-0.1, 1.0001, STEP_S)
 EXIT_CENTERS_S = np.arange(-0.5, 0.5001, STEP_S)
 CV_FOLDS = 10
-N_RESAMPLES = 10
+N_RESAMPLES = 50
 N_SHUFFLES = 20
 SEED = 0
 COLORS = {"category": CONCEPT_COLORS["visual"], "choice": CONCEPT_COLORS["task"]}
@@ -72,8 +75,8 @@ UNITS = "all"  # set by --units
 
 def accuracy(
     rates, target, other, rng, shuffle: bool, n_resamples: int = N_RESAMPLES
-) -> float:
-    """Return the mean held-out balanced accuracy over balanced resamples."""
+) -> np.ndarray:
+    """Return the held-out balanced accuracy of each balanced resample."""
     scores = []
     for resample in range(n_resamples):
         labels = target.copy()
@@ -96,7 +99,7 @@ def accuracy(
                 scoring="balanced_accuracy",
             ).mean()
         )
-    return float(np.mean(scores))
+    return np.asarray(scores)
 
 
 def session_course(session: str) -> dict:
@@ -127,18 +130,24 @@ def session_course(session: str) -> dict:
     ):
         curves = {}
         for label, (target, other) in targets.items():
-            real, null = [], []
+            real, spread, null = [], [], []
             for center in centers:
                 rates = window_rates(
                     units, events + center - WIDTH_S / 2, events + center + WIDTH_S / 2
                 )
-                real.append(accuracy(rates, target, other, rng, shuffle=False))
+                scores = accuracy(rates, target, other, rng, shuffle=False)
+                real.append(scores.mean())
+                spread.append(np.percentile(scores, [2.5, 97.5]).tolist())
                 shuffles = [
-                    accuracy(rates, target, other, rng, shuffle=True, n_resamples=1)
+                    accuracy(rates, target, other, rng, shuffle=True, n_resamples=1)[0]
                     for _ in range(N_SHUFFLES)
                 ]
                 null.append(np.percentile(shuffles, [2.5, 50, 97.5]).tolist())
-            curves[label] = {"accuracy": real, "shuffle_2.5_50_97.5": null}
+            curves[label] = {
+                "accuracy": real,
+                "resample_2.5_97.5": spread,
+                "shuffle_2.5_50_97.5": null,
+            }
         out[name] = {"centers_s": centers.tolist(), **curves}
         print(subject, name, "done", flush=True)
     out["median_exit_after_first_flash_s"] = float(np.median(exit_s - first))
@@ -164,15 +173,20 @@ def plot(results: list[dict]) -> Path:
                 axis = axes[row, column]
                 part = data[name]
                 centers = np.asarray(part["centers_s"])
+                nulls = np.stack(
+                    [np.asarray(part[label]["shuffle_2.5_50_97.5"]) for label in COLORS]
+                )
+                axis.fill_between(
+                    centers,
+                    nulls[:, :, 0].min(0),
+                    nulls[:, :, 2].max(0),
+                    color="0.88",
+                    linewidth=0,
+                )
                 for label, color in COLORS.items():
-                    null = np.asarray(part[label]["shuffle_2.5_50_97.5"])
+                    low, high = np.asarray(part[label]["resample_2.5_97.5"]).T
                     axis.fill_between(
-                        centers,
-                        null[:, 0],
-                        null[:, 2],
-                        color=color,
-                        alpha=0.12,
-                        linewidth=0,
+                        centers, low, high, color=color, alpha=0.25, linewidth=0
                     )
                     axis.plot(
                         centers, part[label]["accuracy"], color=color, linewidth=1.6
@@ -190,21 +204,29 @@ def plot(results: list[dict]) -> Path:
                 axis.set_xlabel(xlabel)
                 if column == 0:
                     axis.set_ylabel(f"{data['subject']}\nheld-out accuracy")
-            axes[row, 0].text(
+            axes[row, 1].text(
                 0.02,
                 0.96,
                 "category",
                 color=COLORS["category"],
-                transform=axes[row, 0].transAxes,
+                transform=axes[row, 1].transAxes,
                 va="top",
             )
-            axes[row, 0].text(
+            axes[row, 1].text(
                 0.02,
                 0.86,
                 "choice",
                 color=COLORS["choice"],
-                transform=axes[row, 0].transAxes,
+                transform=axes[row, 1].transAxes,
                 va="top",
+            )
+            axes[row, 1].text(
+                0.98,
+                0.04,
+                "shuffle",
+                color="0.5",
+                transform=axes[row, 1].transAxes,
+                ha="right",
             )
             axes[row, 0].text(
                 data["median_exit_after_first_flash_s"] + 0.02,
