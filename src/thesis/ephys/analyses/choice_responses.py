@@ -22,7 +22,7 @@ the same neurons, aligned to the center exit.
   choices above right choices, and the mean rate (SEM over trials) for each
   choice (right solid, left dashed); c, d, the choice preference of every unit, sorted by its value from
   `PREFERENCE_S`. The heatmap limit is `LIMIT`; values past it take the end
-  color and none is removed. The sampling unit is the trial in a and b and the
+  color, none is removed, and the report counts them. The sampling unit is the trial in a and b and the
   unit in c and d.
 
 The script writes `figures/choice_responses/choice_responses.svg` and
@@ -244,6 +244,8 @@ def main() -> None:
             "units_with_choice_preference_p_below_0.05": int((d["p"] < 0.05).sum()),
             "of_which_prefer_right": int(((d["p"] < 0.05) & (d["dprime"] > 0)).sum()),
             "preference_window_s": list(PREFERENCE_S),
+            "values_past_the_color_limit": int(np.sum(np.abs(d["preference"]) > LIMIT)),
+            "values": int(d["preference"].size),
         }
         for d in sessions
     }
