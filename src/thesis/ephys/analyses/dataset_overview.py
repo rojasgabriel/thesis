@@ -177,10 +177,34 @@ def plot_trials(sessions: list[dict]) -> Path:
                     - t0
                 )
                 y = EXAMPLE_TRIALS - 1 - row
-                axis.vlines(flashes, y + 0.55, y + 0.9, color=VISUAL, linewidth=1.2)
-                axis.vlines(s, y + 0.05, y + 0.45, color=OBSERVED_COLOR, linewidth=0.7)
+                # Flashes are bands behind the row (the pulse length), spikes are
+                # ticks and the exit is a triangle, so the three marks differ in shape.
+                widths = np.asarray(
+                    data["trials"]["stim_pulse_widths_ms"].iloc[trial], dtype=float
+                )
+                if widths.shape != flashes.shape:
+                    widths = np.full(flashes.shape, 15.0)
+                axis.broken_barh(
+                    list(zip(flashes, widths / 1000, strict=True)),
+                    (y + 0.08, 0.84),
+                    facecolor=VISUAL,
+                    alpha=0.3,
+                    linewidth=0,
+                    zorder=1,
+                )
+                axis.vlines(
+                    s, y + 0.2, y + 0.8, color=OBSERVED_COLOR, linewidth=0.8, zorder=3
+                )
                 ex = data["exit"][trial] - t0
-                axis.plot([ex, ex], [y, y + 1], color=TASK, linewidth=1.5)
+                axis.plot(
+                    ex,
+                    y + 0.96,
+                    marker="v",
+                    color=TASK,
+                    markersize=4.5,
+                    zorder=4,
+                    clip_on=False,
+                )
             axis.set_xlim(*TRIAL_WINDOW_S)
             axis.set_ylim(0, EXAMPLE_TRIALS)
             axis.set_yticks([])
@@ -213,7 +237,7 @@ def plot_trials(sessions: list[dict]) -> Path:
             axis.text(
                 0.74,
                 1.02,
-                "center exit",
+                "\u25bc center exit",
                 color=TASK,
                 transform=axis.transAxes,
                 va="bottom",
