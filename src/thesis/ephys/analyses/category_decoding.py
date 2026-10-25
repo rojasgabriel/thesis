@@ -9,6 +9,10 @@ equal numbers of trials in the four category x choice groups, so the category
 decoder cannot use choice and the choice decoder cannot use category. The
 shuffle permutes the decoded label inside each level of the other variable.
 
+Units: by default the single units and multi-units of the unit criteria (not
+noise), with no stability filter; `--units sua`: single units only (outputs
+with `_sua`), with the optional stability filter.
+
 Features: each unit's mean firing rate from 0 to 1 s after the first measured
 flash. This window includes the time after withdrawal for many trials, so the
 choice decoder can read the turn to the chosen side. Choice and movement are not
@@ -121,9 +125,10 @@ def _parse_args() -> argparse.Namespace:
         "--quick", action="store_true", help="Use 3 resamples and shuffles"
     )
     optional.add_argument(
-        "--include-mua",
-        action="store_true",
-        help="Add the multi-units (no stability filter)",
+        "--units",
+        choices=("all", "sua"),
+        default="all",
+        help="all: single units and multi-units (no stability filter); sua: single units only",
     )
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
@@ -144,7 +149,7 @@ def main() -> None:
         unit_criteria_id=args.unit_criteria_id,
         stability_param_id=args.stability_param_id,
         window_start_s=WINDOW_START_S,
-        include_mua=args.include_mua,
+        include_mua=args.units == "all",
         window_stop_s=WINDOW_STOP_S,
     )
     category = trials["stim_category"].eq("high_rate").to_numpy(dtype=int)
@@ -163,7 +168,7 @@ def main() -> None:
         "session": args.session,
         "unit_criteria_id": args.unit_criteria_id,
         "stability_param_id": args.stability_param_id,
-        "include_mua": args.include_mua,
+        "units": args.units,
         "n_units": len(units),
         "n_eligible_trials": len(trials),
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
@@ -254,7 +259,7 @@ def main() -> None:
             / "category_decoding"
             / (
                 f"{args.subject}_{args.session}"
-                + ("_with_mua" if args.include_mua else "")
+                + ("_sua" if args.units == "sua" else "")
             )
         )
         output_dir.mkdir(parents=True, exist_ok=True)

@@ -81,7 +81,7 @@ PAIRS = (
     ("moving", "moving"),
     ("moving", "still"),
 )
-AUC_LIMITS = (0.3, 1.02)
+AUC_LIMITS = (0.2, 1.02)  # the lowest shuffle band edge is 0.25
 UNITS = "all"  # set by --units
 COMPONENTS = None  # set by --components
 
@@ -174,9 +174,10 @@ def plot(results: list[dict]) -> Path:
             mean = np.asarray(data["auc_mean"])
             low, high = np.asarray(data["auc_95"]).T
             null_low, null_high = np.asarray(data["shuffle_auc_95"]).T
-            axis.fill_between(
-                x, null_low, null_high, color="0.85", linewidth=0, step="mid"
-            )
+            for xi, lo, hi in zip(x, null_low, null_high, strict=True):
+                axis.fill_between(
+                    [xi - 0.3, xi + 0.3], lo, hi, color="0.85", linewidth=0
+                )
             axis.errorbar(
                 x,
                 mean,
@@ -199,7 +200,13 @@ def plot(results: list[dict]) -> Path:
                 va="top",
             )
             axis.text(
-                0.98, 0.05, "shuffle", color="0.5", transform=axis.transAxes, ha="right"
+                0.98,
+                0.01,
+                "shuffle",
+                color="0.5",
+                transform=axis.transAxes,
+                ha="right",
+                va="bottom",
             )
         axes[0].set_ylabel("category AUC (train → test)")
         label_panels(axes, x=-0.18, y=1.03)

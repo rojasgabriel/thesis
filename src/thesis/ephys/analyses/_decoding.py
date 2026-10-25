@@ -20,11 +20,11 @@ def load_decoding_data(
     stability_param_id: int | None,
     window_start_s: float,
     window_stop_s: float,
-    include_mua: bool = False,
+    include_mua: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
     """Return units, eligible trials, and trial-by-unit firing rates.
 
-    With `include_mua`, the units are every cluster of the criteria that is not
+    With `include_mua` (the default), the units are every cluster of the criteria that is not
     noise (`passes` 1 = single unit, 0 = multi-unit; -1 = noise is left out),
     with no stability filter: UnitStability has rows for single units only.
     """
@@ -46,7 +46,7 @@ def load_decoding_data(
     if include_mua:
         if stability_param_id is not None:
             raise ValueError(
-                "Multi-units have no stability rows; drop the stability filter."
+                "Multi-units have no stability rows; use single units only (--units sua) for a stability filter."
             )
         unit_table = _units_with_mua(subject, session, unit_criteria_id)
     else:

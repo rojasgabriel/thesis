@@ -1,6 +1,6 @@
 """Decode nominal visual stimulus rate from V1 population activity.
 
-Comparison: the tuning of single units to the stimulus rate (a, b), then ridge
+Comparison: the tuning of the units to the stimulus rate (a, b), then ridge
 regression of the stimulus rate on held-out trials against the same decoder
 trained on shuffled rates (c, d).
 
@@ -18,6 +18,10 @@ trained on shuffled rates (c, d).
   panel d. The real decoder is not perfect, so it is pulled toward the mean
   rate too and sits between the shuffle and the dotted line of a perfect
   decoder.
+
+Units: by default the single units and multi-units of the unit criteria (not
+noise), with no stability filter; `--units sua`: single units only (outputs
+with `_sua`), with the optional stability filter.
 
 Trials: non-boundary trials with a left or right response. Features: each
 unit's mean firing rate from 0 to 1 s after the first measured flash. Choice is
@@ -118,9 +122,10 @@ def _parse_args() -> argparse.Namespace:
         "--quick", action="store_true", help="Use a smaller ridge grid"
     )
     optional.add_argument(
-        "--include-mua",
-        action="store_true",
-        help="Add the multi-units (no stability filter)",
+        "--units",
+        choices=("all", "sua"),
+        default="all",
+        help="all: single units and multi-units (no stability filter); sua: single units only",
     )
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
@@ -141,7 +146,7 @@ def main() -> None:
         unit_criteria_id=args.unit_criteria_id,
         stability_param_id=args.stability_param_id,
         window_start_s=WINDOW_START_S,
-        include_mua=args.include_mua,
+        include_mua=args.units == "all",
         window_stop_s=WINDOW_STOP_S,
     )
     rate_hz = trials["visual_stim_rate_hz"].to_numpy(dtype=float)
@@ -196,7 +201,7 @@ def main() -> None:
         "session": args.session,
         "unit_criteria_id": args.unit_criteria_id,
         "stability_param_id": args.stability_param_id,
-        "include_mua": args.include_mua,
+        "units": args.units,
         "n_units": len(units),
         "n_trials": len(trials),
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
@@ -318,7 +323,7 @@ def main() -> None:
             / "rate_decoding"
             / (
                 f"{args.subject}_{args.session}"
-                + ("_with_mua" if args.include_mua else "")
+                + ("_sua" if args.units == "sua" else "")
             )
         )
         output_dir.mkdir(parents=True, exist_ok=True)
