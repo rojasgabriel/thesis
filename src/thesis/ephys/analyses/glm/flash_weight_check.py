@@ -55,7 +55,9 @@ from thesis.ephys.analyses.glm.results import fitted_kernels, flash_kernel_at
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     BOOTSTRAPS,
+    CONCEPT_COLORS,
     FIGURE_STYLE,
+    MOUSE_MARKERS,
     REFERENCE_COLOR,
     label_panels,
     save_figure,
@@ -66,8 +68,13 @@ PARAM_ID = 0
 BASELINE_S = (-0.04, 0.0)
 RESPONSE_S = (0.03, 0.12)
 FLOOR_HZ = 0.5  # added to both rates before the log ratio
-CLASSES = {"excited": "C0", "suppressed": "C5", "not responsive": REFERENCE_COLOR}
-MARKERS = {"GRB006": "o", "GRB064": "^"}
+# The classes are flash responses: the flash color, and a dark shade of it.
+CLASSES = {
+    "excited": CONCEPT_COLORS["visual"],
+    "suppressed": "#003F6B",
+    "not responsive": REFERENCE_COLOR,
+}
+MARKERS = MOUSE_MARKERS
 # Display limit of both axes. All points are inside; a few error bars go past it.
 LIMITS = (-3.0, 3.0)
 

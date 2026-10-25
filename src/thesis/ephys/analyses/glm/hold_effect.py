@@ -10,8 +10,9 @@ center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Panel a is
 GRB006. In the other panels the units of both mice (`SESSIONS`) are pooled (standard
 practice); in d, g, and j the large marker is the pooled median with its
-hierarchical-bootstrap 95% interval (mice, then units), and the open circles
-are the median of each mouse. The tests are within each mouse.
+hierarchical-bootstrap 95% interval (mice, then units), and the open markers
+are the median of each mouse (circle: GRB006, triangle: GRB064). The tests are
+within each mouse.
 
 Panels a to d observe and characterize the effect, e and f ask what starts
 and ends it, g to i are controls, and j asks which units.
@@ -150,8 +151,8 @@ the center port. The flashes continue until the animal enters a response port,
 so the time after the withdrawal has the stimulus without the fixation. Two
 mice: {units}. Except in a and f, the units of both mice are pooled; in d, g,
 and j the large marker is the pooled median with its hierarchical-bootstrap 95%
-interval (the mice, then the units of each), and the open circles are the
-median of each mouse ({subject} and {other}). The tests are within each mouse. **a**, Spikes of two example units of
+interval (the mice, then the units of each), and the open markers are the
+median of each mouse ({subject} circle, {other} triangle). The tests are within each mouse. **a**, Spikes of two example units of
 {subject} against time from the first flash (left) and from the withdrawal
 (right), with the trials sorted by the length of the fixation. The vertical
 line is the event at time 0; in the left panels the orange line is the

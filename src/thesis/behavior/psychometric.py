@@ -40,9 +40,14 @@ from scipy.stats import norm
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
 from thesis.ephys.trials import build_trial_table
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, save_figure
+from thesis.plotting import (
+    FIGURE_STYLE,
+    OBSERVED_COLOR,
+    REFERENCE_COLOR,
+    mouse_marker,
+    save_figure,
+)
 
 OUT = Path("results/behavior")
 RIGHT = 1  # the response code of a right choice (left is -1)
@@ -98,14 +103,16 @@ def session_behavior(session: str) -> dict:
 
 def main() -> None:
     report = {session: session_behavior(session) for session in SESSIONS}
-    colors = dict(zip(("GRB006", "GRB064"), SUBJECT_COLORS, strict=False))
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(3.6, 3.0), layout="constrained")
         axis.axvline(12, color=REFERENCE_COLOR, ls="--", lw=0.8)
         axis.axhline(0.5, color=REFERENCE_COLOR, lw=0.5)
         grid = np.linspace(3, 21, 200)
         for row, data in enumerate(report.values()):
-            color = colors[data["subject"]]
+            # Observed choices are black; the mouse is the marker and the line style.
+            color = OBSERVED_COLOR
+            marker = mouse_marker(data["subject"], row)
+            line = ("-", "--")[row % 2]
             rates = np.asarray(data["rates_hz"])
             p = np.asarray(data["p_right"])
             interval = np.asarray(data["p_right_95"]).T
@@ -114,21 +121,44 @@ def main() -> None:
                 rates + 0.4 * (row - 0.5),
                 p,
                 yerr=[p - interval[0], interval[1] - p],
-                fmt="o",
+                fmt=marker,
                 color=color,
+                mfc="white",
                 ms=4,
                 capsize=2,
                 lw=1,
             )
             a, b = data["logistic_intercept"], data["logistic_slope_per_hz"]
-            axis.plot(grid, 1 / (1 + np.exp(-(a + b * grid))), color=color, lw=1.2)
+            axis.plot(
+                grid, 1 / (1 + np.exp(-(a + b * grid))), color=color, lw=1.2, ls=line
+            )
+            # A sample of the line and the marker of the mouse before its name.
+            y = 0.95 - 0.08 * row
+            axis.plot(
+                [0.02, 0.09],
+                [y, y],
+                color=color,
+                lw=1.2,
+                ls=line,
+                transform=axis.transAxes,
+            )
+            axis.plot(
+                0.055,
+                y,
+                marker,
+                color=color,
+                mfc="white",
+                ms=4,
+                transform=axis.transAxes,
+            )
             axis.text(
-                0.03,
-                0.97 - 0.09 * row,
+                0.11,
+                y,
                 f"{data['subject']}: {100 * data['accuracy_non_boundary']:.0f}% correct",
                 color=color,
                 transform=axis.transAxes,
-                va="top",
+                va="center",
+                fontsize=7,
             )
         axis.text(12.3, 0.03, "boundary", color=REFERENCE_COLOR, fontsize=7)
         axis.set(

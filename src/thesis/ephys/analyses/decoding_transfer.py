@@ -63,8 +63,15 @@ from thesis.ephys.analyses._decoding import (
     load_decoding_data,
     window_rates,
 )
-from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
+from thesis.plotting import (
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    OBSERVED_COLOR,
+    REFERENCE_COLOR,
+    label_panels,
+    mouse_marker,
+    save_figure,
+)
 
 OUT = Path("results/decoding_transfer")
 SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
@@ -169,7 +176,9 @@ def plot(results: list[dict]) -> Path:
         figure, axes = plt.subplots(
             1, len(results), figsize=(3.4 * len(results), 3.2), sharey=True
         )
-        for axis, data, color in zip(axes, results, SUBJECT_COLORS, strict=False):
+        # Category decoding: the flash color; each panel is one mouse.
+        color = CONCEPT_COLORS["visual"]
+        for index, (axis, data) in enumerate(zip(axes, results, strict=True)):
             x = np.arange(len(labels))
             mean = np.asarray(data["auc_mean"])
             low, high = np.asarray(data["auc_95"]).T
@@ -182,7 +191,7 @@ def plot(results: list[dict]) -> Path:
                 x,
                 mean,
                 yerr=[mean - low, high - mean],
-                fmt="o",
+                fmt=mouse_marker(data["subject"], index),
                 color=color,
                 capsize=3,
                 ms=6,
@@ -195,7 +204,7 @@ def plot(results: list[dict]) -> Path:
                 0.02,
                 0.97,
                 data["subject"],
-                color=color,
+                color=OBSERVED_COLOR,
                 transform=axis.transAxes,
                 va="top",
             )

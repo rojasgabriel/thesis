@@ -52,9 +52,14 @@ from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import build_unit_counts
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import LAGS_MS
-from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import FIGURE_STYLE, label_panels, save_figure
+from thesis.plotting import (
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    OBSERVED_COLOR,
+    label_panels,
+    save_figure,
+)
 
 OUT = Path("results/glm")
 LONGEST_GROUP = 7
@@ -192,7 +197,6 @@ def main() -> None:
             mean_peak=p.mean(0).tolist(),
             sem_peak=(p.std(0, ddof=1) / np.sqrt(len(p))).tolist(),
         )
-    colors = dict(zip(("GRB006", "GRB064"), SUBJECT_COLORS, strict=False))
     curve_gaps = np.linspace(0.03, 0.6, 300)
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(1, 2, figsize=(7.0, 2.8), layout="constrained")
@@ -211,7 +215,7 @@ def main() -> None:
             ),
         ):
             g, p = data[subject]
-            color = colors[subject]
+            color = CONCEPT_COLORS["visual"]  # flash peaks; the panel is the mouse
             mean = p.mean(0)
             interval = 1.96 * p.std(0, ddof=1) / np.sqrt(len(p))
             first = g >= FIRST_GAP_S
@@ -242,7 +246,7 @@ def main() -> None:
                 transform=axis.transAxes,
                 va="top",
                 fontsize=7,
-                color=color,
+                color=OBSERVED_COLOR,
             )
             axis.text(
                 0.97,
@@ -250,7 +254,7 @@ def main() -> None:
                 "open circle (40 ms): not fit,\nthe flash before overlaps it",
                 transform=axis.transAxes,
                 fontsize=6,
-                color=color,
+                color=OBSERVED_COLOR,
                 ha="right",
                 va="bottom",
             )

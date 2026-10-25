@@ -56,6 +56,7 @@ from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     OBSERVED_COLOR,
+    PERIOD_COLORS,
     label_panels,
     save_figure,
 )
@@ -63,7 +64,7 @@ from thesis.plotting import (
 GLM = Path("results/glm")
 OUT = Path("results/dataset_overview")
 VISUAL, TASK = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
-STILL, MOVING = VISUAL, TASK  # the period colors of flash_movement
+STILL, MOVING = PERIOD_COLORS["in port"], PERIOD_COLORS["after exit"]
 EXAMPLE_TRIALS = 10
 LONG_GAP_S = 0.08
 MIN_EXAMPLE_RATE_HZ = 3.0

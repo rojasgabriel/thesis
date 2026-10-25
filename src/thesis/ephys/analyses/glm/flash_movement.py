@@ -39,9 +39,10 @@ corrected and differ from the earlier matched-rate peak contribution.
 
 Selection: both sessions in flash_kernels.SESSIONS, quality 1/stability 0,
 and available main-GLM fits after the existing fit exclusions. Scatters show
-only the mean of all eligible units (open circles) and the mean of the saved
-StimulusResponse excited group (filled circles), with SEM across units on
-both axes. Mouse is encoded only by color. PSTHs and the existing report
+only the mean of all eligible units (open markers) and the mean of the saved
+StimulusResponse excited group (filled markers), with SEM across units on
+both axes. The mouse is the marker shape (`mouse_marker`); the color is the
+source (observed black, model wine). PSTHs and the existing report
 summaries use only that excited group. The same units enter every rate column. The
 sampling unit is the neural unit; tests are paired within mouse. Trial
 selection differs from standardized model-kernel conditions. All finite
@@ -71,7 +72,15 @@ import matplotlib
 import numpy as np
 from scipy import stats
 
-from thesis.plotting import FIGURE_STYLE, label_panels, save_figure
+from thesis.plotting import (
+    FIGURE_STYLE,
+    MODEL_COLOR,
+    OBSERVED_COLOR,
+    label_panels,
+    mouse_marker,
+    save_figure,
+)
+from thesis.plotting import PERIOD_COLORS as PERIOD_COLOR_OF
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
@@ -86,13 +95,12 @@ from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import LAGS_MS
 from thesis.ephys.analyses.glm.raw_video_kernels import task_kernel
 from thesis.ephys.analyses.glm.results import flash_kernel_at, raw_contribution
-from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
 from thesis.ephys.units import fetch_unit_table
 
 OUTPUT = Path("results/glm")
 GAPS_MS = (100, 40)
 GAP_LABELS = ("preceding gap ≥80 ms", "preceding gap 40 ms")
-PERIOD_COLORS = ("C0", "C1")
+PERIOD_COLORS = (PERIOD_COLOR_OF["in port"], PERIOD_COLOR_OF["after exit"])
 RATE_SOURCES = ("observed", "full model", "without flash × exit")
 
 
@@ -474,8 +482,9 @@ def comparison_summary(values):
 
 def peak_scatter(axis, sessions, field, gap=None):
     extents = []
+    color = OBSERVED_COLOR if field == "observed" else MODEL_COLOR
     for index, data in enumerate(sessions):
-        color = SUBJECT_COLORS[index]
+        marker = mouse_marker(data["subject"], index)
         values = data[field]
         if gap is not None:
             values = values[:, gap]
@@ -487,7 +496,7 @@ def peak_scatter(axis, sessions, field, gap=None):
                 *mean,
                 xerr=spread[0],
                 yerr=spread[1],
-                fmt="o",
+                fmt=marker,
                 markerfacecolor=color if filled else "none",
                 color=color,
                 ms=7,
@@ -500,8 +509,9 @@ def peak_scatter(axis, sessions, field, gap=None):
         axis.plot(
             0.66,
             0.16 - index * 0.08,
-            "o",
-            color=color,
+            marker,
+            color=OBSERVED_COLOR,
+            mfc="none",
             transform=axis.transAxes,
             clip_on=False,
             ms=4,
@@ -512,7 +522,7 @@ def peak_scatter(axis, sessions, field, gap=None):
             data["subject"],
             transform=axis.transAxes,
             va="center",
-            color=color,
+            color=OBSERVED_COLOR,
         )
     axis.text(
         0.66,
@@ -650,7 +660,7 @@ def main():
         "rate_error_bars": "paired-trial bootstrap SD (500 shared draws); fixed fitted models",
         "rate_scatter_axes": "linear; population and flash-excited means with complete SEM bars; no individual units",
         "rate_normalization": "one observed mean per unit over full valid model intervals of the selected paired trials; pooled spike counts / valid seconds; same denominator for all sources, periods and gaps; recomputed in each stratified paired bootstrap draw",
-        "display_selection": "all eligible units mean: open circles; saved flash-excited mean: filled circles; all means alpha 0.8; mouse encoded only by color",
+        "display_selection": "all eligible units mean: open markers; saved flash-excited mean: filled markers; all means alpha 0.8; mouse by marker shape, source by color",
         "summary_selection": "scatters show both nested group means with SEM across units; PSTHs and existing report summaries use the saved flash-excited group only; per-unit bootstrap and kernel-fold spreads are saved but not drawn",
         "sessions": {
             data["subject"]: {

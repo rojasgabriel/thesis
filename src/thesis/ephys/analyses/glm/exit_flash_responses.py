@@ -57,16 +57,28 @@ from thesis.ephys.analyses.glm.fit import (
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import LAGS_MS
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import FIGURE_STYLE, REFERENCE_COLOR, label_panels, save_figure
+from thesis.plotting import (
+    FIGURE_STYLE,
+    PERIOD_COLORS,
+    REFERENCE_COLOR,
+    label_panels,
+    save_figure,
+)
 
 OUT = Path("results/glm")
 GAPS = ((0.05, 0.1), (0.1, 0.2), (0.2, np.inf))
 GAP_LABELS = ("50–100", "100–200", "200+")
-MARKERS = ("o", "s", "^")  # the gap in the gain test (panel c)
+# The gap in the gain test (panel c) is the dot size: a larger dot, a longer gap.
+# Shapes are kept for the mice (`plotting.MOUSE_MARKERS`).
+SIZES = (3.5, 5.5, 7.5)
 GROUPS = ("in port", "later after exit", "1st after exit")
-# The period colors of the other figures: still (in the port) blue, moving
-# (after the exit) orange, the first flash after the exit dark orange.
-COLORS = {"in port": "C0", "later after exit": "#FDAE61", "1st after exit": "#B34700"}
+# The period colors (`PERIOD_COLORS`): in port the task color, after the exit
+# the motion color; the first flash after the exit a dark shade of it.
+COLORS = {
+    "in port": PERIOD_COLORS["in port"],
+    "later after exit": PERIOD_COLORS["after exit"],
+    "1st after exit": "#005A43",
+}
 FIRST = "first of trial"
 DRAWS = 30
 SEED = 6
@@ -340,9 +352,9 @@ def main() -> None:
                 [y["ratio"]],
                 xerr=[[x["ratio"] - x["interval"][0]], [x["interval"][1] - x["ratio"]]],
                 yerr=[[y["ratio"] - y["interval"][0]], [y["interval"][1] - y["ratio"]]],
-                fmt=MARKERS[index],
+                fmt="o",
                 color=COLORS[group],
-                ms=4.5,
+                ms=SIZES[index],
                 capsize=2,
                 lw=0.8,
             )
@@ -352,13 +364,25 @@ def main() -> None:
         gain_axis.text(
             0.03,
             0.97,
-            "dashed: one gain on all activity\ngap (ms): "
-            + ", ".join(f"{s} {g}" for s, g in zip("○□△", GAP_LABELS, strict=True)),
+            "dashed: one gain on all activity",
             transform=gain_axis.transAxes,
             ha="left",
             va="top",
             fontsize=6,
         )
+        for row, (size, label) in enumerate(zip(SIZES, GAP_LABELS, strict=True)):
+            y = 0.86 - 0.065 * row
+            gain_axis.plot(
+                0.06, y, "o", ms=size, color="0.4", transform=gain_axis.transAxes
+            )
+            gain_axis.text(
+                0.11,
+                y,
+                f"{label} ms gap",
+                transform=gain_axis.transAxes,
+                va="center",
+                fontsize=6,
+            )
         label_panels(axes.flat, x=-0.22, y=1.05)
         print(save_figure(figure, OUT / "exit_flash_responses"))
     (OUT / "exit_flash_responses.json").write_text(json.dumps(stats, indent=1))

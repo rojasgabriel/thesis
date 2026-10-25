@@ -41,7 +41,14 @@ from spks.event_aligned import population_peth
 
 # Keep this import above `labdata_plugin`: after the plugin loads, the name
 # `thesis` points to the plugin, and a first import of `thesis.plotting` fails.
-from thesis.plotting import FIGURE_STYLE, label_panels, save_figure  # isort: skip
+from thesis.plotting import (  # isort: skip
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    OBSERVED_COLOR,
+    label_panels,
+    mouse_marker,
+    save_figure,
+)
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
@@ -59,7 +66,6 @@ STIM_RESPONSE_PARAM_ID = 0
 PETH_BINWIDTH_MS = 10
 SCATTER_MAX_RATE = 60.0
 BACKGROUND_DOT_ALPHA = 0.2
-SUBJECT_COLORS = ("#E41A1C", "#377EB8", "#4DAF4A")
 
 
 def load_trial_classification(subject: str, session: str) -> pd.DataFrame:
@@ -206,7 +212,9 @@ def main() -> None:
 
     rng = np.random.default_rng(0)
     for subject_index, (subject, peak_table) in enumerate(peak_results):
-        color = SUBJECT_COLORS[subject_index]
+        # Flash peaks take the flash color; the mouse is the marker shape.
+        color = CONCEPT_COLORS["visual"]
+        marker = mouse_marker(subject, subject_index)
         stat_peak = peak_table["stat_peak"].to_numpy(dtype=float)
         move_peak = peak_table["move_peak"].to_numpy(dtype=float)
         outside_view = np.count_nonzero(
@@ -221,6 +229,7 @@ def main() -> None:
             stat_peak,
             move_peak,
             s=18,
+            marker=marker,
             alpha=BACKGROUND_DOT_ALPHA,
             color=color,
             linewidths=0,
@@ -233,7 +242,7 @@ def main() -> None:
             mean_y,
             xerr=sem_x,
             yerr=sem_y,
-            fmt="o",
+            fmt=marker,
             ms=9,
             color=color,
             mfc=color,
@@ -250,7 +259,7 @@ def main() -> None:
             (mean_x, mean_y),
             xytext=(4, 4),
             textcoords="offset points",
-            color=color,
+            color=OBSERVED_COLOR,
             fontsize=7,
         )
 
@@ -260,6 +269,7 @@ def main() -> None:
             x,
             delta,
             s=18,
+            marker=marker,
             alpha=BACKGROUND_DOT_ALPHA,
             color=color,
             linewidths=0,
@@ -268,7 +278,7 @@ def main() -> None:
             subject_index,
             delta.mean(),
             yerr=stats.sem(delta),
-            fmt="o",
+            fmt=marker,
             ms=9,
             color=color,
             mfc=color,
@@ -295,8 +305,6 @@ def main() -> None:
     delta_ax.set_xticks(
         range(len(peak_results)), [subject for subject, _ in peak_results]
     )
-    for label, color in zip(delta_ax.get_xticklabels(), SUBJECT_COLORS):
-        label.set_color(color)
     delta_ax.set_ylabel("movement − stationary peak (spikes/s)")
     fig.subplots_adjust(left=0.1, right=0.98, bottom=0.18, top=0.9, wspace=0.45)
     label_panels((ax, delta_ax), -0.2)

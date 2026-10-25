@@ -55,7 +55,7 @@
 
 - **Question:** does the model capture the traces, beyond the peak summaries in the main comparison?
 - **Why:** a peak can agree while response timing or shape is wrong. Gap-resolved traces check this part of the flash model.
-- **Finding:** observed and fitted matched peaks are higher after exit across the gap groups in both mice. The traces compare timing and shape within gap and task period (black: observed; purple: predicted). They include background and preceding-flash responses and use the final refit, so this is an in-sample check, not an isolated sensory-gain estimate.
+- **Finding:** observed and fitted matched peaks are higher after exit across the gap groups in both mice. The traces compare timing and shape within gap and task period (black: observed; wine: predicted). They include background and preceding-flash responses and use the final refit, so this is an in-sample check, not an isolated sensory-gain estimate.
 - **Next:** use this check to assess the flash-history model; use the simulation results above to qualify an exit-effect interpretation.
 
 ![Observed and predicted flash-response time courses by gap and task period](../figures/glm/flash_by_gap.svg)
