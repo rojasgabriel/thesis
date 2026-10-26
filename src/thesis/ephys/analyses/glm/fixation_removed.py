@@ -26,7 +26,14 @@ observed ones.
 - PSTH: the mean over units of the rate over the unit's mean rate, ± SEM over
   units. The sampling unit is the unit.
 
-The script writes `figures/glm/fixation_removed.svg` and
+- Example (`fixation_removed_example.svg`): the example neuron of each mouse
+  of `dataset_overview.py` and its ten trials (spread over the session), the
+  1-ms rate smoothed with a Gaussian of SD `SMOOTH_S`, for the three versions;
+  flashes (blue ticks) and the center exit (orange); below, the mean over all
+  trials of that version with the observed one in black.
+
+The script writes `figures/glm/fixation_removed.svg`,
+`figures/glm/fixation_removed_example.svg` and
 `results/glm/fixation_removed.json`.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
@@ -67,6 +74,9 @@ WINDOW_S = (-0.3, 0.6)
 BIN_S = 0.04  # one flash slot
 SORT_S = (0.15, 0.5)
 LIMIT = 1.5
+TRIAL_WINDOW_S = (-0.3, 1.5)  # as the trial raster of `dataset_overview.py`
+EXAMPLE_TRIALS = 10
+SMOOTH_S = 0.015  # Gaussian SD of the trial rates
 COLORS = {
     "observed": OBSERVED_COLOR,
     "fixation removed": CONCEPT_COLORS["task"],
@@ -74,8 +84,8 @@ COLORS = {
 }
 
 
-def unit_rates(root: Path, session: str) -> tuple[list[int], np.ndarray, np.ndarray]:
-    """Return unit ids, observed and fixation-removed rates (unit, bin), spikes/s."""
+def session_inputs(root: Path, session: str) -> dict:
+    """Load what the correction needs for one session of one fit."""
     prepared = dmat._load_windows(root / session / "stimulus_windows_me.npz")
     metadata = json.loads((root / session / "common_design_me.json").read_text())
     design = np.load(
@@ -84,55 +94,175 @@ def unit_rates(root: Path, session: str) -> tuple[list[int], np.ndarray, np.ndar
     hold = [
         i for i, n in enumerate(metadata["column_names"]) if n.startswith("hold_basis")
     ]
-    hold_design = np.asarray(design[:, hold])  # (row, hold column), all bins
-    final = {
-        int(r["unit_id"]): r
-        for r in load_unit_records(
-            root / session / "all_fit_me/checkpoints", "unit_*_final.json"
-        )
-    }
     subject, stamp = session.split("_", 1)
-    table = fetch_unit_table(subject, stamp, 1, 0, include_metrics=False).set_index(
-        "unit_id"
-    )
-    centers = prepared["relative_centers"]
-    n_trials, n_bins = len(prepared["alignments"]), len(centers)
-    valid = dmat._valid_bin_mask(prepared).reshape(n_trials, n_bins)
+    n_trials = len(prepared["alignments"])
+    return {
+        "prepared": prepared,
+        "trials": dmat._load_selected_trials(prepared),
+        "hold": hold,
+        "hold_design": np.asarray(design[:, hold]),  # (row, hold column), all bins
+        "hold_mean": np.asarray(metadata["training_mean"])[hold],
+        "hold_scale": np.asarray(metadata["training_scale"])[hold],
+        "final": {
+            int(r["unit_id"]): r
+            for r in load_unit_records(
+                root / session / "all_fit_me/checkpoints", "unit_*_final.json"
+            )
+        },
+        "table": fetch_unit_table(
+            subject, stamp, 1, 0, include_metrics=False
+        ).set_index("unit_id"),
+        "valid": dmat._valid_bin_mask(prepared).reshape(n_trials, -1),
+    }
+
+
+def unit_trials(inputs: dict, unit_id: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return the 1-ms spike counts and the same divided by exp(fixation part), (trial, bin)."""
+    prepared, hold = inputs["prepared"], inputs["hold"]
+    shape = inputs["valid"].shape
+    counts = build_unit_counts(
+        prepared["alignments"], inputs["table"].loc[unit_id, "spike_times_s"]
+    ).reshape(shape)
+    part = raw_contribution(
+        inputs["hold_design"],
+        np.asarray(inputs["final"][unit_id]["coefficients"], dtype=float)[hold],
+        {"training_mean": inputs["hold_mean"], "training_scale": inputs["hold_scale"]},
+        np.arange(len(hold)),
+    ).reshape(shape)
+    return counts, counts * np.exp(-part)
+
+
+def unit_rates(root: Path, session: str) -> tuple[list[int], np.ndarray, np.ndarray]:
+    """Return unit ids, observed and fixation-removed rates (unit, bin), spikes/s."""
+    inputs = session_inputs(root, session)
+    centers = inputs["prepared"]["relative_centers"]
+    valid = inputs["valid"]
     edges = np.arange(WINDOW_S[0], WINDOW_S[1] + 1e-9, BIN_S)
     which = np.digitize(centers, edges) - 1  # 40-ms bin of each 1-ms bin
     inside = (which >= 0) & (which < len(edges) - 1)
+    exposure = np.bincount(
+        which[inside], weights=valid[:, inside].sum(0), minlength=len(edges) - 1
+    )
     ids, observed, removed = [], [], []
-    for unit_id in sorted(final):
-        record = final[unit_id]
-        counts = build_unit_counts(
-            prepared["alignments"], table.loc[unit_id, "spike_times_s"]
-        ).reshape(n_trials, n_bins)
-        local = np.arange(len(hold))
-        part = raw_contribution(
-            hold_design,
-            np.asarray(record["coefficients"], dtype=float)[hold],
-            {
-                "training_mean": np.asarray(metadata["training_mean"])[hold],
-                "training_scale": np.asarray(metadata["training_scale"])[hold],
-            },
-            local,
-        ).reshape(n_trials, n_bins)
-        corrected = counts * np.exp(-part)
+    for unit_id in sorted(inputs["final"]):
         rates = []
-        for values in (counts, corrected):
+        for values in unit_trials(inputs, unit_id):
             total = np.bincount(
                 which[inside],
                 weights=(values * valid)[:, inside].sum(0),
                 minlength=len(edges) - 1,
-            )
-            exposure = np.bincount(
-                which[inside], weights=valid[:, inside].sum(0), minlength=len(edges) - 1
             )
             rates.append(total / np.maximum(exposure, 1) / dmat.BINWIDTH_S)
         ids.append(unit_id)
         observed.append(rates[0])
         removed.append(rates[1])
     return ids, np.asarray(observed), np.asarray(removed)
+
+
+def smoothed(values: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    """Gaussian-smoothed rate (spikes/s) of each trial row, NaN outside the valid bins."""
+    width = int(round(SMOOTH_S / dmat.BINWIDTH_S))
+    x = np.arange(-4 * width, 4 * width + 1)
+    kernel = np.exp(-0.5 * (x / width) ** 2)
+    rows = []
+    for row, ok in zip(values * valid, valid, strict=True):
+        num = np.convolve(row, kernel, mode="same")
+        den = np.convolve(ok.astype(float), kernel, mode="same")
+        rows.append(np.where(ok, num / np.maximum(den, 1e-9) / dmat.BINWIDTH_S, np.nan))
+    return np.asarray(rows)
+
+
+def example_figure() -> Path:
+    """One neuron per mouse: ten trials and the PSTH, observed and fixation removed."""
+    overview = json.loads(
+        Path("results/dataset_overview/dataset_overview.json").read_text()
+    )
+    columns = list(FITS)
+    with plt.rc_context(FIGURE_STYLE):
+        figure = plt.figure(figsize=(11.0, 6.4), layout="constrained")
+        grid = figure.add_gridspec(2, len(columns), height_ratios=(1, 1))
+        panels = []
+        for row, session in enumerate(SESSIONS):
+            subject = session.split("_")[0]
+            unit_id = overview[subject]["example_unit_id"]
+            inputs = {
+                name: session_inputs(root, session)
+                for name, root in FITS.items()
+                if root is not None
+            }
+            first = inputs["fixation removed"]
+            centers = first["prepared"]["relative_centers"]
+            show = (centers >= TRIAL_WINDOW_S[0]) & (centers < TRIAL_WINDOW_S[1])
+            picks = (
+                np.linspace(0, len(first["trials"]) - 1, EXAMPLE_TRIALS)
+                .round()
+                .astype(int)
+            )
+            rates = {}
+            counts, corrected = unit_trials(first, unit_id)
+            rates["observed"] = smoothed(counts, first["valid"])
+            rates["fixation removed"] = smoothed(corrected, first["valid"])
+            weak = inputs["fixation removed, weaker penalty"]
+            rates["fixation removed, weaker penalty"] = smoothed(
+                unit_trials(weak, unit_id)[1], weak["valid"]
+            )
+            top = np.nanpercentile(rates["observed"][picks][:, show], 99)
+            cell = grid[row, :].subgridspec(2, len(columns), height_ratios=(1.4, 1))
+            psth_axes = []
+            for col, name in enumerate(columns):
+                axis = figure.add_subplot(cell[0, col])
+                image = axis.imshow(
+                    rates[name][picks][:, show],
+                    aspect="auto",
+                    cmap="Greys",
+                    vmin=0,
+                    vmax=top,
+                    interpolation="nearest",
+                    extent=(centers[show][0], centers[show][-1], EXAMPLE_TRIALS, 0),
+                )
+                for y, trial in enumerate(picks):
+                    record = first["trials"].iloc[trial]
+                    flashes = np.asarray(record["stim_pulse_times_s"], float) - float(
+                        record["stim_pulse_times_s"][0]
+                    )
+                    exit_s = float(record["center_exit_s"]) - float(
+                        record["stim_pulse_times_s"][0]
+                    )
+                    flashes = flashes[flashes < TRIAL_WINDOW_S[1]]
+                    axis.vlines(
+                        flashes, y, y + 0.25, color=CONCEPT_COLORS["visual"], lw=0.8
+                    )
+                    if exit_s < TRIAL_WINDOW_S[1]:
+                        axis.plot(
+                            exit_s, y + 0.5, ">", color=CONCEPT_COLORS["task"], ms=3
+                        )
+                axis.set_yticks([])
+                axis.tick_params(labelbottom=False)
+                if row == 0:
+                    axis.set_title(name, fontsize=8)
+                if col == 0:
+                    axis.set_ylabel(
+                        f"{subject}: unit {unit_id}\n{EXAMPLE_TRIALS} trials"
+                    )
+                panels.append(axis)
+                psth = figure.add_subplot(
+                    cell[1, col],
+                    sharex=axis,
+                    sharey=psth_axes[0] if psth_axes else None,
+                )
+                for other in ("observed", name):
+                    mean = np.nanmean(rates[other][:, show], 0)
+                    psth.plot(centers[show], mean, color=COLORS[other], lw=1.2)
+                psth.axvline(0, color="0.6", lw=0.6)
+                psth.set_xlabel("time from the first flash (s)")
+                if col == 0:
+                    psth.set_ylabel("rate (spikes/s)\nall trials")
+                psth_axes.append(psth)
+            figure.colorbar(
+                image, ax=panels[-len(columns) :], shrink=0.8, label="rate (spikes/s)"
+            )
+        label_panels(panels)
+        return save_figure(figure, OUT / "fixation_removed_example")
 
 
 def main() -> None:
@@ -236,6 +366,7 @@ def main() -> None:
         )
         label_panels(axes.ravel())
         print(save_figure(figure, OUT / "fixation_removed"))
+    print(example_figure())
     (OUT / "fixation_removed.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
 
