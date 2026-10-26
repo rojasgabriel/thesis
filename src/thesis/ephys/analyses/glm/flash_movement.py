@@ -61,7 +61,14 @@ Absolute peaks and statistics remain in the report. Supporting kernel
 scatters stay linear because their values are already changes in log rate.
 
 Writes flash_observation.svg, flash_comparison.svg, flash_model.svg (supporting), PNG previews, and
-flash_movement.json under results/glm. Older working figures remain intact.
+flash_movement.json under results/glm.
+
+Group (`--group`): "excited" (default), the flash-excited units above;
+"flash-suppressed", the units whose model flash weights are below zero by more
+than 1.96 SE (`flash_weight_check.json`, 13 / 21). For them the measure is the
+dip, the in-port baseline minus the lowest 10-ms bin 30..120 ms after the flash
+(the kernel measure: minus the lowest kernel value), and every output name ends
+in `_flash_suppressed`. Older working figures remain intact.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
         thesis.ephys.analyses.glm.flash_movement
@@ -69,6 +76,7 @@ flash_movement.json under results/glm. Older working figures remain intact.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -106,7 +114,36 @@ GAPS_MS = (100, 40)
 GAP_LABELS = ("preceding gap ≥80 ms", "preceding gap 40 ms")
 PERIOD_COLORS = (PERIOD_COLOR_OF["in port"], PERIOD_COLOR_OF["after exit"])
 MIN_PAIR_SEPARATION_S = 0.09  # the 30..120-ms peak windows do not overlap
+# Set by --group (`set_group`): "flash-suppressed" uses the dip below the rate
+# before the flash in place of the peak above it, and suffixes the outputs.
+DIP = False
+SUFFIX = ""
+GROUP_NAME = "flash-excited"
 RATE_SOURCES = ("observed", "full model", "without flash × exit")
+
+
+def set_group(group: str) -> None:
+    global DIP, SUFFIX, GROUP_NAME
+    DIP = group == "flash-suppressed"
+    SUFFIX = "_flash_suppressed" if DIP else ""
+    GROUP_NAME = group
+
+
+def group_units(out: Path, group: str) -> dict:
+    """Return the units of a group by session.
+
+    "excited": the flash-excited units of the StimulusResponse table
+    (`raw_video_trust_classification.json`); "flash-suppressed": the units
+    whose flash weights in the model are below zero by more than 1.96 SE
+    (`flash_weight_check.json`).
+    """
+    if group == "flash-suppressed":
+        check = json.loads((out / "flash_weight_check.json").read_text())
+        return {
+            s: check[s]["weights"]["units_by_model_class"]["suppressed"]
+            for s in SESSIONS
+        }
+    return json.loads((out / "raw_video_trust_classification.json").read_text())
 
 
 def paired_flashes_by_gap(trials):
@@ -171,8 +208,15 @@ def observed_peaks(rate, centers):
     """Peak of (..., condition, time), using one stationary baseline."""
     rate = np.asarray(rate)
     baseline = rate[..., 0, (centers >= -0.04) & (centers < 0)].mean(-1)
-    response = rate[..., (centers >= 0.03) & (centers < 0.12)].max(-1)
-    return response - baseline[..., None]
+    window = rate[..., (centers >= 0.03) & (centers < 0.12)]
+    if DIP:  # the dip: how far the rate falls below the in-port baseline
+        return baseline[..., None] - window.min(-1)
+    return window.max(-1) - baseline[..., None]
+
+
+def extreme(values):
+    """The peak, or with `DIP` the depth of the dip (a positive number)."""
+    return -values.min() if DIP else values.max()
 
 
 def kernel_peaks(coefficients, metadata, basis, lags):
@@ -197,10 +241,11 @@ def kernel_peaks(coefficients, metadata, basis, lags):
     return np.asarray(
         [
             [
-                flash_kernel_at(terms, gap, after, center)[inside]
-                .reshape(-1, 10)
-                .mean(-1)[window]
-                .max()
+                extreme(
+                    flash_kernel_at(terms, gap, after, center)[inside]
+                    .reshape(-1, 10)
+                    .mean(-1)[window]
+                )
                 for after in (False, True)
             ]
             for gap in GAPS_MS
@@ -545,7 +590,7 @@ def peak_scatter(axis, sessions, field, gap=None):
     axis.text(
         0.66,
         0.25,
-        "open: all units\nfilled: flash-excited",
+        f"open: all units\nfilled: {GROUP_NAME}",
         transform=axis.transAxes,
         va="bottom",
         fontsize=5.5,
@@ -569,8 +614,12 @@ def match_scatter_limits(axes):
         axis.plot(limits, limits, color="0.65", linestyle="--", linewidth=0.7, zorder=0)
 
 
+def WORD():  # noqa: N802
+    return "dip" if DIP else "peak"
+
+
 def psth_panel(axis, data, gap, labels):
-    """Mean rate of the flash-excited units around the flashes of one gap class."""
+    """Mean rate of the group units around the flashes of one gap class."""
     unit_means = data["traces"][data["responsive"], gap]
     for period, (name, color) in enumerate(
         zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
@@ -610,7 +659,7 @@ def psth_panel(axis, data, gap, labels):
 
 
 def write_figure(figure, name):
-    print(save_figure(figure, OUTPUT / name))
+    print(save_figure(figure, OUTPUT / f"{name}{SUFFIX}"))
 
 
 def plot(sessions):
@@ -636,8 +685,8 @@ def plot(sessions):
                 0.98, 1.03, label, transform=axis.transAxes, ha="right", va="bottom"
             )
             axis.set(
-                xlabel="stationary peak / mean observed rate",
-                ylabel="movement peak / mean observed rate",
+                xlabel=f"stationary {WORD()} / mean observed rate",
+                ylabel=f"movement {WORD()} / mean observed rate",
             )
             scatters.append(axis)
             panels.append(axis)
@@ -652,8 +701,8 @@ def plot(sessions):
                 0.98, 1.03, label, transform=axis.transAxes, ha="right", va="bottom"
             )
             axis.set(
-                xlabel="stationary kernel peak (Δ log rate)",
-                ylabel="movement kernel peak (Δ log rate)",
+                xlabel=f"stationary kernel {WORD()} (Δ log rate)",
+                ylabel=f"movement kernel {WORD()} (Δ log rate)",
             )
         match_scatter_limits(axes)
         label_panels(axes, x=-0.12, y=1.08)
@@ -673,8 +722,8 @@ def plot(sessions):
                     va="bottom",
                 )
                 axis.set(
-                    xlabel="stationary peak / mean observed rate",
-                    ylabel="movement peak / mean observed rate",
+                    xlabel=f"stationary {WORD()} / mean observed rate",
+                    ylabel=f"movement {WORD()} / mean observed rate",
                 )
         match_scatter_limits(axes.ravel())
         label_panels(axes.ravel(), x=-0.12, y=1.13)
@@ -682,7 +731,13 @@ def plot(sessions):
 
 
 def main():
-    classes = json.loads((OUTPUT / "raw_video_trust_classification.json").read_text())
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--group", choices=("excited", "flash-suppressed"), default="excited"
+    )
+    group = parser.parse_args().group
+    set_group(group)
+    classes = group_units(OUTPUT, group)
     sessions = [session_data(session, classes[session]) for session in SESSIONS]
     plot(sessions)
     report = {
@@ -779,7 +834,7 @@ def main():
             for data in sessions
         },
     }
-    (OUTPUT / "flash_movement.json").write_text(json.dumps(report, indent=2))
+    (OUTPUT / f"flash_movement{SUFFIX}.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
 

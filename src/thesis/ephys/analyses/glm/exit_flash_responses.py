@@ -242,6 +242,68 @@ def latency(sessions, key, picks=None) -> float:
     return float(1000 * CENTERS_S[np.argmax(np.where(PEAK, mean, -np.inf))])
 
 
+# Where each label goes (data units) in the flash-suppressed gain figure: in
+# empty space, joined to its point by a thin line, so no label crosses a bar.
+LABEL_AT = {
+    ("1st after exit", 0): (1.9, 0.45),
+    ("1st after exit", 1): (0.1, 4.6),
+    ("1st after exit", 2): (3.6, 2.6),
+    ("later after exit", 0): (3.4, 1.3),
+    ("later after exit", 1): (0.4, 6.6),
+}
+
+
+def gain_figure(gain: dict, word: str):
+    """The gain test alone, each point labeled with its group and gap (talk)."""
+    figure, axis = plt.subplots(figsize=(3.6, 3.4), layout="constrained")
+    x_limit = 1.1 * max(g["before"]["interval"][1] for g in gain.values())
+    y_limit = 1.1 * max(g["peak"]["interval"][1] for g in gain.values())
+    limit = max(x_limit, y_limit)
+    axis.plot([0, limit], [0, limit], color=REFERENCE_COLOR, lw=0.8, ls="--")
+    axis.text(
+        0.97 * x_limit,
+        0.97 * x_limit + 0.3,
+        "one gain on all activity",
+        color=REFERENCE_COLOR,
+        ha="right",
+        va="bottom",
+        fontsize=7,
+    )
+    for key_text, entry in gain.items():
+        group = next(g for g in GROUPS if g in key_text)
+        index = int(key_text.rstrip(")").split(",")[-1])
+        x, y = entry["before"], entry["peak"]
+        axis.errorbar(
+            [x["ratio"]],
+            [y["ratio"]],
+            xerr=[[x["ratio"] - x["interval"][0]], [x["interval"][1] - x["ratio"]]],
+            yerr=[[y["ratio"] - y["interval"][0]], [y["interval"][1] - y["ratio"]]],
+            fmt="o",
+            color=COLORS[group],
+            ms=4,
+            capsize=2,
+            lw=0.8,
+        )
+        name = "later flashes" if group == "later after exit" else "1st flash"
+        axis.annotate(
+            f"{name},\n{GAP_LABELS[index]} ms",
+            (x["ratio"], y["ratio"]),
+            xytext=LABEL_AT.get((group, index), (x["ratio"], y["ratio"])),
+            va="center",
+            color=COLORS[group],
+            fontsize=7,
+            arrowprops={"arrowstyle": "-", "color": COLORS[group], "lw": 0.5},
+        )
+    axis.axhline(0, color=REFERENCE_COLOR, lw=0.5)
+    axis.set(
+        xlim=(0, x_limit),
+        ylim=(min(0, *(g["peak"]["interval"][0] for g in gain.values())), y_limit),
+    )
+    axis.set_xlabel("rate before the flash grew (×),\nafter exit / in port")
+    axis.set_ylabel(f"flash {word} grew (×),\nafter exit / in port")
+    return figure
+
+
 def main() -> None:
     global DIP
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -414,6 +476,7 @@ def main() -> None:
             )
         label_panels(axes.flat, x=-0.22, y=1.05)
         print(save_figure(figure, OUT / f"exit_flash_responses{suffix}"))
+        print(save_figure(gain_figure(gain, word), OUT / f"exit_flash_gain{suffix}"))
     (OUT / f"exit_flash_responses{suffix}.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats["gain_test"], indent=1))
 
