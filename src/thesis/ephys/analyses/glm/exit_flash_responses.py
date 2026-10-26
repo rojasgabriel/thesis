@@ -32,9 +32,12 @@ left out: the response to the flash before falls into their windows.
 - Units: the units of the group,
   pooled over both mice. Intervals: hierarchical bootstrap (mice, then units),
   95%; ratios are of pooled means. The sampling unit is the unit.
-- Talk figure (`exit_flash_gain`): for each after-exit group and gap, the
-  growth of the peak over the growth of the rate before it (1 = one gain),
-  with a hierarchical bootstrap interval of that ratio.
+- Talk figure (`exit_flash_relative`): the pooled flash PSTH of each group
+  divided by its own pooled rate before the flash (1 = that rate), one row per
+  gap class (50-100 and 100-200 ms); bands are hierarchical bootstrap 95%.
+  Under one gain on all activity the curves of a row lie on each other. The
+  report also gives, per after-exit group and gap, the growth of the peak over
+  the growth of the rate before it and its log2 ("flash_specific_index").
 - Panels: a, flash peak by gap; b, latency by gap; c, the gain test; d, the
   model miss by gap. No axis limit hides a point.
 
@@ -245,53 +248,72 @@ def latency(sessions, key, picks=None) -> float:
     return float(1000 * CENTERS_S[np.argmax(np.where(PEAK, mean, -np.inf))])
 
 
-def gain_figure(gain: dict, word: str):
-    """The flash response growth over the growth of the rate before it (talk).
+def flash_specific_index(ratio):
+    """log2 of the response growth over the rate growth: 0 = one gain on all
+    activity, +1 = the flash response grew twice as much, -1 = half as much.
+    A ratio at or below 0 has no index (NaN)."""
+    ratio = np.asarray(ratio, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(ratio > 0, np.log2(ratio), np.nan)
 
-    One value per after-exit group and gap: 1 means one gain on all activity;
-    above 1, the flash response grew more than the rest of the activity.
-    """
-    figure, axis = plt.subplots(figsize=(4.2, 3.2), layout="constrained")
-    axis.axhline(1, color=REFERENCE_COLOR, lw=0.8, ls="--")
-    axis.text(
-        len(GAPS) + 0.35,
-        0.97,
-        "one gain\non all activity",
-        color=REFERENCE_COLOR,
-        ha="right",
-        va="top",
-        fontsize=7,
-    )
-    for offset, group in zip((-0.06, 0.06), GROUPS[1:], strict=True):
-        xs, ys, lo, hi = [], [], [], []
-        for index in range(len(GAPS)):
-            entry = gain.get(str((group, index)))
-            if entry is None:
-                continue
-            value = entry["beyond_gain"]
-            xs.append(index + offset)
-            ys.append(value["ratio"])
-            lo.append(value["ratio"] - value["interval"][0])
-            hi.append(value["interval"][1] - value["ratio"])
-        axis.errorbar(
-            xs, ys, yerr=[lo, hi], fmt="o-", color=COLORS[group], ms=4, capsize=2, lw=1
+
+def relative_curve(sessions, key, picks=None) -> np.ndarray:
+    """Pooled mean trace over the pooled mean rate before the flash (1 = baseline)."""
+    if picks is None:
+        traces = np.concatenate([s["values"][key]["trace"] for s in sessions])
+    else:
+        traces = np.concatenate(
+            [sessions[m]["values"][key]["trace"][i] for m, i in picks]
         )
-        row = GROUPS[1:].index(group)
-        name = "later flashes" if group == "later after exit" else "first flash"
-        axis.text(
-            0.98,
-            0.97 - 0.08 * row,
-            f"{name} after leaving",
+    mean = traces.mean(0)
+    return mean / mean[BASELINE].mean()
+
+
+def relative_figure(sessions, boot, keys):
+    """Flash PSTHs, each divided by its own rate before the flash (talk).
+
+    Under one gain on all activity the curves of a row lie on each other.
+    """
+    rows = [i for i in (0, 1) if all((g, i) in keys for g in GROUPS)]
+    figure, axes = plt.subplots(
+        len(rows),
+        1,
+        figsize=(3.8, 2.4 * len(rows)),
+        sharex=True,
+        sharey=True,
+        layout="constrained",
+        squeeze=False,
+    )
+    for axis, index in zip(axes[:, 0], rows, strict=True):
+        for group in GROUPS:
+            key = (group, index)
+            curve = relative_curve(sessions, key)
+            band = np.percentile(
+                [relative_curve(sessions, key, picks) for picks in boot], [2.5, 97.5], 0
+            )
+            x = 1000 * CENTERS_S
+            axis.fill_between(x, *band, color=COLORS[group], alpha=0.15, lw=0)
+            axis.plot(x, curve, color=COLORS[group], lw=1.4)
+        axis.axhline(1, color=REFERENCE_COLOR, lw=0.6)
+        axis.axvline(0, color=REFERENCE_COLOR, lw=0.6, ls="--")
+        axis.set_title(f"gap from the flash before {GAP_LABELS[index]} ms", fontsize=8)
+        axis.set_ylabel("rate ÷ rate before the flash")
+    for row, group in enumerate(GROUPS):
+        name = {
+            "in port": "in the port",
+            "later after exit": "later flashes after leaving",
+            "1st after exit": "first flash after leaving",
+        }[group]
+        axes[0, 0].text(
+            0.03,
+            0.95 - 0.1 * row,
+            name,
             color=COLORS[group],
-            transform=axis.transAxes,
-            ha="right",
+            transform=axes[0, 0].transAxes,
             va="top",
             fontsize=7,
         )
-    axis.set_xticks(np.arange(len(GAPS)), GAP_LABELS)
-    axis.set_xlim(-0.4, len(GAPS) + 0.4)
-    axis.set_xlabel("gap from the flash before (ms)")
-    axis.set_ylabel(f"growth of the flash {word}\n÷ growth of the rate before it")
+    axes[-1, 0].set_xlabel("time from the flash (ms)")
     return figure
 
 
@@ -355,6 +377,12 @@ def main() -> None:
             gain[str(key)]["beyond_gain"] = {
                 "ratio": beyond(None),
                 "interval": interval(sessions, beyond, boot),
+            }
+            gain[str(key)]["flash_specific_index"] = {
+                "value": float(flash_specific_index(beyond(None))),
+                "interval": flash_specific_index(
+                    gain[str(key)]["beyond_gain"]["interval"]
+                ).tolist(),
             }
     stats["gain_test"] = gain
     gap_x = np.arange(len(GAPS))
@@ -476,7 +504,12 @@ def main() -> None:
             )
         label_panels(axes.flat, x=-0.22, y=1.05)
         print(save_figure(figure, OUT / f"exit_flash_responses{suffix}"))
-        print(save_figure(gain_figure(gain, word), OUT / f"exit_flash_gain{suffix}"))
+        print(
+            save_figure(
+                relative_figure(sessions, boot, keys),
+                OUT / f"exit_flash_relative{suffix}",
+            )
+        )
     (OUT / f"exit_flash_responses{suffix}.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats["gain_test"], indent=1))
 
