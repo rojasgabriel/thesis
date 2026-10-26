@@ -20,6 +20,8 @@ Comparison: the fraction of right choices at each flash rate, in each mouse
 - Curve: a logistic fit of the choice on the rate (no penalty, no lapse
   terms). Bias = P(right) at the boundary.
 - Accuracy: the fraction rewarded of the non-boundary trials.
+- x axis: stimulus strength (`trials.stimulus_strength`), (rate − boundary) / 8 Hz:
+  0 at the boundary, −1 at 4 and +1 at 20 flashes/s. The fit is in Hz.
 
 The script writes `figures/behavior/psychometric.svg` and
 `results/behavior/psychometric.json`.
@@ -40,7 +42,7 @@ from scipy.stats import norm
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.trials import build_trial_table
+from thesis.ephys.trials import build_trial_table, stimulus_strength
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -105,7 +107,7 @@ def main() -> None:
     report = {session: session_behavior(session) for session in SESSIONS}
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(3.6, 3.0), layout="constrained")
-        axis.axvline(12, color=REFERENCE_COLOR, ls="--", lw=0.8)
+        axis.axvline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
         axis.axhline(0.5, color=REFERENCE_COLOR, lw=0.5)
         grid = np.linspace(3, 21, 200)
         for row, data in enumerate(report.values()):
@@ -118,7 +120,7 @@ def main() -> None:
             interval = np.asarray(data["p_right_95"]).T
             # A small shift per mouse so the points do not overlap (drawing only).
             axis.errorbar(
-                rates + 0.4 * (row - 0.5),
+                stimulus_strength(rates) + 0.05 * (row - 0.5),
                 p,
                 yerr=[p - interval[0], interval[1] - p],
                 fmt=marker,
@@ -130,7 +132,11 @@ def main() -> None:
             )
             a, b = data["logistic_intercept"], data["logistic_slope_per_hz"]
             axis.plot(
-                grid, 1 / (1 + np.exp(-(a + b * grid))), color=color, lw=1.2, ls=line
+                stimulus_strength(grid),
+                1 / (1 + np.exp(-(a + b * grid))),
+                color=color,
+                lw=1.2,
+                ls=line,
             )
             # A sample of the line and the marker of the mouse before its name.
             y = 0.95 - 0.08 * row
@@ -160,12 +166,13 @@ def main() -> None:
                 va="center",
                 fontsize=7,
             )
-        axis.text(12.3, 0.03, "boundary", color=REFERENCE_COLOR, fontsize=7)
+        axis.text(0.04, 0.03, "boundary", color=REFERENCE_COLOR, fontsize=7)
         axis.set(
-            xlabel="flash rate (flashes/s)",
+            xlabel="stimulus strength (left − / right +)",
             ylabel="fraction of right choices",
             ylim=(0, 1),
-            xlim=(3, 21),
+            xlim=tuple(stimulus_strength((3, 21))),
+            xticks=(-1, -0.5, 0, 0.5, 1),
         )
         print(save_figure(figure, OUT / "psychometric"))
     OUT.mkdir(parents=True, exist_ok=True)

@@ -28,6 +28,14 @@ ALIGNMENT_EV_COLUMNS = (
 # Largest difference between the hardware and the Bpod response entry that is
 # taken as the same event. The hardware entry is about 8 ms before the Bpod one.
 RESPONSE_TOLERANCE_S = 0.02
+CATEGORY_BOUNDARY_HZ = 12.0
+STRENGTH_SPAN_HZ = 8.0  # the strongest rates, 4 and 20 flashes/s, give -1 and +1
+
+
+def stimulus_strength(rate_hz):
+    """Signed stimulus strength: 0 at the category boundary (no evidence for a
+    side), negative toward the left reward, positive toward the right."""
+    return (np.asarray(rate_hz, dtype=float) - CATEGORY_BOUNDARY_HZ) / STRENGTH_SPAN_HZ
 
 
 def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
