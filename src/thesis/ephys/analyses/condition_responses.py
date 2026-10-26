@@ -71,7 +71,7 @@ OUT = Path("results/condition_responses")
 SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
 BIN_S = 0.02
 MIN_RATE_HZ = 3.0
-LIMIT = 1.0
+LIMIT = 2.0
 MIN_TRIALS_IN_BIN = 0.5  # fraction of the trials of each group
 # Each condition: its alignment, windows, the two groups (first, second) and
 # their names, and one concept color; the group is the line style.
