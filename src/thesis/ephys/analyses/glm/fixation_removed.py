@@ -215,12 +215,13 @@ def main() -> None:
                 )
                 if row == 0:
                     axis.text(
-                        0.03,
-                        0.04 + 0.08 * (len(FITS) - 1 - index),
+                        0.98,
+                        0.97 - 0.08 * index,
                         name,
                         color=COLORS[name],
                         transform=axis.transAxes,
-                        va="bottom",
+                        ha="right",
+                        va="top",
                         fontsize=7,
                     )
             axis.axhline(1, color="0.6", lw=0.6)
