@@ -23,6 +23,11 @@ observed ones.
   that version, from `WINDOW_S[0]` to `WINDOW_S[1]`; rows sorted by the
   observed value from `SORT_S[0]` to `SORT_S[1]`, the same order in each
   version; the color limit is `LIMIT` and values past it take the end color.
+- Hidden: in the two corrected versions, `HIDDEN_S[0]` to `HIDDEN_S[1]` after
+  the first flash is not shown (gray in the heatmaps, a gap in the curves):
+  there the fixation kernel overlaps the first-flash response, and dividing
+  it out inflates that response (in GRB006 about 2.5 times), so the result is
+  not reliable. The mean rate of a corrected unit is over its shown bins.
 - PSTH: the mean over units of the rate over the unit's mean rate, ± SEM over
   units. The sampling unit is the unit.
 
@@ -77,6 +82,10 @@ LIMIT = 1.5
 TRIAL_WINDOW_S = (-0.3, 1.5)  # as the trial raster of `dataset_overview.py`
 EXAMPLE_TRIALS = 10
 SMOOTH_S = 0.015  # Gaussian SD of the trial rates
+# Not shown for the corrected versions: the fixation kernel starts at the
+# first flash and overlaps its response (they share a part of the rate), so
+# dividing it out there inflates the first-flash response.
+HIDDEN_S = (0.0, 0.2)
 COLORS = {
     "observed": OBSERVED_COLOR,
     "fixation removed": CONCEPT_COLORS["task"],
@@ -206,6 +215,9 @@ def example_figure() -> Path:
             rates["fixation removed, weaker penalty"] = smoothed(
                 unit_trials(weak, unit_id)[1], weak["valid"]
             )
+            hidden = (centers >= HIDDEN_S[0]) & (centers < HIDDEN_S[1])
+            for name in columns[1:]:  # not reliable where the terms overlap
+                rates[name][:, hidden] = np.nan
             top = np.nanpercentile(rates["observed"][picks][:, show], 99)
             cell = grid[row, :].subgridspec(2, len(columns), height_ratios=(1.4, 1))
             psth_axes = []
@@ -236,6 +248,14 @@ def example_figure() -> Path:
                         axis.plot(
                             exit_s, y + 0.5, ">", color=CONCEPT_COLORS["task"], ms=3
                         )
+                if name != "observed":  # the hidden window, not "no spikes"
+                    axis.axvspan(
+                        *HIDDEN_S,
+                        facecolor="white",
+                        edgecolor="0.6",
+                        hatch="////",
+                        lw=0,
+                    )
                 axis.set_yticks([])
                 axis.tick_params(labelbottom=False)
                 if row == 0:
@@ -282,10 +302,14 @@ def main() -> None:
         if list(np.asarray(weak_ids)[keep]) != ids:
             raise ValueError(f"The two fits have different units in {session}.")
         versions["fixation removed, weaker penalty"] = weak[keep]
+        hidden = (centers >= HIDDEN_S[0]) & (centers < HIDDEN_S[1])
+        for name in list(FITS)[1:]:  # not reliable where the terms overlap
+            versions[name] = versions[name].copy()
+            versions[name][:, hidden] = np.nan
         # log2 of each version over the unit's own mean rate in the window.
         logs = {
             name: np.log2(
-                np.maximum(r, 0.1) / np.maximum(r.mean(1, keepdims=True), 1e-9)
+                np.maximum(r, 0.1) / np.maximum(np.nanmean(r, 1, keepdims=True), 1e-9)
             )
             for name, r in versions.items()
         }
@@ -295,7 +319,7 @@ def main() -> None:
             name: {
                 "units": len(ids),
                 "fraction_below_mean_150_500_ms": float(
-                    np.mean(v[:, sort].mean(1) < 0)
+                    np.mean(np.nanmean(v[:, sort], 1) < 0)
                 ),
                 "values_past_the_color_limit": int(np.sum(np.abs(v) > LIMIT)),
             }
@@ -317,7 +341,7 @@ def main() -> None:
                 image = axis.imshow(
                     logs[name][order],
                     aspect="auto",
-                    cmap="RdBu_r",
+                    cmap=matplotlib.colormaps["RdBu_r"].with_extremes(bad="0.8"),
                     vmin=-LIMIT,
                     vmax=LIMIT,
                     interpolation="nearest",
@@ -332,8 +356,8 @@ def main() -> None:
             axis = axes[row, -1]
             for index, name in enumerate(FITS):
                 ratio = 2 ** logs[name]
-                mean = ratio.mean(0)
-                sem = ratio.std(0, ddof=1) / np.sqrt(len(ratio))
+                mean = np.nanmean(ratio, 0)
+                sem = np.nanstd(ratio, 0, ddof=1) / np.sqrt(len(ratio))
                 axis.plot(centers, mean, color=COLORS[name], lw=1.4)
                 axis.fill_between(
                     centers,
