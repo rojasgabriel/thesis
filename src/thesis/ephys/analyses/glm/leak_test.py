@@ -62,9 +62,7 @@ paired: each unit has its real effect and its leak.
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script simulates and refits each unit and
 writes `leak_test.json` in `--out` and `leak_test.npz` in each session
-directory. With `--group flash-suppressed` the measure is the dip of `flash_movement.py`,
-only those units are simulated, and the outputs end in `_flash_suppressed`
-(`flash_movement_flash_suppressed.json` must exist). The excited units are those of `raw_video_trust_classification.json`
+directory. The excited units are those of `raw_video_trust_classification.json`
 (the units of `flash_movement.py`); `flash_movement.json` must exist.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
@@ -355,10 +353,8 @@ def _unit(job: dict) -> dict:
     }
 
 
-def simulate_session(
-    out: Path, session: str, unit_set: str, workers: int, units=None
-) -> dict:
-    """Simulate and refit each unit of one session (or only `units`); write `leak_test.npz`."""
+def simulate_session(out: Path, session: str, unit_set: str, workers: int) -> dict:
+    """Simulate and refit each unit of one session; write `leak_test.npz`."""
     model = cli.PoissonGLM(root=out / session)
     subject, _, name = session.partition("_")
     final = load_unit_records(
@@ -373,7 +369,6 @@ def simulate_session(
             "spike_times": np.asarray(spikes[int(item["unit_id"])], dtype=float),
         }
         for item in final
-        if units is None or int(item["unit_id"]) in units
     ]
     with Pool(workers, _load, (model.windows, model.design)) as pool:
         units = pool.map(_unit, jobs)
@@ -410,7 +405,7 @@ def simulate_session(
         np.median([unit["spikes_simulated_over_real"] for unit in units])
     )
     np.savez(
-        out / session / f"leak_test{flash_movement.SUFFIX}.npz",
+        out / session / "leak_test.npz",
         unit_ids=np.asarray([unit["unit_id"] for unit in units]),
         measures=np.asarray([*GAPS_MS, "fixation level"]),
         real=real,
@@ -441,16 +436,12 @@ def comparison_values(out: Path) -> dict:
     and the simulated fixation level. If the peaks are saved, the same three
     as log ratios ("log ..."; NaN where a peak is ≤ 0).
     """
-    excited = flash_movement.group_units(
-        out, "flash-suppressed" if flash_movement.DIP else "excited"
-    )
-    report = json.loads(
-        (out / f"flash_movement{flash_movement.SUFFIX}.json").read_text()
-    )["sessions"]
+    excited = json.loads((out / "raw_video_trust_classification.json").read_text())
+    report = json.loads((out / "flash_movement.json").read_text())["sessions"]
     values = {}
     for session in SESSIONS:
         subject = session.split("_")[0]
-        with np.load(out / session / f"leak_test{flash_movement.SUFFIX}.npz") as saved:
+        with np.load(out / session / "leak_test.npz") as saved:
             ids = saved["unit_ids"].tolist()
             real = saved["real_comparison"]  # (unit, gap)
             leak = saved["leak_comparison"].mean(1)
@@ -500,13 +491,7 @@ def comparison_statistics(out: Path, scale: str = "normalized") -> dict:
     """
     values = comparison_values(out)
     stats = {}
-    # With the flash-suppressed group only its units are simulated.
-    groups = (
-        ("flash-suppressed units",)
-        if flash_movement.DIP
-        else ("excited units", "all units")
-    )
-    for group in groups:
+    for group in ("excited units", "all units"):
         for index, gap in enumerate(flash_movement.GAP_LABELS):
             entry = {}
             for name, real_key in (
@@ -515,7 +500,7 @@ def comparison_statistics(out: Path, scale: str = "normalized") -> dict:
             ):
                 by_mouse = {}
                 for subject, data in values.items():
-                    keep = data["excited"] if group != "all units" else slice(None)
+                    keep = data["excited"] if group == "excited units" else slice(None)
                     prefix = "log " if scale == "log" else ""
                     real = data[prefix + real_key][keep, index]
                     leak = data[prefix + "leak"][keep, index]
@@ -551,24 +536,9 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=6)
-    parser.add_argument(
-        "--group", choices=("excited", "flash-suppressed"), default="excited"
-    )
     args = parser.parse_args()
-    flash_movement.set_group(args.group)
-    # The excited group needs every unit (the all-unit statistics); the
-    # flash-suppressed group simulates only its own units.
-    only = (
-        flash_movement.group_units(args.out, args.group) if flash_movement.DIP else None
-    )
     stats = {
-        session: simulate_session(
-            args.out,
-            session,
-            args.units,
-            args.workers,
-            None if only is None else set(only[session]),
-        )
+        session: simulate_session(args.out, session, args.units, args.workers)
         for session in SESSIONS
     }
     stats["main comparison (normalized), real minus leak"] = comparison_statistics(
@@ -577,9 +547,7 @@ def main() -> None:
     stats["main comparison (log ratio), real minus leak"] = comparison_statistics(
         args.out, "log"
     )
-    (args.out / f"leak_test{flash_movement.SUFFIX}.json").write_text(
-        json.dumps(stats, indent=1)
-    )
+    (args.out / "leak_test.json").write_text(json.dumps(stats, indent=1))
     print(json.dumps(stats, indent=1))
 
 

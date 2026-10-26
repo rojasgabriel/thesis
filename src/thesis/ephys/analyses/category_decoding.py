@@ -38,9 +38,9 @@ import matplotlib
 import numpy as np
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
 
+from thesis.ephys.analyses._decoding import add_units_argument, load_decoding_data
 from thesis.ephys.analyses._decoding import balanced_indices as _balanced_indices
 from thesis.ephys.analyses._decoding import decoder as _decoder
-from thesis.ephys.analyses._decoding import load_decoding_data
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -124,12 +124,7 @@ def _parse_args() -> argparse.Namespace:
     optional.add_argument(
         "--quick", action="store_true", help="Use 3 resamples and shuffles"
     )
-    optional.add_argument(
-        "--units",
-        choices=("all", "sua"),
-        default="all",
-        help="all: single units and multi-units (no stability filter); sua: single units only",
-    )
+    add_units_argument(optional)
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
         "--no-save", action="store_true", help="Do not save the figure or results"

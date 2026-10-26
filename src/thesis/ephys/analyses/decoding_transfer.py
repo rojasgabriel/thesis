@@ -58,6 +58,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses._decoding import (
+    add_units_argument,
     balanced_indices,
     decoder,
     load_decoding_data,
@@ -243,12 +244,7 @@ def suffix() -> str:
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--units",
-        choices=("all", "sua"),
-        default="all",
-        help="all: single units and multi-units (no stability filter); sua: the stable single units of the GLM",
-    )
+    add_units_argument(parser)
     parser.add_argument(
         "--components",
         type=int,

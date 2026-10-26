@@ -37,7 +37,7 @@ left out: the response to the flash before falls into their windows.
   gap class (50-100 and 100-200 ms); bands are hierarchical bootstrap 95%.
   Under one gain on all activity the curves of a row lie on each other. The
   report also gives, per after-exit group and gap, the growth of the peak over
-  the growth of the rate before it and its log2 ("flash_specific_index").
+  the growth of the rate before it.
 - Panels: a, flash peak by gap; b, latency by gap; c, the gain test; d, the
   model miss by gap. No axis limit hides a point.
 
@@ -248,15 +248,6 @@ def latency(sessions, key, picks=None) -> float:
     return float(1000 * CENTERS_S[np.argmax(np.where(PEAK, mean, -np.inf))])
 
 
-def flash_specific_index(ratio):
-    """log2 of the response growth over the rate growth: 0 = one gain on all
-    activity, +1 = the flash response grew twice as much, -1 = half as much.
-    A ratio at or below 0 has no index (NaN)."""
-    ratio = np.asarray(ratio, dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.where(ratio > 0, np.log2(ratio), np.nan)
-
-
 def relative_curve(sessions, key, picks=None) -> np.ndarray:
     """Pooled mean trace over the pooled mean rate before the flash (1 = baseline)."""
     if picks is None:
@@ -378,21 +369,16 @@ def main() -> None:
                 "ratio": beyond(None),
                 "interval": interval(sessions, beyond, boot),
             }
-            gain[str(key)]["flash_specific_index"] = {
-                "value": float(flash_specific_index(beyond(None))),
-                "interval": flash_specific_index(
-                    gain[str(key)]["beyond_gain"]["interval"]
-                ).tolist(),
-            }
     stats["gain_test"] = gain
     gap_x = np.arange(len(GAPS))
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(2, 2, figsize=(7.2, 5.6), layout="constrained")
         peak_axis, latency_axis, gain_axis, miss_axis = axes.flat
-        for axis, measure in (
-            (peak_axis, "peak"),
-            (latency_axis, "latency"),
-            (miss_axis, "miss"),
+        # (axis, value key, interval key) of each by-gap panel.
+        for axis, name, band in (
+            (peak_axis, "peak", "peak_interval"),
+            (latency_axis, "latency_ms", "latency_interval_ms"),
+            (miss_axis, "miss", "miss_interval"),
         ):
             for offset, group in zip((-0.12, 0, 0.12), GROUPS, strict=True):
                 xs, ys, lo, hi = [], [], [], []
@@ -400,12 +386,6 @@ def main() -> None:
                     entry = stats["groups"].get(str((group, index)))
                     if entry is None:
                         continue
-                    name = "latency_ms" if measure == "latency" else measure
-                    band = (
-                        "latency_interval_ms"
-                        if measure == "latency"
-                        else f"{measure}_interval"
-                    )
                     xs.append(index + offset)
                     ys.append(entry[name])
                     lo.append(entry[name] - entry[band][0])
@@ -422,12 +402,6 @@ def main() -> None:
                 )
             first = stats["groups"].get(FIRST)
             if first is not None:
-                name = "latency_ms" if measure == "latency" else measure
-                band = (
-                    "latency_interval_ms"
-                    if measure == "latency"
-                    else f"{measure}_interval"
-                )
                 axis.errorbar(
                     [len(GAPS) + 0.2],
                     [first[name]],

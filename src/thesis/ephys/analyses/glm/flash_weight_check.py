@@ -59,7 +59,6 @@ from thesis.plotting import (
     BOOTSTRAPS,
     CONCEPT_COLORS,
     FIGURE_STYLE,
-    MOUSE_MARKERS,
     REFERENCE_COLOR,
     label_panels,
     save_figure,
@@ -76,7 +75,6 @@ CLASSES = {
     "suppressed": "#003F6B",
     "not responsive": REFERENCE_COLOR,
 }
-MARKERS = MOUSE_MARKERS
 # Display limit of both axes; every 90% contour is inside.
 LIMITS = (-2.0, 2.0)
 # Contours of each class: the regions that hold 90% and 50% of its units.

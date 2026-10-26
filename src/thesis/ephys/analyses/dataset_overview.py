@@ -180,13 +180,7 @@ def plot_trials(sessions: list[dict]) -> Path:
             edges = np.arange(
                 TRIAL_WINDOW_S[0], TRIAL_WINDOW_S[1] + 1e-9, TRIAL_PSTH_BIN_S
             )
-            counts = (
-                np.diff(
-                    np.searchsorted(spikes, data["first"][:, None] + edges[None, :]),
-                    axis=1,
-                )
-                / TRIAL_PSTH_BIN_S
-            )
+            counts = counts_around(spikes, data["first"], edges) / TRIAL_PSTH_BIN_S
             mean = counts.mean(0)
             sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
             centers = (edges[:-1] + edges[1:]) / 2
@@ -263,33 +257,20 @@ def plot_trials(sessions: list[dict]) -> Path:
                 transform=axis.transAxes,
                 va="bottom",
             )
-            axis.text(
-                1.0,
-                1.02,
-                "flashes",
-                color=VISUAL,
-                transform=axis.transAxes,
-                va="bottom",
-                ha="right",
-            )
-            axis.text(
-                0.86,
-                1.02,
-                "spikes",
-                color=OBSERVED_COLOR,
-                transform=axis.transAxes,
-                va="bottom",
-                ha="right",
-            )
-            axis.text(
-                0.74,
-                1.02,
-                "\u25bc center exit",
-                color=TASK,
-                transform=axis.transAxes,
-                va="bottom",
-                ha="right",
-            )
+            for x, text, color in (
+                (1.0, "flashes", VISUAL),
+                (0.86, "spikes", OBSERVED_COLOR),
+                (0.74, "\u25bc center exit", TASK),
+            ):
+                axis.text(
+                    x,
+                    1.02,
+                    text,
+                    color=color,
+                    transform=axis.transAxes,
+                    va="bottom",
+                    ha="right",
+                )
         grid[-1].set_xlabel("time from the first flash (s)")
         label_panels(axes, x=-0.06, y=1.02)
         figure.tight_layout()

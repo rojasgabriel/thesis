@@ -54,7 +54,7 @@ from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from thesis.ephys.analyses._decoding import load_decoding_data
+from thesis.ephys.analyses._decoding import add_units_argument, load_decoding_data
 from thesis.ephys.trials import STRENGTH_SPAN_HZ, stimulus_strength
 from thesis.plotting import (
     FIGURE_STYLE,
@@ -125,12 +125,7 @@ def _parse_args() -> argparse.Namespace:
     optional.add_argument(
         "--quick", action="store_true", help="Use a smaller ridge grid"
     )
-    optional.add_argument(
-        "--units",
-        choices=("all", "sua"),
-        default="all",
-        help="all: single units and multi-units (no stability filter); sua: single units only",
-    )
+    add_units_argument(optional)
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
         "--no-save", action="store_true", help="Do not save the figure or results"

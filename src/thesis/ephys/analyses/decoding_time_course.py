@@ -45,6 +45,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses._decoding import (
+    add_units_argument,
     balanced_indices,
     decoder,
     load_decoding_data,
@@ -245,20 +246,11 @@ def suffix() -> str:
     return "_sua" if UNITS == "sua" else ""
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--units",
-        choices=("all", "sua"),
-        default="all",
-        help="all: single units and multi-units (no stability filter); sua: the stable single units of the GLM",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
     global UNITS
-    UNITS = parse_args().units
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    add_units_argument(parser)
+    UNITS = parser.parse_args().units
     results = [session_course(s) for s in SESSIONS]
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"decoding_time_course{suffix()}.json").write_text(

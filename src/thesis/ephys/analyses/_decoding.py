@@ -59,16 +59,7 @@ def load_decoding_data(
     first_stim_s = eligible["stim_pulse_times_s"].str[0].to_numpy(dtype=float)
     starts_s = first_stim_s + window_start_s
     stops_s = first_stim_s + window_stop_s
-    duration_s = window_stop_s - window_start_s
-    firing_rates = np.empty((len(eligible), len(unit_table)), dtype=float)
-    for unit_idx, spike_times_s in enumerate(unit_table["spike_times_s"]):
-        spikes = np.sort(np.asarray(spike_times_s, dtype=float))
-        firing_rates[:, unit_idx] = (
-            np.searchsorted(spikes, stops_s, side="left")
-            - np.searchsorted(spikes, starts_s, side="left")
-        ) / duration_s
-
-    return unit_table, eligible, firing_rates
+    return unit_table, eligible, window_rates(unit_table, starts_s, stops_s)
 
 
 def _units_with_mua(subject: str, session: str, unit_criteria_id: int) -> pd.DataFrame:
@@ -83,6 +74,16 @@ def _units_with_mua(subject: str, session: str, unit_criteria_id: int) -> pd.Dat
     units = SpikeSorting.Unit & (UnitCount.Unit & query & "passes >= 0")
     table = pd.DataFrame(units.get_spike_times(include_metrics=False))
     return table.rename(columns={"spike_times": "spike_times_s"})
+
+
+def add_units_argument(parser) -> None:
+    """Add the `--units all|sua` option shared by the decoding scripts."""
+    parser.add_argument(
+        "--units",
+        choices=("all", "sua"),
+        default="all",
+        help="all: single units and multi-units (no stability filter); sua: single units only",
+    )
 
 
 def decoder():
