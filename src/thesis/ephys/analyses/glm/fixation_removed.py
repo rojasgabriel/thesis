@@ -151,7 +151,11 @@ def unit_rates(root: Path, session: str) -> tuple[list[int], np.ndarray, np.ndar
                 weights=(values * valid)[:, inside].sum(0),
                 minlength=len(edges) - 1,
             )
-            rates.append(total / np.maximum(exposure, 1) / dmat.BINWIDTH_S)
+            # A bin with no valid trial has no rate (NaN), not a rate of 0.
+            with np.errstate(invalid="ignore", divide="ignore"):
+                rates.append(
+                    np.where(exposure > 0, total / exposure, np.nan) / dmat.BINWIDTH_S
+                )
         ids.append(unit_id)
         observed.append(rates[0])
         removed.append(rates[1])

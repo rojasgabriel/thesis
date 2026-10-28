@@ -10,8 +10,9 @@ Comparison: a category decoder (fast or slow, with equal numbers of left and
 right choices in each category) trained on one period and tested on held-out
 trials of the same period and of the other period.
 
-- Periods: `WINDOW_S` before the center exit (still, in the port) and
-  `WINDOW_S` after it (moving); the flashes go on in both.
+- Periods: `WINDOW_S` before the center exit (still, in the port; it starts
+  at the first flash at the earliest, so a fast exit gives a shorter window)
+  and `WINDOW_S` after it (moving); the flashes go on in both.
 - Features: each unit's rate in the window; single units and multi-units of
   unit criteria 1, no stability filter.
 - Score: the area under the ROC curve of the decoder output on the test
@@ -134,8 +135,12 @@ def session_transfer(session: str) -> dict:
         include_mua=UNITS == "all",
     )
     exit_s = trials["center_exit_s"].to_numpy(float)
+    first = trials["stim_pulse_times_s"].str[0].to_numpy(float)
+    # The still window starts at the first flash at the earliest, so a fast
+    # exit gives a shorter window, never time before the stimulus.
+    still_start = np.maximum(exit_s - WINDOW_S, first)
     rates = {
-        "still": window_rates(units, exit_s - WINDOW_S, exit_s),
+        "still": window_rates(units, still_start, exit_s),
         "moving": window_rates(units, exit_s, exit_s + WINDOW_S),
     }
     category = trials["stim_category"].eq("high_rate").to_numpy(int)
@@ -149,7 +154,6 @@ def session_transfer(session: str) -> dict:
         "test moving": real[:, 1] - within["moving"],
         "test still": real[:, 3] - within["still"],
     }
-    first = trials["stim_pulse_times_s"].str[0].to_numpy(float)
     return {
         "subject": subject,
         "units": len(units),
@@ -157,6 +161,7 @@ def session_transfer(session: str) -> dict:
             len(balanced_indices(category, choice, np.random.default_rng(0)))
         ),
         "median_exit_after_first_flash_s": float(np.median(exit_s - first)),
+        "trials_with_short_still_window": int((still_start > exit_s - WINDOW_S).sum()),
         "pairs": [f"train {a}, test {b}" for a, b in PAIRS],
         "auc_mean": real.mean(0).tolist(),
         "auc_95": np.percentile(real, [2.5, 97.5], axis=0).T.tolist(),

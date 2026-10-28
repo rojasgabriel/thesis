@@ -102,12 +102,16 @@ def add_bits_per_spike(records: list[dict], checkpoints: Path) -> list[dict]:
     }
     for record in records:
         tests = folds[int(record["unit_id"])]
-        factor = np.asarray(
-            [t["bits_per_spike"] / t["deviance_explained"] for t in tests]
-        )
-        record["complete_bits_per_spike"] = float(
-            np.mean([t["bits_per_spike"] for t in tests])
-        )
+        d2 = np.asarray([t["deviance_explained"] for t in tests], dtype=float)
+        bits = np.asarray([t["bits_per_spike"] for t in tests], dtype=float)
+        # A fold with D² of about 0 gives 0/0; its factor is the median of the
+        # other folds of the unit (the factor is about the same in each fold).
+        good = np.abs(d2) > 1e-6
+        if not good.any():
+            raise ValueError(f"Unit {record['unit_id']}: D² is 0 in every fold.")
+        factor = np.full(len(tests), np.median(bits[good] / d2[good]))
+        factor[good] = bits[good] / d2[good]
+        record["complete_bits_per_spike"] = float(np.mean(bits))
         for group in record["groups"].values():
             for kind, key in (("unique", UNIQUE_BITS), ("maximal", MAXIMAL_BITS)):
                 values = np.asarray(group["folds"][kind], dtype=float)
