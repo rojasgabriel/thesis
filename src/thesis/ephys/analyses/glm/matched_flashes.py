@@ -260,14 +260,12 @@ def main() -> None:
         )
     }
     # "flash": the flash terms that code the gap (with flash recovery), together.
-    gap_terms = [*dmat.gap_flash_terms(), dmat.FLASH_RECOVERY]
+    gap_terms = [*dmat.gap_flash_terms()] + (
+        [dmat.FLASH_RECOVERY] if dmat.FLASH_RECOVERY_TERM else []
+    )
     properties = {
         "unique bits per spike, flash": [
-            sum(
-                records[unit][group][UNIQUE_BITS]
-                for group in gap_terms
-                if group in records[unit]
-            )
+            sum(records[unit][group][UNIQUE_BITS] for group in gap_terms)
             for unit in unit_ids
         ]
     }

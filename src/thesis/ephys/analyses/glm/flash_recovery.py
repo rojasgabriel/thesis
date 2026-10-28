@@ -152,8 +152,11 @@ def delay(c: float, tau: float) -> float:
     return float(tau * np.log(max(c, 1.0)))
 
 
-def tau_interval(gaps, peaks, use) -> list[float]:
-    """Return the 95% bootstrap interval of tau over units."""
+def tau_interval(gaps, peaks, use) -> tuple[list[float], int]:
+    """Return the 95% bootstrap interval of tau over units and the failed fits.
+
+    A resample whose fit does not converge is left out; the count is reported.
+    """
     rng = np.random.default_rng(0)
     taus = []
     for _ in range(BOOTSTRAPS):
@@ -162,7 +165,7 @@ def tau_interval(gaps, peaks, use) -> list[float]:
             taus.append(fit(gaps, sample, use)[2])
         except RuntimeError:
             continue
-    return np.percentile(taus, [2.5, 97.5]).tolist()
+    return np.percentile(taus, [2.5, 97.5]).tolist(), BOOTSTRAPS - len(taus)
 
 
 def main() -> None:
@@ -172,23 +175,27 @@ def main() -> None:
     gaps, peaks = data["GRB006"]
     use = gaps > dmat.short_gap_s()  # without the 40-ms group
     A, c, tau = fit(gaps, peaks, use)
+    interval, failed = tau_interval(gaps, peaks, use)
     report["GRB006"] = {
         "A": A,
         "c": c,
         "tau_s": tau,
-        "tau_interval_95_s": tau_interval(gaps, peaks, use),
+        "tau_interval_95_s": interval,
+        "tau_bootstrap_fits_failed": failed,
         "delay_s": delay(c, tau),
     }
     gaps64, peaks64 = data["GRB064"]
     use64 = gaps64 > dmat.short_gap_s()
     A64, c64, _ = fit(gaps64, peaks64, use64, tau=tau)
     own = fit(gaps64, peaks64, use64)
+    own_interval, own_failed = tau_interval(gaps64, peaks64, use64)
     report["GRB064"] = {
         "A_with_GRB006_tau": A64,
         "c_with_GRB006_tau": c64,
         "own_tau_s": own[2],
         "own_delay_s": delay(own[1], own[2]),
-        "own_tau_interval_95_s": tau_interval(gaps64, peaks64, use64),
+        "own_tau_interval_95_s": own_interval,
+        "own_tau_bootstrap_fits_failed": own_failed,
     }
     for subject, (g, p) in data.items():
         report[subject].update(

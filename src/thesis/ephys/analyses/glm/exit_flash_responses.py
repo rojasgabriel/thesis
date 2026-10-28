@@ -266,6 +266,8 @@ def relative_figure(sessions, boot, keys):
     Under one gain on all activity the curves of a row lie on each other.
     """
     rows = [i for i in (0, 1) if all((g, i) in keys for g in GROUPS)]
+    if not rows:
+        raise ValueError("No gap class has flashes of every group.")
     figure, axes = plt.subplots(
         len(rows),
         1,

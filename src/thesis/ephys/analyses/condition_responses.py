@@ -81,6 +81,7 @@ CONDITIONS = {
         "window_s": (-0.5, 0.8),
         "preference_s": (0.0, 0.3),
         "in_port_only": False,
+        "trial_column": "response",
         "groups": (-1, 1),
         "names": ("left", "right"),
         "color": CONCEPT_COLORS["task"],
@@ -90,7 +91,8 @@ CONDITIONS = {
         "window_s": (-0.3, 0.8),
         "preference_s": (0.1, 0.5),
         "in_port_only": True,
-        "groups": (0, 1),
+        "trial_column": "stim_category",
+        "groups": ("low_rate", "high_rate"),
         "names": ("slow", "fast"),
         "color": CONCEPT_COLORS["visual"],
     },
@@ -112,10 +114,7 @@ def session_responses(session: str, spec: dict) -> dict:
     exits = trials["center_exit_s"].to_numpy(float)
     first_flash = trials["stim_pulse_times_s"].str[0].to_numpy(float)
     align = exits if spec["align"] == "center exit" else first_flash
-    if spec["groups"] == (-1, 1):
-        group = trials["response"].to_numpy(int)
-    else:
-        group = trials["stim_category"].eq("high_rate").to_numpy(int)
+    group = trials[spec["trial_column"]].to_numpy()
     edges = np.arange(spec["window_s"][0], spec["window_s"][1] + 1e-9, BIN_S)
     spikes = [np.sort(np.asarray(s, dtype=float)) for s in units["spike_times_s"]]
     # (unit, trial, bin) rates around the alignment.
@@ -154,6 +153,8 @@ def session_responses(session: str, spec: dict) -> dict:
         ]
     )
     active = np.flatnonzero(mean_rate >= MIN_RATE_HZ)
+    if not len(active):
+        raise ValueError(f"{session}: no unit has a mean rate of {MIN_RATE_HZ} Hz.")
     example = int(active[np.argmax(np.abs(dprime[active]))])
     return {
         "subject": subject,

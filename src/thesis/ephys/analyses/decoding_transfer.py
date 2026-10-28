@@ -91,12 +91,16 @@ PAIRS = (
     ("moving", "still"),
 )
 AUC_LIMITS = (0.2, 1.02)  # the lowest shuffle band edge is 0.25
-UNITS = "all"  # set by --units
-COMPONENTS = None  # set by --components
 
 
 def scores(
-    rates: dict, category, choice, rng, shuffle: bool, n_resamples: int = N_RESAMPLES
+    rates: dict,
+    category,
+    choice,
+    rng,
+    shuffle: bool,
+    components: int | None,
+    n_resamples: int = N_RESAMPLES,
 ) -> np.ndarray:
     """Return the AUC of each (train, test) pair per resample, (resample, pair)."""
     out = np.empty((n_resamples, len(PAIRS)))
@@ -114,7 +118,9 @@ def scores(
         outputs = {pair: np.empty(len(index)) for pair in PAIRS}
         for train, test in folds.split(index, y):
             for period in PERIODS:
-                model = make_decoder().fit(rates[period][index][train], y[train])
+                model = make_decoder(components).fit(
+                    rates[period][index][train], y[train]
+                )
                 for target in PERIODS:
                     outputs[(period, target)][test] = model.decision_function(
                         rates[target][index][test]
@@ -123,16 +129,16 @@ def scores(
     return out
 
 
-def session_transfer(session: str) -> dict:
+def session_transfer(session: str, units_kind: str, components: int | None) -> dict:
     subject, stamp = session.split("_", 1)
     units, trials, _ = load_decoding_data(
         subject,
         stamp,
         unit_criteria_id=1,
-        stability_param_id=0 if UNITS == "sua" else None,
+        stability_param_id=0 if units_kind == "sua" else None,
         window_start_s=0.0,
         window_stop_s=1.0,
-        include_mua=UNITS == "all",
+        include_mua=units_kind == "all",
     )
     exit_s = trials["center_exit_s"].to_numpy(float)
     first = trials["stim_pulse_times_s"].str[0].to_numpy(float)
@@ -146,8 +152,8 @@ def session_transfer(session: str) -> dict:
     category = trials["stim_category"].eq("high_rate").to_numpy(int)
     choice = trials["response"].to_numpy(int)
     rng = np.random.default_rng(SEED)
-    real = scores(rates, category, choice, rng, shuffle=False)
-    null = scores(rates, category, choice, rng, shuffle=True, n_resamples=N_SHUFFLES)
+    real = scores(rates, category, choice, rng, False, components)
+    null = scores(rates, category, choice, rng, True, components, N_SHUFFLES)
     within = {"still": real[:, 0], "moving": real[:, 2]}
     # Each test period: transfer (trained on the other period) minus within.
     drop = {
@@ -176,7 +182,7 @@ def session_transfer(session: str) -> dict:
     }
 
 
-def plot(results: list[dict]) -> Path:
+def plot(results: list[dict], name: str) -> Path:
     labels = ["still → still", "still → moving", "moving → moving", "moving → still"]
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
@@ -226,24 +232,18 @@ def plot(results: list[dict]) -> Path:
         axes[0].set_ylabel("category AUC (train → test)")
         label_panels(axes, x=-0.18, y=1.03)
         figure.tight_layout()
-        return save_figure(figure, OUT / f"decoding_transfer{suffix()}")
+        return save_figure(figure, OUT / name)
 
 
-def make_decoder():
-    """Return the decoder; with `COMPONENTS`, z-score, PCA, z-score, logistic."""
-    if COMPONENTS is None:
+def make_decoder(components: int | None):
+    """Return the decoder; with `components`, z-score, PCA, z-score, logistic."""
+    if components is None:
         return decoder()
     return make_pipeline(
         StandardScaler(),
-        PCA(n_components=COMPONENTS, random_state=SEED),
+        PCA(n_components=components, random_state=SEED),
         StandardScaler(),
         LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000),
-    )
-
-
-def suffix() -> str:
-    return ("_sua" if UNITS == "sua" else "") + (
-        f"_pca{COMPONENTS}" if COMPONENTS else ""
     )
 
 
@@ -260,14 +260,12 @@ def parse_args():
 
 
 def main() -> None:
-    global UNITS, COMPONENTS
     args = parse_args()
-    UNITS, COMPONENTS = args.units, args.components
-    results = [session_transfer(s) for s in SESSIONS]
+    name = "decoding_transfer" + ("_sua" if args.units == "sua" else "")
+    name += f"_pca{args.components}" if args.components else ""
+    results = [session_transfer(s, args.units, args.components) for s in SESSIONS]
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / f"decoding_transfer{suffix()}.json").write_text(
-        json.dumps(results, indent=1)
-    )
+    (OUT / f"{name}.json").write_text(json.dumps(results, indent=1))
     print(
         json.dumps(
             [
@@ -281,7 +279,7 @@ def main() -> None:
             indent=1,
         )
     )
-    print(plot(results))
+    print(plot(results, name))
 
 
 if __name__ == "__main__":

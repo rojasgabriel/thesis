@@ -71,7 +71,6 @@ N_SHUFFLES = 20
 SEED = 0
 COLORS = {"category": CONCEPT_COLORS["visual"], "choice": CONCEPT_COLORS["task"]}
 ACCURACY_LIMITS = (0.25, 1.02)  # the lowest band edge is 0.295
-UNITS = "all"  # set by --units
 
 
 def accuracy(
@@ -103,16 +102,16 @@ def accuracy(
     return np.asarray(scores)
 
 
-def session_course(session: str) -> dict:
+def session_course(session: str, units_kind: str) -> dict:
     subject, stamp = session.split("_", 1)
     units, trials, _ = load_decoding_data(
         subject,
         stamp,
         unit_criteria_id=1,
-        stability_param_id=0 if UNITS == "sua" else None,
+        stability_param_id=0 if units_kind == "sua" else None,
         window_start_s=0.0,
         window_stop_s=1.0,
-        include_mua=UNITS == "all",
+        include_mua=units_kind == "all",
     )
     first = trials["stim_pulse_times_s"].str[0].to_numpy(float)
     exit_s = trials["center_exit_s"].to_numpy(float)
@@ -155,7 +154,7 @@ def session_course(session: str) -> dict:
     return out
 
 
-def plot(results: list[dict]) -> Path:
+def plot(results: list[dict], name: str) -> Path:
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             len(results),
@@ -239,24 +238,18 @@ def plot(results: list[dict]) -> Path:
             )
         label_panels(axes.ravel(), x=-0.2, y=1.03)
         figure.tight_layout()
-        return save_figure(figure, OUT / f"decoding_time_course{suffix()}")
-
-
-def suffix() -> str:
-    return "_sua" if UNITS == "sua" else ""
+        return save_figure(figure, OUT / name)
 
 
 def main() -> None:
-    global UNITS
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     add_units_argument(parser)
-    UNITS = parser.parse_args().units
-    results = [session_course(s) for s in SESSIONS]
+    units_kind = parser.parse_args().units
+    name = "decoding_time_course" + ("_sua" if units_kind == "sua" else "")
+    results = [session_course(s, units_kind) for s in SESSIONS]
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / f"decoding_time_course{suffix()}.json").write_text(
-        json.dumps(results, indent=1)
-    )
-    print(plot(results))
+    (OUT / f"{name}.json").write_text(json.dumps(results, indent=1))
+    print(plot(results, name))
 
 
 if __name__ == "__main__":
