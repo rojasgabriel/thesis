@@ -19,7 +19,14 @@ Comparison, for each unit:
   groups), on the rate `WINDOW_S` after the center exit. Each of
   `N_BOOTSTRAPS` resamples draws each group with replacement and fits on all
   of its trials; the weight is the mean and its SE the SD over resamples.
-  Positive: more spikes for fast trains, or for right choices.
+  Positive: more spikes for fast trains, or for right choices. A weight is a
+  poor measure of one unit (a unit can get a weight because it cancels the
+  noise of others; Haufe et al. 2014), so the activation pattern of each
+  decoder (covariance of the z-scored rates times the weights) is a check:
+  `pattern_correlations` in the report. On 2026-10-29 it gave the same weak
+  category–flash link (ρ 0.22 / 0.23), a stronger choice–turn link (0.86 /
+  0.93), and larger crossed pairs in GRB064 (0.40, 0.25), so the figure keeps
+  the weights.
 - GLM weights: the flash weight of `flash_weight_check.model_values` (the
   in-port first-flash kernel, mean Δ log rate 30–120 ms, final refit, with
   the jackknife SE over the folds), and the turn-direction kernel (+1 right,
@@ -128,17 +135,24 @@ def turn_weights(root: Path) -> dict[int, tuple[float, float]]:
 
 
 def decoder_weights(rates, category, choice, rng) -> dict[str, np.ndarray]:
-    """Return the mean and SD over resamples of each unit's decoder weights."""
+    """Return the mean and SD over resamples of each unit's decoder weights.
+
+    Also the activation pattern of each decoder (Haufe et al. 2014: the
+    covariance of the z-scored rates times the weights), as `<name> pattern`.
+    """
     groups = [
         np.flatnonzero((category == c) & (choice == r)) for c in (0, 1) for r in (-1, 1)
     ]
     n = min(len(g) for g in groups)
-    weights = {name: [] for name in DECODERS}
+    weights = {key: [] for name in DECODERS for key in (name, f"{name} pattern")}
     for _ in range(N_BOOTSTRAPS):
         index = np.concatenate([rng.choice(g, n, replace=True) for g in groups])
         for name, labels in (("category", category), ("choice", choice == 1)):
             model = decoder().fit(rates[index], labels[index])
-            weights[name].append(model[-1].coef_[0])
+            coef = model[-1].coef_[0]
+            z = model[0].transform(rates[index])
+            weights[name].append(coef)
+            weights[f"{name} pattern"].append(np.cov(z, rowvar=False) @ coef)
     return {name: (np.mean(w, 0), np.std(w, 0, ddof=1)) for name, w in weights.items()}
 
 
@@ -163,8 +177,7 @@ def session_values(session: str) -> dict:
     return {
         "subject": subject,
         "unit_ids": ids,
-        "category": weights["category"],
-        "choice": weights["choice"],
+        **weights,
         "flash": (np.asarray(flash["weights"]), np.asarray(flash["weights_se"])),
         "turn": (
             np.asarray([turn[u][0] for u in ids]),
@@ -273,16 +286,27 @@ def main() -> None:
         for a in DECODERS
         for b in GLM_WEIGHTS
     }
+    # The check of the weight measure; the figure shows the weights.
+    patterns = {
+        f"{a} pattern vs {b}": correlation(sessions, f"{a} pattern", b)
+        for a in DECODERS
+        for b in GLM_WEIGHTS
+    }
     report = {
         "units": {d["subject"]: len(d["unit_ids"]) for d in sessions},
         "correlations": stats,
+        "pattern_correlations": patterns,
         # Each unit's weights and their SEs (the figure shows only contours).
         "unit_values": {
             d["subject"]: {
                 "unit_ids": [int(u) for u in d["unit_ids"]],
                 **{
                     name: {"value": d[name][0].tolist(), "se": d[name][1].tolist()}
-                    for name in (*DECODERS, *GLM_WEIGHTS)
+                    for name in (
+                        *DECODERS,
+                        *(f"{a} pattern" for a in DECODERS),
+                        *GLM_WEIGHTS,
+                    )
                 },
             }
             for d in sessions

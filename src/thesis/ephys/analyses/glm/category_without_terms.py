@@ -21,6 +21,25 @@ Spike history is in neither part, so it stays in all versions. A category
 signal that is visual should fall when the flash part is divided out and stay
 when the other part is divided out.
 
+A fourth version, observed with single units and multi-units (the default of
+the decoders, `_decoding._units_with_mua`), shows how much of the decoder's
+category signal the GLM units carry; the multi-units have no GLM fit, so the
+model parts exist only for the GLM units.
+
+Limits:
+
+- Spike history stays, so a flash response that the model gives to the
+  history kernel stays in the version without the flash terms.
+- The model misses most of the response to the first flash after the exit
+  (`first_flash_after_exit.py`); that part stays in the after-exit window.
+  So the AUC without the flash terms is an upper limit of a category signal
+  that is not visual, not evidence for one.
+- An observed AUC inside the shuffle band (GRB006 in the port) has no
+  category signal to remove; its change is not interpreted.
+- The division by exp(part) does not let a few trials dominate: on
+  2026-10-29 the top 1% of unit-trials held the same share of the spikes as
+  in the observed version (6–11%).
+
 - Sessions and units: the GLM sessions (`flash_kernels.SESSIONS`) and the GLM
   units with a final fit (unit criteria 1, stability 0, exclusions of
   `fit.py`): 172 and 79. These are not the decoder defaults
@@ -65,7 +84,12 @@ from sklearn.model_selection import StratifiedKFold
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses._decoding import balanced_indices, decoder
+from thesis.ephys.analyses._decoding import (
+    _units_with_mua,
+    balanced_indices,
+    decoder,
+    window_rates,
+)
 from thesis.ephys.analyses.glm import dmat, fit
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.results import raw_contribution
@@ -93,13 +117,16 @@ FLASH_TERMS = (
     "flash_recovery",
 )
 VERSIONS = ("observed", "without the flash terms", "without the other terms")
+ALL_UNITS = "observed, single and multi-units"
 COLORS = {
     "observed": OBSERVED_COLOR,
     "without the flash terms": CONCEPT_COLORS["visual"],
     "without the other terms": CONCEPT_COLORS["task"],
+    ALL_UNITS: OBSERVED_COLOR,  # observed too; an open marker tells it apart
 }
 PERIODS = ("in port", "after exit")
-AUC_LIMITS = (0.2, 1.02)
+ALL_VERSIONS = (*VERSIONS, ALL_UNITS)
+AUC_LIMITS = (0.1, 1.02)
 
 
 def session_rates(session: str) -> dict:
@@ -182,10 +209,16 @@ def session_rates(session: str) -> dict:
             ):
                 rates[(period, version)].append(values.sum(1) / WINDOW_S)
     keep = trials["stim_category"].ne("boundary").to_numpy()
+    rates = {k: np.asarray(v).T[keep] for k, v in rates.items()}
+    every_unit = _units_with_mua(subject, stamp, 1)
+    exits = trials["center_exit_s"].to_numpy(float)[keep]
+    rates[("in port", ALL_UNITS)] = window_rates(every_unit, exits - WINDOW_S, exits)
+    rates[("after exit", ALL_UNITS)] = window_rates(every_unit, exits, exits + WINDOW_S)
     return {
         "subject": subject,
         "units": len(records),
-        "rates": {k: np.asarray(v).T[keep] for k, v in rates.items()},
+        "units_with_multi_units": len(every_unit),
+        "rates": rates,
         "category": trials["stim_category"].eq("high_rate").to_numpy(int)[keep],
         "choice": trials["response"].to_numpy(int)[keep],
     }
@@ -193,7 +226,7 @@ def session_rates(session: str) -> dict:
 
 def scores(data: dict, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
     """Return the AUC per resample, (resample, period, version)."""
-    out = np.empty((n_resamples, len(PERIODS), len(VERSIONS)))
+    out = np.empty((n_resamples, len(PERIODS), len(ALL_VERSIONS)))
     category, choice = data["category"], data["choice"]
     for resample in range(n_resamples):
         labels = category.copy()
@@ -205,7 +238,7 @@ def scores(data: dict, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
         y = labels[index]
         folds = StratifiedKFold(CV_FOLDS, shuffle=True, random_state=SEED + resample)
         for p, period in enumerate(PERIODS):
-            for v, version in enumerate(VERSIONS):
+            for v, version in enumerate(ALL_VERSIONS):
                 x = data["rates"][(period, version)][index]
                 output = np.empty(len(index))
                 for train, test in folds.split(x, y):
@@ -219,6 +252,7 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict) -> dict:
     report = {
         "subject": data["subject"],
         "units": data["units"],
+        "units_with_multi_units": data["units_with_multi_units"],
         "trials_per_resample": int(
             len(
                 balanced_indices(
@@ -246,25 +280,25 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict) -> dict:
                     }
                 ),
             }
-            for v, version in enumerate(VERSIONS)
+            for v, version in enumerate(ALL_VERSIONS)
         }
     return report
 
 
 def plot(reports: list[dict]) -> Path:
-    offsets = (np.arange(len(VERSIONS)) - 1) * 0.25
+    offsets = (np.arange(len(ALL_VERSIONS)) - 1.5) * 0.2
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             1, len(reports), figsize=(3.4 * len(reports), 3.2), sharey=True
         )
         for index, (axis, report) in enumerate(zip(axes, reports, strict=True)):
             for p, period in enumerate(PERIODS):
-                for v, version in enumerate(VERSIONS):
+                for v, version in enumerate(ALL_VERSIONS):
                     values = report[period][version]
                     x = p + offsets[v]
                     low, high = values["shuffle_auc_95"]
                     axis.fill_between(
-                        [x - 0.1, x + 0.1], low, high, color="0.85", linewidth=0
+                        [x - 0.08, x + 0.08], low, high, color="0.85", linewidth=0
                     )
                     mean = values["auc_mean"]
                     lo, hi = values["auc_95"]
@@ -274,6 +308,7 @@ def plot(reports: list[dict]) -> Path:
                         yerr=[[mean - lo], [hi - mean]],
                         fmt=mouse_marker(report["subject"], index),
                         color=COLORS[version],
+                        mfc="white" if version == ALL_UNITS else COLORS[version],
                         capsize=3,
                         ms=6,
                     )
@@ -284,7 +319,8 @@ def plot(reports: list[dict]) -> Path:
             axis.text(
                 0.02,
                 0.97,
-                f"{report['subject']}: {report['units']} neurons",
+                f"{report['subject']}: {report['units']} neurons"
+                f" ({report['units_with_multi_units']} with multi-units)",
                 color=OBSERVED_COLOR,
                 transform=axis.transAxes,
                 va="top",
@@ -298,11 +334,11 @@ def plot(reports: list[dict]) -> Path:
                 ha="right",
                 va="bottom",
             )
-        # Below the lowest shuffle band edge of the in-port group (0.38).
-        for v, version in enumerate(VERSIONS):
+        # Below the lowest shuffle band edge of the in-port group (0.33).
+        for v, version in enumerate(ALL_VERSIONS):
             axes[0].text(
                 0.02,
-                0.15 - 0.06 * v,
+                0.20 - 0.055 * v,
                 version,
                 color=COLORS[version],
                 transform=axes[0].transAxes,
