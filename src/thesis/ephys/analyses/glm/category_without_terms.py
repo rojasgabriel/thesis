@@ -34,8 +34,8 @@ Limits:
   (`first_flash_after_exit.py`); that part stays in the after-exit window.
   So the AUC without the flash terms is an upper limit of a category signal
   that is not visual, not evidence for one.
-- An observed AUC inside the shuffle band (GRB006 in the port) has no
-  category signal to remove; its change is not interpreted.
+- A weak observed signal gives a small change: GRB006 in the port is only
+  just above chance (0.61 against 0.42–0.57 on 2026-10-29).
 - The division by exp(part) does not let a few trials dominate: on
   2026-10-29 the top 1% of unit-trials held the same share of the spikes as
   in the observed version (6–11%).
@@ -57,8 +57,10 @@ Limits:
   that saw its test trials.
 - Decoder: z-score and logistic regression (`_decoding.decoder`),
   `CV_FOLDS` stratified folds, the AUC of the held-out output, mean over
-  `N_RESAMPLES` balanced resamples. Chance: the same with the category
-  shuffled within each choice, `N_SHUFFLES` times.
+  `N_RESAMPLES` balanced resamples. Chance: the category shuffled within
+  each choice, `N_SHUFFLES` times; each shuffle gives the mean AUC over
+  `NULL_RESAMPLES` resamples, so the gray band (2.5–97.5 percentiles) is the
+  chance range of a mean AUC, as the points are, not of one decoder run.
 - Statistic: each version minus observed, per resample: mean and 2.5–97.5
   percentiles. The interval shows how much the score depends on which trials
   balance the groups; it is not a bootstrap over trials. The sampling unit is
@@ -109,6 +111,9 @@ WINDOW_S = 0.3
 CV_FOLDS = 10
 N_RESAMPLES = 50
 N_SHUFFLES = 50
+# Resamples of each shuffle: the chance band is that of a mean AUC, as the
+# points are. Fewer than N_RESAMPLES; the resamples share most trials.
+NULL_RESAMPLES = 10
 SEED = 0
 FLASH_TERMS = (
     "visual_flash",
@@ -224,16 +229,11 @@ def session_rates(session: str) -> dict:
     }
 
 
-def scores(data: dict, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
-    """Return the AUC per resample, (resample, period, version)."""
+def scores(data: dict, labels: np.ndarray, rng, n_resamples: int) -> np.ndarray:
+    """Return the AUC of `labels` per resample, (resample, period, version)."""
     out = np.empty((n_resamples, len(PERIODS), len(ALL_VERSIONS)))
-    category, choice = data["category"], data["choice"]
+    choice = data["choice"]
     for resample in range(n_resamples):
-        labels = category.copy()
-        if shuffle:
-            for side in (-1, 1):
-                mask = choice == side
-                labels[mask] = rng.permutation(labels[mask])
         index = balanced_indices(labels, choice, rng)
         y = labels[index]
         folds = StratifiedKFold(CV_FOLDS, shuffle=True, random_state=SEED + resample)
@@ -246,6 +246,15 @@ def scores(data: dict, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
                     output[test] = model.decision_function(x[test])
                 out[resample, p, v] = roc_auc_score(y, output)
     return out
+
+
+def shuffled(data: dict, rng) -> np.ndarray:
+    """Return the category shuffled within each choice."""
+    labels = data["category"].copy()
+    for side in (-1, 1):
+        mask = data["choice"] == side
+        labels[mask] = rng.permutation(labels[mask])
+    return labels
 
 
 def summary(real: np.ndarray, null: np.ndarray, data: dict) -> dict:
@@ -357,8 +366,13 @@ def main() -> None:
     for session in SESSIONS:
         data = session_rates(session)
         rng = np.random.default_rng(SEED)
-        real = scores(data, rng, False, N_RESAMPLES)
-        null = scores(data, rng, True, N_SHUFFLES)
+        real = scores(data, data["category"], rng, N_RESAMPLES)
+        null = np.asarray(
+            [
+                scores(data, shuffled(data, rng), rng, NULL_RESAMPLES).mean(0)
+                for _ in range(N_SHUFFLES)
+            ]
+        )
         reports.append(summary(real, null, data))
         print(data["subject"], "done", flush=True)
     (OUT / f"{NAME}.json").write_text(json.dumps(reports, indent=1))
