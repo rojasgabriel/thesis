@@ -81,7 +81,13 @@ Limits:
   the trial; each mouse is one session.
 
 The script writes `figures/glm/<target>_without_terms<fit>.svg` and
-`results/glm/<target>_without_terms<fit>.json`. `--fit <suffix>` uses the fit
+`results/glm/<target>_without_terms<fit>.json`. `--mask-first-exit-flash`
+leaves `FIRST_FLASH_MASK_S` after the first flash at or after the exit out of
+the after-exit window of every version (output suffix `_no_first_flash`). The
+model misses that response, so the check asks if a signal that stays without
+the flash terms is that miss. The rate is over the bins that stay; the
+multi-unit version leaves out the same time (continuous, not on the 1-ms
+grid). `--fit <suffix>` uses the fit
 in the session directories with that suffix (for example a fit of
 `candidate_terms.py`). The model has the flash × side term (`dmat.FLASH_SIDE`)
 since 2026-10-29, so the flash part holds that term.
@@ -126,6 +132,9 @@ from thesis.plotting import (
 OUT = Path("results/glm")
 TARGETS = ("category", "choice")
 WINDOW_S = 0.3
+# The response to the first flash after the exit that the model misses
+# (`first_flash_after_exit.py`: peak 30-120 ms).
+FIRST_FLASH_MASK_S = 0.15
 CV_FOLDS = 10
 N_RESAMPLES = 50
 N_SHUFFLES = 50
@@ -153,8 +162,12 @@ ALL_VERSIONS = (*VERSIONS, ALL_UNITS)
 AUC_LIMITS = (0.1, 1.02)
 
 
-def session_rates(session: str, fit_suffix: str = "") -> dict:
-    """Return the window rates of each version, (period, version) -> (trial, unit)."""
+def session_rates(session: str, fit_suffix: str = "", mask_s: float = 0.0) -> dict:
+    """Return the window rates of each version, (period, version) -> (trial, unit).
+
+    With `mask_s`, the after-exit window leaves out `mask_s` from the first
+    flash at or after the exit.
+    """
     root = OUT / (session + fit_suffix)
     prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
@@ -180,6 +193,20 @@ def session_rates(session: str, fit_suffix: str = "") -> dict:
         if not np.take_along_axis(valid, bins, 1).all():
             raise ValueError(f"The {period} window has bins after the response.")
     rows = {p: (np.arange(n_trials)[:, None] * n_bins + b) for p, b in windows.items()}
+    kept = {p: np.ones(b.shape, dtype=bool) for p, b in windows.items()}
+    # The left-out time of each trial, in session time (for the multi-units).
+    masked = np.full((n_trials, 2), np.nan)
+    if mask_s:
+        exits_abs = trials["center_exit_s"].to_numpy(float)
+        for row, times in enumerate(trials["stim_pulse_times_s"]):
+            times = np.asarray(times, dtype=float)
+            after = times[times >= exits_abs[row]]
+            if not len(after):
+                continue
+            start = after[0] - prepared["alignments"][row]
+            t = centers[windows["after exit"][row]]
+            kept["after exit"][row] = ~((t >= start) & (t < start + mask_s))
+            masked[row] = (after[0], min(after[0] + mask_s, exits_abs[row] + WINDOW_S))
     parts = {"flash": flash, "other": other}
     designs = {
         (p, k): np.asarray(design[r.ravel()][:, cols]).reshape(*r.shape, len(cols))
@@ -231,17 +258,34 @@ def session_rates(session: str, fit_suffix: str = "") -> dict:
                 ),
                 strict=True,
             ):
-                rates[(period, version)].append(values.sum(1) / WINDOW_S)
+                duration = np.where(
+                    kept[period].all(1),
+                    WINDOW_S,
+                    kept[period].sum(1) * dmat.BINWIDTH_S,
+                )
+                rates[(period, version)].append(
+                    (values * kept[period]).sum(1) / duration
+                )
     keep = trials["stim_category"].ne("boundary").to_numpy()
     rates = {k: np.asarray(v).T[keep] for k, v in rates.items()}
     every_unit = _units_with_mua(subject, stamp, 1)
     exits = trials["center_exit_s"].to_numpy(float)[keep]
     rates[("in port", ALL_UNITS)] = window_rates(every_unit, exits - WINDOW_S, exits)
-    rates[("after exit", ALL_UNITS)] = window_rates(every_unit, exits, exits + WINDOW_S)
+    after = window_rates(every_unit, exits, exits + WINDOW_S)
+    masked = masked[keep]
+    cut = np.isfinite(masked[:, 0]) & (masked[:, 1] > masked[:, 0])
+    if cut.any():
+        left_out = masked[cut, 1] - masked[cut, 0]
+        spikes = window_rates(every_unit, masked[cut, 0], masked[cut, 1])
+        after[cut] = (after[cut] * WINDOW_S - spikes * left_out[:, None]) / (
+            WINDOW_S - left_out[:, None]
+        )
+    rates[("after exit", ALL_UNITS)] = after
     return {
         "subject": subject,
         "units": len(records),
         "units_with_multi_units": len(every_unit),
+        "trials_with_first_exit_flash_left_out": int(cut.sum()),
         "rates": rates,
         "category": trials["stim_category"].eq("high_rate").to_numpy(int)[keep],
         "choice": trials["response"].to_numpy(int)[keep],
@@ -287,6 +331,9 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict, target: str) -> dict
         "subject": data["subject"],
         "units": data["units"],
         "units_with_multi_units": data["units_with_multi_units"],
+        "trials_with_first_exit_flash_left_out": data[
+            "trials_with_first_exit_flash_left_out"
+        ],
         "trials_per_resample": int(
             len(
                 balanced_indices(*target_labels(data, target), np.random.default_rng(0))
@@ -391,11 +438,18 @@ def main() -> None:
     parser.add_argument(
         "--fit", default="", help="suffix of the fit directories, e.g. _flash_side"
     )
+    parser.add_argument(
+        "--mask-first-exit-flash",
+        action="store_true",
+        help="leave out FIRST_FLASH_MASK_S after the first flash after the exit",
+    )
     args = parser.parse_args()
-    target, name = args.target, f"{args.target}_without_terms{args.fit}"
+    mask_s = FIRST_FLASH_MASK_S if args.mask_first_exit_flash else 0.0
+    suffix = "_no_first_flash" if mask_s else ""
+    target, name = args.target, f"{args.target}_without_terms{args.fit}{suffix}"
     reports = []
     for session in SESSIONS:
-        data = session_rates(session, args.fit)
+        data = session_rates(session, args.fit, mask_s)
         labels, other = target_labels(data, target)
         rng = np.random.default_rng(SEED)
         real = scores(data, labels, other, rng, N_RESAMPLES)
