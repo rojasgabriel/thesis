@@ -24,7 +24,8 @@ best one.
     THESIS_CACHE_DIR=<cache> nice -n 10 uv run python -m \\
         thesis.ephys.analyses.glm.tau_grid --samples 4
 
-A design with saved scores in `tau_grid/tau_grid.json` is not fit again. The
+A design with saved scores of the same design signature in
+`tau_grid/tau_grid.json` is not fit again (`grid.design_signature`). The
 comparison goes to `tau_grid/comparison.json`.
 """
 
@@ -37,14 +38,12 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import wilcoxon
 
-from thesis.ephys.analyses.glm import cli, grid
+from thesis.ephys.analyses.glm import cli, dmat, grid
 from thesis.ephys.analyses.glm.inclusion import holm
 
-TAUS_S = (0.04, 0.05, 0.06, 0.08, 0.12, 0.16)
-# The τ of the model (`dmat.FLASH_RECOVERY_TAU_S`). The other designs keep
-# their saved scores of the earlier run, when the reference was 120 ms; only
-# τ has changed in the design since then.
-IN_USE = "τ 50 ms"
+# The reference is the τ of the model, which is always in the grid.
+TAUS_S = tuple(sorted({0.04, 0.06, 0.08, 0.12, 0.16, dmat.FLASH_RECOVERY_TAU_S}))
+IN_USE = f"τ {1000 * dmat.FLASH_RECOVERY_TAU_S:.0f} ms"
 DESIGNS = {f"τ {1000 * tau:.0f} ms": {"FLASH_RECOVERY_TAU_S": tau} for tau in TAUS_S}
 NAME = "tau_grid"
 

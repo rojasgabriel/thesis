@@ -150,7 +150,9 @@ def session_data(session: str, excited: set[int]) -> dict:
 
     flash_rate, flash_response = rate_change(still)
     # The whole window of the first flash inside the port.
-    first_in_port = first[first + FLASH_WINDOW_S[0] >= entry]
+    first_in_port = first[
+        (first + FLASH_WINDOW_S[0] >= entry) & (first + FLASH_WINDOW_S[1] <= exit_s)
+    ]
     _, first_response = rate_change(first_in_port)
     ids = units["unit_id"].astype(int).to_numpy()
     candidates = [
