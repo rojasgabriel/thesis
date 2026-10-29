@@ -35,8 +35,11 @@ Comparison, for each unit:
   `N_PERMUTATIONS` shuffles of the unit labels. Pooled: ρ of the within-mouse
   percentile ranks of all units, with a hierarchical bootstrap 95% interval
   (mice, then units). The sampling unit is the unit.
-- Figure: rows are the decoders, columns the GLM weights; each unit with its
-  SE in both directions. All units are drawn; there is no display limit.
+- Figure: rows are the decoders, columns the GLM weights. The units of both
+  mice are pooled and shown as density contours (Gaussian kernel density):
+  the filled region holds 50% of the units, the line 90%. The axes hold every
+  unit; there is no display limit. Single units and their SEs are not drawn;
+  they are in the report (`unit_values`).
 
 The script writes `figures/glm/decoder_weights.svg` and
 `results/glm/decoder_weights.json`.
@@ -69,8 +72,8 @@ from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     OBSERVED_COLOR,
+    density_contours,
     label_panels,
-    mouse_marker,
     save_figure,
 )
 
@@ -83,8 +86,8 @@ SEED = 0
 DECODERS = ("category", "choice")
 GLM_WEIGHTS = ("flash", "turn")
 COLORS = {"flash": CONCEPT_COLORS["visual"], "turn": CONCEPT_COLORS["task"]}
-# The marker of each mouse as text, so the statistics name the marker.
-GLYPHS = {"o": "○", "^": "△"}
+# Contours of the pooled units: the regions that hold 90% and 50% of them.
+CONTOUR_SHARES = (0.9, 0.5)
 LABELS = {
     "category": "category weight (fast +)",
     "choice": "choice weight (right +)",
@@ -213,39 +216,38 @@ def plot(sessions: list[dict], stats: dict) -> Path:
         for row, a in enumerate(DECODERS):
             for col, b in enumerate(GLM_WEIGHTS):
                 axis = axes[row, col]
-                for index, data in enumerate(sessions):
-                    (x, x_se), (y, y_se) = data[b], data[a]
-                    axis.errorbar(
-                        x,
-                        y,
-                        xerr=x_se,
-                        yerr=y_se,
-                        fmt="none",
-                        ecolor=COLORS[b],
-                        alpha=0.25,
-                        linewidth=0.5,
-                    )
-                    axis.scatter(
-                        x,
-                        y,
-                        s=10,
-                        marker=mouse_marker(data["subject"], index),
-                        facecolors="none",
-                        edgecolors=COLORS[b],
-                        linewidths=0.6,
-                    )
-                axis.axhline(0, color="0.7", linewidth=0.6)
-                axis.axvline(0, color="0.7", linewidth=0.6)
+                # The units of both mice pooled; the grid holds every unit.
+                points = np.vstack(
+                    [
+                        np.concatenate([d[b][0] for d in sessions]),
+                        np.concatenate([d[a][0] for d in sessions]),
+                    ]
+                )
+                pad = 0.1 * np.ptp(points, axis=1)
+                grids = [
+                    np.linspace(lo - p, hi + p, 200)
+                    for lo, hi, p in zip(points.min(1), points.max(1), pad, strict=True)
+                ]
+                density_contours(axis, points, COLORS[b], *grids, CONTOUR_SHARES)
+                axis.set_xlim(grids[0][[0, -1]])
+                axis.set_ylim(grids[1][[0, -1]])
+                axis.axhline(0, color="0.7", linewidth=0.6, zorder=1)
+                axis.axvline(0, color="0.7", linewidth=0.6, zorder=1)
+                values = stats[f"{a} vs {b}"]
                 lines = [
-                    f"{GLYPHS.get(mouse_marker(s), '')} {s}: ρ = {v['rho']:+.2f}, "
+                    f"{s}: ρ = {v['rho']:+.2f}, "
                     + (
                         "p < 0.001"
                         if v["p_shuffle"] < 0.001
                         else f"p = {v['p_shuffle']:.3f}"
                     )
-                    for s, v in stats[f"{a} vs {b}"].items()
+                    for s, v in values.items()
                     if s != "pooled"
                 ]
+                low, high = values["pooled"]["interval_95"]
+                lines.append(
+                    f"pooled: ρ = {values['pooled']['rho']:+.2f} [{low:+.2f}, {high:+.2f}]"
+                )
                 axis.text(
                     0.02,
                     0.98,
@@ -274,6 +276,17 @@ def main() -> None:
     report = {
         "units": {d["subject"]: len(d["unit_ids"]) for d in sessions},
         "correlations": stats,
+        # Each unit's weights and their SEs (the figure shows only contours).
+        "unit_values": {
+            d["subject"]: {
+                "unit_ids": [int(u) for u in d["unit_ids"]],
+                **{
+                    name: {"value": d[name][0].tolist(), "se": d[name][1].tolist()}
+                    for name in (*DECODERS, *GLM_WEIGHTS)
+                },
+            }
+            for d in sessions
+        },
     }
     (OUT / f"{NAME}.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))

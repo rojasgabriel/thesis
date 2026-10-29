@@ -45,7 +45,7 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from scipy.stats import gaussian_kde, spearmanr
+from scipy.stats import spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -60,6 +60,7 @@ from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     REFERENCE_COLOR,
+    density_contours,
     label_panels,
     save_figure,
 )
@@ -258,15 +259,8 @@ def class_contours(axis, sessions: dict, name: str, kind: str, color: str) -> No
             for table, model in sessions.values()
         ]
     )
-    density = gaussian_kde(points)
     grid = np.linspace(*LIMITS, 200)
-    x, y = np.meshgrid(grid, grid)
-    z = density(np.vstack([x.ravel(), y.ravel()])).reshape(x.shape)
-    # The level that a share of the units lies above, for each share.
-    levels = np.quantile(density(points), [1 - s for s in CONTOUR_SHARES])
-    outer, inner = levels
-    axis.contourf(x, y, z, levels=[inner, np.inf], colors=color, alpha=0.35, zorder=3)
-    axis.contour(x, y, z, levels=[outer], colors=color, linewidths=1.0, zorder=4)
+    density_contours(axis, points, color, grid, grid, CONTOUR_SHARES)
 
 
 def plot(sessions: dict) -> Path:
