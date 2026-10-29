@@ -16,7 +16,7 @@ dependencies = [
     "ipykernel>=7.3.0",
     "ipympl>=0.10.0",
     "labdata>=0.1.25",
-    "matplotlib>=3.10.0",
+    "matplotlib>=3.11.2",
     "numpy>=2.4.6",
     "pandas==2.3.3",
     "scipy>=1.15.3",
