@@ -3,8 +3,9 @@
 Question: the recovery term scales the flash kernel by
 r = 1 − exp(−gap / τ) (`dmat.FLASH_RECOVERY`). τ = 120 ms came from the fit of
 `flash_recovery.py`, but that fit had its c at a bound; with c free it gives
-about 54 ms. In the model, c goes into each unit's weight and only τ sets the
-shape of the term. Which τ predicts best?
+about 54 ms, and the model uses 50 ms since 2026-10-24. In the model, c goes
+into each unit's weight and only τ sets the shape of the term. Which τ
+predicts best?
 
 Comparison: the design in use with `dmat.FLASH_RECOVERY_TAU_S` at each of
 `TAUS_S`. Validation D² of each unit on the fixed sets of 20 units of the
@@ -38,11 +39,11 @@ from scipy.stats import wilcoxon
 from thesis.ephys.analyses.glm import cli, grid
 from thesis.ephys.analyses.glm.inclusion import holm
 
-TAUS_S = (0.04, 0.06, 0.08, 0.12, 0.16)
-# The reference of the run of 2026-10-23: the τ in use then. Since 2026-10-24
-# the model uses τ = 50 ms (`dmat.FLASH_RECOVERY_TAU_S`, docs/glm_checks.md),
-# which is not in this grid; a new run must add it and use it as IN_USE.
-IN_USE = "τ 120 ms"
+TAUS_S = (0.04, 0.05, 0.06, 0.08, 0.12, 0.16)
+# The τ of the model (`dmat.FLASH_RECOVERY_TAU_S`). The other designs keep
+# their saved scores of the earlier run, when the reference was 120 ms; only
+# τ has changed in the design since then.
+IN_USE = "τ 50 ms"
 DESIGNS = {f"τ {1000 * tau:.0f} ms": {"FLASH_RECOVERY_TAU_S": tau} for tau in TAUS_S}
 NAME = "tau_grid"
 

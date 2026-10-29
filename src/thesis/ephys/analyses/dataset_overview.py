@@ -6,19 +6,15 @@ like around the flashes and the task events?
 Comparison: none; this is a description of the data. Each figure has both mice
 on the same scales.
 
-- Trials (`dataset_trials.svg`): one example flash-excited neuron per mouse,
-  `EXAMPLE_TRIALS` completed trials spread over the session. Each row: the
-  flash times (blue) above the spikes (black); the center exit (orange). Time
-  from the first flash of the trial.
-- First flash (`dataset_first_flash.svg`): the same neuron, spikes around the
-  first flash of every trial (`FLASH_WINDOW_S`); below, the rate in 10-ms
-  bins, mean ± SEM over trials. Later flashes of the train can fall in the
-  window. The mouse enters the port 24 ms or more before the first flash
-  (median 54 and 60 ms), so in 131 of 294 and 59 of 169 trials the window,
-  and the 40-ms baseline of the population below, start before the entry;
-  all trials are kept.
+- First flash (`dataset_first_flash.svg`): one example flash-excited neuron
+  per mouse, spikes around the first flash of each trial (`FLASH_WINDOW_S`);
+  below, the rate in 10-ms bins, mean ± SEM over trials. Only trials with the
+  whole window inside the port: the mouse enters the port 24 ms or more before
+  the first flash, so the trials with an entry less than 50 ms before it are
+  left out. Later flashes of the train can fall in the window.
 - First-flash population (`dataset_first_flash_population.svg`): every unit
-  around the first flash, the same measure as the flash population below.
+  around the first flash of the same trials, the same measure as the flash
+  population below.
 - Flash raster (`dataset_flash_raster.svg`): the same neuron, spikes around
   every flash at least `LONG_GAP_S` after the flash before (not the first
   flash of a trial), in the port (still, blue) and between the center exit and
@@ -76,13 +72,10 @@ from thesis.plotting import (
 
 GLM = Path("results/glm")
 OUT = Path("results/dataset_overview")
-VISUAL, TASK = CONCEPT_COLORS["visual"], CONCEPT_COLORS["task"]
+VISUAL = CONCEPT_COLORS["visual"]
 STILL, MOVING = PERIOD_COLORS["in port"], PERIOD_COLORS["after exit"]
-EXAMPLE_TRIALS = 10
-TRIAL_PSTH_BIN_S = 0.02
 LONG_GAP_S = 0.08
 MIN_EXAMPLE_RATE_HZ = 3.0
-TRIAL_WINDOW_S = (-0.3, 1.5)
 MEAN_WINDOW_S = (-0.5, 1.5)
 FIRST_FLASH_WINDOW_S = (-0.3, 0.6)
 EXIT_WINDOW_S = (-0.4, 0.6)
@@ -156,7 +149,9 @@ def session_data(session: str, excited: set[int]) -> dict:
         return rate, change
 
     flash_rate, flash_response = rate_change(still)
-    _, first_response = rate_change(first)
+    # The whole window of the first flash inside the port.
+    first_in_port = first[first + FLASH_WINDOW_S[0] >= entry]
+    _, first_response = rate_change(first_in_port)
     ids = units["unit_id"].astype(int).to_numpy()
     candidates = [
         i
@@ -176,8 +171,8 @@ def session_data(session: str, excited: set[int]) -> dict:
         "spikes": spikes,
         "ids": ids,
         "first": first,
+        "first_in_port": first_in_port,
         "exit": exit_s,
-        "trials": trials,
         "still": still,
         "moving": moving,
         "mean_rate": mean_rate,
@@ -188,119 +183,6 @@ def session_data(session: str, excited: set[int]) -> dict:
         "peak": peak,
         "example": example,
     }
-
-
-def plot_trials(sessions: list[dict]) -> Path:
-    with plt.rc_context(FIGURE_STYLE):
-        # Each raster has the PSTH of the same neuron, over all trials, below it.
-        figure, grid = plt.subplots(
-            2 * len(sessions),
-            1,
-            figsize=(6.5, 6.4),
-            sharex=True,
-            gridspec_kw={"height_ratios": [1, 0.45] * len(sessions)},
-        )
-        axes = grid[0::2]
-        for axis, psth, data in zip(axes, grid[1::2], sessions, strict=True):
-            spikes = data["spikes"][data["example"]]
-            edges = np.arange(
-                TRIAL_WINDOW_S[0], TRIAL_WINDOW_S[1] + 1e-9, TRIAL_PSTH_BIN_S
-            )
-            counts = counts_around(spikes, data["first"], edges) / TRIAL_PSTH_BIN_S
-            mean = counts.mean(0)
-            sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
-            centers = (edges[:-1] + edges[1:]) / 2
-            psth.plot(centers, mean, color=OBSERVED_COLOR, linewidth=1)
-            psth.fill_between(
-                centers, mean - sem, mean + sem, color=OBSERVED_COLOR, alpha=0.2, lw=0
-            )
-            psth.axvline(0, color=VISUAL, linewidth=0.8)
-            psth.set_ylim(bottom=0)
-            psth.set_ylabel("spikes/s")
-            psth.text(
-                1.0,
-                0.95,
-                f"mean of {len(counts)} trials",
-                transform=psth.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-            )
-            rows = (
-                np.linspace(0, len(data["first"]) - 1, EXAMPLE_TRIALS)
-                .round()
-                .astype(int)
-            )
-            for row, trial in enumerate(rows):
-                t0 = data["first"][trial]
-                flashes = (
-                    np.asarray(data["trials"]["stim_pulse_times_s"].iloc[trial]) - t0
-                )
-                s = (
-                    spikes[
-                        (spikes >= t0 + TRIAL_WINDOW_S[0])
-                        & (spikes < t0 + TRIAL_WINDOW_S[1])
-                    ]
-                    - t0
-                )
-                y = EXAMPLE_TRIALS - 1 - row
-                # Flashes are bands behind the row (the pulse length), spikes are
-                # ticks and the exit is a triangle, so the three marks differ in shape.
-                widths = np.asarray(
-                    data["trials"]["stim_pulse_widths_ms"].iloc[trial], dtype=float
-                )
-                if widths.shape != flashes.shape:
-                    widths = np.full(flashes.shape, 15.0)
-                axis.broken_barh(
-                    list(zip(flashes, widths / 1000, strict=True)),
-                    (y + 0.08, 0.84),
-                    facecolor=VISUAL,
-                    alpha=0.3,
-                    linewidth=0,
-                    zorder=1,
-                )
-                axis.vlines(
-                    s, y + 0.2, y + 0.8, color=OBSERVED_COLOR, linewidth=0.8, zorder=3
-                )
-                ex = data["exit"][trial] - t0
-                axis.plot(
-                    ex,
-                    y + 0.96,
-                    marker="v",
-                    color=TASK,
-                    markersize=4.5,
-                    zorder=4,
-                    clip_on=False,
-                )
-            axis.set_xlim(*TRIAL_WINDOW_S)
-            axis.set_ylim(0, EXAMPLE_TRIALS)
-            axis.set_yticks([])
-            axis.set_ylabel(f"{EXAMPLE_TRIALS} trials")
-            axis.text(
-                0.0,
-                1.02,
-                f"{data['subject']}: one flash-excited neuron",
-                transform=axis.transAxes,
-                va="bottom",
-            )
-            for x, text, color in (
-                (1.0, "flashes", VISUAL),
-                (0.86, "spikes", OBSERVED_COLOR),
-                (0.74, "\u25bc center exit", TASK),
-            ):
-                axis.text(
-                    x,
-                    1.02,
-                    text,
-                    color=color,
-                    transform=axis.transAxes,
-                    va="bottom",
-                    ha="right",
-                )
-        grid[-1].set_xlabel("time from the first flash (s)")
-        label_panels(axes, x=-0.06, y=1.02)
-        figure.tight_layout()
-        return save_figure(figure, OUT / "dataset_trials")
 
 
 def plot_flash_raster(sessions: list[dict]) -> Path:
@@ -390,7 +272,7 @@ def plot_first_flash(sessions: list[dict]) -> Path:
         for column, data in enumerate(sessions):
             spikes = data["spikes"][data["example"]]
             raster, psth = axes[0, column], axes[1, column]
-            for row, event in enumerate(data["first"]):
+            for row, event in enumerate(data["first_in_port"]):
                 s = spikes[
                     (spikes >= event + FLASH_WINDOW_S[0])
                     & (spikes < event + FLASH_WINDOW_S[1])
@@ -402,7 +284,7 @@ def plot_first_flash(sessions: list[dict]) -> Path:
                     color=OBSERVED_COLOR,
                     markersize=1.2,
                 )
-            counts = counts_around(spikes, data["first"], edges) / 0.01
+            counts = counts_around(spikes, data["first_in_port"], edges) / 0.01
             mean = counts.mean(0)
             sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
             psth.plot(centers, mean, color=OBSERVED_COLOR)
@@ -414,7 +296,7 @@ def plot_first_flash(sessions: list[dict]) -> Path:
                 alpha=0.2,
                 linewidth=0,
             )
-            raster.set_ylim(0, len(data["first"]))
+            raster.set_ylim(0, len(data["first_in_port"]))
             raster.set_ylabel("trials")
             for axis in (raster, psth):
                 axis.axvline(0, color=VISUAL, linewidth=0.8)
@@ -582,7 +464,6 @@ def main() -> None:
         }
         for d in sessions
     }
-    print(plot_trials(sessions))
     print(plot_flash_raster(sessions))
     path, population = plot_population(sessions)
     print(path)
@@ -598,7 +479,7 @@ def main() -> None:
     path, first = plot_flash_population(
         sessions,
         "first_response",
-        "first",
+        "first_in_port",
         "dataset_first_flash_population",
         "time from the first flash (ms)",
     )
