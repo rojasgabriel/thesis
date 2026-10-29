@@ -81,9 +81,10 @@ Limits:
   the trial; each mouse is one session.
 
 The script writes `figures/glm/<target>_without_terms<fit>.svg` and
-`results/glm/<target>_without_terms<fit>.json`. `--fit _flash_side` uses the
-fit of `candidate_terms.py` with the flash × side term (`dmat.FLASH_SIDE`) in
-each session directory with that suffix; its flash part holds that term.
+`results/glm/<target>_without_terms<fit>.json`. `--fit <suffix>` uses the fit
+in the session directories with that suffix (for example a fit of
+`candidate_terms.py`). The model has the flash × side term (`dmat.FLASH_SIDE`)
+since 2026-10-29, so the flash part holds that term.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
         thesis.ephys.analyses.glm.decoding_without_terms --target choice
@@ -137,7 +138,7 @@ FLASH_TERMS = (
     "flash_just_before",
     "flash_after_exit",
     "flash_recovery",
-    "flash_side",  # a candidate; in a design only when it is on
+    "flash_side",  # in the model since 2026-10-29
 )
 VERSIONS = ("observed", "without the flash terms", "without the other terms")
 ALL_UNITS = "observed, single and multi-units"

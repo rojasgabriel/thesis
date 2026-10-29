@@ -16,9 +16,6 @@ the observed spike count over the predicted count; 1 is a calibrated model.
 - Statistics: in each group, the pooled median of the log ratio over units
   with a hierarchical bootstrap (mice, then units), drawn as a ratio; the line
   of each mouse is its median. The sampling unit is the unit.
-- The fit with a 100 times weaker penalty on the fixation kernel
-  (`penalty_sensitivity.py`, in `penalty_sensitivity.OUT`) is drawn too when
-  its fits exist.
 
 The ratios of each fit are saved in `calibration.npz` in its fit directory and
 not computed again. The script writes `calibration.svg` and `calibration.json`
@@ -41,7 +38,6 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import cli, dmat, fit
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.penalty_sensitivity import MAIN, OUT
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
@@ -52,7 +48,7 @@ from thesis.plotting import (
 )
 
 GROUPS = 20
-WEAKER_COLOR = "0.45"
+MAIN = Path("results/glm")
 
 
 def unit_ratios(root: Path) -> np.ndarray:
@@ -103,15 +99,6 @@ def unit_ratios(root: Path) -> np.ndarray:
     return ratio
 
 
-def complete(root: Path) -> bool:
-    """Return whether every unit of a fit has its final refit."""
-    checkpoints = cli.PoissonGLM(root=root).fit_dir("all") / "checkpoints"
-    finals = len(list(checkpoints.glob("unit_*_final.json")))
-    return finals > 0 and finals == len(
-        list(checkpoints.glob("unit_*_validation.json"))
-    )
-
-
 def pooled(ratios: list[np.ndarray]) -> dict:
     """Return the pooled median ratio of each group, its interval, and each mouse's."""
     logs = [np.log(np.maximum(r, 1e-6)) for r in ratios]
@@ -126,8 +113,6 @@ def pooled(ratios: list[np.ndarray]) -> dict:
 
 def main() -> None:
     fits = {"model in use": MAIN}
-    if all(complete(OUT / session) for session in SESSIONS):
-        fits["fixation penalty 100× weaker"] = OUT
     subjects = [session.split("_")[0] for session in SESSIONS]
     results = {
         name: pooled([unit_ratios(out / session) for session in SESSIONS])
@@ -137,9 +122,7 @@ def main() -> None:
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(3.6, 2.8), layout="constrained")
         axis.axhline(1, color=REFERENCE_COLOR, lw=0.8)
-        for row, (name, color) in enumerate(
-            zip(results, (MODEL_COLOR, WEAKER_COLOR), strict=False)
-        ):
+        for row, (name, color) in enumerate(zip(results, (MODEL_COLOR,), strict=True)):
             data = results[name]
             if row == 0:
                 axis.fill_between(

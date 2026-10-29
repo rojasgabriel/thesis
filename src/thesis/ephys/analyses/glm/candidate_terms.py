@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -39,18 +40,39 @@ import numpy as np
 from thesis.ephys.analyses.glm import cli, dmat, unique_dev
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices, load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.hold_effect import _fit_variant
+from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.units import fetch_unit_table
 
 # Earlier runs (other suffixes, other candidates) are in docs/glm_decisions.md.
 # The run of 2026-10-23 (`_flash_recovery`) added `dmat.FLASH_RECOVERY`.
-# This run (2026-10-29): flash × side (`dmat.FLASH_SIDE`), a flash response
-# that differs with the side of the turn after the exit.
+# The run of 2026-10-29 (`_flash_side`): flash × side (`dmat.FLASH_SIDE`), a
+# flash response that differs with the side of the turn after the exit. It
+# passed and is now in the model, so this entry is a no-op until the next
+# candidate replaces it.
 ROOT_SUFFIX = "_flash_side"
 CANDIDATES = {"FLASH_SIDE_TERM": dmat.FLASH_SIDE}
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4
+
+
+def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> Path:
+    """Fit the design with some `dmat` attributes replaced, in a sibling directory."""
+    root = source.with_name(source.name + suffix)
+    model = cli.PoissonGLM(root=root)
+    root.mkdir(exist_ok=True)
+    for name in INPUTS:
+        if not (root / name).exists():
+            shutil.copy(source / name, root / name)
+    # ponytail: the design reads module attributes; set them for this fit.
+    # Make them arguments if the design gets more callers.
+    with dmat.switched(attributes):
+        if not model.design.exists():
+            dmat.prepare_common_design(model.windows, model.video, model.design)
+        # Each stage reuses its finished units, so this fits only the units
+        # that are new or stopped (for example after a change of unit table).
+        model.fit(unit_set)
+    return root
 
 
 def main() -> None:

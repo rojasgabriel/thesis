@@ -9,13 +9,15 @@ Comparison: the fixation (first flash to center exit) against the time from the
 center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Panel a is
 GRB006. In the other panels the units of both mice (`SESSIONS`) are pooled (standard
-practice); in d, g, and j the large marker is the pooled median with its
+practice); in d and i the large marker is the pooled median with its
 hierarchical-bootstrap 95% interval (mice, then units), and the open markers
 are the median of each mouse (circle: GRB006, triangle: GRB064). The tests are
 within each mouse.
 
 Panels a to d observe and characterize the effect, e and f ask what starts
-and ends it, g to i are controls, and j asks which units.
+and ends it, g and h are controls, and i asks which units. The hold kernel
+passes the inclusion test (`candidate_terms.py`, unique deviance with all other
+terms in the model), so it is not a part of the rate that other terms explain.
 
 - Panel a (examples): spikes of two units against time from the first flash
   (left) and from the center exit (right), on the time axes of panels b and c,
@@ -58,19 +60,7 @@ and ends it, g to i are controls, and j asks which units.
   center exit in completed trials (the flashes go on) and in early
   withdrawals (the flashes stop), mean and SEM over the units of both mice,
   from `exit_without_stimulus.py`.
-- Panel g (control for the order of fitting): does the fixation kernel take
-  variance from the other terms? Each unit's fixation level in the main model (all
-  terms fit together) against its level in a two-step fit: the design with no
-  fixation kernel first, then the fixation kernel alone on top of that fixed
-  prediction (`two_step_levels`). The two-step value is a lower bound. Both are
-  in-sample. The axis is `ORDER_LIMITS`. Finite two-step values with magnitude
-  above `EXTREME_TWO_STEP_LEVEL` are listed in the output. They are outside
-  the display limits and stay in all statistics.
-- Panel h (control for stillness): raw rate against motion energy in the
-  center port and at a side port (`port_vs_stillness.py`), with its slope test.
-  The two animals have different camera views, so motion energy is not the
-  same measure.
-- Panel i (control for the movement after the exit): the rate around a flash
+- Panel g (control for the movement after the exit): the rate around a flash
   in the fixation, and around a flash after the exit with less and with more
   motion energy of the video (lower and upper half), from
   `matched_flashes.py`. The first flash of a trial is not used. The rate of a
@@ -79,37 +69,31 @@ and ends it, g to i are controls, and j asks which units.
   the exit are matched for the time from the first flash, the gap from the
   flash before, and the time from the exit. The fixation is not matched to
   them for time: the fixation has almost the same length in all trials.
-- Panel j (which units): each unit's fixation level (mean of its fixation
+- Panel h (control for stillness): raw rate against motion energy in the
+  center port and at a side port (`port_vs_stillness.py`), with its slope test.
+  The two animals have different camera views, so motion energy is not the
+  same measure.
+- Panel i (which units): each unit's fixation level (mean of its fixation
   kernel over `LEVEL_MS`, main model) against the unique gain (held-out bits
   per spike) of its visual flash terms. A value below `UNIQUE_FLOOR` is drawn there, and a level
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
-
-The design with no fixation kernel (for panel g) is fit here (`glm fit`
-stages) in the directory with the suffix `NO_HOLD_SUFFIX` next to the session
-directory.
 
 Units, trials, alignment (first flash), baseline, and exclusions are those of
 `fit.py`. Bins after the response entry are excluded. The sampling unit is the
 unit. The script writes `hold_effect.svg`, `hold_effect_stats.json` (by
 session), and `hold_effect_caption.md` in `--out`.
 
-    uv run python -m thesis.ephys.analyses.glm.hold_effect --fit --root <session>
     uv run python -m thesis.ephys.analyses.glm.hold_effect
 
-The first command fits the design with no fixation kernel for one session
-(about 20 minutes for all units; a finished fit is not run again) and draws
-nothing. The second command makes no fit: it draws the figure from the fits of
-both sessions and stops with the command to run when a fit is missing. Run
-`port_vs_stillness` and `matched_flashes` for each session, and
-`suppression_onset` and `exit_without_stimulus`, first.
+It makes no fit. Run `port_vs_stillness` and `matched_flashes` for each
+session, and `suppression_onset` and `exit_without_stimulus`, first.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 from pathlib import Path
 
 import matplotlib
@@ -119,7 +103,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import sem, wilcoxon
-from sklearn.linear_model import PoissonRegressor
 
 from thesis.ephys.analyses import exit_without_stimulus
 from thesis.ephys.analyses import suppression_onset as onset
@@ -130,7 +113,6 @@ from thesis.ephys.analyses.glm.fit import (
     load_unit_records,
 )
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -149,8 +131,8 @@ CAPTION = """\
 go on.** The fixation is the time from the first flash to the withdrawal from
 the center port. The flashes continue until the animal enters a response port,
 so the time after the withdrawal has the stimulus without the fixation. Two
-mice: {units}. Except in a and f, the units of both mice are pooled; in d, g,
-and j the large marker is the pooled median with its hierarchical-bootstrap 95%
+mice: {units}. Except in a and f, the units of both mice are pooled; in d and
+i the large marker is the pooled median with its hierarchical-bootstrap 95%
 interval (the mice, then the units of each), and the open markers are the
 median of each mouse ({subject} circle, {other} triangle). The tests are within each mouse. **a**, Spikes of two example units of
 {subject} against time from the first flash (left) and from the withdrawal
@@ -174,22 +156,17 @@ trials with a short and a long delay from the center entry to the first flash
 bars above are the 5th to 95th percentile of the first flash of each half. Right: {onset} **f**, Does the rise at the
 withdrawal need the stimulus? The rate around the withdrawal in completed
 trials, where the flashes go on, and in early withdrawals, where they stop
-(units of both mice pooled, mean and SEM over units). {exit} **g**, Control for the
-order of fitting. The level in fixation when all terms are fit together
-against the level when the fixation kernel is fit last, on what the other
-terms do not explain (a lower bound). {two_step} {outside_e} {extreme_estimates}
+(units of both mice pooled, mean and SEM over units). {exit} **g**, Control for the movement after the withdrawal. The firing rate
+around a flash in fixation, and around a flash after the withdrawal with less
+and with more motion energy of the video (lower and upper half; mean and SEM
+over units; the first flash of a trial is not used). {energy}
 **h**, Control
 for stillness. Raw firing rate against motion energy of the video, in the
 center port and at a side port. {stillness} The two animals
 have different camera views, so motion energy is not the same measure in
-both. **i**, Control for the movement after the withdrawal. The firing rate
-around a flash in fixation, and around a flash after the withdrawal with less
-and with more motion energy of the video (lower and upper half; mean and SEM
-over units; the first flash of a trial is not used). {energy}
-**j**, The level in fixation against the unique gain of the visual flash terms (bits per spike).
-{relation} {outside_j}
+both. **i**, The level in fixation against the unique gain of the visual flash terms (bits per spike).
+{relation} {outside_i}
 """
-NO_HOLD_SUFFIX = "_no_hold_term"
 # The excited example unit must fire at this rate or more (spikes/s).
 EXAMPLE_MIN_RATE = 2.0
 # The suppressed example unit must have a rate in this range (spikes/s): enough
@@ -200,11 +177,7 @@ AFTER = "after_exit"
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
 LEVEL_LIMITS = (-1.6, 1.6)
-# Panel g: report extreme finite two-step values separately from display limits.
-# Their magnitude alone does not establish whether a fit converged.
-ORDER_LIMITS = (-2.5, 1.6)
-EXTREME_TWO_STEP_LEVEL = 3.0
-UNIQUE_FLOOR = 1e-3  # panel j: a smaller unique gain (bits per spike) is drawn here
+UNIQUE_FLOOR = 1e-3  # panel i: a smaller unique gain (bits per spike) is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
@@ -216,125 +189,6 @@ MOTION = CONCEPT_COLORS["motion energy"]
 ONSET_NAME = "suppression_onset"
 EXIT_NAME = "exit_without_stimulus"
 ONSET_WINDOW_MS = (-250, 290)
-
-
-def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> Path:
-    """Fit the design with some `dmat` attributes replaced, in a sibling directory."""
-    root = source.with_name(source.name + suffix)
-    model = cli.PoissonGLM(root=root)
-    root.mkdir(exist_ok=True)
-    for name in INPUTS:
-        if not (root / name).exists():
-            shutil.copy(source / name, root / name)
-    # ponytail: the design reads module attributes; set them for this fit.
-    # Make them arguments if the design gets more callers.
-    with dmat.switched(attributes):
-        if not model.design.exists():
-            dmat.prepare_common_design(model.windows, model.video, model.design)
-        # Each stage reuses its finished units, so this fits only the units
-        # that are new or stopped (for example after a change of unit table).
-        model.fit(unit_set)
-    return root
-
-
-def _time_in_trial() -> np.ndarray:
-    centers, _, _ = dmat.construct_timebins(dmat.PRE_S, dmat.POST_S, dmat.BINWIDTH_S)
-    return centers
-
-
-def _kernel_block(basis: np.ndarray, since: np.ndarray, keep: np.ndarray) -> np.ndarray:
-    """Place the basis rows at each bin's time since an event; zero where not kept."""
-    index = np.rint(since / dmat.BINWIDTH_S).astype(int)
-    inside = (index >= 0) & keep
-    block = np.where(inside[..., None], basis[np.clip(index, 0, len(basis) - 1)], 0.0)
-    return block.reshape(-1, basis.shape[1])
-
-
-def two_step_levels(source: Path, unit_set: str) -> dict:
-    """Return each unit's hold level from the joint fit and from a two-step fit.
-
-    Step 1 is the design with no hold kernel. Step 2 fits the hold kernel alone
-    on top of the fixed prediction of step 1 (Poisson, no intercept, no
-    penalty), so the other terms keep all that they can explain. Both fits use
-    all valid bins; the values are in-sample.
-    """
-    cache = source / f"hold_two_step_{unit_set}.npz"
-    if cache.exists():
-        with np.load(cache, allow_pickle=False) as data:
-            if "held_tail" not in data or not bool(data["held_tail"]):
-                raise ValueError(
-                    f"{cache} uses the old zeroed tail; preserve it and rerun the control."
-                )
-            return {key: data[key] for key in data.files}
-    first = cli.PoissonGLM(
-        root=_fit_variant(source, unit_set, NO_HOLD_SUFFIX, {"HOLD_KERNEL": False})
-    )
-    joint = cli.PoissonGLM(root=source)
-    prepared = dmat._load_windows(joint.windows)
-    trials = dmat._load_selected_trials(prepared)
-    alignments = prepared["alignments"]
-    valid = dmat._valid_bin_mask(prepared)
-    basis = dmat.task_temporal_bases()[dmat.HOLD]
-    times = 1000 * basis.basis_time
-    level = (times >= LEVEL_MS[0]) & (times < LEVEL_MS[1])
-    since = np.broadcast_to(_time_in_trial(), (len(alignments), len(_time_in_trial())))
-    # Use the main design's absolute-time gate, including the exit bin boundary.
-    before_exit = (
-        alignments[:, None] + since
-        < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
-    )
-    hold_columns = _kernel_block(basis.basis, since, before_exit)[valid]
-    metadata = json.loads(first.design.with_suffix(".json").read_text())
-    common = np.load(first.design, mmap_mode="r", allow_pickle=False)
-    joint_metadata = json.loads(joint.design.with_suffix(".json").read_text())
-    columns = [
-        index
-        for index, name in enumerate(joint_metadata["column_names"])
-        if name.startswith(f"{dmat.HOLD}_basis_")
-    ]
-    scale = np.asarray(joint_metadata["training_scale"])[columns]
-    joint_records = {
-        item["unit_id"]: item
-        for item in load_unit_records(
-            joint.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
-        )
-    }
-    units = fetch_unit_table(
-        prepared["metadata"]["subject_name"],
-        prepared["metadata"]["session_name"],
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    ).set_index("unit_id")
-    out = {"unit_ids": [], "joint": [], "two_step": [], "rate": []}
-    for record in load_unit_records(
-        first.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
-    ):
-        unit_id = record["unit_id"]
-        spikes = np.asarray(units.loc[unit_id, "spike_times_s"], dtype=float)
-        counts = build_unit_counts(alignments, spikes).astype(float)[valid]
-        history, _, _ = dmat.training_zscore(
-            dmat.build_unit_history(alignments, spikes), valid
-        )
-        width = int(metadata["base_columns"]) + int(record["components"])
-        weights = np.asarray(record["coefficients"], dtype=float)
-        predicted = np.exp(
-            record["intercept"]
-            + np.asarray(common[:, :width])[valid] @ weights[:width]
-            + history[valid] @ weights[width:]
-        )
-        second = PoissonRegressor(alpha=0.0, fit_intercept=False, max_iter=1000).fit(
-            hold_columns, counts / predicted, sample_weight=predicted
-        )
-        joint_weights = np.asarray(joint_records[unit_id]["coefficients"])[columns]
-        out["unit_ids"].append(unit_id)
-        out["rate"].append(joint_records[unit_id]["fit_mean_count"] / dmat.BINWIDTH_S)
-        out["two_step"].append((second.coef_ @ basis.basis.T)[level].mean())
-        out["joint"].append(((joint_weights / scale) @ basis.basis.T)[level].mean())
-        print(f"Two-step fit of unit {unit_id}.", flush=True)
-    out = {key: np.asarray(value) for key, value in out.items()}
-    np.savez(cache, held_tail=True, **out)
-    return out
 
 
 def kernel_values(root: Path, unit_set: str) -> dict:
@@ -349,7 +203,11 @@ def kernel_values(root: Path, unit_set: str) -> dict:
         item["unit_id"]: item
         for item in load_unit_records(checkpoints, "unit_*_folds.json")
     }
-    out = {"unit_ids": np.asarray([item["unit_id"] for item in final])}
+    out = {
+        "unit_ids": np.asarray([item["unit_id"] for item in final]),
+        "rate": np.asarray([item["fit_mean_count"] for item in final])
+        / dmat.BINWIDTH_S,
+    }
     for name, basis in (
         (dmat.HOLD, dmat.task_temporal_bases()[dmat.HOLD]),
         (AFTER, dmat.exit_basis()),
@@ -462,13 +320,8 @@ def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
     }
 
 
-def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
-    """Return the measures of one session.
-
-    With `fit`, the design with no fixation kernel is fit when it is not
-    there. Without it, nothing is fit: a missing or
-    unfinished fit raises an error with the command to run.
-    """
+def session_effect(root: Path, unit_set: str) -> dict:
+    """Return the measures of one session (no fit)."""
     loaded = {}
     for name, command in (
         ("matched_flashes", "matched_flashes"),
@@ -480,23 +333,13 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
         with np.load(path, allow_pickle=False) as data:
             loaded[name] = {key: data[key] for key in data.files}
         loaded[f"{name}_json"] = json.loads(path.with_suffix(".json").read_text())
-    if fit:
-        steps = two_step_levels(root, unit_set)
-    else:
-        cache = root / f"hold_two_step_{unit_set}.npz"
-        if not cache.exists():
-            raise FileNotFoundError(
-                f"The fits of {root.name} are not finished. Run "
-                f"`hold_effect --fit --root {root} --units {unit_set}`."
-            )
-        steps = two_step_levels(root, unit_set)  # reads the cache
     kernels = kernel_values(root, unit_set)
     # Example units: the most suppressed and the most excited unit, each among
     # the units with a rate that makes its raster readable.
-    ids, joint = steps["unit_ids"], steps["joint"]
-    active = steps["rate"] >= EXAMPLE_MIN_RATE
-    readable = (steps["rate"] >= SUPPRESSED_RATES[0]) & (
-        steps["rate"] <= SUPPRESSED_RATES[1]
+    ids, joint = kernels["unit_ids"], kernels[dmat.HOLD]["level"]
+    active = kernels["rate"] >= EXAMPLE_MIN_RATE
+    readable = (kernels["rate"] >= SUPPRESSED_RATES[0]) & (
+        kernels["rate"] <= SUPPRESSED_RATES[1]
     )
     readable = readable if readable.any() else active
     suppressed = int(ids[readable][np.argmin(joint[readable])])
@@ -528,26 +371,7 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
             )
         ),
         "example_units_suppressed_and_excited": [suppressed, excited],
-        "two_step": {
-            "median_delta_log_rate_joint": float(np.median(steps["joint"])),
-            "median_delta_log_rate_two_step": float(np.median(steps["two_step"])),
-            "fraction_units_two_step_below_0": float(np.mean(steps["two_step"] < 0)),
-            "wilcoxon_p_two_step_against_0": float(wilcoxon(steps["two_step"]).pvalue),
-            "units_outside_the_axis_limits_of_panel_g": int(
-                np.sum(
-                    (np.minimum(steps["joint"], steps["two_step"]) < ORDER_LIMITS[0])
-                    | (np.maximum(steps["joint"], steps["two_step"]) > ORDER_LIMITS[1])
-                )
-            ),
-            "units_with_extreme_two_step_estimates": [
-                int(unit)
-                for unit in steps["unit_ids"][
-                    np.isfinite(steps["two_step"])
-                    & (np.abs(steps["two_step"]) > EXTREME_TWO_STEP_LEVEL)
-                ]
-            ],
-        },
-        "units_outside_the_axis_limits_of_panel_j": int(
+        "units_outside_the_axis_limits_of_panel_i": int(
             np.sum(
                 (matched["fixation_level"] < limits[0])
                 | (matched["fixation_level"] > limits[1])
@@ -559,7 +383,6 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
     return {
         "subject": root.name.split("_")[0],
         "kernels": kernels,
-        "steps": steps,
         "rates": rates,
         "stillness": loaded["port_vs_stillness"],
         "matched": matched,
@@ -871,18 +694,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
-    parser.add_argument(
-        "--fit",
-        action="store_true",
-        help="fit the variants of the session in --root; draw no figure",
-    )
-    parser.add_argument("--root", type=Path, default=None)
     args = parser.parse_args()
-    if args.fit:
-        for root in [args.root] if args.root else [args.out / s for s in SESSIONS]:
-            session_effect(root, args.units, fit=True)
-        return
-    sessions = [session_effect(args.out / s, args.units, fit=False) for s in SESSIONS]
+    sessions = [session_effect(args.out / s, args.units) for s in SESSIONS]
     limits = LEVEL_LIMITS
 
     raw = {
@@ -1023,10 +836,9 @@ def main() -> None:
         )
         exit_axis = figure.add_subplot(grid[1][0])
         _draw_exit(exit_axis, raw[EXIT_NAME])
-        order_axis = figure.add_subplot(grid[1][1])
+        matched_axis = figure.add_subplot(grid[1][1])
         stillness_axis = figure.add_subplot(grid[1][2])
-        matched_axis = figure.add_subplot(grid[2][0])
-        relation = figure.add_subplot(grid[2][1])
+        relation = figure.add_subplot(grid[2][0])
         subjects = [data["subject"] for data in sessions]
         holds = [data["kernels"][dmat.HOLD] for data in sessions]
         afters = [data["kernels"][AFTER] for data in sessions]
@@ -1041,20 +853,12 @@ def main() -> None:
             elinewidth=0.4,
             alpha=0.4,
         )
-        for axis, shown in ((paired, limits), (order_axis, ORDER_LIMITS)):
-            axis.set_xlim(shown)
-            axis.set_ylim(shown)
+        paired.set_xlim(limits)
+        paired.set_ylim(limits)
         pooled_points(
             paired,
             [h["level"] for h in holds],
             [a["level"] for a in afters],
-            subjects,
-            TASK,
-        )
-        pooled_points(
-            order_axis,
-            [data["steps"]["joint"] for data in sessions],
-            [data["steps"]["two_step"] for data in sessions],
             subjects,
             TASK,
         )
@@ -1070,25 +874,18 @@ def main() -> None:
             subjects,
             TASK,
         )
-        for axis, shown in ((paired, limits), (order_axis, ORDER_LIMITS)):
-            axis.plot(
-                shown, shown, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
-            )
-            for line in (axis.axhline, axis.axvline):
-                line(0, color=REFERENCE_COLOR, linewidth=0.5)
-            axis.set_xlim(shown)
-            axis.set_ylim(shown)
+        paired.plot(
+            limits, limits, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8
+        )
+        for line in (paired.axhline, paired.axvline):
+            line(0, color=REFERENCE_COLOR, linewidth=0.5)
+        paired.set_xlim(limits)
+        paired.set_ylim(limits)
         paired.set_xlabel(
             r"$\Delta$ log rate in fixation," + f"\n{window} from first flash"
         )
         paired.set_ylabel(r"$\Delta$ log rate after exit," + f"\n{window} from exit")
-        order_axis.set_xlabel(
-            r"$\Delta$ log rate in fixation," + "\nall terms fit together"
-        )
-        order_axis.set_ylabel(
-            r"$\Delta$ log rate in fixation," + "\nfixation kernel fit last"
-        )
-        # Panels h and i: the units of both mice pooled.
+        # Panels g and h: the units of both mice pooled.
         port_vs_stillness.plot_rates(
             stillness_axis,
             {
@@ -1125,16 +922,15 @@ def main() -> None:
             paired,
             onset_axes[0],
             exit_axis,
-            order_axis,
-            stillness_axis,
             matched_axis,
+            stillness_axis,
             relation,
         ]
         for axis in panel_axes[2:] + onset_axes[1:]:
             separate_axes(axis)
         figure.canvas.draw()
         to_figure = figure.transFigure.inverted()
-        for letter, axis in zip("abcdefghij", panel_axes, strict=True):
+        for letter, axis in zip("abcdefghi", panel_axes, strict=True):
             left = axis.yaxis.get_tightbbox().transformed(to_figure).x0
             figure.text(
                 left,
@@ -1157,14 +953,6 @@ def main() -> None:
         f" withdrawal; higher after the withdrawal in"
         f" {st(d)['units_higher_after_exit']} of {st(d)['units']} units (two-sided"
         f" Wilcoxon signed-rank test, p = {st(d)['wilcoxon_p']:.1g})."
-        for d in sessions
-    )
-    two_text = " ".join(
-        f"{d['subject']}: median {st(d)['two_step']['median_delta_log_rate_joint']:.2f}"
-        f" and {st(d)['two_step']['median_delta_log_rate_two_step']:.2f}; with the"
-        f" kernel fit last, the level is below zero in"
-        f" {st(d)['two_step']['fraction_units_two_step_below_0']:.0%} of the units"
-        f" (p = {st(d)['two_step']['wilcoxon_p_two_step_against_0']:.1g})."
         for d in sessions
     )
     stillness_text = (
@@ -1260,7 +1048,7 @@ def main() -> None:
 
     def outside(key: str) -> str:
         return (
-            _pair(sessions, lambda d: str(st(d).get(key, st(d)["two_step"].get(key))))
+            _pair(sessions, lambda d: str(st(d)[key]))
             + " units are outside the axis limits and are in the tests."
         )
 
@@ -1279,25 +1067,12 @@ def main() -> None:
             paired=paired_text,
             bias=bias_text,
             outside_d=outside("units_outside_the_axis_limits_of_panel_d"),
-            two_step=two_text,
             onset=onset_text,
             exit=exit_text,
-            outside_e=outside("units_outside_the_axis_limits_of_panel_g"),
-            extreme_estimates=(
-                "Finite two-step estimates with magnitude above "
-                f"{EXTREME_TWO_STEP_LEVEL:g}: "
-                + _pair(
-                    sessions,
-                    lambda d: str(
-                        len(st(d)["two_step"]["units_with_extreme_two_step_estimates"])
-                    ),
-                )
-                + "; they are outside the display limits and stay in all statistics."
-            ),
             stillness=stillness_text,
             energy=energy_text,
             relation=relation_text,
-            outside_j=outside("units_outside_the_axis_limits_of_panel_j"),
+            outside_i=outside("units_outside_the_axis_limits_of_panel_i"),
         )
     )
     print(json.dumps(stats, indent=1))

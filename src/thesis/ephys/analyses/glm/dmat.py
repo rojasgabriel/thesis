@@ -121,7 +121,8 @@ HOLD_LOG_STRETCH_S = 0.05
 # that factor squared times weaker. With the same penalty, the fit makes the
 # fixation kernel too small and gives a part of the level to the flash × after exit
 # kernels (`leak_test.py`); a factor of 10 removes that leak with the same
-# prediction, and is the sensitivity analysis (`_weaker_fixation_penalty`). The
+# prediction (the sensitivity fit, removed 2026-10-29: `leak_test.py` corrects
+# for the leak; old fits in `results/glm/_before_flash_side_2026_10_29/`). The
 # saved scale of the columns has the factor in it, so the kernels are read in
 # the same way. A factor above 10 stops the convergence.
 HOLD_PENALTY_SCALE = 1.0
@@ -190,14 +191,14 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # rounded to 10 ms. Until 2026-10-24 it was 120 ms, from a fit with c bounded
 # at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
 FLASH_RECOVERY_TERM = True
-# Flash × side (a candidate from 2026-10-29, `candidate_terms.py`; not in the
-# model): the side of the response (+1 right, -1 left) for a flash after the
-# center exit, 0 in the fixation and for the first flash. After the exit the
-# head turns to that side, so the LED panel above the center port lies in
-# another part of the visual field; this kernel is how the flash response
-# differs between the two sides. Without it, a side-dependent flash response
-# can only go to the turn term, which is not locked to the flashes.
-FLASH_SIDE_TERM = False
+# Flash × side (in the model from 2026-10-29; `candidate_terms.py` passed it in
+# both mice, docs/glm_checks.md): the side of the response (+1 right, -1 left)
+# for a flash after the center exit, 0 in the fixation and for the first flash.
+# After the exit the head turns to that side, so the LED panel above the center
+# port lies in another part of the visual field; this kernel is how the flash
+# response differs between the two sides. Without it, a side-dependent flash
+# response can only go to the turn term, which is not locked to the flashes.
+FLASH_SIDE_TERM = True
 FLASH_SIDE = "flash_side"
 FLASH_RECOVERY = "flash_recovery"
 FLASH_RECOVERY_TAU_S = 0.05
