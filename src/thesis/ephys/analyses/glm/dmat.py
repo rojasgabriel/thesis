@@ -178,6 +178,20 @@ FLASH_AFTER_EXIT_TERM = True
 # flash after the center exit "after exit", and this term "flash × after exit". These are
 # task periods; the model has no measure of locomotion in them.
 FLASH_AFTER_EXIT = "flash_after_exit"
+# Flash recovery (in the model from 2026-10-23; it passed the inclusion rule in
+# both mice, 25% and 29% of units, `candidate_terms.py`): graded
+# adaptation. The flash kernel scaled by the recovery r = 1 - exp(-gap / tau)
+# for a flash more than the short gap after the flash before (the first flash
+# of a trial has r = 1), centered on the mean r of those flashes, and 0 for a
+# short-gap flash (the short-gap modifier codes those). So the flash kernel
+# stays the response after a typical long gap, and this kernel is the change
+# per unit of recovery. tau is set from the in-port flashes of GRB006
+# (`flash_recovery.py`, c free: 54 ms, 95% 29 to 91 ms; GRB064 alone 67 ms),
+# rounded to 10 ms. Until 2026-10-24 it was 120 ms, from a fit with c bounded
+# at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
+FLASH_RECOVERY_TERM = True
+FLASH_RECOVERY = "flash_recovery"
+FLASH_RECOVERY_TAU_S = 0.05
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
 # response (+1 right, -1 left) times the `exit_basis` (`TURN_DIRECTION_BASES`
 # raised cosines, even in log(t + `EXIT_LOG_STRETCH_S`), from the center exit
@@ -458,6 +472,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         **{name: flash for name in flash_gap_names()},
         FLASH_JUST_BEFORE: flash,
         FLASH_AFTER_EXIT: flash,
+        FLASH_RECOVERY: flash,
         "hold": (
             StretchedCosineBasis(
                 HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
@@ -475,6 +490,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_COMMON]
     if not FLASH_AFTER_EXIT_TERM:
         del bases[FLASH_AFTER_EXIT]
+    if not FLASH_RECOVERY_TERM:
+        del bases[FLASH_RECOVERY]
     if not FLASH_JUST_BEFORE_TERM:
         del bases[FLASH_JUST_BEFORE]
     if not WITHDRAWAL_KERNEL:
@@ -527,6 +544,34 @@ def flash_gaps(trials) -> np.ndarray:
         modeled = flashes[(flashes >= center_entry) & (flashes <= response_entry)]
         gaps_by_trial.append(np.diff(modeled, prepend=-np.inf))
     return np.concatenate(gaps_by_trial)
+
+
+def recovery_value(gaps_s, center: float) -> np.ndarray:
+    """Return the value of the recovery term at each gap (s), for a design center.
+
+    r = 1 - exp(-gap / FLASH_RECOVERY_TAU_S) minus the center, for a gap above
+    `short_gap_s()`; 0 for a short gap. An infinite gap (the first flash of a
+    trial) has r = 1.
+    """
+    gaps = np.asarray(gaps_s, dtype=float)
+    recovered = 1 - np.exp(-gaps / FLASH_RECOVERY_TAU_S)
+    return np.where(gaps > short_gap_s(), recovered - center, 0.0)
+
+
+def recovery_center(trials) -> float:
+    """Return the mean recovery r of the long-gap modeled flashes of a session."""
+    gaps = flash_gaps(trials)
+    long = gaps > short_gap_s()
+    return float(np.mean(1 - np.exp(-gaps[long] / FLASH_RECOVERY_TAU_S)))
+
+
+def flash_recovery(trials) -> np.ndarray:
+    """Return the centered recovery value of each modeled flash (`FLASH_RECOVERY`).
+
+    In the order of `flash_events`; the center is `recovery_center`, saved in
+    the design metadata so that the kernels can be read at any gap.
+    """
+    return recovery_value(flash_gaps(trials), recovery_center(trials))
 
 
 def flash_events(trials) -> np.ndarray:
@@ -645,6 +690,14 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             "1 for a flash after the center exit, 0 in the fixation; "
             "the first flash is 0",
+        ),
+        (
+            FLASH_RECOVERY,
+            flashes,
+            flash_recovery(trials) if FLASH_RECOVERY_TERM else None,
+            "sensory",
+            f"1 - exp(-gap / {1000 * FLASH_RECOVERY_TAU_S:.0f} ms), centered, "
+            "for a flash after a long gap; 0 after a short gap",
         ),
         (
             "hold",
@@ -1015,6 +1068,10 @@ def prepare_common_design(windows: Path, video: Path, output: Path) -> None:
         "training_scale": base_scale.tolist() + video_scale,
         "split_row_counts": np.bincount(prepared["split"], minlength=3).tolist(),
         "hold_penalty_scale": HOLD_PENALTY_SCALE,
+        "flash_recovery_center": recovery_center(trials)
+        if FLASH_RECOVERY_TERM
+        else None,
+        "flash_recovery_tau_s": FLASH_RECOVERY_TAU_S if FLASH_RECOVERY_TERM else None,
         "band_scales": BAND_SCALES,
     }
     matrix.flush()
@@ -1069,4 +1126,6 @@ def _common_design_is_current(output: Path) -> bool:
         ]
         and metadata.get("hold_penalty_scale", 1.0) == HOLD_PENALTY_SCALE
         and metadata.get("band_scales", dict.fromkeys(BAND_SCALES, 1.0)) == BAND_SCALES
+        and metadata.get("flash_recovery_tau_s")
+        == (FLASH_RECOVERY_TAU_S if FLASH_RECOVERY_TERM else None)
     )

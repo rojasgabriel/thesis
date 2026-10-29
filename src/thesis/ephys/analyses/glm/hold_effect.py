@@ -10,8 +10,9 @@ center exit to the response entry, in the same trials and the same units. The
 comparison is paired: each unit has a value in both periods. Panel a is
 GRB006. In the other panels the units of both mice (`SESSIONS`) are pooled (standard
 practice); in d, g, and j the large marker is the pooled median with its
-hierarchical-bootstrap 95% interval (mice, then units), and the open circles
-are the median of each mouse. The tests are within each mouse.
+hierarchical-bootstrap 95% interval (mice, then units), and the open markers
+are the median of each mouse (circle: GRB006, triangle: GRB064). The tests are
+within each mouse.
 
 Panels a to d observe and characterize the effect, e and f ask what starts
 and ends it, g to i are controls, and j asks which units.
@@ -79,8 +80,8 @@ and ends it, g to i are controls, and j asks which units.
   flash before, and the time from the exit. The fixation is not matched to
   them for time: the fixation has almost the same length in all trials.
 - Panel j (which units): each unit's fixation level (mean of its fixation
-  kernel over `LEVEL_MS`, main model) against the unique ΔD² of its visual
-  flash regressor. A value below `UNIQUE_FLOOR` is drawn there, and a level
+  kernel over `LEVEL_MS`, main model) against the unique gain (held-out bits
+  per spike) of its visual flash terms. A value below `UNIQUE_FLOOR` is drawn there, and a level
   outside `LEVEL_LIMITS` is not drawn; all units are in the Spearman
   correlation of `matched_flashes.json`.
 
@@ -150,8 +151,8 @@ the center port. The flashes continue until the animal enters a response port,
 so the time after the withdrawal has the stimulus without the fixation. Two
 mice: {units}. Except in a and f, the units of both mice are pooled; in d, g,
 and j the large marker is the pooled median with its hierarchical-bootstrap 95%
-interval (the mice, then the units of each), and the open circles are the
-median of each mouse ({subject} and {other}). The tests are within each mouse. **a**, Spikes of two example units of
+interval (the mice, then the units of each), and the open markers are the
+median of each mouse ({subject} circle, {other} triangle). The tests are within each mouse. **a**, Spikes of two example units of
 {subject} against time from the first flash (left) and from the withdrawal
 (right), with the trials sorted by the length of the fixation. The vertical
 line is the event at time 0; in the left panels the orange line is the
@@ -185,7 +186,7 @@ both. **i**, Control for the movement after the withdrawal. The firing rate
 around a flash in fixation, and around a flash after the withdrawal with less
 and with more motion energy of the video (lower and upper half; mean and SEM
 over units; the first flash of a trial is not used). {energy}
-**j**, The level in fixation against the unique ΔD² of the visual flash.
+**j**, The level in fixation against the unique gain of the visual flash terms (bits per spike).
 {relation} {outside_j}
 """
 NO_HOLD_SUFFIX = "_no_hold_term"
@@ -194,6 +195,7 @@ EXAMPLE_MIN_RATE = 2.0
 # The suppressed example unit must have a rate in this range (spikes/s): enough
 # spikes to see the hold, few enough to see single spikes.
 SUPPRESSED_RATES = (5.0, 20.0)
+EXAMPLE_PSTH_BIN_MS = 20  # panel a: the bin of the PSTH under each raster
 AFTER = "after_exit"
 LEVEL_MS = (150, 500)
 # Axis limits of the kernel panels (Δ log rate).
@@ -202,7 +204,7 @@ LEVEL_LIMITS = (-1.6, 1.6)
 # Their magnitude alone does not establish whether a fit converged.
 ORDER_LIMITS = (-2.5, 1.6)
 EXTREME_TWO_STEP_LEVEL = 3.0
-UNIQUE_FLOOR = 1e-4  # panel j: a smaller unique ΔD² is drawn here
+UNIQUE_FLOOR = 1e-3  # panel j: a smaller unique gain (bits per spike) is drawn here
 RATE_BIN_MS = 20
 FLASH_SLOT_S = 0.04
 FLASH_WINDOW_MS = (-100, 500)
@@ -220,7 +222,6 @@ def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> 
     """Fit the design with some `dmat` attributes replaced, in a sibling directory."""
     root = source.with_name(source.name + suffix)
     model = cli.PoissonGLM(root=root)
-    directory = model.fit_dir(unit_set)
     root.mkdir(exist_ok=True)
     for name in INPUTS:
         if not (root / name).exists():
@@ -230,11 +231,9 @@ def _fit_variant(source: Path, unit_set: str, suffix: str, attributes: dict) -> 
     with dmat.switched(attributes):
         if not model.design.exists():
             dmat.prepare_common_design(model.windows, model.video, model.design)
-        # Each stage keeps its finished units, so a stopped fit goes on.
-        checkpoints = directory / "checkpoints"
-        finals = len(list(checkpoints.glob("unit_*_final.json")))
-        if not finals or finals < len(list(checkpoints.glob("unit_*_validation.json"))):
-            model.fit(unit_set)
+        # Each stage reuses its finished units, so this fits only the units
+        # that are new or stopped (for example after a change of unit table).
+        model.fit(unit_set)
     return root
 
 
@@ -571,7 +570,9 @@ def session_effect(root: Path, unit_set: str, fit: bool) -> dict:
         "by_energy": flashes["after exit, lower against upper half of motion energy"][
             "response, second / first group"
         ],
-        "relation": flashes["fixation level against unique dD2, flash (Spearman)"],
+        "relation": flashes[
+            "fixation level against unique bits per spike, flash (Spearman)"
+        ],
     }
 
 
@@ -583,24 +584,50 @@ def _draw_examples(figure, examples, data: dict) -> list:
     trial_rows = np.arange(len(exits))
     first = None
     for row, (unit_id, label) in enumerate(
-        ((suppressed, "suppressed"), (excited, "excited"))
+        # The label is the rate in the fixation, not the response to a flash.
+        ((suppressed, "lower rate in fixation"), (excited, "higher rate in fixation"))
     ):
         for column, (name, limits) in enumerate(
             (("flash", FLASH_WINDOW_MS), ("exit", EXIT_WINDOW_MS))
         ):
-            axis = figure.add_subplot(examples[row, column])
+            axis = figure.add_subplot(examples[2 * row, column])
             spike_ms, rows = rates["rasters"][unit_id][name]
             keep = (spike_ms >= limits[0]) & (spike_ms < limits[1])
             axis.plot(
                 spike_ms[keep], rows[keep], "|", color=OBSERVED_COLOR, markersize=1.5
             )
+            # The PSTH of the same spikes: mean and SEM over trials.
+            psth = figure.add_subplot(examples[2 * row + 1, column], sharex=axis)
+            edges = np.arange(limits[0], limits[1] + 1e-9, EXAMPLE_PSTH_BIN_MS)
+            counts = np.histogram2d(
+                rows[keep], spike_ms[keep], bins=(np.arange(len(exits) + 1), edges)
+            )[0] / (EXAMPLE_PSTH_BIN_MS / 1000)
+            mean = counts.mean(0)
+            sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
+            centers = (edges[:-1] + edges[1:]) / 2
+            psth.plot(centers, mean, color=OBSERVED_COLOR, linewidth=1)
+            psth.fill_between(
+                centers, mean - sem, mean + sem, color=OBSERVED_COLOR, alpha=0.2, lw=0
+            )
+            psth.axvline(0, color=VISUAL if name == "flash" else TASK, linewidth=0.8)
+            psth.set_ylim(bottom=0)
+            if column == 0:
+                psth.set_ylabel("spikes/s")
+            axis.tick_params(labelbottom=False)
             # The event at time 0, and in the left column the exit of each trial.
             event = VISUAL if name == "flash" else TASK
             axis.axvline(0, color=event, linewidth=0.8)
             if name == "flash":
                 axis.plot(exits, trial_rows, color=TASK, linewidth=1)
             axis.set_xlim(*limits)
-            axis.tick_params(labelbottom=False)
+            if row == 0:
+                psth.tick_params(labelbottom=False)
+            else:
+                psth.set_xlabel(
+                    "time from first flash (ms)"
+                    if name == "flash"
+                    else "time from center exit (ms)"
+                )
             if column == 0:
                 axis.set_ylabel("trial")
                 axis.text(
@@ -868,7 +895,7 @@ def main() -> None:
     }
 
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 10.4))
+        figure = plt.figure(figsize=(7.4, 11.4))
         rows = figure.add_gridspec(
             5,
             1,
@@ -876,10 +903,13 @@ def main() -> None:
             right=0.98,
             top=0.98,
             bottom=0.05,
-            height_ratios=(1.5, 1.35, 1.9, 1.9, 1.9),
+            height_ratios=(2.4, 1.35, 1.9, 1.9, 1.9),
             hspace=0.55,
         )
-        examples = rows[0].subgridspec(2, 2, hspace=0.25, wspace=0.08)
+        # Each raster has its PSTH (mean rate over trials) below it.
+        examples = rows[0].subgridspec(
+            4, 2, height_ratios=(1, 0.6, 1, 0.6), hspace=0.45, wspace=0.16
+        )
         # A narrow empty column keeps the letter of c away from b.
         top = rows[1].subgridspec(
             2, 5, height_ratios=(1, 4), width_ratios=(1, 1, 0.12, 1, 1), wspace=0.3
@@ -1089,7 +1119,7 @@ def main() -> None:
         )
         matched_axis.set_ylabel("normalized firing rate")
         relation.axhline(0, color=REFERENCE_COLOR, linestyle="--", linewidth=0.8)
-        relation.set_xlabel(r"unique $\Delta D^2$ of the visual flash")
+        relation.set_xlabel("unique gain of the flash terms\n(bits per spike)")
         relation.set_ylabel(r"$\Delta$ log rate in fixation")
         panel_axes += [
             paired,

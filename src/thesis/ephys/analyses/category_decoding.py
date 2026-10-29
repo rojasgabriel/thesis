@@ -9,6 +9,10 @@ equal numbers of trials in the four category x choice groups, so the category
 decoder cannot use choice and the choice decoder cannot use category. The
 shuffle permutes the decoded label inside each level of the other variable.
 
+Units: by default the single units and multi-units of the unit criteria (not
+noise), with no stability filter; `--units sua`: single units only (outputs
+with `_sua`), with the optional stability filter.
+
 Features: each unit's mean firing rate from 0 to 1 s after the first measured
 flash. This window includes the time after withdrawal for many trials, so the
 choice decoder can read the turn to the chosen side. Choice and movement are not
@@ -32,12 +36,11 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 
-from thesis.ephys.analyses._decoding import load_decoding_data
+from thesis.ephys.analyses._decoding import add_units_argument, load_decoding_data
+from thesis.ephys.analyses._decoding import balanced_indices as _balanced_indices
+from thesis.ephys.analyses._decoding import decoder as _decoder
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -52,43 +55,6 @@ CV_FOLDS = 10
 N_RESAMPLES = 20
 N_SHUFFLES = 100
 RANDOM_SEED = 0
-
-
-def _decoder():
-    return make_pipeline(
-        StandardScaler(),
-        LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000),
-    )
-
-
-def _balanced_indices(
-    category: np.ndarray,
-    choice: np.ndarray,
-    rng: np.random.Generator,
-) -> np.ndarray:
-    category_choice_pairs = [(cat, response) for cat in (0, 1) for response in (-1, 1)]
-    counts = [
-        np.sum((category == cat) & (choice == response))
-        for cat, response in category_choice_pairs
-    ]
-    n_trials_per_pair = int(min(counts))
-    if n_trials_per_pair < 2:
-        raise ValueError(
-            "Too few category x choice trials; least represented pair has "
-            f"{n_trials_per_pair}"
-        )
-    return np.sort(
-        np.concatenate(
-            [
-                rng.choice(
-                    np.flatnonzero((category == cat) & (choice == response)),
-                    n_trials_per_pair,
-                    replace=False,
-                )
-                for cat, response in category_choice_pairs
-            ]
-        )
-    )
 
 
 def _scores(
@@ -137,6 +103,10 @@ def _scores(
     return random_scores, blocked_scores, n_trials
 
 
+# The y axis of both panels in every session (display only).
+ACCURACY_LIMITS = (0.2, 1.02)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -154,6 +124,7 @@ def _parse_args() -> argparse.Namespace:
     optional.add_argument(
         "--quick", action="store_true", help="Use 3 resamples and shuffles"
     )
+    add_units_argument(optional)
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
         "--no-save", action="store_true", help="Do not save the figure or results"
@@ -173,6 +144,7 @@ def main() -> None:
         unit_criteria_id=args.unit_criteria_id,
         stability_param_id=args.stability_param_id,
         window_start_s=WINDOW_START_S,
+        include_mua=args.units == "all",
         window_stop_s=WINDOW_STOP_S,
     )
     category = trials["stim_category"].eq("high_rate").to_numpy(dtype=int)
@@ -191,6 +163,7 @@ def main() -> None:
         "session": args.session,
         "unit_criteria_id": args.unit_criteria_id,
         "stability_param_id": args.stability_param_id,
+        "units": args.units,
         "n_units": len(units),
         "n_eligible_trials": len(trials),
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
@@ -253,6 +226,21 @@ def main() -> None:
                 ha="right",
             )
             ax.set_ylabel(f"balanced {name} accuracy")
+            # One scale for every session, so that sessions and mice compare.
+            ax.set_ylim(*ACCURACY_LIMITS)
+            outside = sum(
+                int(
+                    np.sum(
+                        (np.asarray(v) < ACCURACY_LIMITS[0])
+                        | (np.asarray(v) > ACCURACY_LIMITS[1])
+                    )
+                )
+                for v in values
+            )
+            if outside:
+                print(
+                    f"{name}: {outside} values outside the axis limits (kept in the statistics)"
+                )
             ax.tick_params(labelleft=True)
         label_panels(axes, -0.22)
         fig.tight_layout(w_pad=2.0)
@@ -262,7 +250,12 @@ def main() -> None:
         plt.show()
     if not args.no_save:
         output_dir = (
-            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "category_decoding"
+            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
+            / "category_decoding"
+            / (
+                f"{args.subject}_{args.session}"
+                + ("_sua" if args.units == "sua" else "")
+            )
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")

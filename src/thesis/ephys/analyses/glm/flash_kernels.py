@@ -60,8 +60,15 @@ def session_kernels(root: Path, unit_set: str) -> Path:
         term: [
             i for i, column in enumerate(names) if column.startswith(f"{term}_basis")
         ]
-        for term in (dmat.FLASH_COMMON, dmat.FLASH_JUST_BEFORE, dmat.FLASH_AFTER_EXIT)
+        for term in (
+            dmat.FLASH_COMMON,
+            dmat.FLASH_JUST_BEFORE,
+            dmat.FLASH_AFTER_EXIT,
+            dmat.FLASH_RECOVERY,
+        )
     }
+    columns = {term: index for term, index in columns.items() if index}
+    center = metadata.get("flash_recovery_center")
 
     def response(coefficients) -> np.ndarray:
         """Return the mean kernel of each condition in the response window."""
@@ -71,7 +78,10 @@ def session_kernels(root: Path, unit_set: str) -> Path:
             for term, index in columns.items()
         }
         return np.stack(
-            [flash_kernel_at(terms, gap, after) for gap, after in CONDITIONS.values()]
+            [
+                flash_kernel_at(terms, gap, after, center)
+                for gap, after in CONDITIONS.values()
+            ]
         )[:, window].mean(-1)
 
     final = load_unit_records(

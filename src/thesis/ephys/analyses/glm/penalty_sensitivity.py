@@ -58,13 +58,8 @@ def fit_session(session: str) -> None:
     with dmat.switched({"HOLD_PENALTY_SCALE": SCALE}):
         if not model.design.exists():
             dmat.prepare_common_design(model.windows, model.video, model.design)
-        checkpoints = model.fit_dir("all") / "checkpoints"
-        if (
-            len(list(checkpoints.glob("unit_*_final.json")))
-            < len(list(checkpoints.glob("unit_*_validation.json")))
-            or not checkpoints.exists()
-        ):
-            model.fit("all")
+        # Each stage reuses its finished units; only new or stopped units are fit.
+        model.fit("all")
 
 
 def summary(out: Path) -> dict:

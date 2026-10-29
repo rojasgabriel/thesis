@@ -5,8 +5,8 @@ term by prediction). Can its weights be trusted? Four tests, each on the
 design in use, in both mice (`SESSIONS`; GRB064 took no part in the choice of
 the forms of the terms, but it did in the choice of the terms). The units of both mice are pooled in the plots; the black marker is
 the pooled median with its hierarchical-bootstrap 95% interval (mice, then
-units), and the open circles are the median of each mouse (left: GRB006,
-right: GRB064). The tests are within each mouse.
+units), and the open markers are the median of each mouse (circle: GRB006,
+triangle: GRB064). The tests are within each mouse.
 
 - Collinearity (panels a to c, `collinearity.py`): a property of the design
   matrix only, on the rows of the fit (task and motion-energy columns plus the
@@ -94,6 +94,7 @@ from thesis.plotting import (
     figure_path,
     hierarchical_interval,
     label_panels,
+    mouse_marker,
     pooled_points,
     pooled_strip,
     save_figure,
@@ -114,8 +115,8 @@ CAPTION = """\
 in {held_out} (an animal that took no part in the choice of the forms of the
 terms; it did take part in the choice of the terms). Units of
 both mice are pooled; the black marker is the pooled median with its
-hierarchical-bootstrap 95% interval, and the open circles are the median of
-each mouse (left: {subject}; right: {held_out}). **a–c, Collinearity of the
+hierarchical-bootstrap 95% interval, and the open markers are the median of
+each mouse (circle: {subject}; triangle: {held_out}). **a–c, Collinearity of the
 design**, for the design of each unit. **a**, The generalized variance
 inflation factor of each regressor, as GVIF^(1/p); the dashed lines are the
 usual limits of 5 and 10. The largest value in either animal is {gvif:.2f}.
@@ -183,8 +184,8 @@ def main() -> None:
             """Units of both mice pooled for each regressor, with the medians.
 
             Black: the pooled median with its hierarchical-bootstrap 95%
-            interval. Open circles: the median of the first mouse (left) and
-            of the held-out mouse (right).
+            interval. Open markers: the median of each mouse, in its shape
+            (`mouse_marker`).
             """
             for position, name in enumerate(regressors):
                 groups = [values[name] for values in values_of]
@@ -216,7 +217,8 @@ def main() -> None:
                     axis.scatter(
                         position + 0.27 + 0.1 * k,
                         np.clip(mouse, *limits),
-                        s=8,
+                        s=9,
+                        marker=mouse_marker(subjects[k], k),
                         facecolor="white",
                         edgecolor="black",
                         lw=0.6,
@@ -369,10 +371,10 @@ def main() -> None:
             RECOVERY_LIMITS["agreement"],
         )
         gvif_axis.set_title(
-            "units of both mice; circles as in d", fontsize=5.5, loc="left"
+            "units of both mice; open markers as in d", fontsize=5.5, loc="left"
         )
         agreement_axis.set_title(
-            f"open circles: {subjects[0]} (left), {subjects[1]} (right)",
+            f"open markers: {subjects[0]} circle, {subjects[1]} triangle",
             fontsize=5.5,
             loc="left",
         )

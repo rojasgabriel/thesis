@@ -4,18 +4,22 @@ Question: is the apparent sensory enhancement independent of locomotion?
 The measured comparison is stationary versus movement task periods; video
 covariates do not isolate locomotion itself. No new model fits are made.
 
-Observation: last 15-ms in-port and first 15-ms after-exit flash from the
-same trial. Keep pairs only when both flashes have the same preceding-gap
-class: <=50 ms (nominal 40 ms) or >50 ms (nominal 80+ ms), exactly the model
-split. Use the immediately preceding measured pulse of any width; exclude
-first flashes without a preceding pulse and mixed-gap pairs. Report all
-exclusion counts and selected trial IDs. Align to measured flash onset, use
+Observation: one pair of 15-ms flashes per trial and preceding-gap class,
+<=50 ms (nominal 40 ms) or >50 ms (nominal 80+ ms), exactly the model split:
+the last in-port flash of that class and the first after-exit flash of that
+class at least `MIN_PAIR_SEPARATION_S` after it, so the two 30..120-ms peak
+windows do not overlap. (Before 2026-10-25 the pair was the last in-port and
+the first after-exit flash; in the 40-ms class these were always consecutive
+flashes 40 ms apart, with overlapping windows and often equal peaks.) The gap
+is to the immediately preceding measured pulse of any width; the first pulse
+of a trial has none and is not used. A trial can give a pair to each class.
+Report all exclusion counts and selected trial IDs. Align to measured flash onset, use
 10-ms bins, and subtract the stationary -40..0-ms baseline within each gap
 class from both peaks (30..120 ms). Restrict all sources to the GLM's selected
 completed trials and full paired windows inside its valid native 1-ms grid.
 Round flash anchors to the nearest model bin. Other flashes can enter the window.
-PSTHs pool the same-gap pairs and show the population mean and SEM across
-unit trial means. Saved per-unit peak uncertainty is SD across paired-trial
+PSTHs show each gap class on its own, above the scatter of that class: the
+population mean and SEM across unit trial means. Saved per-unit peak uncertainty is SD across paired-trial
 bootstrap draws, stratified by gap class and conditional on saved models.
 
 Primary model comparison: observed counts, saved whole-trial held-out rate
@@ -39,9 +43,10 @@ corrected and differ from the earlier matched-rate peak contribution.
 
 Selection: both sessions in flash_kernels.SESSIONS, quality 1/stability 0,
 and available main-GLM fits after the existing fit exclusions. Scatters show
-only the mean of all eligible units (open circles) and the mean of the saved
-StimulusResponse excited group (filled circles), with SEM across units on
-both axes. Mouse is encoded only by color. PSTHs and the existing report
+only the mean of all eligible units (open markers) and the mean of the saved
+StimulusResponse excited group (filled markers), with SEM across units on
+both axes. The mouse is the marker shape (`mouse_marker`); the color is the
+source (observed black, model wine). PSTHs and the existing report
 summaries use only that excited group. The same units enter every rate column. The
 sampling unit is the neural unit; tests are paired within mouse. Trial
 selection differs from standardized model-kernel conditions. All finite
@@ -71,7 +76,15 @@ import matplotlib
 import numpy as np
 from scipy import stats
 
-from thesis.plotting import FIGURE_STYLE, label_panels, save_figure
+from thesis.plotting import (
+    FIGURE_STYLE,
+    MODEL_COLOR,
+    OBSERVED_COLOR,
+    label_panels,
+    mouse_marker,
+    save_figure,
+)
+from thesis.plotting import PERIOD_COLORS as PERIOD_COLOR_OF
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
@@ -86,23 +99,26 @@ from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import LAGS_MS
 from thesis.ephys.analyses.glm.raw_video_kernels import task_kernel
 from thesis.ephys.analyses.glm.results import flash_kernel_at, raw_contribution
-from thesis.ephys.analyses.stim_responses_by_locomotion import SUBJECT_COLORS
 from thesis.ephys.units import fetch_unit_table
 
 OUTPUT = Path("results/glm")
 GAPS_MS = (100, 40)
 GAP_LABELS = ("preceding gap ≥80 ms", "preceding gap 40 ms")
-PERIOD_COLORS = ("C0", "C1")
+PERIOD_COLORS = (PERIOD_COLOR_OF["in port"], PERIOD_COLOR_OF["after exit"])
+MIN_PAIR_SEPARATION_S = 0.09  # the 30..120-ms peak windows do not overlap
 RATE_SOURCES = ("observed", "full model", "without flash × exit")
 
 
 def paired_flashes_by_gap(trials):
-    """Keep the original last/first pair only if both preceding gaps match."""
+    """Pair, in each gap class, the last in-port and a later after-exit flash."""
     groups = [
         {"stationary": [], "movement": [], "trial_ids": [], "gaps_ms": []}
         for _ in GAPS_MS
     ]
-    counts = {"original_pairs": 0, "no_preceding_pulse": 0, "mixed_gap_pairs": 0}
+    counts = {
+        "trials_with_flashes_in_both_periods": 0,
+        "no_pair_in_class": dict.fromkeys(GAP_LABELS, 0),
+    }
     for _, trial in trials.iterrows():
         entry, leave, response = (
             trial["center_entry_s"],
@@ -119,26 +135,35 @@ def paired_flashes_by_gap(trials):
             )
         if np.any(np.diff(times) <= 0):
             raise ValueError("Measured pulse times must be strictly increasing.")
-        selected = np.flatnonzero(widths == 15)
-        stationary = selected[(times[selected] >= entry) & (times[selected] < leave)]
-        movement = selected[(times[selected] >= leave) & (times[selected] <= response)]
-        if not len(stationary) or not len(movement):
+        flash = widths == 15
+        stationary = flash & (times >= entry) & (times < leave)
+        movement = flash & (times >= leave) & (times <= response)
+        if not stationary.any() or not movement.any():
             continue
-        counts["original_pairs"] += 1
-        pair = np.array([stationary[-1], movement[0]])
-        if np.any(pair == 0):
-            counts["no_preceding_pulse"] += 1
-            continue
-        gaps = times[pair] - times[pair - 1]
+        counts["trials_with_flashes_in_both_periods"] += 1
+        gaps = np.diff(times, prepend=np.nan)  # the first pulse has no gap
         short = gaps <= dmat.FLASH_JUST_BEFORE_S
-        if short[0] != short[1]:
-            counts["mixed_gap_pairs"] += 1
-            continue
-        group = groups[int(short[0])]
-        group["stationary"].append(float(times[pair[0]]))
-        group["movement"].append(float(times[pair[1]]))
-        group["trial_ids"].append(int(trial["trial_num"]))
-        group["gaps_ms"].append((1000 * gaps).tolist())
+        for index, label in enumerate(GAP_LABELS):
+            in_class = np.isfinite(gaps) & (short == (GAPS_MS[index] <= 50))
+            before = np.flatnonzero(stationary & in_class)
+            after = (
+                np.flatnonzero(
+                    movement
+                    & in_class
+                    & (times >= times[before[-1]] + MIN_PAIR_SEPARATION_S)
+                )
+                if len(before)
+                else []
+            )
+            if not len(after):
+                counts["no_pair_in_class"][label] += 1
+                continue
+            pair = np.array([before[-1], after[0]])
+            group = groups[index]
+            group["stationary"].append(float(times[pair[0]]))
+            group["movement"].append(float(times[pair[1]]))
+            group["trial_ids"].append(int(trial["trial_num"]))
+            group["gaps_ms"].append((1000 * gaps[pair]).tolist())
     return groups, counts
 
 
@@ -152,14 +177,19 @@ def observed_peaks(rate, centers):
 
 def kernel_peaks(coefficients, metadata, basis, lags):
     """Return (gap, period) peaks with other raw contributions held fixed."""
+    names = (
+        dmat.FLASH_COMMON,
+        dmat.FLASH_JUST_BEFORE,
+        dmat.FLASH_AFTER_EXIT,
+        dmat.FLASH_RECOVERY,
+    )
+    present = {c.split("_basis_")[0] for c in metadata["column_names"]}
     terms = {
         name: (lags, task_kernel(coefficients, metadata, name, basis))
-        for name in (
-            dmat.FLASH_COMMON,
-            dmat.FLASH_JUST_BEFORE,
-            dmat.FLASH_AFTER_EXIT,
-        )
+        for name in names
+        if name in present
     }
+    center = metadata.get("flash_recovery_center")
     # The basis includes its 150-ms endpoint; 10-ms bins are half-open.
     inside = (np.round(lags, 6) >= 0) & (np.round(lags, 6) < 150)
     centers = lags[inside].reshape(-1, 10).mean(-1) + 0.5
@@ -167,7 +197,7 @@ def kernel_peaks(coefficients, metadata, basis, lags):
     return np.asarray(
         [
             [
-                flash_kernel_at(terms, gap, after)[inside]
+                flash_kernel_at(terms, gap, after, center)[inside]
                 .reshape(-1, 10)
                 .mean(-1)[window]
                 .max()
@@ -318,6 +348,16 @@ def session_data(session, excited):
     groups, selection = paired_flashes_by_gap(trials)
     groups, windows, excluded = valid_pair_windows(groups, prepared)
     selection["incomplete_model_window_pairs"] = excluded
+    # The gaps of the two flashes of each pair are not matched; the report
+    # gives them and their recovery (r = 1 - exp(-gap / tau)) in each period.
+    selection["pair_gaps"] = {}
+    for group, label in zip(groups, GAP_LABELS, strict=True):
+        gaps = np.asarray(group["gaps_ms"]) / 1000  # (pair, period)
+        recovery = 1 - np.exp(-gaps / dmat.FLASH_RECOVERY_TAU_S)
+        selection["pair_gaps"][label] = {
+            "median_gap_ms_in_port_after_exit": (1000 * np.median(gaps, 0)).tolist(),
+            "mean_recovery_in_port_after_exit": recovery.mean(0).tolist(),
+        }
     for group, label in zip(groups, GAP_LABELS, strict=True):
         if len(group["trial_ids"]) < 2:
             raise ValueError(f"Too few complete paired windows for {session}, {label}.")
@@ -390,11 +430,12 @@ def session_data(session, excited):
         rate_values.append(peaks)
         rate_spread.append(spreads)
         contribution_draw_sd.append(contribution_sd)
-        traces.append(np.concatenate(unit_traces, axis=1).mean(1))
+        traces.append(np.stack([trace.mean(1) for trace in unit_traces]))
         print(
             f"{session}: reconstructed {position + 1}/{len(ids)} held-out units",
             flush=True,
         )
+    traces = np.asarray(traces)  # (unit, gap, period, bin), observed spikes/s
     rate_values = np.asarray(rate_values)  # (unit, gap, source, period)
     rate_spread = np.asarray(rate_spread)
     normalized_values = np.asarray(normalized_values)
@@ -421,7 +462,7 @@ def session_data(session, excited):
         "trial_groups": dict(zip(GAP_LABELS, groups, strict=True)),
         "selection": selection,
         "centers": centers,
-        "traces": np.asarray(traces),
+        "traces": traces,
         "observed": normalized_values[:, :, 0],
         "observed_sd": normalized_spread[:, :, 0],
         "full_model": normalized_values[:, :, 1],
@@ -469,8 +510,9 @@ def comparison_summary(values):
 
 def peak_scatter(axis, sessions, field, gap=None):
     extents = []
+    color = OBSERVED_COLOR if field == "observed" else MODEL_COLOR
     for index, data in enumerate(sessions):
-        color = SUBJECT_COLORS[index]
+        marker = mouse_marker(data["subject"], index)
         values = data[field]
         if gap is not None:
             values = values[:, gap]
@@ -482,7 +524,7 @@ def peak_scatter(axis, sessions, field, gap=None):
                 *mean,
                 xerr=spread[0],
                 yerr=spread[1],
-                fmt="o",
+                fmt=marker,
                 markerfacecolor=color if filled else "none",
                 color=color,
                 ms=7,
@@ -495,8 +537,9 @@ def peak_scatter(axis, sessions, field, gap=None):
         axis.plot(
             0.66,
             0.16 - index * 0.08,
-            "o",
-            color=color,
+            marker,
+            color=OBSERVED_COLOR,
+            mfc="none",
             transform=axis.transAxes,
             clip_on=False,
             ms=4,
@@ -507,7 +550,7 @@ def peak_scatter(axis, sessions, field, gap=None):
             data["subject"],
             transform=axis.transAxes,
             va="center",
-            color=color,
+            color=OBSERVED_COLOR,
         )
     axis.text(
         0.66,
@@ -536,48 +579,68 @@ def match_scatter_limits(axes):
         axis.plot(limits, limits, color="0.65", linestyle="--", linewidth=0.7, zorder=0)
 
 
+def psth_panel(axis, data, gap, labels):
+    """Mean rate of the group units around the flashes of one gap class."""
+    unit_means = data["traces"][data["responsive"], gap]
+    for period, (name, color) in enumerate(
+        zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
+    ):
+        mean = unit_means[:, period].mean(0)
+        spread = stats.sem(unit_means[:, period], axis=0)
+        axis.plot(1000 * data["centers"], mean, color=color)
+        axis.fill_between(
+            1000 * data["centers"],
+            mean - spread,
+            mean + spread,
+            color=color,
+            alpha=0.15,
+            linewidth=0,
+        )
+        if labels:
+            axis.text(
+                0.04,
+                0.95 - 0.12 * period,
+                name,
+                color=color,
+                transform=axis.transAxes,
+                va="top",
+            )
+    axis.axvline(0, color="0.7", linestyle="--", linewidth=0.7)
+    if GAPS_MS[gap] == 40:  # the flash before is inside the window
+        axis.axvline(-40, color="0.7", linestyle="--", linewidth=0.7)
+    axis.set_title(
+        f"{data['subject']}\n{int(data['responsive'].sum())} units, "
+        f"{data['trials'][gap]} pairs"
+    )
+    axis.set(
+        xlim=(LAGS_MS[0] - 5, LAGS_MS[-1] + 1),
+        xlabel="time from flash (ms)",
+        ylabel="firing rate (spikes/s)",
+    )
+
+
 def write_figure(figure, name):
     print(save_figure(figure, OUTPUT / name))
 
 
 def plot(sessions):
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(2, 2, figsize=(7.6, 6.1), layout="constrained")
-        for axis, data in zip(axes[0], sessions, strict=True):
-            unit_means = data["traces"][data["responsive"]]
-            for period, (name, color) in enumerate(
-                zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
-            ):
-                mean = unit_means[:, period].mean(0)
-                spread = stats.sem(unit_means[:, period], axis=0)
-                axis.plot(1000 * data["centers"], mean, color=color)
-                axis.fill_between(
-                    1000 * data["centers"],
-                    mean - spread,
-                    mean + spread,
-                    color=color,
-                    alpha=0.15,
-                    linewidth=0,
+        # One column per gap class: the PSTH of each mouse above the scatter.
+        figure = plt.figure(figsize=(7.6, 6.4), layout="constrained")
+        grid = figure.add_gridspec(2, 4, height_ratios=(1.0, 1.9))
+        panels, psths, scatters = [], [], []
+        for gap, label in enumerate(GAP_LABELS):
+            for mouse, data in enumerate(sessions):
+                # One rate scale for both mice and both gaps.
+                axis = figure.add_subplot(
+                    grid[0, 2 * gap + mouse], sharey=psths[0] if psths else None
                 )
-                axis.text(
-                    0.02 + period * 0.5,
-                    1.02,
-                    name,
-                    color=color,
-                    transform=axis.transAxes,
-                    va="bottom",
-                )
-            axis.axvline(0, color="0.7", linestyle="--", linewidth=0.7)
-            axis.text(
-                0.98,
-                0.95,
-                f"{data['subject']}\n{int(data['responsive'].sum())} flash-excited units",
-                transform=axis.transAxes,
-                ha="right",
-                va="top",
-            )
-            axis.set(xlabel="time from flash (ms)", ylabel="firing rate (spikes/s)")
-        for gap, (axis, label) in enumerate(zip(axes[1], GAP_LABELS, strict=True)):
+                psth_panel(axis, data, gap, labels=mouse == 0)
+                if mouse:
+                    axis.set_ylabel("")
+                psths.append(axis)
+                panels.append(axis)
+            axis = figure.add_subplot(grid[1, 2 * gap : 2 * gap + 2])
             peak_scatter(axis, sessions, "observed", gap)
             axis.text(
                 0.98, 1.03, label, transform=axis.transAxes, ha="right", va="bottom"
@@ -586,8 +649,10 @@ def plot(sessions):
                 xlabel="stationary peak / mean observed rate",
                 ylabel="movement peak / mean observed rate",
             )
-        match_scatter_limits(axes[1])
-        label_panels(axes.ravel(), x=-0.12, y=1.12)
+            scatters.append(axis)
+            panels.append(axis)
+        match_scatter_limits(scatters)
+        label_panels(panels, x=-0.12, y=1.08)
         write_figure(figure, "flash_observation")
 
         figure, axes = plt.subplots(1, 2, figsize=(7.6, 3.5), layout="constrained")
@@ -644,7 +709,7 @@ def main():
         "rate_error_bars": "paired-trial bootstrap SD (500 shared draws); fixed fitted models",
         "rate_scatter_axes": "linear; population and flash-excited means with complete SEM bars; no individual units",
         "rate_normalization": "one observed mean per unit over full valid model intervals of the selected paired trials; pooled spike counts / valid seconds; same denominator for all sources, periods and gaps; recomputed in each stratified paired bootstrap draw",
-        "display_selection": "all eligible units mean: open circles; saved flash-excited mean: filled circles; all means alpha 0.8; mouse encoded only by color",
+        "display_selection": "all eligible units mean: open markers; saved flash-excited mean: filled markers; all means alpha 0.8; mouse by marker shape, source by color",
         "summary_selection": "scatters show both nested group means with SEM across units; PSTHs and existing report summaries use the saved flash-excited group only; per-unit bootstrap and kernel-fold spreads are saved but not drawn",
         "sessions": {
             data["subject"]: {

@@ -1,6 +1,6 @@
 """Decode nominal visual stimulus rate from V1 population activity.
 
-Comparison: the tuning of single units to the stimulus rate (a, b), then ridge
+Comparison: the tuning of the units to the stimulus rate (a, b), then ridge
 regression of the stimulus rate on held-out trials against the same decoder
 trained on shuffled rates (c, d).
 
@@ -12,12 +12,19 @@ trained on shuffled rates (c, d).
   over trials (100 times, all units pooled).
 - Panel c: the mean decoded rate for each true rate.
 - Panel d: the residual rate, the decoded minus the true rate.
+- Panels a, c and d show the rates as stimulus strength
+  (`trials.stimulus_strength`: 0 at the category boundary, −1 / +1 at 4 / 20
+  flashes/s); the decoder and the results file stay in Hz.
 - Shuffle (gray in panels c and d): the rates are permuted over trials before
   the decoder is trained. That decoder has no information, so it answers near
   the mean rate for every trial: a flat line in panel c and a steep line in
   panel d. The real decoder is not perfect, so it is pulled toward the mean
   rate too and sits between the shuffle and the dotted line of a perfect
   decoder.
+
+Units: by default the single units and multi-units of the unit criteria (not
+noise), with no stability filter; `--units sua`: single units only (outputs
+with `_sua`), with the optional stability filter.
 
 Trials: non-boundary trials with a left or right response. Features: each
 unit's mean firing rate from 0 to 1 s after the first measured flash. Choice is
@@ -47,7 +54,12 @@ from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from thesis.ephys.analyses._decoding import load_decoding_data
+from thesis.ephys.analyses._decoding import add_units_argument, load_decoding_data
+from thesis.ephys.trials import (
+    STRENGTH_SPAN_HZ,
+    check_strength_axis,
+    stimulus_strength,
+)
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -95,6 +107,11 @@ def _unit_rate_correlations(
     )
 
 
+# The y axes of panels c and d in every session (display only).
+DECODED_LIMITS_HZ = (2, 22)
+RESIDUAL_LIMITS_HZ = (-10, 10)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -112,6 +129,7 @@ def _parse_args() -> argparse.Namespace:
     optional.add_argument(
         "--quick", action="store_true", help="Use a smaller ridge grid"
     )
+    add_units_argument(optional)
     optional.add_argument("--show", action="store_true", help="Show the figure")
     optional.add_argument(
         "--no-save", action="store_true", help="Do not save the figure or results"
@@ -131,8 +149,10 @@ def main() -> None:
         unit_criteria_id=args.unit_criteria_id,
         stability_param_id=args.stability_param_id,
         window_start_s=WINDOW_START_S,
+        include_mua=args.units == "all",
         window_stop_s=WINDOW_STOP_S,
     )
+    check_strength_axis(trials)
     rate_hz = trials["visual_stim_rate_hz"].to_numpy(dtype=float)
     alphas = np.logspace(-4, 6, 7) if args.quick else RIDGE_ALPHAS
     random_cv = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_SEED)
@@ -185,6 +205,7 @@ def main() -> None:
         "session": args.session,
         "unit_criteria_id": args.unit_criteria_id,
         "stability_param_id": args.stability_param_id,
+        "units": args.units,
         "n_units": len(units),
         "n_trials": len(trials),
         "window_s": [WINDOW_START_S, WINDOW_STOP_S],
@@ -228,8 +249,12 @@ def main() -> None:
             vmax=2.5,
             interpolation="nearest",
         )
-        axes[0].set_xticks(np.arange(len(rates)), rates.astype(int))
-        axes[0].set_xlabel("stimulus rate (Hz)")
+        axes[0].set_xticks(
+            np.arange(len(rates)),
+            [f"{s:g}" for s in stimulus_strength(rates)],
+            rotation=90,
+        )
+        axes[0].set_xlabel("stimulus strength")
         axes[0].set_ylabel("units, sorted by rate correlation")
         fig.colorbar(image, ax=axes[0], label="firing rate (z-score over rates)")
 
@@ -255,31 +280,46 @@ def main() -> None:
                 va="top",
             )
 
-        for axis, real, offset in (
-            (axes[2], rate_summary["mean"], 0),
-            (axes[3], rate_summary["residual_hz"], rates),
+        # Shown in stimulus strength: decoded values with the offset of the
+        # boundary, residuals as a difference (no offset).
+        for axis, real, offset, scale in (
+            (axes[2], rate_summary["mean"], 0, stimulus_strength),
+            (
+                axes[3],
+                rate_summary["residual_hz"],
+                rates,
+                lambda v: v / STRENGTH_SPAN_HZ,
+            ),
         ):
+            x = stimulus_strength(rates)
             axis.fill_between(
-                rates, null_low - offset, null_high - offset, color="0.85", linewidth=0
+                x,
+                scale(null_low - offset),
+                scale(null_high - offset),
+                color="0.85",
+                linewidth=0,
             )
-            axis.plot(rates, null_mid - offset, color="0.6", linewidth=1)
+            axis.plot(x, scale(null_mid - offset), color="0.6", linewidth=1)
             axis.errorbar(
-                rate_summary["rate_hz"],
-                real,
-                yerr=rate_summary["sem"],
+                stimulus_strength(rate_summary["rate_hz"]),
+                scale(np.asarray(real)),
+                yerr=np.asarray(rate_summary["sem"]) / STRENGTH_SPAN_HZ,
                 color=OBSERVED_COLOR,
                 marker="o",
                 ms=4,
                 capsize=2,
             )
-            axis.set_xlabel("stimulus rate (Hz)")
-        limits = [float(rate_hz.min()), float(rate_hz.max())]
+            axis.set_xlabel("stimulus strength")
+        limits = list(stimulus_strength([rate_hz.min(), rate_hz.max()]))
         axes[2].plot(
             limits, limits, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8
         )
-        axes[2].set_ylabel("decoded rate (Hz)")
+        axes[2].set_ylabel("decoded stimulus strength")
         axes[3].axhline(0, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
-        axes[3].set_ylabel("residual rate (Hz)")
+        axes[3].set_ylabel("residual (decoded − true strength)")
+        # One scale for every session, so that sessions and mice compare.
+        axes[2].set_ylim(*stimulus_strength(DECODED_LIMITS_HZ))
+        axes[3].set_ylim(*(np.asarray(RESIDUAL_LIMITS_HZ) / STRENGTH_SPAN_HZ))
         for row, (label, color) in enumerate(
             (("decoder", OBSERVED_COLOR), ("shuffle", "0.5"))
         ):
@@ -299,7 +339,12 @@ def main() -> None:
         plt.show()
     if not args.no_save:
         output_dir = (
-            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures")) / "rate_decoding"
+            Path(os.environ.get("THESIS_FIGURE_ROOT", "figures"))
+            / "rate_decoding"
+            / (
+                f"{args.subject}_{args.session}"
+                + ("_sua" if args.units == "sua" else "")
+            )
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")

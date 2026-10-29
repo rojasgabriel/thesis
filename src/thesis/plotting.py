@@ -1,12 +1,36 @@
-"""Shared figure style: one rc style, one color for each model concept, panel
-letters, and SVG output. Every analysis figure uses these."""
+"""Shared figure style: one rc style, one color for each concept, a marker
+for each mouse, panel letters, and SVG output. Every analysis figure uses these."""
 
 import string
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import cycler
 from matplotlib.axes import Axes
+
+# One color for one concept in every figure, and color is used for nothing
+# else. The colors are those of Okabe and Ito: color-blind readers can tell
+# them apart, and each is legible as text on white (contrast 3:1 or more).
+CONCEPT_COLORS = {
+    "visual": "#0072B2",
+    "task": "#D55E00",
+    "motion energy": "#009E73",
+    "history": "#CC79A7",
+}
+OBSERVED_COLOR = "black"
+# Not a concept color and not gray: gray marks the excluded bins in the rasters.
+MODEL_COLOR = "#882255"
+REFERENCE_COLOR = "0.65"
+# The two periods of a trial: in the center port (the task holds the mouse
+# still) and after the center exit (the mouse moves).
+PERIOD_COLORS = {
+    "in port": CONCEPT_COLORS["task"],
+    "after exit": CONCEPT_COLORS["motion energy"],
+}
+# A mouse is never a color: it is a marker shape and a black label.
+MOUSE_MARKERS = {"GRB006": "o", "GRB064": "^"}
+_OTHER_MARKERS = "sDv"
 
 # Use with `plt.rc_context(FIGURE_STYLE)`.
 FIGURE_STYLE = {
@@ -14,18 +38,15 @@ FIGURE_STYLE = {
     "axes.spines.right": False,
     "font.size": 8,
     "svg.fonttype": "path",
+    "axes.prop_cycle": cycler(color=[*CONCEPT_COLORS.values(), MODEL_COLOR]),
 }
-# One color for one concept in every figure.
-CONCEPT_COLORS = {
-    "visual": "C0",
-    "task": "C1",
-    "motion energy": "C2",
-    "history": "C3",
-}
-OBSERVED_COLOR = "black"
-# Not a concept color and not gray: gray marks the excluded bins in the rasters.
-MODEL_COLOR = "C4"
-REFERENCE_COLOR = "0.65"
+
+
+def mouse_marker(subject: str, index: int = 0) -> str:
+    """Return the marker of a mouse (another shape for a mouse not in `MOUSE_MARKERS`)."""
+    return MOUSE_MARKERS.get(subject, _OTHER_MARKERS[index % len(_OTHER_MARKERS)])
+
+
 BOOTSTRAPS = 2000
 
 
@@ -90,13 +111,20 @@ def hierarchical_interval(groups, seed: int = 0) -> dict:
 
 
 def pooled_points(
-    axis, xs, ys, subjects, color, seed: int = 0, count_hidden: bool = False
+    axis,
+    xs,
+    ys,
+    subjects,
+    color,
+    seed: int = 0,
+    count_hidden: bool = False,
 ) -> None:
     """Draw the units of all mice pooled, with the medians of the mice and of all.
 
     Units are small light dots. The median of each mouse is a small open
-    circle with its name. The pooled median is a large dot with the
-    hierarchical-bootstrap 95% interval of each median as error bars.
+    marker in the shape of the mouse (`mouse_marker`) with its name in black.
+    The pooled median is a large dot with the hierarchical-bootstrap 95%
+    interval of each median as error bars.
     """
     axis.scatter(
         np.concatenate(xs),
@@ -111,16 +139,25 @@ def pooled_points(
     rank = np.argsort(np.argsort([np.median(y) for y in ys]))
     for k, (x, y, subject) in enumerate(zip(xs, ys, subjects, strict=True)):
         mx, my = np.median(x), np.median(y)
-        axis.scatter(mx, my, s=22, facecolor="white", edgecolor=color, lw=1, zorder=3)
+        axis.scatter(
+            mx,
+            my,
+            s=24,
+            marker=mouse_marker(subject, k),
+            facecolor="white",
+            edgecolor=color,
+            lw=1,
+            zorder=3,
+        )
         # One line for each mouse, so that close medians keep legible names.
         axis.annotate(
             subject,
             (mx, my),
             xytext=(12, 9 if rank[k] == len(ys) - 1 else -13),
             textcoords="offset points",
-            color=color,
+            color=OBSERVED_COLOR,
             fontsize=5.5,
-            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
+            arrowprops={"arrowstyle": "-", "color": "0.4", "lw": 0.4},
         )
     axis.text(
         0.03,
@@ -166,10 +203,19 @@ def pooled_points(
     )
 
 
-def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) -> dict:
+def pooled_strip(
+    axis,
+    position: float,
+    groups,
+    subjects,
+    color,
+    seed: int = 0,
+) -> dict:
     """Draw one column of pooled units, the median of each mouse, and the pooled median.
 
-    Returns the statistics of `hierarchical_interval`.
+    The median of each mouse is an open marker in the shape of the mouse
+    (`mouse_marker`) with its name in black. Returns the statistics of
+    `hierarchical_interval`.
     """
     rng = np.random.default_rng(seed)
     values = np.concatenate(groups)
@@ -187,11 +233,14 @@ def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) 
     # The label of the higher median goes up and the lower one down, so that
     # close medians keep legible names.
     rank = np.argsort(np.argsort(medians))
-    for median, subject, place in zip(medians, subjects, rank, strict=True):
+    for index, (median, subject, place) in enumerate(
+        zip(medians, subjects, rank, strict=True)
+    ):
         axis.scatter(
             position + 0.25,
             median,
-            s=22,
+            s=24,
+            marker=mouse_marker(subject, index),
             facecolor="white",
             edgecolor=color,
             lw=1,
@@ -202,9 +251,9 @@ def pooled_strip(axis, position: float, groups, subjects, color, seed: int = 0) 
             (position + 0.25, median),
             xytext=(8, 7 if place == len(medians) - 1 else -9),
             textcoords="offset points",
-            color=color,
+            color=OBSERVED_COLOR,
             fontsize=5.5,
-            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.4},
+            arrowprops={"arrowstyle": "-", "color": "0.4", "lw": 0.4},
         )
     low, high = stats["interval_95"]
     axis.errorbar(

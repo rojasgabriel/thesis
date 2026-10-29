@@ -800,6 +800,112 @@ al. 2022).
   data do not choose; the weaker-fixation-penalty fit stays the sensitivity
   analysis.
 
+### Flash recovery in the model, 2026-10-23
+
+The model missed long-gap flashes in the port too (`exit_flash_responses.py`):
+the design coded every gap above 50 ms the same, but in-port responses grow
+2.6 to 4.3 times from a 50–100 ms gap to a 200+ ms gap. The old log-gap term
+(2026-10-12) had gone out in the choice of the form, because the grid sees
+little gain from rare long-gap flashes, and it correlated −0.86 with fast
+adaptation.
+
+- Form set before the test: the flash basis scaled by r = 1 − exp(−gap / τ),
+  centered, for gaps above 50 ms; τ = 120 ms from the in-port flashes of
+  GRB006 (`flash_recovery.py`: 121 ms, 95% 88 to 157; GRB064 alone 92 ms).
+  Correlation 0.00 with the short-gap modifier.
+- Inclusion (`candidate_terms.py`, all units): 42 of 167 and 22 of 76 units
+  need it (Holm p = 2e-16 and 7e-9); all other terms still pass. Bits per
+  spike: median +0.0006 per unit; in the flash-excited units +0.0036 / +0.0032
+  (18 of 23, 13 of 15 better).
+- Adopted (Gabriel, 2026-10-23): the candidate fit is the model; the earlier
+  fits are in `results/glm/_before_flash_recovery_2026_10_23/`. All checks
+  and figures were run again; the raw-video control and the design grids are
+  still of the design of 2026-10-17.
+- Effects: result 3 full model 1.89 / 0.95 → 1.98 / 1.21 (observed 2.63 /
+  1.34); leak-corrected flash × exit +0.63 / −0.20 → +0.54 / +0.06; the miss
+  at the first flash after the exit falls at 200+ ms gaps but stays at
+  100–200 ms. Largest GVIF^(1/p) 4.2; the term shares a direction with the
+  start of the fixation kernel (first canonical correlation 0.72 / 0.70).
+- Reporting changed to held-out bits per spike (Gabriel, 2026-10-23); the
+  inclusion decisions are the same as with D².
+
+### 200 motion-energy PCs with a video penalty, 2026-10-24
+
+Papers use about 200 video PCs, but `pc_grid.py` found 200 worse than 10. Our
+model has one penalty for each unit, shared by all columns, and most units
+choose a weak one (10⁻⁴ to 10⁻³). `pc_penalty_grid.py` fits 200 PCs with the
+video penalty 100 and 1000 times stronger than the other terms (video columns
+× 0.1 and × 0.032), on the 80 GRB006 units of the grids (unit table of before
+the gain fix), design of 2026-10-23. Validation D², paired against 10 PCs
+(median 0.075), Holm over four designs:
+
+| Design | Median change | Units better | Holm p |
+| --- | ---: | ---: | ---: |
+| 0 PCs | −0.0001 | 36/80 | 1.0 |
+| 200 PCs, penalty in use | −0.0045 | 11/80 | 1e-10 |
+| 200 PCs, video penalty ×100 | +0.0001 | 42/80 | 1.0 |
+| 200 PCs, video penalty ×1000 | −0.00004 | 38/80 | 1.0 |
+
+- The loss of 200 PCs comes from the shared, weak penalty: with a video
+  penalty, 200 PCs equal 10 PCs. They do not predict better.
+- No motion energy also equals 10 PCs on these units. Motion energy alone
+  explains a median D² of 0.0036 / 0.0030 (task terms alone 0.025 / 0.035).
+  The cameras see the body from behind (GRB006) or below (GRB064), not the
+  face, and the task terms take the movements that are locked to the task.
+- Kept: 10 PCs. More PCs need a separate video penalty and add no
+  prediction.
+
+### Units after the amplifier-gain fix, 2026-10-24
+
+The unit metrics used an amplifier gain of ×80; the correct gain is ×100. The
+lab fixed it, and Joao Couto recomputed `UnitCount` with labdata 0.1.25: noise
+units get `passes = -1`, and the criteria use abs(depth drift) < 6. The
+project criteria (`populate_unit_counts.py`) now match the database, and
+`UnitStability` and `StimulusResponse` were populated again.
+
+- Units: 168 → 173 / 78 → 81 stable (172 / 79 fit after exclusions); no unit
+  was lost. Flash-excited: 23 → 30 / 15 → 15. Spike times, flash times and
+  classifier code did not change.
+- All fits added the new units (the old records were kept); every check and
+  figure was run again. The old cache, lists and results are in
+  `results/glm/_before_gain_fix_2026_10_24/`. The raw-video control was not run
+  again (design of 2026-10-17).
+- Effects: 0.549 / 0.475 bits per spike (from 0.552 / 0.485); all 12 terms
+  pass. Result 3 in GRB006: observed 2.63 → 2.33, full model 1.98 → 1.73,
+  leak-corrected flash × exit +0.54 → +0.76 (p = 0.23; median +0.17), pooled
+  +0.07 → +0.14 (−0.19 to 0.29). The GRB006 mean moves because of one new unit:
+  unit 552 has a leak of −11.4 and real − leak +6.3 (without 552 and 296 the
+  mean leak is +0.26, as before); old unit 162 (+14.6) still dominates the mean.
+  The median is the robust value. GRB064 is the same. The conclusions do not
+  change.
+- Found during the rerun: the recovery fit of `flash_recovery.py` had c at a
+  bound of 1.5 (no recorded reason), which set τ to about 120 ms. With c free,
+  τ = 54 ms (29 to 91), 0 up to 68 ms, and a better fit (χ² 4.0 against 11.1
+  on 4 df). `tau_grid.py` (80 grid units, rule fixed before the run): τ = 40,
+  60, 80 and 160 ms predict the same as 120 ms (Holm p ≥ 0.72), so the model
+  keeps τ = 120 ms.
+- The early-withdrawal trials of the cached GRB006 trial table
+  (`figures/cache`, 2026-10-13) have no flash times (the database has them
+  for 207 of 209); completed trials are the same. The GLM uses completed
+  trials only. `exit_without_stimulus` for GRB006 was run from the database.
+
+### Recovery τ of 50 ms, refit 2026-10-24
+
+Gabriel chose τ from the recovery curve fit with c free (54 ms, 95% 29 to
+91), rounded to 10 ms: `dmat.FLASH_RECOVERY_TAU_S = 0.05`. Prediction does not
+choose τ (`tau_grid.py`), and the form was set from the data, not from the
+model's residuals. Every fit, check and figure was run again; the τ = 120 ms
+fits are in `results/glm/_before_tau_50_2026_10_24/`. A design now records
+its τ, and a design with another τ is not reused.
+
+- Prediction: 0.552 / 0.472 bits per spike (from 0.549 / 0.475); all 12 terms
+  pass; flash recovery is needed by 49/172 and 24/79 units (from 43 and 22).
+- Result 3: full model 1.70 / 1.15 (from 1.73 / 1.21), without flash × exit
+  1.31 / 1.17 (from 1.23 / 1.20). Leak-corrected, excited units: +0.66 / −0.07
+  (p = 0.38 / 0.80; medians +0.10 / −0.04), pooled +0.07 (−0.29 to 0.25).
+  With the weaker fixation penalty: +0.62 / −0.07 (p = 0.43 / 0.60).
+- The conclusions do not change.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept

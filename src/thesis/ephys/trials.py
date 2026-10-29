@@ -28,6 +28,35 @@ ALIGNMENT_EV_COLUMNS = (
 # Largest difference between the hardware and the Bpod response entry that is
 # taken as the same event. The hardware entry is about 8 ms before the Bpod one.
 RESPONSE_TOLERANCE_S = 0.02
+CATEGORY_BOUNDARY_HZ = 12.0
+STRENGTH_SPAN_HZ = 8.0  # the strongest rates, 4 and 20 flashes/s, give -1 and +1
+
+
+def stimulus_strength(rate_hz):
+    """Signed stimulus strength: 0 at the category boundary (no evidence for a
+    side), negative toward the left reward, positive toward the right."""
+    return (np.asarray(rate_hz, dtype=float) - CATEGORY_BOUNDARY_HZ) / STRENGTH_SPAN_HZ
+
+
+def check_strength_axis(trials: pd.DataFrame) -> None:
+    """Raise if `stimulus_strength` does not fit these trials.
+
+    The axis needs the boundary `CATEGORY_BOUNDARY_HZ` and fast trains
+    rewarded on the right (response 1), slow trains on the left (-1).
+    """
+    boundary = np.unique(trials["category_boundary_hz"].to_numpy(float))
+    if not np.allclose(boundary, CATEGORY_BOUNDARY_HZ):
+        raise ValueError(
+            f"Category boundary {boundary} Hz, not {CATEGORY_BOUNDARY_HZ}."
+        )
+    rewarded = trials[(trials["rewarded"] == 1) & trials["response"].isin((-1, 1))]
+    side = rewarded.groupby("stim_category")["response"].unique()
+    for category, expected in (("high_rate", 1), ("low_rate", -1)):
+        if category in side and set(side[category]) != {expected}:
+            raise ValueError(
+                f"Rewarded {category} trials have responses {side[category]}, "
+                f"not {expected}: the strength axis assumes fast = right."
+            )
 
 
 def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
