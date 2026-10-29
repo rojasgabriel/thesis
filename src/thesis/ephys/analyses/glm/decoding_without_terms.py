@@ -80,8 +80,10 @@ Limits:
   balance the groups; it is not a bootstrap over trials. The sampling unit is
   the trial; each mouse is one session.
 
-The script writes `figures/glm/<target>_without_terms.svg` and
-`results/glm/<target>_without_terms.json`.
+The script writes `figures/glm/<target>_without_terms<fit>.svg` and
+`results/glm/<target>_without_terms<fit>.json`. `--fit _flash_side` uses the
+fit of `candidate_terms.py` with the flash × side term (`dmat.FLASH_SIDE`) in
+each session directory with that suffix; its flash part holds that term.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
         thesis.ephys.analyses.glm.decoding_without_terms --target choice
@@ -150,9 +152,9 @@ ALL_VERSIONS = (*VERSIONS, ALL_UNITS)
 AUC_LIMITS = (0.1, 1.02)
 
 
-def session_rates(session: str) -> dict:
+def session_rates(session: str, fit_suffix: str = "") -> dict:
     """Return the window rates of each version, (period, version) -> (trial, unit)."""
-    root = OUT / session
+    root = OUT / (session + fit_suffix)
     prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
     metadata = json.loads((root / "common_design_me.json").read_text())
@@ -314,7 +316,7 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict, target: str) -> dict
     return report
 
 
-def plot(reports: list[dict], target: str) -> Path:
+def plot(reports: list[dict], target: str, name: str) -> Path:
     offsets = (np.arange(len(ALL_VERSIONS)) - 1.5) * 0.2
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
@@ -379,16 +381,20 @@ def plot(reports: list[dict], target: str) -> Path:
         axes[0].set_ylabel(f"{target} AUC (held out)")
         label_panels(axes, x=-0.18, y=1.03)
         figure.tight_layout()
-        return save_figure(figure, OUT / f"{target}_without_terms")
+        return save_figure(figure, OUT / name)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--target", choices=TARGETS, default="category")
-    target = parser.parse_args().target
+    parser.add_argument(
+        "--fit", default="", help="suffix of the fit directories, e.g. _flash_side"
+    )
+    args = parser.parse_args()
+    target, name = args.target, f"{args.target}_without_terms{args.fit}"
     reports = []
     for session in SESSIONS:
-        data = session_rates(session)
+        data = session_rates(session, args.fit)
         labels, other = target_labels(data, target)
         rng = np.random.default_rng(SEED)
         real = scores(data, labels, other, rng, N_RESAMPLES)
@@ -402,9 +408,9 @@ def main() -> None:
         )
         reports.append(summary(real, null, data, target))
         print(data["subject"], "done", flush=True)
-    (OUT / f"{target}_without_terms.json").write_text(json.dumps(reports, indent=1))
+    (OUT / f"{name}.json").write_text(json.dumps(reports, indent=1))
     print(json.dumps(reports, indent=1))
-    print(plot(reports, target))
+    print(plot(reports, target, name))
 
 
 if __name__ == "__main__":
