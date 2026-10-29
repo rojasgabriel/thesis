@@ -1,12 +1,18 @@
-"""Is the category signal around the center exit visual, or task and movement?
+"""Are the category and choice signals around the center exit visual?
 
-Question: the stimulus category (fast or slow train) is clearest just after
-the mouse leaves the center port (`decoding_time_course.py`). The mouse moves
-then, and the flashes go on. Does the category signal come from the flash
-responses, or from the other signals that the GLM gives to task and movement?
+Questions (`--target`):
 
-Comparison: a category decoder on three versions of the same rates, in the
-same trials and resamples, so the versions are paired:
+- category: the stimulus category (fast or slow train) is clearest just
+  after the mouse leaves the center port (`decoding_time_course.py`). The
+  mouse moves then, and the flashes go on. Does the category signal come from
+  the flash responses, or from the other signals that the GLM gives to task
+  and movement?
+- choice: the choice is decoded almost perfectly after the exit. Is that a
+  choice signal, or the flash responses changed by the turn of the head,
+  which moves the LED panel to another part of the visual field?
+
+Comparison: a decoder of the target on three versions of the same rates, in
+the same trials and resamples, so the versions are paired:
 
 - observed: the spike counts;
 - without the flash terms: the counts divided by exp(flash part), the flash
@@ -17,13 +23,13 @@ same trials and resamples, so the versions are paired:
   response period, turn direction, previous side, session drift and
   motion-energy PCs).
 
-Spike history is in neither part, so it stays in all versions. A category
-signal that is visual should fall when the flash part is divided out and stay
-when the other part is divided out.
+Spike history is in neither part, so it stays in all versions. A signal that
+is visual should fall when the flash part is divided out and stay when the
+other part is divided out.
 
 A fourth version, observed with single units and multi-units (the default of
 the decoders, `_decoding._units_with_mua`), shows how much of the decoder's
-category signal the GLM units carry; the multi-units have no GLM fit, so the
+signal the GLM units carry; the multi-units have no GLM fit, so the
 model parts exist only for the GLM units.
 
 Limits:
@@ -36,6 +42,13 @@ Limits:
   that is not visual, not evidence for one.
 - A weak observed signal gives a small change: GRB006 in the port is only
   just above chance (0.61 against 0.42–0.57 on 2026-10-29).
+- Choice: the flash terms are the same for both sides (the after-exit flash
+  kernel has no side), so a flash response that changes with the side of the
+  turn is not in the flash part; it stays in the version without the flash
+  terms. A choice signal that survives does not exclude the visual
+  hypothesis; only a large fall supports it. The other part holds the turn
+  term, which is the side of the response after the exit, so the choice
+  signal must fall without the other terms; that version is only a check.
 - The division by exp(part) does not let a few trials dominate: on
   2026-10-29 the top 1% of unit-trials held the same share of the spikes as
   in the observed version (6–11%).
@@ -46,19 +59,20 @@ Limits:
   (single units and multi-units, and another GRB064 session).
 - Trials: the selected GLM trials that are not at the category boundary.
   Each resample takes equal numbers of the four category × choice groups, so
-  the decoder cannot use the choice.
+  the category decoder cannot use the choice, and the choice decoder cannot
+  use the category.
 - Periods: `WINDOW_S` before the center exit (in the port) and `WINDOW_S`
   after it; the rate of each unit in each window, spikes/s. All bins are
   before the response-port entry.
 - Model parts: each trial uses the fold model of the GLM cross-validation
   that held that trial out (`fit.trial_folds`), so the model that changes a
   trial did not see it. The GLM gets no category label; it sees the flash
-  times. The decoder training trials of one fold are changed by GLM models
+  times. It sees the side of the response after the exit (the turn term). The decoder training trials of one fold are changed by GLM models
   that saw its test trials.
 - Decoder: z-score and logistic regression (`_decoding.decoder`),
   `CV_FOLDS` stratified folds, the AUC of the held-out output, mean over
-  `N_RESAMPLES` balanced resamples. Chance: the category shuffled within
-  each choice, `N_SHUFFLES` times; each shuffle gives the mean AUC over
+  `N_RESAMPLES` balanced resamples. Chance: the target shuffled within each
+  level of the other variable, `N_SHUFFLES` times; each shuffle gives the mean AUC over
   `NULL_RESAMPLES` resamples, so the gray band (2.5–97.5 percentiles) is the
   chance range of a mean AUC, as the points are, not of one decoder run.
 - Statistic: each version minus observed, per resample: mean and 2.5–97.5
@@ -66,15 +80,16 @@ Limits:
   balance the groups; it is not a bootstrap over trials. The sampling unit is
   the trial; each mouse is one session.
 
-The script writes `figures/glm/category_without_terms.svg` and
-`results/glm/category_without_terms.json`.
+The script writes `figures/glm/<target>_without_terms.svg` and
+`results/glm/<target>_without_terms.json`.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
-        thesis.ephys.analyses.glm.category_without_terms
+        thesis.ephys.analyses.glm.decoding_without_terms --target choice
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -106,7 +121,7 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/glm")
-NAME = "category_without_terms"
+TARGETS = ("category", "choice")
 WINDOW_S = 0.3
 CV_FOLDS = 10
 N_RESAMPLES = 50
@@ -229,12 +244,18 @@ def session_rates(session: str) -> dict:
     }
 
 
-def scores(data: dict, labels: np.ndarray, rng, n_resamples: int) -> np.ndarray:
+def target_labels(data: dict, target: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return the labels (0/1) of the target and the other variable (-1/1)."""
+    if target == "category":
+        return data["category"], data["choice"]
+    return (data["choice"] == 1).astype(int), np.where(data["category"] == 1, 1, -1)
+
+
+def scores(data: dict, labels, other, rng, n_resamples: int) -> np.ndarray:
     """Return the AUC of `labels` per resample, (resample, period, version)."""
     out = np.empty((n_resamples, len(PERIODS), len(ALL_VERSIONS)))
-    choice = data["choice"]
     for resample in range(n_resamples):
-        index = balanced_indices(labels, choice, rng)
+        index = balanced_indices(labels, other, rng)
         y = labels[index]
         folds = StratifiedKFold(CV_FOLDS, shuffle=True, random_state=SEED + resample)
         for p, period in enumerate(PERIODS):
@@ -248,25 +269,23 @@ def scores(data: dict, labels: np.ndarray, rng, n_resamples: int) -> np.ndarray:
     return out
 
 
-def shuffled(data: dict, rng) -> np.ndarray:
-    """Return the category shuffled within each choice."""
-    labels = data["category"].copy()
-    for side in (-1, 1):
-        mask = data["choice"] == side
+def shuffled(labels, other, rng) -> np.ndarray:
+    """Return the labels shuffled within each level of the other variable."""
+    labels = labels.copy()
+    for level in (-1, 1):
+        mask = other == level
         labels[mask] = rng.permutation(labels[mask])
     return labels
 
 
-def summary(real: np.ndarray, null: np.ndarray, data: dict) -> dict:
+def summary(real: np.ndarray, null: np.ndarray, data: dict, target: str) -> dict:
     report = {
         "subject": data["subject"],
         "units": data["units"],
         "units_with_multi_units": data["units_with_multi_units"],
         "trials_per_resample": int(
             len(
-                balanced_indices(
-                    data["category"], data["choice"], np.random.default_rng(0)
-                )
+                balanced_indices(*target_labels(data, target), np.random.default_rng(0))
             )
         ),
     }
@@ -294,7 +313,7 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict) -> dict:
     return report
 
 
-def plot(reports: list[dict]) -> Path:
+def plot(reports: list[dict], target: str) -> Path:
     offsets = (np.arange(len(ALL_VERSIONS)) - 1.5) * 0.2
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
@@ -325,14 +344,15 @@ def plot(reports: list[dict]) -> Path:
             axis.set_xticks(range(len(PERIODS)), PERIODS)
             axis.set_xlim(-0.5, len(PERIODS) - 0.5)
             axis.set_ylim(*AUC_LIMITS)
+            # Above the plot: an AUC near 1 reaches the top of the axes.
             axis.text(
                 0.02,
-                0.97,
+                1.02,
                 f"{report['subject']}: {report['units']} neurons"
                 f" ({report['units_with_multi_units']} with multi-units)",
                 color=OBSERVED_COLOR,
                 transform=axis.transAxes,
-                va="top",
+                va="bottom",
             )
             axis.text(
                 0.98,
@@ -355,29 +375,35 @@ def plot(reports: list[dict]) -> Path:
                 va="bottom",
                 fontsize=7,
             )
-        axes[0].set_ylabel("category AUC (held out)")
+        axes[0].set_ylabel(f"{target} AUC (held out)")
         label_panels(axes, x=-0.18, y=1.03)
         figure.tight_layout()
-        return save_figure(figure, OUT / NAME)
+        return save_figure(figure, OUT / f"{target}_without_terms")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--target", choices=TARGETS, default="category")
+    target = parser.parse_args().target
     reports = []
     for session in SESSIONS:
         data = session_rates(session)
+        labels, other = target_labels(data, target)
         rng = np.random.default_rng(SEED)
-        real = scores(data, data["category"], rng, N_RESAMPLES)
+        real = scores(data, labels, other, rng, N_RESAMPLES)
         null = np.asarray(
             [
-                scores(data, shuffled(data, rng), rng, NULL_RESAMPLES).mean(0)
+                scores(
+                    data, shuffled(labels, other, rng), other, rng, NULL_RESAMPLES
+                ).mean(0)
                 for _ in range(N_SHUFFLES)
             ]
         )
-        reports.append(summary(real, null, data))
+        reports.append(summary(real, null, data, target))
         print(data["subject"], "done", flush=True)
-    (OUT / f"{NAME}.json").write_text(json.dumps(reports, indent=1))
+    (OUT / f"{target}_without_terms.json").write_text(json.dumps(reports, indent=1))
     print(json.dumps(reports, indent=1))
-    print(plot(reports))
+    print(plot(reports, target))
 
 
 if __name__ == "__main__":
