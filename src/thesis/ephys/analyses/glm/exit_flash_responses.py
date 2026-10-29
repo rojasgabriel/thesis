@@ -23,7 +23,9 @@ left out: the response to the flash before falls into their windows.
   the pooled mean trace.
 - Gain test (panel c): for an after-exit group at a gap, the peak and the
   rate before the flash, each over the in-port value at the same gap. A pure
-  gain on all activity puts the point on the identity line.
+  gain on all activity puts the point on the identity line. The report says
+  if the interval of the in-port peak (or dip) includes 0; then the ratios of
+  that gap are not stable.
 - Group (`--group`): "excited" (default), the flash-excited units of
   `raw_video_trust_classification.json`; "flash-suppressed", the units whose
   flash weights are below 0 (`flash_weight_check.json`, weight + 1.96 SE < 0),
@@ -106,14 +108,11 @@ def trace(rate: np.ndarray) -> np.ndarray:
     return rate.mean(0).reshape(-1, 10).mean(-1)
 
 
-DIP = False  # set by --group: the dip below the rate before, not the peak
-
-
-def before_and_peak(rate: np.ndarray) -> tuple[float, float]:
-    """Return the rate before the flash and the peak above it (with `DIP`, the dip below it)."""
+def before_and_peak(rate: np.ndarray, dip: bool) -> tuple[float, float]:
+    """Return the rate before the flash and the peak above it (with `dip`, the dip below it)."""
     values = trace(rate)
     before = values[BASELINE].mean()
-    if DIP:
+    if dip:
         return float(before), float(before - values[PEAK].min())
     return float(before), float(values[PEAK].max() - before)
 
@@ -145,7 +144,7 @@ def events(trials, prepared) -> dict:
     return {k: np.asarray(v) for k, v in found.items() if len(v) >= MIN_FLASHES}
 
 
-def session_values(session: str, excited: list[int]) -> dict:
+def session_values(session: str, excited: list[int], dip: bool) -> dict:
     """Return per-unit measures and traces of each event group of one session."""
     root = OUT / session
     metadata = json.loads((root / "common_design_me.json").read_text())
@@ -183,10 +182,10 @@ def session_values(session: str, excited: list[int]) -> dict:
         scale = (counts * valid).sum() / (valid.sum() * dmat.BINWIDTH_S)
         to_rate = 1 / (dmat.BINWIDTH_S * scale)
         for key, window in windows.items():
-            before, peak = before_and_peak(counts[window] * to_rate)
+            before, peak = before_and_peak(counts[window] * to_rate, dip)
             noise = np.mean(
                 [
-                    before_and_peak(rng.poisson(predicted[window]) * to_rate)[1]
+                    before_and_peak(rng.poisson(predicted[window]) * to_rate, dip)[1]
                     for _ in range(DRAWS)
                 ]
             )
@@ -234,8 +233,8 @@ def interval(sessions, function, boot) -> list[float]:
     return np.percentile([function(picks) for picks in boot], [2.5, 97.5]).tolist()
 
 
-def latency(sessions, key, picks=None) -> float:
-    """Return the peak time (ms) of the pooled mean trace (with `DIP`, of its lowest bin)."""
+def latency(sessions, key, dip: bool, picks=None) -> float:
+    """Return the peak time (ms) of the pooled mean trace (with `dip`, of its lowest bin)."""
     if picks is None:
         traces = np.concatenate([s["values"][key]["trace"] for s in sessions])
     else:
@@ -243,7 +242,7 @@ def latency(sessions, key, picks=None) -> float:
             [sessions[m]["values"][key]["trace"][i] for m, i in picks]
         )
     mean = traces.mean(0)
-    if DIP:
+    if dip:
         return float(1000 * CENTERS_S[np.argmin(np.where(PEAK, mean, np.inf))])
     return float(1000 * CENTERS_S[np.argmax(np.where(PEAK, mean, -np.inf))])
 
@@ -311,15 +310,14 @@ def relative_figure(sessions, boot, keys):
 
 
 def main() -> None:
-    global DIP
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--group", choices=("excited", "flash-suppressed"), default="excited"
     )
     group = parser.parse_args().group
-    DIP = group == "flash-suppressed"
-    suffix = "_flash_suppressed" if DIP else ""
-    if DIP:
+    dip = group == "flash-suppressed"
+    suffix = "_flash_suppressed" if dip else ""
+    if dip:
         check = json.loads((OUT / "flash_weight_check.json").read_text())
         units = {
             s: check[s]["weights"]["units_by_model_class"]["suppressed"]
@@ -327,7 +325,7 @@ def main() -> None:
         }
     else:
         units = json.loads((OUT / "raw_video_trust_classification.json").read_text())
-    sessions = [session_values(s, sorted(units[s])) for s in SESSIONS]
+    sessions = [session_values(s, sorted(units[s]), dip) for s in SESSIONS]
     keys = [k for k in sessions[0]["values"] if all(k in s["values"] for s in sessions)]
     boot = draws(sessions)
     stats = {"flashes": {s["subject"]: s["flashes"] for s in sessions}, "groups": {}}
@@ -338,9 +336,9 @@ def main() -> None:
             entry[f"{name}_interval"] = interval(
                 sessions, lambda p, k=key, n=name: pooled(sessions, k, n, p), boot
             )
-        entry["latency_ms"] = latency(sessions, key)
+        entry["latency_ms"] = latency(sessions, key, dip)
         entry["latency_interval_ms"] = interval(
-            sessions, lambda p, k=key: latency(sessions, k, p), boot
+            sessions, lambda p, k=key: latency(sessions, k, dip, p), boot
         )
         stats["groups"][str(key)] = entry
     gain = {}
@@ -366,6 +364,10 @@ def main() -> None:
             def beyond(picks, ratio=ratio):
                 return ratio(picks, "peak") / ratio(picks, "before")
 
+            # A ratio over an in-port response whose interval includes 0 is
+            # not stable: the report says so.
+            low, high = stats["groups"][str(port)]["peak_interval"]
+            gain[str(key)]["in_port_peak_interval_includes_0"] = bool(low <= 0 <= high)
             # How much more the response grew than the rate before it; 1 = one gain.
             gain[str(key)]["beyond_gain"] = {
                 "ratio": beyond(None),
@@ -420,7 +422,7 @@ def main() -> None:
                 )
             axis.set_xticks([*gap_x, len(GAPS) + 0.2], [*GAP_LABELS, "first\nof trial"])
             axis.set_xlabel("gap from the flash before (ms)")
-        word = "dip" if DIP else "peak"
+        word = "dip" if dip else "peak"
         peak_axis.set_ylabel(f"flash {word} (/ mean rate)")
         latency_axis.set_ylabel(f"{word} latency (ms)")
         miss_axis.set_ylabel(f"observed − model + noise\n{word} (/ mean rate)")

@@ -131,6 +131,8 @@ def window_rates(
     """Return the rate (spikes/s) of each unit in each trial window, (trial, unit)."""
     rates = np.empty((len(starts_s), len(units)), dtype=float)
     duration = np.asarray(stops_s) - np.asarray(starts_s)
+    if not np.all(duration > 0):
+        raise ValueError(f"{np.sum(~(duration > 0))} trial windows have no width.")
     for unit, spike_times_s in enumerate(units["spike_times_s"]):
         spikes = np.sort(np.asarray(spike_times_s, dtype=float))
         rates[:, unit] = (

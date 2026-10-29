@@ -38,6 +38,27 @@ def stimulus_strength(rate_hz):
     return (np.asarray(rate_hz, dtype=float) - CATEGORY_BOUNDARY_HZ) / STRENGTH_SPAN_HZ
 
 
+def check_strength_axis(trials: pd.DataFrame) -> None:
+    """Raise if `stimulus_strength` does not fit these trials.
+
+    The axis needs the boundary `CATEGORY_BOUNDARY_HZ` and fast trains
+    rewarded on the right (response 1), slow trains on the left (-1).
+    """
+    boundary = np.unique(trials["category_boundary_hz"].to_numpy(float))
+    if not np.allclose(boundary, CATEGORY_BOUNDARY_HZ):
+        raise ValueError(
+            f"Category boundary {boundary} Hz, not {CATEGORY_BOUNDARY_HZ}."
+        )
+    rewarded = trials[(trials["rewarded"] == 1) & trials["response"].isin((-1, 1))]
+    side = rewarded.groupby("stim_category")["response"].unique()
+    for category, expected in (("high_rate", 1), ("low_rate", -1)):
+        if category in side and set(side[category]) != {expected}:
+            raise ValueError(
+                f"Rewarded {category} trials have responses {side[category]}, "
+                f"not {expected}: the strength axis assumes fast = right."
+            )
+
+
 def _split_bpod_pokes(pokes: object) -> tuple[np.ndarray, np.ndarray]:
     """Return Bpod entry and exit times from a trial's poke array."""
     if pokes is None or (np.isscalar(pokes) and pd.isna(pokes)):

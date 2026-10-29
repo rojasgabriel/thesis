@@ -42,7 +42,11 @@ from scipy.stats import norm
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.trials import build_trial_table, stimulus_strength
+from thesis.ephys.trials import (
+    build_trial_table,
+    check_strength_axis,
+    stimulus_strength,
+)
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -79,6 +83,7 @@ def session_behavior(session: str) -> dict:
     subject, stamp = session.split("_", 1)
     trials = build_trial_table(subject, stamp, include_frames=False)
     done = trials[(trials["early_withdrawal"] == 0) & trials["response"].isin((-1, 1))]
+    check_strength_axis(done)
     rates = done["visual_stim_rate_hz"].to_numpy(float)
     right = (done["response"] == RIGHT).to_numpy(int)
     boundary = float(done["category_boundary_hz"].iloc[0])

@@ -348,6 +348,16 @@ def session_data(session, excited):
     groups, selection = paired_flashes_by_gap(trials)
     groups, windows, excluded = valid_pair_windows(groups, prepared)
     selection["incomplete_model_window_pairs"] = excluded
+    # The gaps of the two flashes of each pair are not matched; the report
+    # gives them and their recovery (r = 1 - exp(-gap / tau)) in each period.
+    selection["pair_gaps"] = {}
+    for group, label in zip(groups, GAP_LABELS, strict=True):
+        gaps = np.asarray(group["gaps_ms"]) / 1000  # (pair, period)
+        recovery = 1 - np.exp(-gaps / dmat.FLASH_RECOVERY_TAU_S)
+        selection["pair_gaps"][label] = {
+            "median_gap_ms_in_port_after_exit": (1000 * np.median(gaps, 0)).tolist(),
+            "mean_recovery_in_port_after_exit": recovery.mean(0).tolist(),
+        }
     for group, label in zip(groups, GAP_LABELS, strict=True):
         if len(group["trial_ids"]) < 2:
             raise ValueError(f"Too few complete paired windows for {session}, {label}.")

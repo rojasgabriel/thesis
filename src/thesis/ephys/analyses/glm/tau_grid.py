@@ -39,6 +39,9 @@ from thesis.ephys.analyses.glm import cli, grid
 from thesis.ephys.analyses.glm.inclusion import holm
 
 TAUS_S = (0.04, 0.06, 0.08, 0.12, 0.16)
+# The reference of the run of 2026-10-23: the τ in use then. Since 2026-10-24
+# the model uses τ = 50 ms (`dmat.FLASH_RECOVERY_TAU_S`, docs/glm_checks.md),
+# which is not in this grid; a new run must add it and use it as IN_USE.
 IN_USE = "τ 120 ms"
 DESIGNS = {f"τ {1000 * tau:.0f} ms": {"FLASH_RECOVERY_TAU_S": tau} for tau in TAUS_S}
 NAME = "tau_grid"

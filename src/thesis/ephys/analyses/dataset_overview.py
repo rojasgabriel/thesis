@@ -13,7 +13,8 @@ on the same scales.
 - Flash raster (`dataset_flash_raster.svg`): the same neuron, spikes around
   every flash at least `LONG_GAP_S` after the flash before (not the first
   flash of a trial), in the port (still, blue) and between the center exit and
-  the response-port entry (moving, orange); below, the rate in 10-ms bins,
+  the response-port entry (moving, orange), with the whole window
+  (`FLASH_WINDOW_S`) inside its period; below, the rate in 10-ms bins,
   mean ± SEM over flashes.
 - Population (`dataset_population.svg`): every unit around the first flash
   and around the center exit, 40-ms bins (one flash slot), as log2 of the rate over the unit's
@@ -102,15 +103,24 @@ def session_data(session: str, excited: set[int]) -> dict:
     first = np.array([float(t[0]) for t in trials["stim_pulse_times_s"]])
     exit_s = trials["center_exit_s"].to_numpy(float)
     response = trials["response_port_entry_s"].to_numpy(float)
+    entry = trials["center_entry_s"].to_numpy(float)
     still, moving = [], []
-    for times, ex, rp in zip(
-        trials["stim_pulse_times_s"], exit_s, response, strict=True
+    for times, widths, en, ex, rp in zip(
+        trials["stim_pulse_times_s"],
+        trials["stim_pulse_widths_ms"],
+        entry,
+        exit_s,
+        response,
+        strict=True,
     ):
         times = np.asarray(times, dtype=float)
         gaps = np.diff(times, prepend=-np.inf)
         long = (gaps >= LONG_GAP_S) & np.isfinite(gaps)
-        still.extend(times[long & (times < ex)])
-        moving.extend(times[long & (times >= ex) & (times < rp)])
+        long &= np.asarray(widths, dtype=float) == 15  # flashes only
+        # The whole flash window lies inside its period.
+        start, stop = times + FLASH_WINDOW_S[0], times + FLASH_WINDOW_S[1]
+        still.extend(times[long & (start >= en) & (stop <= ex)])
+        moving.extend(times[long & (start >= ex) & (stop <= rp)])
     still, moving = np.asarray(still), np.asarray(moving)
     spikes = [np.sort(np.asarray(s, dtype=float)) for s in units["spike_times_s"]]
     mean_rate = np.array(
@@ -326,12 +336,20 @@ def plot_flash_raster(sessions: list[dict]) -> Path:
                 transform=raster.transAxes,
                 va="bottom",
             )
-            raster.text(
-                1, 0.25, "still", color=STILL, transform=raster.transAxes, ha="right"
-            )
-            raster.text(
-                1, 0.9, "moving", color=MOVING, transform=raster.transAxes, ha="right"
-            )
+            # Each label right of the plot, at the middle of its block of rows.
+            n_still = len(data["still"])
+            for y, name, color in (
+                (n_still / 2, "still", STILL),
+                ((n_still + offset) / 2, "moving", MOVING),
+            ):
+                raster.annotate(
+                    name,
+                    (1.01, y),
+                    xycoords=("axes fraction", "data"),
+                    color=color,
+                    va="center",
+                    rotation=90,
+                )
             psth.set_xlabel("time from flash (ms)")
             if column == 0:
                 psth.set_ylabel("rate (spikes/s)")

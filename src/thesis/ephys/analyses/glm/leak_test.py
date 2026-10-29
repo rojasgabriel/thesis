@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import warnings
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -451,7 +452,13 @@ def comparison_values(out: Path) -> dict:
                 logs["log real (final refit)"] = log_part(
                     saved["real_comparison_peaks"]
                 )
-                logs["log leak"] = log_part(saved["leak_comparison_peaks"]).mean(1)
+                # Mean over the simulations with a log ratio; NaN if fewer
+                # than half of them have one.
+                sims = log_part(saved["leak_comparison_peaks"])  # (unit, sim, gap)
+                enough = np.isfinite(sims).mean(1) >= 0.5
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    logs["log leak"] = np.where(enough, np.nanmean(sims, 1), np.nan)
         held = report[subject]
         peaks_by_unit = dict(
             zip(

@@ -55,7 +55,11 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from thesis.ephys.analyses._decoding import add_units_argument, load_decoding_data
-from thesis.ephys.trials import STRENGTH_SPAN_HZ, stimulus_strength
+from thesis.ephys.trials import (
+    STRENGTH_SPAN_HZ,
+    check_strength_axis,
+    stimulus_strength,
+)
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -148,6 +152,7 @@ def main() -> None:
         include_mua=args.units == "all",
         window_stop_s=WINDOW_STOP_S,
     )
+    check_strength_axis(trials)
     rate_hz = trials["visual_stim_rate_hz"].to_numpy(dtype=float)
     alphas = np.logspace(-4, 6, 7) if args.quick else RIDGE_ALPHAS
     random_cv = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_SEED)
