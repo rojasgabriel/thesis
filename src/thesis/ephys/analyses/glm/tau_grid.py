@@ -11,8 +11,9 @@ Comparison: the design in use with `dmat.FLASH_RECOVERY_TAU_S` at each of
 `TAUS_S`. Validation D² of each unit on the fixed sets of 20 units of the
 grids (`--samples 4` gives 80 units of GRB006; GRB064 is held out of this
 choice). Run it with the unit table of before the gain fix
-(`results/glm/_before_gain_fix_2026_10_24/cache`, with the trial table) to use
-the same 80 units as the other grids. The comparison with `IN_USE` is paired
+(`results/glm/_before_gain_fix_2026_10_24/cache`, with a copy of the GRB006
+`build_trial_table` files of `figures/cache` in it) to use the same 80 units as
+the other grids. The comparison with `IN_USE` is paired
 over units: the median change of D², and a two-sided Wilcoxon signed-rank test
 with a Holm correction over the other values.
 
