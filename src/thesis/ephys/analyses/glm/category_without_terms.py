@@ -1,0 +1,334 @@
+"""Is the category signal around the center exit visual, or task and movement?
+
+Question: the stimulus category (fast or slow train) is clearest just after
+the mouse leaves the center port (`decoding_time_course.py`). The mouse moves
+then, and the flashes go on. Does the category signal come from the flash
+responses, or from the other signals that the GLM gives to task and movement?
+
+Comparison: a category decoder on three versions of the same rates, in the
+same trials and resamples, so the versions are paired:
+
+- observed: the spike counts;
+- without the flash terms: the counts divided by exp(flash part), the flash
+  part being all flash columns of the design (`FLASH_TERMS`) times the fitted
+  weights;
+- without the other terms: the counts divided by exp(the part of every other
+  column of the common design: the fixation kernel (`hold`) and level,
+  response period, turn direction, previous side, session drift and
+  motion-energy PCs).
+
+Spike history is in neither part, so it stays in all versions. A category
+signal that is visual should fall when the flash part is divided out and stay
+when the other part is divided out.
+
+- Sessions and units: the GLM sessions (`flash_kernels.SESSIONS`) and the GLM
+  units with a final fit (unit criteria 1, stability 0, exclusions of
+  `fit.py`): 172 and 79. These are not the decoder defaults
+  (single units and multi-units, and another GRB064 session).
+- Trials: the selected GLM trials that are not at the category boundary.
+  Each resample takes equal numbers of the four category × choice groups, so
+  the decoder cannot use the choice.
+- Periods: `WINDOW_S` before the center exit (in the port) and `WINDOW_S`
+  after it; the rate of each unit in each window, spikes/s. All bins are
+  before the response-port entry.
+- Model parts: each trial uses the fold model of the GLM cross-validation
+  that held that trial out (`fit.trial_folds`), so the model that changes a
+  trial did not see it. The GLM gets no category label; it sees the flash
+  times. The decoder training trials of one fold are changed by GLM models
+  that saw its test trials.
+- Decoder: z-score and logistic regression (`_decoding.decoder`),
+  `CV_FOLDS` stratified folds, the AUC of the held-out output, mean over
+  `N_RESAMPLES` balanced resamples. Chance: the same with the category
+  shuffled within each choice, `N_SHUFFLES` times.
+- Statistic: each version minus observed, per resample: mean and 2.5–97.5
+  percentiles. The interval shows how much the score depends on which trials
+  balance the groups; it is not a bootstrap over trials. The sampling unit is
+  the trial; each mouse is one session.
+
+The script writes `figures/glm/category_without_terms.svg` and
+`results/glm/category_without_terms.json`.
+
+    THESIS_CACHE_DIR=figures/cache uv run python -m \\
+        thesis.ephys.analyses.glm.category_without_terms
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import matplotlib
+import numpy as np
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from thesis.ephys.analyses._decoding import balanced_indices, decoder
+from thesis.ephys.analyses.glm import dmat, fit
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
+from thesis.ephys.analyses.glm.results import raw_contribution
+from thesis.ephys.units import fetch_unit_table
+from thesis.plotting import (
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    OBSERVED_COLOR,
+    label_panels,
+    mouse_marker,
+    save_figure,
+)
+
+OUT = Path("results/glm")
+NAME = "category_without_terms"
+WINDOW_S = 0.3
+CV_FOLDS = 10
+N_RESAMPLES = 50
+N_SHUFFLES = 50
+SEED = 0
+FLASH_TERMS = (
+    "visual_flash",
+    "flash_just_before",
+    "flash_after_exit",
+    "flash_recovery",
+)
+VERSIONS = ("observed", "without the flash terms", "without the other terms")
+COLORS = {
+    "observed": OBSERVED_COLOR,
+    "without the flash terms": CONCEPT_COLORS["visual"],
+    "without the other terms": CONCEPT_COLORS["task"],
+}
+PERIODS = ("in port", "after exit")
+AUC_LIMITS = (0.2, 1.02)
+
+
+def session_rates(session: str) -> dict:
+    """Return the window rates of each version, (period, version) -> (trial, unit)."""
+    root = OUT / session
+    prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
+    trials = dmat._load_selected_trials(prepared)
+    metadata = json.loads((root / "common_design_me.json").read_text())
+    design = np.load(root / "common_design_me.npy", mmap_mode="r", allow_pickle=False)
+    names = metadata["column_names"]
+    flash = [i for i, n in enumerate(names) if n.startswith(FLASH_TERMS)]
+    other = [i for i in range(len(names)) if i not in flash]
+    centers = prepared["relative_centers"]
+    n_trials, n_bins = len(prepared["alignments"]), len(centers)
+    exit_s = trials["center_exit_s"].to_numpy(float) - prepared["alignments"]
+    # The 1-ms bins of each window, (trial, bin of the window).
+    width = int(round(WINDOW_S / dmat.BINWIDTH_S))
+    first_after = np.searchsorted(centers, exit_s)
+    if np.any(first_after - width < 0) or np.any(first_after + width > n_bins):
+        raise ValueError(f"A window is outside the trial grid in {session}.")
+    valid = dmat._valid_bin_mask(prepared).reshape(n_trials, n_bins)
+    windows = {
+        "in port": first_after[:, None] + np.arange(-width, 0),
+        "after exit": first_after[:, None] + np.arange(width),
+    }
+    for period, bins in windows.items():
+        if not np.take_along_axis(valid, bins, 1).all():
+            raise ValueError(f"The {period} window has bins after the response.")
+    rows = {p: (np.arange(n_trials)[:, None] * n_bins + b) for p, b in windows.items()}
+    parts = {"flash": flash, "other": other}
+    designs = {
+        (p, k): np.asarray(design[r.ravel()][:, cols]).reshape(*r.shape, len(cols))
+        for p, r in rows.items()
+        for k, cols in parts.items()
+    }
+    scaling = {
+        k: {
+            "training_mean": np.asarray(metadata["training_mean"])[cols],
+            "training_scale": np.asarray(metadata["training_scale"])[cols],
+        }
+        for k, cols in parts.items()
+    }
+    folds = fit.trial_folds(n_trials, fit.CV_FOLDS, fit.CV_SEED)
+    checkpoints = root / "all_fit_me" / "checkpoints"
+    records = fit.load_unit_records(checkpoints, "unit_*_folds.json")
+    subject, stamp = session.split("_", 1)
+    table = fetch_unit_table(subject, stamp, 1, 0, include_metrics=False)
+    table = table.set_index("unit_id")
+    rates = {(p, v): [] for p in PERIODS for v in VERSIONS}
+    for record in records:
+        counts = fit.build_unit_counts(
+            prepared["alignments"], table.loc[record["unit_id"], "spike_times_s"]
+        ).reshape(n_trials, n_bins)
+        if len(record["folds"]) != fit.CV_FOLDS:
+            raise ValueError(f"Unit {record['unit_id']} has not all folds.")
+        coefficients = np.asarray([f["coefficients"] for f in record["folds"]])
+        for period, bins in windows.items():
+            window = np.take_along_axis(counts, bins, 1)
+            log_parts = {}
+            for k, cols in parts.items():
+                part = np.empty(window.shape)
+                for fold in range(fit.CV_FOLDS):
+                    held = folds == fold
+                    x = designs[(period, k)][held]
+                    part[held] = raw_contribution(
+                        x.reshape(-1, len(cols)),
+                        coefficients[fold][cols],
+                        scaling[k],
+                        np.arange(len(cols)),
+                    ).reshape(x.shape[:2])
+                log_parts[k] = part
+            for version, values in zip(
+                VERSIONS,
+                (
+                    window,
+                    window * np.exp(-log_parts["flash"]),
+                    window * np.exp(-log_parts["other"]),
+                ),
+                strict=True,
+            ):
+                rates[(period, version)].append(values.sum(1) / WINDOW_S)
+    keep = trials["stim_category"].ne("boundary").to_numpy()
+    return {
+        "subject": subject,
+        "units": len(records),
+        "rates": {k: np.asarray(v).T[keep] for k, v in rates.items()},
+        "category": trials["stim_category"].eq("high_rate").to_numpy(int)[keep],
+        "choice": trials["response"].to_numpy(int)[keep],
+    }
+
+
+def scores(data: dict, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
+    """Return the AUC per resample, (resample, period, version)."""
+    out = np.empty((n_resamples, len(PERIODS), len(VERSIONS)))
+    category, choice = data["category"], data["choice"]
+    for resample in range(n_resamples):
+        labels = category.copy()
+        if shuffle:
+            for side in (-1, 1):
+                mask = choice == side
+                labels[mask] = rng.permutation(labels[mask])
+        index = balanced_indices(labels, choice, rng)
+        y = labels[index]
+        folds = StratifiedKFold(CV_FOLDS, shuffle=True, random_state=SEED + resample)
+        for p, period in enumerate(PERIODS):
+            for v, version in enumerate(VERSIONS):
+                x = data["rates"][(period, version)][index]
+                output = np.empty(len(index))
+                for train, test in folds.split(x, y):
+                    model = decoder().fit(x[train], y[train])
+                    output[test] = model.decision_function(x[test])
+                out[resample, p, v] = roc_auc_score(y, output)
+    return out
+
+
+def summary(real: np.ndarray, null: np.ndarray, data: dict) -> dict:
+    report = {
+        "subject": data["subject"],
+        "units": data["units"],
+        "trials_per_resample": int(
+            len(
+                balanced_indices(
+                    data["category"], data["choice"], np.random.default_rng(0)
+                )
+            )
+        ),
+    }
+    for p, period in enumerate(PERIODS):
+        report[period] = {
+            version: {
+                "auc_mean": float(real[:, p, v].mean()),
+                "auc_95": np.percentile(real[:, p, v], [2.5, 97.5]).tolist(),
+                "shuffle_auc_95": np.percentile(null[:, p, v], [2.5, 97.5]).tolist(),
+                **(
+                    {}
+                    if v == 0
+                    else {
+                        "minus_observed_mean": float(
+                            (real[:, p, v] - real[:, p, 0]).mean()
+                        ),
+                        "minus_observed_95": np.percentile(
+                            real[:, p, v] - real[:, p, 0], [2.5, 97.5]
+                        ).tolist(),
+                    }
+                ),
+            }
+            for v, version in enumerate(VERSIONS)
+        }
+    return report
+
+
+def plot(reports: list[dict]) -> Path:
+    offsets = (np.arange(len(VERSIONS)) - 1) * 0.25
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axes = plt.subplots(
+            1, len(reports), figsize=(3.4 * len(reports), 3.2), sharey=True
+        )
+        for index, (axis, report) in enumerate(zip(axes, reports, strict=True)):
+            for p, period in enumerate(PERIODS):
+                for v, version in enumerate(VERSIONS):
+                    values = report[period][version]
+                    x = p + offsets[v]
+                    low, high = values["shuffle_auc_95"]
+                    axis.fill_between(
+                        [x - 0.1, x + 0.1], low, high, color="0.85", linewidth=0
+                    )
+                    mean = values["auc_mean"]
+                    lo, hi = values["auc_95"]
+                    axis.errorbar(
+                        x,
+                        mean,
+                        yerr=[[mean - lo], [hi - mean]],
+                        fmt=mouse_marker(report["subject"], index),
+                        color=COLORS[version],
+                        capsize=3,
+                        ms=6,
+                    )
+            axis.axhline(0.5, color="0.6", linestyle=":", linewidth=0.8)
+            axis.set_xticks(range(len(PERIODS)), PERIODS)
+            axis.set_xlim(-0.5, len(PERIODS) - 0.5)
+            axis.set_ylim(*AUC_LIMITS)
+            axis.text(
+                0.02,
+                0.97,
+                f"{report['subject']}: {report['units']} neurons",
+                color=OBSERVED_COLOR,
+                transform=axis.transAxes,
+                va="top",
+            )
+            axis.text(
+                0.98,
+                0.01,
+                "shuffle",
+                color="0.5",
+                transform=axis.transAxes,
+                ha="right",
+                va="bottom",
+            )
+        # Below the lowest shuffle band edge of the in-port group (0.38).
+        for v, version in enumerate(VERSIONS):
+            axes[0].text(
+                0.02,
+                0.15 - 0.06 * v,
+                version,
+                color=COLORS[version],
+                transform=axes[0].transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=7,
+            )
+        axes[0].set_ylabel("category AUC (held out)")
+        label_panels(axes, x=-0.18, y=1.03)
+        figure.tight_layout()
+        return save_figure(figure, OUT / NAME)
+
+
+def main() -> None:
+    reports = []
+    for session in SESSIONS:
+        data = session_rates(session)
+        rng = np.random.default_rng(SEED)
+        real = scores(data, rng, False, N_RESAMPLES)
+        null = scores(data, rng, True, N_SHUFFLES)
+        reports.append(summary(real, null, data))
+        print(data["subject"], "done", flush=True)
+    (OUT / f"{NAME}.json").write_text(json.dumps(reports, indent=1))
+    print(json.dumps(reports, indent=1))
+    print(plot(reports))
+
+
+if __name__ == "__main__":
+    main()

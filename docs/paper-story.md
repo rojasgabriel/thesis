@@ -50,8 +50,6 @@ identify body parts, direction, or task-independent movement.
 
 **Implemented, no retained output here**
 
-- `src/thesis/ephys/analyses/stim_responses_by_locomotion.py` — GRB006 and
-  GRB058 task-epoch comparison; two-session figure missing.
 - `src/thesis/ephys/analyses/double_peaks.py` — discovery + pulse-width
   control. Historically two stable double-peak units with both widths.
 - `src/labdata_plugin/schema.py` — stability and paired stimulus-responsiveness.
