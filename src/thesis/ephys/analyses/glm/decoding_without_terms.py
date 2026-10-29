@@ -135,6 +135,7 @@ FLASH_TERMS = (
     "flash_just_before",
     "flash_after_exit",
     "flash_recovery",
+    "flash_side",  # a candidate; in a design only when it is on
 )
 VERSIONS = ("observed", "without the flash terms", "without the other terms")
 ALL_UNITS = "observed, single and multi-units"

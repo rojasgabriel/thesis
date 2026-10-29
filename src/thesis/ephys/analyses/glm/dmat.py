@@ -190,6 +190,15 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # rounded to 10 ms. Until 2026-10-24 it was 120 ms, from a fit with c bounded
 # at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
 FLASH_RECOVERY_TERM = True
+# Flash × side (a candidate from 2026-10-29, `candidate_terms.py`; not in the
+# model): the side of the response (+1 right, -1 left) for a flash after the
+# center exit, 0 in the fixation and for the first flash. After the exit the
+# head turns to that side, so the LED panel above the center port lies in
+# another part of the visual field; this kernel is how the flash response
+# differs between the two sides. Without it, a side-dependent flash response
+# can only go to the turn term, which is not locked to the flashes.
+FLASH_SIDE_TERM = False
+FLASH_SIDE = "flash_side"
 FLASH_RECOVERY = "flash_recovery"
 FLASH_RECOVERY_TAU_S = 0.05
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
@@ -473,6 +482,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         FLASH_JUST_BEFORE: flash,
         FLASH_AFTER_EXIT: flash,
         FLASH_RECOVERY: flash,
+        FLASH_SIDE: flash,
         "hold": (
             StretchedCosineBasis(
                 HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
@@ -492,6 +502,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_AFTER_EXIT]
     if not FLASH_RECOVERY_TERM:
         del bases[FLASH_RECOVERY]
+    if not FLASH_SIDE_TERM:
+        del bases[FLASH_SIDE]
     if not FLASH_JUST_BEFORE_TERM:
         del bases[FLASH_JUST_BEFORE]
     if not WITHDRAWAL_KERNEL:
@@ -619,6 +631,29 @@ def flash_after_exit(trials) -> np.ndarray:
     return np.where(first, 0.0, after)
 
 
+def flash_side(trials) -> np.ndarray:
+    """Return the side of the response for each modeled flash after the exit.
+
+    +1 right, -1 left, in the order of `flash_events`; 0 for a flash in the
+    fixation and for the first flash of a trial (as `flash_after_exit`).
+    """
+    sides = []
+    for flashes, center_entry, response_entry, response in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["response_port_entry_s"],
+        trials["response"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = (flashes >= center_entry) & (flashes <= response_entry)
+        sides.append(np.full(int(modeled.sum()), float(response)))
+    sides = np.concatenate(sides)
+    if not np.isin(sides, (-1.0, 1.0)).all():
+        raise ValueError("Every modeled trial needs a response side of -1 or 1.")
+    return flash_after_exit(trials) * sides
+
+
 def _bumps(position: np.ndarray, count: int) -> np.ndarray:
     """Return `count` raised cosines with even spacing over a position of 0 to 1.
 
@@ -698,6 +733,14 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             f"1 - exp(-gap / {1000 * FLASH_RECOVERY_TAU_S:.0f} ms), centered, "
             "for a flash after a long gap; 0 after a short gap",
+        ),
+        (
+            FLASH_SIDE,
+            flashes,
+            flash_side(trials) if FLASH_SIDE_TERM else None,
+            "sensory",
+            "the side of the response (+1 right, -1 left) for a flash after "
+            "the center exit; 0 in the fixation and for the first flash",
         ),
         (
             "hold",
