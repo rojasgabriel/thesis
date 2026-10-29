@@ -10,6 +10,15 @@ on the same scales.
   `EXAMPLE_TRIALS` completed trials spread over the session. Each row: the
   flash times (blue) above the spikes (black); the center exit (orange). Time
   from the first flash of the trial.
+- First flash (`dataset_first_flash.svg`): the same neuron, spikes around the
+  first flash of every trial (`FLASH_WINDOW_S`); below, the rate in 10-ms
+  bins, mean ± SEM over trials. Later flashes of the train can fall in the
+  window. The mouse enters the port 24 ms or more before the first flash
+  (median 54 and 60 ms), so in 131 of 294 and 59 of 169 trials the window,
+  and the 40-ms baseline of the population below, start before the entry;
+  all trials are kept.
+- First-flash population (`dataset_first_flash_population.svg`): every unit
+  around the first flash, the same measure as the flash population below.
 - Flash raster (`dataset_flash_raster.svg`): the same neuron, spikes around
   every flash at least `LONG_GAP_S` after the flash before (not the first
   flash of a trial), in the port (still, blue) and between the center exit and
@@ -136,12 +145,18 @@ def session_data(session: str, excited: set[int]) -> dict:
         flash_centers < BASELINE_WINDOW_S[1]
     )
     peak = (flash_centers >= PEAK_WINDOW_S[0]) & (flash_centers < PEAK_WINDOW_S[1])
-    flash_rate = np.array(
-        [counts_around(s, still, flash_edges).mean(0) / 0.01 for s in spikes]
-    )
-    flash_response = (
-        flash_rate - flash_rate[:, base].mean(1, keepdims=True)
-    ) / np.maximum(mean_rate[:, None], 1e-9)
+
+    def rate_change(events):
+        rate = np.array(
+            [counts_around(s, events, flash_edges).mean(0) / 0.01 for s in spikes]
+        )
+        change = (rate - rate[:, base].mean(1, keepdims=True)) / np.maximum(
+            mean_rate[:, None], 1e-9
+        )
+        return rate, change
+
+    flash_rate, flash_response = rate_change(still)
+    _, first_response = rate_change(first)
     ids = units["unit_id"].astype(int).to_numpy()
     candidates = [
         i
@@ -169,6 +184,7 @@ def session_data(session: str, excited: set[int]) -> dict:
         "flash_centers": flash_centers,
         "flash_edges": flash_edges,
         "flash_response": flash_response,
+        "first_response": first_response,
         "peak": peak,
         "example": example,
     }
@@ -360,6 +376,65 @@ def plot_flash_raster(sessions: list[dict]) -> Path:
         return save_figure(figure, OUT / "dataset_flash_raster")
 
 
+def plot_first_flash(sessions: list[dict]) -> Path:
+    edges = np.arange(FLASH_WINDOW_S[0], FLASH_WINDOW_S[1] + 1e-9, 0.01)
+    centers = 1000 * (edges[:-1] + edges[1:]) / 2
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axes = plt.subplots(
+            2,
+            len(sessions),
+            figsize=(7.0, 5.2),
+            sharex=True,
+            gridspec_kw={"height_ratios": (2, 1)},
+        )
+        for column, data in enumerate(sessions):
+            spikes = data["spikes"][data["example"]]
+            raster, psth = axes[0, column], axes[1, column]
+            for row, event in enumerate(data["first"]):
+                s = spikes[
+                    (spikes >= event + FLASH_WINDOW_S[0])
+                    & (spikes < event + FLASH_WINDOW_S[1])
+                ]
+                raster.plot(
+                    1000 * (s - event),
+                    np.full(len(s), row),
+                    "|",
+                    color=OBSERVED_COLOR,
+                    markersize=1.2,
+                )
+            counts = counts_around(spikes, data["first"], edges) / 0.01
+            mean = counts.mean(0)
+            sem = counts.std(0, ddof=1) / np.sqrt(len(counts))
+            psth.plot(centers, mean, color=OBSERVED_COLOR)
+            psth.fill_between(
+                centers,
+                mean - sem,
+                mean + sem,
+                color=OBSERVED_COLOR,
+                alpha=0.2,
+                linewidth=0,
+            )
+            raster.set_ylim(0, len(data["first"]))
+            raster.set_ylabel("trials")
+            for axis in (raster, psth):
+                axis.axvline(0, color=VISUAL, linewidth=0.8)
+            raster.text(
+                0,
+                1.02,
+                f"{data['subject']}: one flash-excited neuron",
+                transform=raster.transAxes,
+                va="bottom",
+            )
+            psth.set_xlabel("time from the first flash (ms)")
+            if column == 0:
+                psth.set_ylabel("rate (spikes/s)")
+        axes[1, 1].sharey(axes[1, 0])  # one rate scale for both mice
+        axes[1, 0].autoscale()
+        label_panels(axes.ravel(), x=-0.18, y=1.04)
+        figure.tight_layout()
+        return save_figure(figure, OUT / "dataset_first_flash")
+
+
 def _heat(axis, values, extent, limit, cmap):
     return axis.imshow(
         values,
@@ -446,7 +521,9 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
         return save_figure(figure, OUT / "dataset_population"), report
 
 
-def plot_flash_population(sessions: list[dict]) -> tuple[Path, dict]:
+def plot_flash_population(
+    sessions: list[dict], key: str, events: str, name: str, xlabel: str
+) -> tuple[Path, dict]:
     report = {}
     heights = [len(d["ids"]) for d in sessions]
     with plt.rc_context(FIGURE_STYLE):
@@ -458,7 +535,7 @@ def plot_flash_population(sessions: list[dict]) -> tuple[Path, dict]:
             sharex=True,
         )
         for axis, data in zip(axes, sessions, strict=True):
-            response = data["flash_response"]
+            response = data[key]
             order = np.argsort(response[:, data["peak"]].mean(1))
             n = len(order)
             edges = 1000 * data["flash_edges"]
@@ -473,16 +550,16 @@ def plot_flash_population(sessions: list[dict]) -> tuple[Path, dict]:
             axis.set_ylabel(f"{data['subject']}: {n} neurons")
             report[data["subject"]] = {
                 "units": n,
-                "flashes": int(len(data["still"])),
+                "flashes": int(len(data[events])),
                 "values_past_the_color_limit": int(
                     np.sum(np.abs(response) > FLASH_LIMIT)
                 ),
             }
-        axes[-1].set_xlabel("time from flash (ms)")
+        axes[-1].set_xlabel(xlabel)
         bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.04)
         bar.set_label("rate change / mean rate")
         label_panels(axes, x=-0.35, y=1.02)
-        return save_figure(figure, OUT / "dataset_flash_population"), report
+        return save_figure(figure, OUT / name), report
 
 
 def main() -> None:
@@ -509,10 +586,26 @@ def main() -> None:
     print(plot_flash_raster(sessions))
     path, population = plot_population(sessions)
     print(path)
-    path, flashes = plot_flash_population(sessions)
+    path, flashes = plot_flash_population(
+        sessions,
+        "flash_response",
+        "still",
+        "dataset_flash_population",
+        "time from flash (ms)",
+    )
+    print(path)
+    print(plot_first_flash(sessions))
+    path, first = plot_flash_population(
+        sessions,
+        "first_response",
+        "first",
+        "dataset_first_flash_population",
+        "time from the first flash (ms)",
+    )
     print(path)
     report["population"] = population
     report["flash_population"] = flashes
+    report["first_flash_population"] = first
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "dataset_overview.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
