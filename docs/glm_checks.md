@@ -168,6 +168,28 @@ These fits are of the design of 2026-10-17, without flash recovery.
 
 ![Side preference after adding raw video, with and without the turn contribution](../figures/glm/raw_video_full/side_preference.svg)
 
+## Link to the decoders (2026-10-29)
+
+`glm/decoding_without_terms.py`: a decoder on the rates 300 ms before and after the center exit, from the observed spikes, with the fitted flash part divided out, and with all other model terms divided out (each trial changed by the fold model that held it out). GLM sessions and units (172 / 79); trials balanced for category × choice; chance is the 2.5–97.5% range of a mean AUC over shuffles.
+
+### Is the category signal around the exit visual?
+
+- **Question:** the category is clearest just after the exit. Does it come from the flash responses, or from task and movement?
+- **Finding:** without the flash terms the category AUC falls by **0.09 / 0.21** after the exit (GRB064 to 0.58, inside chance) and by **0.09 / 0.15** in the port; without all other terms it changes by **≤ 0.05**. Single units and multi-units (636 / 509) add **+0.03 / +0.04** after the exit, so the GLM units carry almost all of the decoder's category signal there (in the port of GRB064, +0.10).
+- **Limits:** spike history stays in all versions; the model misses most of the first flash after the exit, so the GRB006 value after the removal (0.75) is an upper limit of a non-visual signal; "visual" means what the GLM gives to the flash terms.
+
+![Category decoding without model terms](../figures/glm/category_without_terms.svg)
+
+### Is the choice signal after the exit a flash response moved in the visual field?
+
+- **Question:** after the exit the head turns, so the LED panel lies in another part of the visual field for each side. Is the choice signal (AUC 1.00 / 0.97 after the exit) a flash response that differs with the side?
+- **Model term:** flash × side (`dmat.FLASH_SIDE`, a candidate, not in the model): the after-exit flash kernel times the side of the response. In `candidate_terms.py` (all units, the design in use plus this term) it **passes the inclusion rule in both mice**: 56 / 172 and 25 / 79 units need it (18 / 11 needed above chance), median held-out gain **+0.0032 / +0.0032 bits per spike** (median unique ΔD² **0.00042 / 0.00046**), Holm p 2e-18 / 7e-7, 32% / 32% of the units outside the selection units. The turn term keeps most of its share (unique ΔD² 0.00095 → 0.00073 / 0.00187 → 0.00171).
+- **Shape:** in the units that need it, the kernel has the shape of a flash response, not of a side offset: signed mean +0.03 / −0.03 at 0–20 ms, **+0.15 / +0.20 at 60–80 ms**, +0.03 / −0.02 at 120–150 ms. So part of the side signal after the exit is locked to the flashes.
+- **Decoding:** it cannot separate the two side terms. Without the flash terms (with flash × side) the choice AUC stays **1.00 / 0.97**; without the other terms (the turn term among them) it is **0.90 / 0.80** with flash × side in the model, against 0.66 / 0.60 without it. With flashes every 50–250 ms, a flash-locked side kernel summed over a 300 ms window is close to a constant side signal, so either term carries the choice.
+- **Limits:** a flash response that differs with the side can come from the new position of the panel in the visual field, or from a side-specific gain of the flash response; the data have no head or eye position to tell them apart. Flash × side is not in the model; adding it changes the category results by ≤ 0.01.
+
+![Choice decoding without model terms](../figures/glm/choice_without_terms.svg)
+
 ## Methods and reproduction
 
 
