@@ -221,6 +221,16 @@ These fits are of the design of 2026-10-17, without flash recovery.
 
 ![Per-unit gain of the flash response against the gain of the rate before the flash](../figures/glm/flash_gain_units.svg)
 
+### In the port, does the flash response change with body movement?
+
+- **Question:** flash × exit holds every change of the after-exit flash response that is the same for both turns: a flash-specific effect of movement or state, or a visual change that is the same for both turns. In the center port the nose is in the poke, so the panel stays at about the same place in the visual field while the body moves. Does the flash response change with movement there?
+- **Measure (`flash_movement_in_port.py`, flash-excited units, each mouse alone):** in-port flashes with a gap of 100 ms or more, without the first flash of a trial; rates with the non-flash terms of the held-out model divided out (fixation drop, previous choice, drift, motion-energy PCs). Per flash, the mean rate 40–100 ms after the flash minus the rate 40–0 ms before it, against the total motion energy of the video 100–0 ms before the flash (z-scored); per unit, the slope in percent of the response at average movement.
+- **Finding:** with more movement the flash response is **smaller**: median **−29% / −38% per SD** of motion energy (95% −46 to −19 / −57 to −32; Wilcoxon p = 3e-4 / 2e-4; 22 of 27 / 13 of 13 units below 0). The rate before the flash is a little higher (+4% / +6% per SD, p = 0.01 / 0.02).
+- **Checks:** the same with motion energy from −50 to +100 or 0 to +100 ms; the flash does not change the motion energy (0.95 / 0.97 of the level before it); leaving out the first 300 ms of the wait (movement is larger early in the wait, ρ = −0.17 / −0.37) gives −39% / −30%, and adding the time since the first flash and the gap as predictors gives −41% / −32%.
+- **Next:** in the port, movement goes with a smaller flash response, the opposite of the larger response after the exit. So the after-exit increase is not a direct effect of how much the body moves; after the exit the response also does not change with motion energy (hold-effect panel g). The in-port relation can be movement or a state that goes with it (for example less engagement while the mouse fidgets); the data do not separate these. The model has no such term; it is a candidate for new sessions (the model is frozen).
+
+![In-port flash response by motion-energy quintile, and per-unit slopes](../figures/glm/flash_movement_in_port.svg)
+
 ### Do the movement-related kernels depend on depth?
 
 - **Measure (`depth_effects.py`, all GLM units, each mouse alone, Holm over five measures):** Spearman ρ of depth with the fixation level, the after-exit level, and the flash, flash × after exit and flash × side kernels (40–100 ms).
