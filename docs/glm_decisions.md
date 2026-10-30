@@ -938,6 +938,17 @@ term, which is not locked to the flashes.
   flash minus with no flash now includes 0 (+0.74, −0.12 to 1.12). The
   conclusion does not change: no consistent flash × exit effect.
 
+### Frozen model and the main measure of result 3, 2026-10-29
+
+- The model is frozen (Gabriel, after a review of the figures as a PI would
+  do it): flash × side was chosen after the decoding was seen, and with two
+  sessions more terms risk fitting the analysis to these data. A new term
+  (for example the miss at high flash rates found by the category decoding)
+  is tested only on new sessions.
+- Result 3 uses the log ratio as its main measure, chosen after both
+  measures were seen: the normalized GRB006 mean depends on a few units and
+  on the normalization. The normalized measure stays as the second measure.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept

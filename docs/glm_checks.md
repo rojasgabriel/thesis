@@ -184,6 +184,33 @@ These fits are of the design of 2026-10-17, without flash recovery.
 
 ![Choice decoding without model terms](../figures/glm/choice_without_terms.svg)
 
+## Follow-ups of 2026-10-29
+
+### Does the side difference of the flash response grow as the head turns?
+
+- **Question:** if flash × side comes from the panel moving in the visual field, the side difference must be small just after the exit and grow later. Does the first flash after the exit grow more when it comes later after the exit?
+- **Measure (`exit_flash_side.py`, flash-excited units, each mouse alone):** log(peak right / peak left) − log(rate before right / rate before left), within each stimulus category (so slow and fast trials also compare correct and error), for flashes after the exit except the first, < 250 ms and ≥ 250 ms from the exit; the held-out model + noise on the same flashes. Bootstrap over units.
+- **Finding:** GRB006: **+0.33** (−0.02 to 0.57) before 250 ms and **−0.12** (−0.42 to 0.16) after; late − early −0.45 (−0.86 to −0.02). The held-out model shows the same change (+0.30 → −0.02), although its flash × side kernel is the same at all times after the exit; so the change comes from other parts of the model, not from the time of the turn. GRB064 has too few left-turn flashes (only fast trials early: 16 left against 51 right); its intervals span about ±1. The first-flash excess over the in-port flash at the same gap does not grow with its delay after the exit (late − short delay −0.24, −0.13, −0.20 / −0.20, −0.16, +0.19 for gaps 50–100, 100–200, 200+ ms; all intervals include 0; median delays 41–166 ms).
+- **Limits:** the delays are short, so the head may not have turned much by the first flash; the side groups are thin.
+
+![Side difference by time from the exit, and first-flash excess by delay](../figures/glm/exit_flash_side.svg)
+
+### Before the exit, does V1 follow the choice or the stimulus?
+
+- **Question:** in correct trials the choice and the category agree, so a choice signal and a category signal look the same. In error trials they disagree.
+- **Measure (`choice_by_outcome.py`, decoder sessions, single and multi-units):** a decoder trained on correct trials (sides balanced), scored on held-out correct trials and on all error trials (89 / 50), in 200-ms windows from 600 ms before to 300 ms after the exit; AUC for the choice, mean ± SEM across folds; chance from shuffled training labels.
+- **Finding:** from 500 to 100 ms before the exit the decoder reads correct trials (AUC 0.55–0.74 / 0.72–0.81) and is **below 0.5 on error trials** (0.42–0.48 / 0.32–0.49): it follows the stimulus, not the choice. Each window alone is inside the chance band, but the sign is the same in almost all windows of both mice. From 50 ms before the exit the error-trial AUC rises above 0.5 (0.60 / 0.60, then 0.76–1.00 / 0.75–0.99): the signal follows the choice when the mouse moves.
+- **Next:** the "choice" signal of V1 before the exit is a stimulus signal; the choice appears with the movement.
+
+![Choice decoder trained on correct trials, scored on correct and error trials](../figures/choice_by_outcome/choice_by_outcome.svg)
+
+### Do the movement-related kernels depend on depth?
+
+- **Measure (`depth_effects.py`, all GLM units, each mouse alone, Holm over five measures):** Spearman ρ of depth with the fixation level, the after-exit level, and the flash, flash × after exit and flash × side kernels (40–100 ms).
+- **Finding:** only the flash kernel of GRB064 changes with depth (ρ = +0.32, Holm p = 0.02). No movement-related measure does (all Holm p ≥ 0.09; GRB006 flash × after exit +0.18, GRB064 flash × side +0.23, both Holm p > 0.05).
+
+![Kernel values against depth, per mouse](../figures/glm/depth_effects.svg)
+
 ## Methods and reproduction
 
 
