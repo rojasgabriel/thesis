@@ -204,6 +204,14 @@ These fits are of the design of 2026-10-17, without flash recovery.
 
 ![Choice decoder trained on correct trials, scored on correct and error trials](../figures/choice_by_outcome/choice_by_outcome.svg)
 
+### Per unit, is the larger flash response after the exit one gain on all activity?
+
+- **Measure (`flash_gain_units.py`, flash-excited units, 100–200 ms gaps, the first flash after the exit left out):** per unit, g_b = rate before the flash after the exit / in port, and g_f = flash peak above that rate after the exit / in port; bootstrap over flashes, error bars in both directions. g_f = g_b is one gain on all activity; g_f = 1 an unchanged flash response on a higher background.
+- **Finding:** GRB006: median g_b **1.84**, g_f **1.67**; g_f − g_b is not different from 0 (median −0.22, p = 0.41) and g_f is above 1 (23 of 28 units, p = 2e-5), so the flash response grows with the same gain as all activity. GRB064: g_b 2.01, g_f 0.98; neither test is significant (p = 0.39 / 0.80; 51 after-exit flashes), so this mouse cannot tell the two apart. Two GRB006 units have no in-port peak and no g_f.
+- **A model with one response shape for both periods was tried first and dropped:** in some units the shape changes after the exit (unit 197: in the port a dip at 0–40 ms and a peak at 70–90 ms; after the exit a peak at 30–70 ms), so one scaled shape gave g_f = 0.25 although the peak did not change (g_f 1.03 with the peak).
+
+![Per-unit gain of the flash response against the gain of the rate before the flash](../figures/glm/flash_gain_units.svg)
+
 ### Do the movement-related kernels depend on depth?
 
 - **Measure (`depth_effects.py`, all GLM units, each mouse alone, Holm over five measures):** Spearman ρ of depth with the fixation level, the after-exit level, and the flash, flash × after exit and flash × side kernels (40–100 ms).
