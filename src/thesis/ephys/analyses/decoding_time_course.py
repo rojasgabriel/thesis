@@ -16,9 +16,9 @@ decoder can use the other variable.
   stable single units of the GLM (outputs with `_sua`).
 - Trials: the decoder trials (completed, non-boundary, with flashes).
 - Score: held-out balanced accuracy, `CV_FOLDS` random folds, mean over
-  `N_RESAMPLES` balanced resamples. The colored band is the 2.5 to 97.5
-  percentile over the resamples: it shows how much the score depends on which
-  trials balance the groups; it is not a bootstrap over trials.
+  `N_RESAMPLES` balanced resamples. The colored band is ± the SEM across the
+  folds of each resample, averaged over resamples (fold scores share training
+  trials, so this SEM is a little too small).
 - Chance: the same with the label shuffled within each level of the other
   variable, `N_SHUFFLES` times for each decoder; the gray band spans the 2.5
   to 97.5 percentiles of both decoders. The sampling unit is the trial.
@@ -76,7 +76,7 @@ ACCURACY_LIMITS = (0.25, 1.02)  # the lowest band edge is 0.295
 def accuracy(
     rates, target, other, rng, shuffle: bool, n_resamples: int = N_RESAMPLES
 ) -> np.ndarray:
-    """Return the held-out balanced accuracy of each balanced resample."""
+    """Return the held-out balanced accuracy of each fold, (resample, fold)."""
     scores = []
     for resample in range(n_resamples):
         labels = target.copy()
@@ -97,7 +97,7 @@ def accuracy(
                 labels[index],
                 cv=folds,
                 scoring="balanced_accuracy",
-            ).mean()
+            )
         )
     return np.asarray(scores)
 
@@ -137,15 +137,19 @@ def session_course(session: str, units_kind: str) -> dict:
                 )
                 scores = accuracy(rates, target, other, rng, shuffle=False)
                 real.append(scores.mean())
-                spread.append(np.percentile(scores, [2.5, 97.5]).tolist())
+                spread.append(
+                    float((scores.std(1, ddof=1) / np.sqrt(scores.shape[1])).mean())
+                )
                 shuffles = [
-                    accuracy(rates, target, other, rng, shuffle=True, n_resamples=1)[0]
+                    accuracy(
+                        rates, target, other, rng, shuffle=True, n_resamples=1
+                    ).mean()
                     for _ in range(N_SHUFFLES)
                 ]
                 null.append(np.percentile(shuffles, [2.5, 50, 97.5]).tolist())
             curves[label] = {
                 "accuracy": real,
-                "resample_2.5_97.5": spread,
+                "sem_across_folds": spread,
                 "shuffle_2.5_50_97.5": null,
             }
         out[name] = {"centers_s": centers.tolist(), **curves}
@@ -164,14 +168,14 @@ def plot(results: list[dict], name: str) -> Path:
             squeeze=False,
         )
         for row, data in enumerate(results):
-            for column, (name, xlabel) in enumerate(
+            for column, (alignment, xlabel) in enumerate(
                 (
                     ("first_flash", "time from the first flash (s)"),
                     ("exit", "time from the center exit (s)"),
                 )
             ):
                 axis = axes[row, column]
-                part = data[name]
+                part = data[alignment]
                 centers = np.asarray(part["centers_s"])
                 nulls = np.stack(
                     [np.asarray(part[label]["shuffle_2.5_50_97.5"]) for label in COLORS]
@@ -184,7 +188,9 @@ def plot(results: list[dict], name: str) -> Path:
                     linewidth=0,
                 )
                 for label, color in COLORS.items():
-                    low, high = np.asarray(part[label]["resample_2.5_97.5"]).T
+                    mean = np.asarray(part[label]["accuracy"])
+                    sem = np.asarray(part[label]["sem_across_folds"])
+                    low, high = mean - sem, mean + sem
                     axis.fill_between(
                         centers, low, high, color=color, alpha=0.25, linewidth=0
                     )
@@ -193,7 +199,7 @@ def plot(results: list[dict], name: str) -> Path:
                     )
                 axis.axhline(0.5, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
                 axis.axvline(0, color="0.4", linewidth=0.6)
-                if name == "first_flash":
+                if alignment == "first_flash":
                     axis.axvline(
                         data["median_exit_after_first_flash_s"],
                         color=CONCEPT_COLORS["task"],

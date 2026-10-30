@@ -75,10 +75,13 @@ Limits:
   level of the other variable, `N_SHUFFLES` times; each shuffle gives the mean AUC over
   `NULL_RESAMPLES` resamples, so the gray band (2.5–97.5 percentiles) is the
   chance range of a mean AUC, as the points are, not of one decoder run.
-- Statistic: each version minus observed, per resample: mean and 2.5–97.5
-  percentiles. The interval shows how much the score depends on which trials
-  balance the groups; it is not a bootstrap over trials. The sampling unit is
-  the trial; each mouse is one session.
+- Error bars: the SEM of the AUC across the `CV_FOLDS` folds of each
+  resample, averaged over the resamples (fold scores share training trials,
+  so this SEM is a little too small). The AUC itself is of the held-out
+  outputs of all folds together, mean over resamples.
+- Statistic: each version minus observed, mean over resamples, with the SEM
+  across folds of the per-fold differences. The sampling unit is the trial;
+  each mouse is one session.
 
 The script writes `figures/glm/<target>_without_terms<fit>.svg` and
 `results/glm/<target>_without_terms<fit>.json`. `--mask-first-exit-flash`
@@ -299,9 +302,17 @@ def target_labels(data: dict, target: str) -> tuple[np.ndarray, np.ndarray]:
     return (data["choice"] == 1).astype(int), np.where(data["category"] == 1, 1, -1)
 
 
-def scores(data: dict, labels, other, rng, n_resamples: int) -> np.ndarray:
-    """Return the AUC of `labels` per resample, (resample, period, version)."""
+def scores(
+    data: dict, labels, other, rng, n_resamples: int, folds_out=None
+) -> np.ndarray:
+    """Return the AUC of `labels` per resample, (resample, period, version).
+
+    The AUC is of the held-out outputs of all folds together. With
+    `folds_out` (a list), the AUC of each fold is appended to it,
+    (resample, period, version, fold), for the SEM across folds.
+    """
     out = np.empty((n_resamples, len(PERIODS), len(ALL_VERSIONS)))
+    by_fold = np.empty((*out.shape, CV_FOLDS))
     for resample in range(n_resamples):
         index = balanced_indices(labels, other, rng)
         y = labels[index]
@@ -310,11 +321,19 @@ def scores(data: dict, labels, other, rng, n_resamples: int) -> np.ndarray:
             for v, version in enumerate(ALL_VERSIONS):
                 x = data["rates"][(period, version)][index]
                 output = np.empty(len(index))
-                for train, test in folds.split(x, y):
+                for f, (train, test) in enumerate(folds.split(x, y)):
                     model = decoder().fit(x[train], y[train])
                     output[test] = model.decision_function(x[test])
+                    by_fold[resample, p, v, f] = roc_auc_score(y[test], output[test])
                 out[resample, p, v] = roc_auc_score(y, output)
+    if folds_out is not None:
+        folds_out.append(by_fold)
     return out
+
+
+def fold_sem(by_fold: np.ndarray) -> np.ndarray:
+    """Return the SEM across folds, averaged over resamples."""
+    return (by_fold.std(-1, ddof=1) / np.sqrt(by_fold.shape[-1])).mean(0)
 
 
 def shuffled(labels, other, rng) -> np.ndarray:
@@ -326,7 +345,9 @@ def shuffled(labels, other, rng) -> np.ndarray:
     return labels
 
 
-def summary(real: np.ndarray, null: np.ndarray, data: dict, target: str) -> dict:
+def summary(
+    real: np.ndarray, null: np.ndarray, by_fold: np.ndarray, data: dict, target: str
+) -> dict:
     report = {
         "subject": data["subject"],
         "units": data["units"],
@@ -344,7 +365,7 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict, target: str) -> dict
         report[period] = {
             version: {
                 "auc_mean": float(real[:, p, v].mean()),
-                "auc_95": np.percentile(real[:, p, v], [2.5, 97.5]).tolist(),
+                "auc_sem_across_folds": float(fold_sem(by_fold[:, p, v])),
                 "shuffle_auc_95": np.percentile(null[:, p, v], [2.5, 97.5]).tolist(),
                 **(
                     {}
@@ -353,9 +374,9 @@ def summary(real: np.ndarray, null: np.ndarray, data: dict, target: str) -> dict
                         "minus_observed_mean": float(
                             (real[:, p, v] - real[:, p, 0]).mean()
                         ),
-                        "minus_observed_95": np.percentile(
-                            real[:, p, v] - real[:, p, 0], [2.5, 97.5]
-                        ).tolist(),
+                        "minus_observed_sem_across_folds": float(
+                            fold_sem(by_fold[:, p, v] - by_fold[:, p, 0])
+                        ),
                     }
                 ),
             }
@@ -380,11 +401,11 @@ def plot(reports: list[dict], target: str, name: str) -> Path:
                         [x - 0.08, x + 0.08], low, high, color="0.85", linewidth=0
                     )
                     mean = values["auc_mean"]
-                    lo, hi = values["auc_95"]
+                    sem = values["auc_sem_across_folds"]
                     axis.errorbar(
                         x,
                         mean,
-                        yerr=[[mean - lo], [hi - mean]],
+                        yerr=sem,
                         fmt=mouse_marker(report["subject"], index),
                         color=COLORS[version],
                         mfc="white" if version == ALL_UNITS else COLORS[version],
@@ -452,7 +473,8 @@ def main() -> None:
         data = session_rates(session, args.fit, mask_s)
         labels, other = target_labels(data, target)
         rng = np.random.default_rng(SEED)
-        real = scores(data, labels, other, rng, N_RESAMPLES)
+        folds_out = []
+        real = scores(data, labels, other, rng, N_RESAMPLES, folds_out)
         null = np.asarray(
             [
                 scores(
@@ -461,7 +483,7 @@ def main() -> None:
                 for _ in range(N_SHUFFLES)
             ]
         )
-        reports.append(summary(real, null, data, target))
+        reports.append(summary(real, null, folds_out[0], data, target))
         print(data["subject"], "done", flush=True)
     (OUT / f"{name}.json").write_text(json.dumps(reports, indent=1))
     print(json.dumps(reports, indent=1))
