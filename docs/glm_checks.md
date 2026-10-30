@@ -186,6 +186,13 @@ These fits are of the design of 2026-10-17, without flash recovery.
 
 ## Follow-ups of 2026-10-29
 
+### Could the flash × exit test find an effect?
+
+- **Measure (`power_test.py`):** spikes simulated from each flash-excited unit's final refit with flash × after exit set to α times its flash weights (after the exit the flash kernel is (1 + α) times the in-port kernel; α = 0, 0.1, 0.25, 0.5), refit with the real design and penalty, analyzed as the real data (log-ratio measure of result 3, minus each unit's leak); 20 replicates per α, each with one simulation of every unit; detected = Wilcoxon p < 0.05 with a median above 0. The fits use all trials, as the leak does.
+- **Finding (long gaps):** with no effect, p < 0.05 in **5% / 10%** of replicates. 80% power is reached at a planted effect of about **+0.21 / +0.28** in log ratio (power 0.40 at +0.11 and 1.00 at +0.26 in GRB006; 0.30, 0.60 and 0.95 at +0.08, +0.19 and +0.34 in GRB064), that is a flash response about 24% / 32% larger after the exit than its gain predicts. The measure gives back about 65% / 90% of the planted effect (shrinkage by the penalty). The measured values are −0.07 / −0.12, so an effect of that size or larger is unlikely; a smaller one cannot be excluded with these units.
+
+![Power and estimate against the planted flash × exit effect](../figures/glm/power_test.svg)
+
 ### Does the side difference of the flash response grow as the head turns?
 
 - **Question:** if flash × side comes from the panel moving in the visual field, the side difference must be small just after the exit and grow later. Does the first flash after the exit grow more when it comes later after the exit?

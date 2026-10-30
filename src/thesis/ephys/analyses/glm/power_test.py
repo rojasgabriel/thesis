@@ -261,7 +261,7 @@ def plot(stats: dict) -> Path:
             top.axhline(POWER, color=REFERENCE_COLOR, ls="--", lw=0.8)
             top.axhline(0.05, color=REFERENCE_COLOR, ls=":", lw=0.8)
             top.text(
-                true[0],
+                true[0] + 0.15,
                 levels[0]["fraction_p_below_0.05"] + 0.04,
                 f"no effect: p < 0.05 in {levels[0]['fraction_p_below_0.05']:.0%}",
                 color=COLOR,
