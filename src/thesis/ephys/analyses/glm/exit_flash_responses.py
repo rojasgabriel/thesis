@@ -144,8 +144,13 @@ def events(trials, prepared) -> dict:
     return {k: np.asarray(v) for k, v in found.items() if len(v) >= MIN_FLASHES}
 
 
-def session_values(session: str, excited: list[int], dip: bool) -> dict:
-    """Return per-unit measures and traces of each event group of one session."""
+def session_values(session: str, excited: list[int], dip: bool, grouping=None) -> dict:
+    """Return per-unit measures and traces of each event group of one session.
+
+    `grouping(trials, prepared)` gives the window bins of each group (default
+    `events`). "model_before" and "model_peak" are the rate before the flash
+    of the held-out model and the mean peak of its Poisson draws.
+    """
     root = OUT / session
     metadata = json.loads((root / "common_design_me.json").read_text())
     records = {
@@ -160,7 +165,7 @@ def session_values(session: str, excited: list[int], dip: bool) -> dict:
     )
     prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
-    windows = events(trials, prepared)
+    windows = (grouping or events)(trials, prepared)
     common = np.load(root / "common_design_me.npy", mmap_mode="r", allow_pickle=False)
     valid = dmat._valid_bin_mask(prepared)
     partitions = cross_validation_partitions(
@@ -170,7 +175,15 @@ def session_values(session: str, excited: list[int], dip: bool) -> dict:
     requested[np.concatenate([w.ravel() for w in windows.values()])] = True
     rng = np.random.default_rng(SEED)
     values = {
-        key: {"before": [], "peak": [], "miss": [], "trace": []} for key in windows
+        key: {
+            "before": [],
+            "peak": [],
+            "miss": [],
+            "trace": [],
+            "model_before": [],
+            "model_peak": [],
+        }
+        for key in windows
     }
     for unit_id in sorted(set(excited) & set(records)):
         spikes = table.loc[unit_id, "spike_times_s"]
@@ -192,6 +205,10 @@ def session_values(session: str, excited: list[int], dip: bool) -> dict:
             values[key]["before"].append(before)
             values[key]["peak"].append(peak)
             values[key]["miss"].append(peak - noise)
+            values[key]["model_before"].append(
+                before_and_peak(predicted[window] * to_rate, dip)[0]
+            )
+            values[key]["model_peak"].append(noise)
             values[key]["trace"].append(trace(counts[window] * to_rate))
         print(f"{session}: unit {unit_id}", flush=True)
     return {
