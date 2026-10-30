@@ -27,6 +27,12 @@ The same decoders are also scored on held-out correct trials (the reference).
 - Chance: the same with the correct-trial labels shuffled (`N_SHUFFLES`
   times, one resample each); the gray band is the 2.5 to 97.5 percentile of
   the error-trial AUC. The sampling unit is the trial.
+- One window: neighboring windows share most of their spikes, so they are
+  not independent tests. The test is on one window, `PRE_EXIT_S` (500 to
+  100 ms before the exit): the error-trial AUC of the mean output of all
+  decoders, against permuted error-trial choice labels (two-sided).
+- A window is plotted at its center, so the window at -50 ms covers -150 to
+  +50 ms and holds time after the exit.
 - Sessions: `decoding_time_course.SESSIONS` (one per mouse).
 
 The script writes `figures/choice_by_outcome/choice_by_outcome.svg` and
@@ -71,6 +77,8 @@ N_SHUFFLES = 20
 SEED = 0
 ERROR_COLOR = CONCEPT_COLORS["task"]
 AUC_LIMITS = (0.0, 1.02)
+PRE_EXIT_S = (-0.5, -0.1)
+N_PERMUTATIONS = 10000
 
 
 def scores(rates, side, correct, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
@@ -111,6 +119,55 @@ def summary(values: np.ndarray) -> tuple[float, float]:
     return float(values.mean()), float(sem.mean())
 
 
+def pre_exit_test(rates, side, correct, rng) -> dict:
+    """Score one window before the exit; test the error-trial AUC by permutation.
+
+    The decoders of all resamples and folds (trained on correct trials) give
+    each error trial a mean output. Its AUC for the choice is compared with
+    the AUC after the choice labels of the error trials are permuted
+    (`N_PERMUTATIONS`, two-sided around 0.5): the outputs are fixed, so the
+    test does not depend on how the windows overlap.
+    """
+    train = np.flatnonzero(correct)
+    errors = np.flatnonzero(~correct)
+    outputs, held = [], []
+    for resample in range(N_RESAMPLES):
+        right, left = (train[side[train] == v] for v in (1, 0))
+        n = min(len(right), len(left))
+        picked = np.sort(
+            np.concatenate(
+                [
+                    rng.choice(right, n, replace=False),
+                    rng.choice(left, n, replace=False),
+                ]
+            )
+        )
+        folds = StratifiedKFold(CV_FOLDS, shuffle=True, random_state=SEED + resample)
+        for fit, test in folds.split(picked, side[picked]):
+            model = decoder().fit(rates[picked[fit]], side[picked[fit]])
+            outputs.append(model.decision_function(rates[errors]))
+            held.append(
+                roc_auc_score(
+                    side[picked[test]], model.decision_function(rates[picked[test]])
+                )
+            )
+    output = np.mean(outputs, 0)
+    labels = side[errors]
+    auc = roc_auc_score(labels, output)
+    null = np.asarray(
+        [roc_auc_score(rng.permutation(labels), output) for _ in range(N_PERMUTATIONS)]
+    )
+    p = (np.sum(np.abs(null - 0.5) >= abs(auc - 0.5)) + 1) / (N_PERMUTATIONS + 1)
+    held = np.asarray(held).reshape(N_RESAMPLES, CV_FOLDS)
+    return {
+        "window_s": list(PRE_EXIT_S),
+        "error_auc": float(auc),
+        "error_auc_permutation_p": float(p),
+        "correct_auc": float(held.mean()),
+        "correct_auc_sem": float((held.std(1, ddof=1) / np.sqrt(CV_FOLDS)).mean()),
+    }
+
+
 def session_course(session: str) -> dict:
     subject, stamp = session.split("_", 1)
     units, trials, _ = load_decoding_data(
@@ -148,9 +205,16 @@ def session_course(session: str) -> dict:
             for _ in range(N_SHUFFLES)
         ]
         curves["chance"].append(np.percentile(null, [2.5, 97.5]).tolist())
-    print(subject, "done", flush=True)
+    pre_exit = pre_exit_test(
+        window_rates(units, exit_s + PRE_EXIT_S[0], exit_s + PRE_EXIT_S[1]),
+        side,
+        correct,
+        rng,
+    )
+    print(subject, "done", pre_exit, flush=True)
     return {
         "subject": subject,
+        "pre_exit": pre_exit,
         "units": len(units),
         "correct_trials": {
             "right": int((correct & (side == 1)).sum()),
@@ -170,7 +234,7 @@ def plot(results: list[dict]) -> Path:
         figure, axes = plt.subplots(
             1,
             len(results),
-            figsize=(3.6 * len(results), 3.2),
+            figsize=(4.4 * len(results), 3.4),
             sharey=True,
             squeeze=False,
         )
@@ -194,12 +258,23 @@ def plot(results: list[dict]) -> Path:
                 )
             axis.axhline(0.5, color=REFERENCE_COLOR, ls=":", lw=0.8)
             axis.axvline(0, color=REFERENCE_COLOR, lw=0.8)
+            axis.axvspan(*(1000 * np.asarray(PRE_EXIT_S)), color="0.93", lw=0, zorder=0)
+            axis.text(
+                1000 * np.mean(PRE_EXIT_S),
+                0.9,
+                "tested window",
+                ha="center",
+                fontsize=6,
+                color="0.5",
+            )
             axis.set_ylim(AUC_LIMITS)
             axis.set_xlabel("time from center exit (ms)")
             errors = result["error_trials"]
             axis.set_title(
                 f"{result['subject']}: {result['units']} units, "
-                f"{errors['right'] + errors['left']} error trials",
+                f"{errors['right'] + errors['left']} error trials\n"
+                f"500-100 ms before exit: error AUC {result['pre_exit']['error_auc']:.2f}"
+                f" (p = {result['pre_exit']['error_auc_permutation_p']:.2g})",
                 fontsize=8,
             )
         first = axes[0, 0]

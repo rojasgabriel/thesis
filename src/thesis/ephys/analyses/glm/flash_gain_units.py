@@ -9,7 +9,11 @@ background (additive), or something else? A check before the GLM.
 
 Measures, per unit and period, from the trial mean in 10-ms bins of the
 flashes of the gap class 100-200 ms: the rate before the flash (-40 to 0 ms)
-and the peak above it (largest bin from 30 to 120 ms minus that rate).
+and the peak above it: the bin from 30 to 120 ms chosen on one half of the
+flashes and read on the other half, minus that rate (split half, both ways,
+mean over `SPLITS` random splits; the largest bin of a noisy trace is biased
+upward, more in the period with fewer flashes, which would push g_f toward
+g_b).
 g_b = rate before after the exit / in port; g_f = peak after the exit / in
 port. g_f = g_b is a pure gain; g_f = 1 an unchanged flash response.
 
@@ -24,7 +28,8 @@ port. g_f = g_b is a pure gain; g_f = 1 an unchanged flash response.
   exit; after the exit: the later flashes (the first after the exit is left
   out: it is larger than any gain, `exit_flash_responses.py`).
 - Units: the flash-excited units of `raw_video_trust_classification.json`.
-- Intervals: `BOOTSTRAPS` resamples of the flashes of each period, 95%,
+- Intervals: `BOOTSTRAPS` resamples of the flashes of each period (one
+  split each), 95%,
   error bars in both directions. A unit whose in-port peak is ≤ 0 has no
   g_f and is counted.
 - Statistics: per mouse, two-sided Wilcoxon signed-rank tests over units of
@@ -69,7 +74,8 @@ PERIODS = ("in port", "later after exit")
 BIN_MS = 10
 BEFORE_BINS = 4  # -40 to 0 ms
 PEAK_BINS = slice(7, 16)  # 30 to 120 ms
-BOOTSTRAPS = 1000
+BOOTSTRAPS = 200
+SPLITS = 50
 SEED = 3
 COLOR = CONCEPT_COLORS["visual"]
 
@@ -87,13 +93,33 @@ def cell_counts(counts: np.ndarray, windows: dict) -> dict:
     return out
 
 
-def gains(cells: dict) -> np.ndarray:
+def split_peak(counts: np.ndarray, rng, splits: int) -> tuple[float, float]:
+    """Return the rate before the flash and the split-half peak above it (spikes/s).
+
+    The peak bin is chosen on a random half of the flashes and its value is
+    read on the other half, then the halves swap; the mean over `splits`
+    random splits. The maximum of a noisy trace is biased upward, more with
+    fewer flashes; reading it on other flashes removes that bias.
+    """
+    to_rate = 1 / (BIN_MS * dmat.BINWIDTH_S)
+    before = counts[:, :BEFORE_BINS].mean() * to_rate
+    peaks = []
+    for _ in range(splits):
+        order = rng.permutation(len(counts))
+        halves = (order[: len(order) // 2], order[len(order) // 2 :])
+        for pick, read in (halves, halves[::-1]):
+            chosen = counts[pick].mean(0)[PEAK_BINS].argmax()
+            trace = counts[read].mean(0) * to_rate
+            peaks.append(trace[PEAK_BINS][chosen] - trace[:BEFORE_BINS].mean())
+    return float(before), float(np.mean(peaks))
+
+
+def gains(cells: dict, rng, splits: int = SPLITS) -> np.ndarray:
     """Return (rate before in port, g_b, g_f) from the per-flash counts of each period."""
-    values = {}
-    for period in PERIODS:
-        trace = cells[(period, GAP_INDICES[0])].mean(0) / (BIN_MS * dmat.BINWIDTH_S)
-        before = trace[:BEFORE_BINS].mean()
-        values[period] = (before, trace[PEAK_BINS].max() - before)
+    values = {
+        period: split_peak(cells[(period, GAP_INDICES[0])], rng, splits)
+        for period in PERIODS
+    }
     (b_port, p_port), (b_after, p_after) = (values[p] for p in PERIODS)
     g_f = p_after / p_port if p_port > 0 else np.nan
     return np.asarray([b_port, b_after / b_port if b_port > 0 else np.nan, g_f])
@@ -118,10 +144,14 @@ def session_gains(session: str, excited: list[int]) -> dict:
         cells = cell_counts(counts, windows)
         if len(cells) != len(PERIODS) * len(GAP_INDICES):
             continue
-        values = gains(cells)
+        values = gains(cells, rng)
         draws = np.asarray(
             [
-                gains({k: v[rng.integers(0, len(v), len(v))] for k, v in cells.items()})
+                gains(
+                    {k: v[rng.integers(0, len(v), len(v))] for k, v in cells.items()},
+                    rng,
+                    1,
+                )
                 for _ in range(BOOTSTRAPS)
             ]
         )
