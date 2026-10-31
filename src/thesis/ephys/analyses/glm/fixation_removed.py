@@ -5,13 +5,10 @@ whole wait in the port (`dataset_overview.py`, the population figure). The GLM
 gives this drop its own term, the fixation kernel (from the first flash to the
 center exit). With that term divided out of the data, what is left?
 
-Comparison: the same neurons and trials, three versions of each neuron's rate
-around the first flash: observed; observed divided by the fitted fixation
-contribution, exp(fixation part of the log rate), of the model in use; the
-same with the fit of `penalty_sensitivity.py` (100× weaker penalty on the
-fixation kernel, which keeps 0.90 / 0.98 of a known level against 0.68 /
-0.76). Nothing else of the model is used, so the flash responses are the
-observed ones.
+Comparison: the same neurons and trials, two versions of each neuron's rate
+around the first flash: observed, and observed divided by the fitted fixation
+contribution, exp(fixation part of the log rate), of the model in use. Nothing
+else of the model is used, so the flash responses are the observed ones.
 
 - Units: the GLM units (`fit.py`, unit criteria 1, stability 0, exclusions),
   both sessions of `flash_kernels.SESSIONS`.
@@ -23,7 +20,7 @@ observed ones.
   that version, from `WINDOW_S[0]` to `WINDOW_S[1]`; rows sorted by the
   observed value from `SORT_S[0]` to `SORT_S[1]`, the same order in each
   version; the color limit is `LIMIT` and values past it take the end color.
-- Hidden: in the two corrected versions, `HIDDEN_S[0]` to `HIDDEN_S[1]` after
+- Hidden: in the corrected version, `HIDDEN_S[0]` to `HIDDEN_S[1]` after
   the first flash is not shown (gray in the heatmaps, a gap in the curves):
   there the fixation kernel overlaps the first-flash response, and dividing
   it out inflates that response (in GRB006 about 2.5 times), so the result is
@@ -66,7 +63,6 @@ OUT = Path("results/glm")
 FITS = {
     "observed": None,
     "fixation removed": OUT,
-    "fixation removed, weaker penalty": OUT / "weaker_fixation_penalty",
 }
 WINDOW_S = (-0.3, 0.6)
 BIN_S = 0.04  # one flash slot
@@ -79,7 +75,6 @@ HIDDEN_S = (0.0, 0.2)
 COLORS = {
     "observed": OBSERVED_COLOR,
     "fixation removed": CONCEPT_COLORS["task"],
-    "fixation removed, weaker penalty": "#F0A070",
 }
 
 
@@ -172,13 +167,6 @@ def main() -> None:
         versions = {}
         ids, observed, removed = unit_rates(FITS["fixation removed"], session)
         versions["observed"], versions["fixation removed"] = observed, removed
-        weak_ids, _, weak = unit_rates(
-            FITS["fixation removed, weaker penalty"], session
-        )
-        keep = np.isin(weak_ids, ids)
-        if list(np.asarray(weak_ids)[keep]) != ids:
-            raise ValueError(f"The two fits have different units in {session}.")
-        versions["fixation removed, weaker penalty"] = weak[keep]
         hidden = (centers >= HIDDEN_S[0]) & (centers < HIDDEN_S[1])
         for name in list(FITS)[1:]:  # not reliable where the terms overlap
             versions[name] = versions[name].copy()
@@ -206,10 +194,10 @@ def main() -> None:
         figure, axes = plt.subplots(
             len(data),
             len(FITS) + 1,
-            figsize=(11.5, 3.0 * len(data)),
+            figsize=(8.8, 3.0 * len(data)),
             layout="constrained",
             squeeze=False,
-            gridspec_kw={"width_ratios": (1, 1, 1, 1.1)},
+            gridspec_kw={"width_ratios": (*[1] * len(FITS), 1.1)},
         )
         image = None
         for row, (subject, (logs, order)) in enumerate(data.items()):
