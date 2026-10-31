@@ -2,7 +2,7 @@
 
 Question: the category decoded from V1 is clearest after the center exit
 (`decoding_time_course.py`), and in GRB064 the flashes after the exit weigh
-most on the choice (`behavior/psychophysics.py`). Do the decoding time courses
+most on the choice (`behavior/psychophysics.py --recorded`). Do the decoding time courses
 line up in time with the psychophysical kernel?
 
 Comparison: for each mouse, on one time axis from the first flash, the kernel
@@ -45,7 +45,7 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/kernel_decoding")
-KERNEL = Path("results/behavior/psychophysics.json")
+KERNEL = Path("results/behavior/psychophysics_recorded.json")
 DECODING = Path("results/decoding_time_course/decoding_time_course.json")
 
 

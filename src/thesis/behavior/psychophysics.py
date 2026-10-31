@@ -6,37 +6,42 @@ the choice at each time in the train (the psychophysical kernel); (b) when the
 mouse leaves the center port; (c) whether the side and the outcome of the last
 trial change the choice.
 
-- Sessions and trials: as in `psychometric.py` (`SESSIONS`): completed trials
-  with a left or right choice, boundary trials included. One session per
-  mouse; each mouse is analyzed alone. The sampling unit is the trial.
+- Sessions and trials (`behavior.trials`): by default all task sessions of each
+  mouse; with `--recorded` only the recorded session. Completed trials with a
+  choice and a full 1-s train, boundary trials included. Each mouse is analyzed
+  alone. The sampling unit is the trial, nested in sessions.
 - Alignment: the first flash of the trial (time 0). The train has 25 slots of
   40 ms; the first slot always has a flash and the number of flashes equals the
   rate, so only where the other flashes fall differs between trials of a rate.
 - (a) Kernel: a logistic regression of the choice (right = 1) on the number of
   flashes in each of `KERNEL_BINS` bins of 4 slots (slots 1 to 24, 40 to 1000
-  ms), with an intercept and no penalty. A weight is the change in the log-odds
-  of a right choice for one more flash in that bin. A flat kernel means that
-  the mouse counts every flash the same. The flashes go on after the exit, so
-  the bins after the exit test whether the mouse uses flashes it sees while it
-  moves. Flatness test: likelihood ratio against one weight for all bins
-  (chi-square, `KERNEL_BINS` − 1 df). Error bars: 95% percentile interval over
-  `N_BOOTSTRAPS` resamples of trials.
-- (b) Timing: the center exit after the first flash, all completed trials;
-  the line is the median go cue.
+  ms), with one bias per session and no penalty. A weight is the change in the
+  log-odds of a right choice for one more flash in that bin. A flat kernel means
+  that the mouse counts every flash the same. The flashes go on after the exit,
+  so the bins after the exit test whether the mouse uses flashes it sees while
+  it moves. Flatness test: likelihood ratio against one weight for all bins
+  (chi-square, `KERNEL_BINS` − 1 df; it treats trials as independent).
+- (b) Timing: the center exit after the first flash (Bpod `t_react`), all used
+  trials; the line is the median go cue. The axis ends at 1.2 s; the share of
+  exits after it is in the json.
 - (c) History: a logistic regression of the choice on the rate (Hz), the
   previous side after a rewarded trial, and the previous side after an
-  unrewarded trial (±1, 0 when the condition is not true), with an intercept.
-  Only trials after a completed trial with a choice. A positive weight is a
-  tendency to repeat the previous side. Error bars: as in (a).
+  unrewarded trial (±1, 0 when the condition is not true), with one bias per
+  session; only trials right after a completed trial with a choice. A positive
+  weight is a tendency to repeat the previous side.
+- Error bars: 95% hierarchical bootstrap (sessions, then trials;
+  `N_BOOTSTRAPS`); with one session, over trials.
+- Each mouse is a line style (GRB006 solid, GRB064 dashed), one marker.
 
-The script writes `figures/behavior/psychophysics.svg` and
-`results/behavior/psychophysics.json`.
+Writes `figures/behavior/psychophysics.svg` and `results/behavior/psychophysics.json`
+(`psychophysics_recorded.*` with `--recorded`).
 
     THESIS_CACHE_DIR=figures/cache uv run python -m thesis.behavior.psychophysics
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -48,8 +53,13 @@ from sklearn.linear_model import LogisticRegression
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.behavior.psychometric import RIGHT, SESSIONS
-from thesis.ephys.trials import build_trial_table
+from thesis.behavior import psychometric
+from thesis.behavior.trials import (
+    SUBJECTS,
+    hierarchical_samples,
+    session_columns,
+    task_trials,
+)
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
@@ -63,111 +73,101 @@ SLOT_S = 0.04
 SLOTS = 25
 KERNEL_BINS = 6  # bins of 4 slots over slots 1-24
 N_BOOTSTRAPS = 1000
-SEED = 0
 HISTORY_NAMES = ("rate (per Hz)", "repeat after\nreward", "repeat after\nno reward")
-
-
-def completed_trials(session: str):
-    subject, stamp = session.split("_", 1)
-    trials = build_trial_table(subject, stamp, include_frames=False)
-    return trials[
-        (trials["early_withdrawal"] == 0) & trials["response"].isin((-1, 1))
-    ].copy()
 
 
 def slot_counts(trials) -> np.ndarray:
     """Return the flashes in each 4-slot bin after the first slot, (trials, bins)."""
     counts = np.zeros((len(trials), KERNEL_BINS))
-    for row, pulses in enumerate(trials["stim_pulse_times_s"]):
-        pulses = np.asarray(pulses, dtype=float)
-        slots = np.round((pulses - pulses[0]) / SLOT_S).astype(int)
-        if (
-            slots.max() >= SLOTS
-            or np.abs((pulses - pulses[0]) / SLOT_S - slots).max() > 0.25
-        ):
+    for row, flashes in enumerate(trials["flashes_s"]):
+        slots = np.round(flashes / SLOT_S).astype(int)
+        if slots.max() >= SLOTS or np.abs(flashes / SLOT_S - slots).max() > 0.25:
             raise ValueError("A flash is off the 40-ms slot grid.")
         slots = slots[slots > 0]
         np.add.at(counts[row], (slots - 1) // 4, 1)
     return counts
 
 
-def logistic(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float]:
-    """Return the weights (intercept first) and the log-likelihood."""
-    model = LogisticRegression(penalty=None, max_iter=5000).fit(x, y)
-    p = np.clip(model.predict_proba(x)[:, 1], 1e-12, 1 - 1e-12)
+def logistic(x: np.ndarray, y: np.ndarray, sessions) -> tuple[np.ndarray, float]:
+    """Return the weights of `x` (one bias per session) and the log-likelihood."""
+    design = np.column_stack([x, session_columns(sessions)])
+    model = LogisticRegression(penalty=None, fit_intercept=False, max_iter=5000)
+    model.fit(design, y)
+    p = np.clip(model.predict_proba(design)[:, 1], 1e-12, 1 - 1e-12)
     loglik = float(np.sum(y * np.log(p) + (1 - y) * np.log(1 - p)))
-    return np.r_[model.intercept_, model.coef_[0]], loglik
+    return model.coef_[0][: x.shape[1]], loglik
 
 
-def bootstrap(x: np.ndarray, y: np.ndarray, rng) -> np.ndarray:
-    """Return the 2.5 and 97.5 percentiles of each weight (no intercept), (2, weights)."""
-    draws = []
-    for _ in range(N_BOOTSTRAPS):
-        pick = rng.integers(0, len(y), len(y))
-        if y[pick].min() == y[pick].max():
-            continue
-        draws.append(logistic(x[pick], y[pick])[0][1:])
-    return np.percentile(draws, [2.5, 97.5], axis=0)
+def interval(x: np.ndarray, y: np.ndarray, sessions) -> np.ndarray:
+    """Return the 2.5 and 97.5 percentiles of each weight, (weights, 2)."""
+    draws = [
+        logistic(x[rows], y[rows], labels)[0]
+        for rows, labels in hierarchical_samples(sessions, N_BOOTSTRAPS)
+        if 0 < y[rows].mean() < 1
+    ]
+    return np.percentile(draws, [2.5, 97.5], axis=0).T
 
 
-def session_psychophysics(session: str) -> dict:
-    rng = np.random.default_rng(SEED)
-    trials = completed_trials(session)
-    right = (trials["response"] == RIGHT).to_numpy(int)
+def mouse_psychophysics(subject: str, recorded: bool) -> dict:
+    trials = task_trials(subject, recorded)
+    sessions = trials["session_name"].reset_index(drop=True)
+    right = trials["right"].to_numpy()
     counts = slot_counts(trials)
-    weights, loglik = logistic(counts, right)
-    _, flat_loglik = logistic(counts.sum(1, keepdims=True), right)
+    weights, loglik = logistic(counts, right, sessions)
+    _, flat_loglik = logistic(counts.sum(1, keepdims=True), right, sessions)
     lr = 2 * (loglik - flat_loglik)
-
-    first = trials["stim_pulse_times_s"].map(lambda p: p[0]).to_numpy(float)
-    exit_s = trials["center_exit_s"].to_numpy(float) - first
-    go = np.asarray(
-        [
-            g[0] - f if len(g) else np.nan
-            for g, f in zip(trials["go_cue_times_s"], first)
-        ]
-    )
+    exit_s = trials["exit_s"].to_numpy(float)
 
     after = trials["prev_response"].isin((-1, 1)).to_numpy()
     previous = trials["prev_response"].to_numpy(float)[after]
     rewarded = trials["prev_rewarded"].to_numpy(float)[after] == 1
     history_x = np.column_stack(
         [
-            trials["visual_stim_rate_hz"].to_numpy(float)[after],
+            trials["rate_hz"].to_numpy(float)[after],
             np.where(rewarded, previous, 0.0),
             np.where(~rewarded, previous, 0.0),
         ]
     )
-    history_y = right[after]
-    history, _ = logistic(history_x, history_y)
+    history_sessions = sessions[after].reset_index(drop=True)
+    history, _ = logistic(history_x, right[after], history_sessions)
     return {
-        "subject": session.split("_")[0],
-        "session": session.split("_", 1)[1],
+        "subject": subject,
+        "sessions": sorted(sessions.unique()),
         "trials": int(len(trials)),
         "kernel_bin_centers_ms": [
             1000 * SLOT_S * (4 * j + 2.5) for j in range(KERNEL_BINS)
         ],
-        "kernel_weights": weights[1:].tolist(),
-        "kernel_weights_95": bootstrap(counts, right, rng).T.tolist(),
+        "kernel_weights": weights.tolist(),
+        "kernel_weights_95": interval(counts, right, sessions).tolist(),
         "kernel_flat_lr_p": float(chi2.sf(lr, KERNEL_BINS - 1)),
         "exit_after_first_flash_s": exit_s.tolist(),
         "median_exit_s": float(np.median(exit_s)),
-        "median_go_cue_s": float(np.nanmedian(go)),
+        "fraction_exit_after_1_2_s": float(np.mean(exit_s > 1.2)),
+        "median_go_cue_s": float(np.nanmedian(trials["go_cue_s"])),
         "history_trials": int(after.sum()),
-        "history_weights": history[1:].tolist(),
-        "history_weights_95": bootstrap(history_x, history_y, rng).T.tolist(),
+        "history_weights": history.tolist(),
+        "history_weights_95": interval(
+            history_x, right[after], history_sessions
+        ).tolist(),
     }
 
 
-def plot(report: list[dict]) -> Path:
+def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Path:
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1, 3, figsize=(9.6, 2.9), layout="constrained", width_ratios=(1.3, 1, 1)
-        )
-        kernel, timing, history = axes
+        if choices is None:
+            figure, axes = plt.subplots(
+                1, 3, figsize=(9.6, 2.9), layout="constrained", width_ratios=(1.3, 1, 1)
+            )
+            kernel, timing, history = axes
+        else:
+            # With the psychometric curves: a 2 x 2 figure (for one slide).
+            figure, axes = plt.subplots(2, 2, figsize=(7.4, 5.2), layout="constrained")
+            psychometric.draw(axes[0, 0], choices)
+            kernel, timing, history = axes[0, 1], axes[1, 0], axes[1, 1]
+            axes = axes.ravel()
         kernel.axhline(0, color=REFERENCE_COLOR, lw=0.6)
         history.axhline(0, color=REFERENCE_COLOR, lw=0.6)
-        bins = np.linspace(0.4, 1, 25)
+        bins = np.linspace(0.4, 1.2, 33)
         for row, data in enumerate(report):
             marker = "o"  # the mouse is the line style only
             line = ("-", "--")[row % 2]
@@ -275,25 +275,41 @@ def plot(report: list[dict]) -> Path:
         timing.set(
             xlabel="center exit from the first flash (s)",
             ylabel="trials (density)",
-            xlim=(0.4, 1),
+            xlim=(0.4, 1.2),
         )
         history.set_xticks((0, 1), HISTORY_NAMES[1:])
         history.set(
             xlim=(-0.5, 1.5), ylabel="weight on repeating\nthe previous side (log-odds)"
         )
         label_panels(axes)
-        return save_figure(figure, OUT / "psychophysics")
+        return save_figure(figure, OUT / name)
 
 
 def main() -> None:
-    report = [session_psychophysics(session) for session in SESSIONS]
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--recorded", action="store_true", help="the recorded session only"
+    )
+    args = parser.parse_args()
+    name = "psychophysics_recorded" if args.recorded else "psychophysics"
+    report = [mouse_psychophysics(subject, args.recorded) for subject in SUBJECTS]
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "psychophysics.json").write_text(json.dumps(report, indent=1))
-    print(plot(report))
+    (OUT / f"{name}.json").write_text(json.dumps(report, indent=1))
+    # The recorded sessions get one figure with their psychometric curves.
+    choices = (
+        json.loads((OUT / "psychometric_recorded.json").read_text())
+        if args.recorded
+        else None
+    )
+    print(plot(report, name, choices))
     for data in report:
         print(
             json.dumps(
-                {k: v for k, v in data.items() if k != "exit_after_first_flash_s"}
+                {
+                    k: v
+                    for k, v in data.items()
+                    if k not in ("exit_after_first_flash_s", "sessions")
+                }
             )
         )
 

@@ -181,18 +181,20 @@ def main() -> None:
         )
     ]
     with plt.rc_context(FIGURE_STYLE):
-        n_rows = len(rows) + len(sessions)
+        # A wide grid for a slide: each panel is a pair of axes (first flash,
+        # center exit); rows: GRB006 examples, GRB064 examples, populations.
         figure, axes = plt.subplots(
-            n_rows, 2, figsize=(6.4, 1.45 * n_rows), sharex="col", layout="constrained"
+            3, 4, figsize=(11.0, 6.0), sharex="col", layout="constrained"
         )
         panels = [(s, unit, label) for s, unit, label in rows] + [
             (s, None, f"all {s['units']} units") for s in sessions
         ]
-        for row, (session, unit, label) in enumerate(panels):
-            for column, (name, (xlabel, limits, event)) in enumerate(
+        for index, (session, unit, label) in enumerate(panels):
+            row, pair = divmod(index, 2)
+            for offset, (name, (xlabel, limits, event)) in enumerate(
                 ALIGNMENTS.items()
             ):
-                axis = axes[row, column]
+                axis = axes[row, 2 * pair + offset]
                 centers = session["centers"][name]
                 for version, color in VERSIONS.items():
                     if unit is None:
@@ -213,13 +215,13 @@ def main() -> None:
                 axis.axvline(0, color=event, lw=0.8)
                 axis.set_xlim(*limits)
                 axis.set_ylim(bottom=0)
-                if column == 0:
+                if offset == 0:
                     axis.set_ylabel("rate / mean" if unit is None else "spikes/s")
                     title = f"{session['subject']}, " + (
                         f"unit {unit}, {label}" if unit is not None else label
                     )
                     axis.set_title(title, fontsize=7, loc="left")
-                if row == n_rows - 1:
+                if row == 2:
                     axis.set_xlabel(xlabel)
         for y, (version, color) in zip((0.95, 0.8), VERSIONS.items(), strict=True):
             axes[0, 0].text(
@@ -232,12 +234,13 @@ def main() -> None:
                 fontsize=7,
                 transform=axes[0, 0].transAxes,
             )
-        # The population rows of the mice share one scale in each column.
-        for column in range(2):
-            top = max(axes[r, column].get_ylim()[1] for r in range(len(rows), n_rows))
-            for r in range(len(rows), n_rows):
-                axes[r, column].set_ylim(0, top)
-        label_panels(axes[:, 0], x=-0.2, y=1.12)
+        # The population panels of the mice share one scale in each alignment.
+        for offset in range(2):
+            pair = (axes[2, offset], axes[2, 2 + offset])
+            top = max(axis.get_ylim()[1] for axis in pair)
+            for axis in pair:
+                axis.set_ylim(0, top)
+        label_panels([axes[r, c] for r in range(3) for c in (0, 2)], x=-0.3, y=1.12)
         print(save_figure(figure, OUT / "fixation_without_flash"))
 
 
