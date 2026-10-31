@@ -163,7 +163,7 @@ def plot(results: list[dict], name: str) -> Path:
         figure, axes = plt.subplots(
             len(results),
             2,
-            figsize=(7.0, 2.6 * len(results)),
+            figsize=(12.0, 2.3 * len(results)),  # wide, for a slide
             sharey=True,
             squeeze=False,
         )
