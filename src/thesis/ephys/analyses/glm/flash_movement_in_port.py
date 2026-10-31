@@ -248,7 +248,7 @@ def plot(sessions: list[dict]) -> Path:
         figure, axes = plt.subplots(
             len(sessions),
             2,
-            figsize=(12.0, 2.3 * len(sessions)),  # wide, for a slide
+            figsize=(9.0, 2.7 * len(sessions)),
             gridspec_kw={"width_ratios": (1.3, 1)},
             squeeze=False,
         )

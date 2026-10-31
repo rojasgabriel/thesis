@@ -151,7 +151,6 @@ def draw(axis, report: list[dict]) -> None:
             va="center",
             fontsize=7,
         )
-    axis.text(0.04, 0.96, "boundary", color=REFERENCE_COLOR, fontsize=7, va="top")
     axis.set(
         xlabel="stimulus strength (left − / right +)",
         ylabel="fraction of right choices",

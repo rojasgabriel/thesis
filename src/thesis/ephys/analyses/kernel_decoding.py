@@ -57,7 +57,7 @@ def main() -> None:
         figure, axes = plt.subplots(
             2,
             len(subjects),
-            figsize=(6.0 * len(subjects), 4.6),  # wide, for a slide
+            figsize=(4.5 * len(subjects), 4.8),
             sharex=True,
             sharey="row",
             height_ratios=(1, 1.2),

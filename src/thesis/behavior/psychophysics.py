@@ -162,7 +162,7 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
             kernel, timing, history = axes
         else:
             # With the psychometric curves: a 2 x 2 figure (for one slide).
-            figure, axes = plt.subplots(2, 2, figsize=(11.6, 4.6), layout="constrained")
+            figure, axes = plt.subplots(2, 2, figsize=(9.0, 5.4), layout="constrained")
             psychometric.draw(axes[0, 0], choices)
             kernel, timing, history = axes[0, 1], axes[1, 0], axes[1, 1]
             axes = axes.ravel()
