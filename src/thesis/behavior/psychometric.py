@@ -51,7 +51,6 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
-    mouse_marker,
     save_figure,
 )
 
@@ -116,9 +115,9 @@ def main() -> None:
         axis.axhline(0.5, color=REFERENCE_COLOR, lw=0.5)
         grid = np.linspace(3, 21, 200)
         for row, data in enumerate(report.values()):
-            # Observed choices are black; the mouse is the marker and the line style.
+            # Observed choices are black; the mouse is the line style.
             color = OBSERVED_COLOR
-            marker = mouse_marker(data["subject"], row)
+            marker = "o"  # the mouse is the line style only
             line = ("-", "--")[row % 2]
             rates = np.asarray(data["rates_hz"])
             p = np.asarray(data["p_right"])

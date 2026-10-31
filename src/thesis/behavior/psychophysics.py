@@ -55,7 +55,6 @@ from thesis.plotting import (
     OBSERVED_COLOR,
     REFERENCE_COLOR,
     label_panels,
-    mouse_marker,
     save_figure,
 )
 
@@ -170,7 +169,7 @@ def plot(report: list[dict]) -> Path:
         history.axhline(0, color=REFERENCE_COLOR, lw=0.6)
         bins = np.linspace(0.4, 1, 25)
         for row, data in enumerate(report):
-            marker = mouse_marker(data["subject"], row)
+            marker = "o"  # the mouse is the line style only
             line = ("-", "--")[row % 2]
             shift = 12 * (row - 0.5)  # drawing only, so the bars do not overlap
             x = np.asarray(data["kernel_bin_centers_ms"]) + shift
@@ -217,7 +216,7 @@ def plot(report: list[dict]) -> Path:
             h = np.asarray(data["history_weights"])[1:]
             hci = np.asarray(data["history_weights_95"]).T[:, 1:]
             hx = np.arange(2) + 0.12 * (row - 0.5)
-            history.errorbar(
+            bars = history.errorbar(
                 hx,
                 h,
                 yerr=[h - hci[0], hci[1] - h],
@@ -229,6 +228,7 @@ def plot(report: list[dict]) -> Path:
                 capsize=2,
                 lw=1,
             )
+            bars[2][0].set_linestyle(line)  # the mouse is the line style of the bar
             # The mouse's name next to a sample of its marker and line.
             y = 0.95 - 0.09 * row
             kernel.plot(
