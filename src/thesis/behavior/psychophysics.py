@@ -6,8 +6,9 @@ the choice at each time in the train (the psychophysical kernel); (b) when the
 mouse leaves the center port; (c) whether the side and the outcome of the last
 trial change the choice.
 
-- Sessions and trials (`behavior.trials`): by default the visual-only sessions with an
-  ephys recording and at least 6 rates (no performance rule); with `--recorded` only the recorded session. Completed trials with a
+- Sessions and trials (`behavior.trials`): by default the visual and visual + audio
+  sessions with an ephys recording and at least 6 rates (no performance rule),
+  visual and multisensory trials pooled; with `--recorded` only the recorded session. Completed trials with a
   choice and a full 1-s train, boundary trials included. Each mouse is analyzed
   alone. The sampling unit is the trial, nested in sessions.
 - Alignment: the first flash of the trial (time 0). The train has 25 slots of

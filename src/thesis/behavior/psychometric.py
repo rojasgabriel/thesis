@@ -7,8 +7,9 @@ right port, a rate below it at the left port. Does the choice follow the rate?
 Comparison: the fraction of right choices at each flash rate, in each mouse.
 No model of the neurons.
 
-- Sessions and trials (`behavior.trials`): by default the visual-only sessions
-  with an ephys recording and at least 6 rates (no performance rule); with `--recorded` only
+- Sessions and trials (`behavior.trials`): by default the visual and visual + audio
+  sessions with an ephys recording and at least 6 rates (no performance rule),
+  visual and multisensory trials pooled; with `--recorded` only
   the recorded session (the one the neural analyses use). Completed trials with
   a left or right choice and a full 1-s train; boundary trials (rewarded at
   random) are shown.
