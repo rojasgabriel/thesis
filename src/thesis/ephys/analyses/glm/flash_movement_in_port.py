@@ -15,10 +15,15 @@ slope is 0.
 - Units: the flash-excited units of `raw_video_trust_classification.json`
   (30 / 15); each mouse is analyzed alone (different camera views).
 - Flashes: completed GLM trials; flashes in the port (before the center exit)
-  with a gap of at least `MIN_GAP_S` from the flash before, so the response
-  to that flash has ended before the window; the first flash of a trial is
-  left out (no flash before; it also starts the fixation drop). The window
-  `WINDOW_MS` around the flash must lie inside the valid interval.
+  with a gap of at least `MIN_GAP_S` from the flash before; the first flash
+  of a trial is left out (no flash before; it also starts the fixation drop).
+  The window `WINDOW_MS` around the flash must lie inside the valid interval.
+  Gaps come in 40-ms steps, so the shortest is 120 ms (46% / 32% of the
+  flashes); then the -40 to 0 ms baseline is 80-120 ms after the flash
+  before, on the tail of its response. Checked on 2026-10-30 with gaps of
+  200 ms or more (134 / 66 flashes): the flash response still falls with
+  movement (-18% / -26% per SD, p = 0.002 / 0.001), but the rise of the
+  background is no longer significant (+5% / +20%, p = 0.54 / 0.06).
 - Rates: the observed spike counts divided by exp(the part of every non-flash
   column of the design: fixation and pre-stimulus terms, previous choice,
   session drift and the motion-energy PCs), each trial with the fold model of
