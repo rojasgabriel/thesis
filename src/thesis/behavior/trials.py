@@ -1,12 +1,15 @@
 """Load the behavior trials of a mouse from the Bpod data (no recording needed).
 
-Sessions (`task_sessions`): the visual-only rate-discrimination sessions with at
-least `MIN_RATES` visual rates (so some are near the boundary) and at least
-`MIN_TRIALS` used trials. `RECORDED` names the session of each mouse that the
-neural analyses use (the decoder session).
+Sessions: the rate-discrimination sessions that have an ephys recording
+(`EphysRecording`), whether or not their units are analyzed, with at least
+`MIN_RATES` visual rates among the used trials (so some are near the
+boundary). `RECORDED` names the session of each mouse that the neural analyses
+use (the decoder session).
 
-Trials: completed (no early withdrawal) with a left or right choice, rewarded
-on the visual rate, with a full `STIM_S` train. The previous side and outcome
+Trials: visual-only trials (rewarded on the visual rate), also inside
+visual + audio sessions; multisensory and auditory trials are left out.
+Completed (no early withdrawal) with a left or right choice, with a full
+`STIM_S` train. The previous side and outcome
 are taken before this filter (the trial just before, of any kind).
 
 Times are from the Bpod clock: the flash times (`stim_events`) count from
@@ -26,7 +29,6 @@ from thesis.ephys.trials import CATEGORY_BOUNDARY_HZ
 RECORDED = {"GRB006": "20240821_121447", "GRB064": "20261008_143359"}
 SUBJECTS = tuple(RECORDED)
 MIN_RATES = 6
-MIN_TRIALS = 50
 STIM_S = 1.0
 FIELDS = (
     "setting_modalities",
@@ -43,6 +45,15 @@ FIELDS = (
     "t_gocue",
     "stim_events",
 )
+
+
+@cached
+def _ephys_sessions(subject: str) -> pd.DataFrame:
+    import labdata  # noqa: F401
+    from labdata.schema import EphysRecording
+
+    names = (EphysRecording & {"subject_name": subject}).fetch("session_name")
+    return pd.DataFrame({"session_name": sorted(set(names))})
 
 
 @cached
@@ -70,20 +81,18 @@ def task_trials(subject: str, recorded: bool = False) -> pd.DataFrame:
     table["prev_rewarded"] = by_session["rewarded"].shift(1)
     used = (
         (table["setting_task_mode"].astype(str) == "discrimination")
-        & (table["setting_modalities"].astype(str) == "visual")
         & (table["rewarded_modality"].astype(str) == "visual")
         & (table["early_withdrawal"] == 0)
         & table["response"].isin((-1, 1))
         & (table["stim_duration"] >= STIM_S - 1e-6)
         & (table["stim_events"].map(len) > 0)
+        & table["session_name"].isin(_ephys_sessions(subject)["session_name"])
     )
     trials = table[used].copy()
     if not np.allclose(trials["category_boundary"], CATEGORY_BOUNDARY_HZ):
         raise ValueError(f"{subject}: a boundary is not {CATEGORY_BOUNDARY_HZ} Hz.")
-    counts = trials.groupby("session_name").agg(
-        rates=("stim_rate_vision", "nunique"), n=("trial_num", "size")
-    )
-    keep = counts.index[(counts["rates"] >= MIN_RATES) & (counts["n"] >= MIN_TRIALS)]
+    rates = trials.groupby("session_name")["stim_rate_vision"].nunique()
+    keep = rates.index[rates >= MIN_RATES]
     if recorded:
         keep = [RECORDED[subject]]
     trials = trials[trials["session_name"].isin(keep)].copy()

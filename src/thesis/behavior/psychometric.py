@@ -7,8 +7,8 @@ right port, a rate below it at the left port. Does the choice follow the rate?
 Comparison: the fraction of right choices at each flash rate, in each mouse.
 No model of the neurons.
 
-- Sessions and trials (`behavior.trials`): by default all task sessions of each
-  mouse (visual-only discrimination, at least 6 rates); with `--recorded` only
+- Sessions and trials (`behavior.trials`): by default the discrimination sessions of
+  each mouse that have an ephys recording (visual-only trials, at least 6 rates); with `--recorded` only
   the recorded session (the one the neural analyses use). Completed trials with
   a left or right choice and a full 1-s train; boundary trials (rewarded at
   random) are shown.
@@ -129,7 +129,7 @@ def draw(axis, report: list[dict]) -> None:
             lw=1.2,
             ls=line,
         )
-        y = 0.95 - 0.08 * row
+        y = 1.13 - 0.07 * row  # the key, above the axes (the data fill the axes)
         axis.plot(
             [0.02, 0.09],
             [y, y],
@@ -137,6 +137,7 @@ def draw(axis, report: list[dict]) -> None:
             lw=1.2,
             ls=line,
             transform=axis.transAxes,
+            clip_on=False,
         )
         sessions = len(data["sessions"])
         axis.text(
@@ -149,7 +150,7 @@ def draw(axis, report: list[dict]) -> None:
             va="center",
             fontsize=7,
         )
-    axis.text(0.04, 0.03, "boundary", color=REFERENCE_COLOR, fontsize=7)
+    axis.text(0.04, 0.96, "boundary", color=REFERENCE_COLOR, fontsize=7, va="top")
     axis.set(
         xlabel="stimulus strength (left − / right +)",
         ylabel="fraction of right choices",
