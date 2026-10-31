@@ -9,7 +9,8 @@ of cam0 after these repairs, each of which is written to the output:
 - Glitch: a pulse with a width below 1% of the median is removed (GRB006).
 - Pulses before the recording: when a gap of `START_GAP_S` or more is in the
   first `START_SEARCH` pulses, the pulses before it are removed (the camera
-  runs for a short time before it saves frames; GRB064).
+  runs for a short time before it saves frames; GRB064: 215 pulses in
+  20260916, 1302 pulses in 20261008).
 - Irregular pulses: where two regular pulses are more than `IRREGULAR` frame
   intervals apart or closer than the inverse, the pulses between the regular
   ones on each side are replaced with evenly spaced times (GRB064 has one such
@@ -22,6 +23,7 @@ database events or use AVI presentation timestamps.
     uv run python -m thesis.ephys.preprocessing.audit_camera_pulses \
         --subject GRB064 --session 20260916_132939 \
         --output results/glm/GRB064_20260916_132939/camera_pulses.json
+    (and --session 20261008_143359 with its own output directory)
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from pathlib import Path
 import numpy as np
 
 START_GAP_S = 0.5
-START_SEARCH = 1000
+START_SEARCH = 2000
 IRREGULAR = 1.5
 
 
