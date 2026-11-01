@@ -1087,3 +1087,20 @@ Both sessions were fit again with the weaker penalty (design of 2026-10-13,
 - The numbers of the other sections (flash kernels by period, kernel
   stability, collinearity, unique ΔD²) are from the model in use, with the
   same penalty on all terms.
+
+### Trial rate, candidate, 2026-10-31
+
+Question: do the neurons code the rate of the train beyond the sum of their
+flash responses? The count-matched test (`rate_vs_count.py`) left a small
+fast − slow difference in GRB064 20261008 (+0.12 of the mean rate, 26
+units), but not in GRB006. The GLM session of GRB064 (20260916) has only
+4, 6, 18 and 20 Hz, where rate and flash count cannot be separated, so the
+model was fit on GRB064 20261008 (9 rates; 115 units, median D² 0.079,
+0.47 bits/spike, against 0.075 and 0.48 for 20260916).
+
+`candidate_terms.py` (`_trial_rate`) adds one column, the stimulus strength
+(rate − 12) / 8 from the first flash to the center exit. The shuffle keeps
+each trial's window and takes the strength of another trial. It fails: 3 of
+115 units need it (chance 14), median gain −0.00001 bits/spike (p = 0.46),
+2% of units are worse with it. So the per-flash terms explain the fast −
+slow difference in the port; no rate tuning is left to model. It stays out.
