@@ -33,7 +33,10 @@ from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.results import flash_kernel_at
 
 # The sessions of the two-animal figures. Each test is within one animal.
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20260916_132939")
+# GRB064: 20261008 since 2026-11-01 (9 rates, the decoder session; until then
+# 20260916, which has only 4 extreme rates; old results in
+# results/glm/_before_grb064_switch_2026_11_01/).
+SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
 
 # name: (gap in ms that selects the gap class, after the center exit)
 CONDITIONS = {
