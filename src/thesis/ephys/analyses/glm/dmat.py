@@ -32,7 +32,7 @@ from damn.objects.design_matrix_objects import DesignMatrix
 from damn.objects.regressor_objects import EventRegressor
 
 from thesis.ephys.cache import atomic_output
-from thesis.ephys.trials import build_trial_table
+from thesis.ephys.trials import build_trial_table, stimulus_strength
 
 # The window starts this long before the first flash. With 0.5 s it has about
 # 0.45 s before the center entry (the entry is 26 to 106 ms before the first
@@ -227,6 +227,15 @@ EXIT_LOG_STRETCH_S = 0.025
 # mice on 2026-10-15. `unique_dev.py` shuffles it over trials.
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
+# Trial rate, a candidate (`candidate_terms.py`, 2026-10-31): the stimulus
+# strength of the trial, (rate - 12 Hz) / 8 Hz, from the first flash to the
+# center exit, else 0 (0 also for a trial at the boundary). The flash terms
+# give every flash a response that depends only on its own history, so this
+# column is what is left that depends on the rate of the whole train: a test
+# of rate tuning beyond the sum of the flash responses. `unique_dev.py` keeps
+# each trial's window and takes the strength of another trial.
+TRIAL_RATE_COLUMN = False
+TRIAL_RATE = "trial_rate"
 # Response period (decided with Gabriel, 2026-10-15): the `exit_basis` with no
 # sign, from the center exit to the response entry; it takes the place of the
 # withdrawal kernel. With turn direction it splits the time after the exit into
@@ -655,6 +664,16 @@ def flash_side(trials) -> np.ndarray:
     return flash_after_exit(trials) * sides
 
 
+def trial_rate_strength(trials) -> np.ndarray:
+    """Return the stimulus strength of each trial (0 at the boundary)."""
+    return stimulus_strength(trials["visual_stim_rate_hz"].to_numpy(dtype=float))
+
+
+def trial_rate_window(times, first, before_exit) -> np.ndarray:
+    """Return the bins of each trial from the first flash to the center exit."""
+    return ((times >= first) & before_exit).astype(float)
+
+
 def _bumps(position: np.ndarray, count: int) -> np.ndarray:
     """Return `count` raised cosines with even spacing over a position of 0 to 1.
 
@@ -844,6 +863,27 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "columns": 1,
                 "coding": "+1 (rewarded) or -1 (not) for the last trial with a "
                 "response, over the whole window, else 0",
+            }
+        )
+    if TRIAL_RATE_COLUMN:
+        first = np.asarray(alignments, dtype=float)[:, None]
+        values = np.column_stack(
+            (
+                values,
+                (
+                    trial_rate_strength(trials)[:, None]
+                    * trial_rate_window(times, first, before_exit)
+                ).ravel(),
+            )
+        )
+        manifest.append(
+            {
+                "name": TRIAL_RATE,
+                "group": "task",
+                "events": len(alignments),
+                "columns": 1,
+                "coding": "stimulus strength (rate - 12 Hz) / 8 Hz from the first "
+                "flash to the center exit, else 0",
             }
         )
     if SESSION_DRIFT:
@@ -1152,6 +1192,7 @@ def _common_design_is_current(output: Path) -> bool:
             (FIXATION, 1, FIXATION_COLUMN),
             (PREVIOUS_SIDE, 1, PREVIOUS_SIDE_COLUMN),
             (PREVIOUS_OUTCOME, 1, PREVIOUS_OUTCOME_COLUMN),
+            (TRIAL_RATE, 1, TRIAL_RATE_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
             (RESPONSE_PERIOD, TURN_DIRECTION_BASES, RESPONSE_PERIOD_TERM),
             (TURN_DIRECTION, TURN_DIRECTION_BASES, TURN_DIRECTION_TERM),
