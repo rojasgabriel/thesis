@@ -20,10 +20,11 @@ slope is 0.
   The window `WINDOW_MS` around the flash must lie inside the valid interval.
   Gaps come in 40-ms steps, so the shortest is 120 ms (46% / 32% of the
   flashes); then the -40 to 0 ms baseline is 80-120 ms after the flash
-  before, on the tail of its response. Checked on 2026-10-30 with gaps of
-  200 ms or more (134 / 66 flashes): the flash response still falls with
-  movement (-18% / -26% per SD, p = 0.002 / 0.001), but the rise of the
-  background is no longer significant (+5% / +20%, p = 0.54 / 0.06).
+  before, on the tail of its response. Checked on 2026-11-04 (GRB064
+  20261008) with gaps of 200 ms or more (102 / 66 flashes): the flash
+  response still falls with movement (-14% / -17% per SD, p < 0.001 /
+  p = 0.001), but the rise of the background is no longer significant
+  (+8% / +19%, p = 0.34 / 0.05).
 - Rates: the observed spike counts divided by exp(the part of every non-flash
   column of the design: fixation and pre-stimulus terms, previous choice,
   session drift and the motion-energy PCs), each trial with the fold model of
