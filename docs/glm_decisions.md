@@ -1104,3 +1104,30 @@ each trial's window and takes the strength of another trial. It fails: 3 of
 115 units need it (chance 14), median gain −0.00001 bits/spike (p = 0.46),
 2% of units are worse with it. So the per-flash terms explain the fast −
 slow difference in the port; no rate tuning is left to model. It stays out.
+
+### GRB064 moves to 20261008, 2026-11-01
+
+All GLM analyses of GRB064 now use 20261008 (`flash_kernels.SESSIONS`), the
+session of the decoders and the behavior figures: 9 rates against 4 in
+20260916, and behavior closer to expert. Fit: 115 units (unit 453 excluded,
+no spikes in the validation trials), median D² 0.079, 0.47 bits/spike;
+22 flash-excited units (StimulusResponse, added to
+`raw_video_trust_classification.json`). The old results are in
+`results/glm/_before_grb064_switch_2026_11_01/`; the rerun script and the
+inputs made by hand are in `results/glm/_refit_grb064_switch_logs/run.sh`.
+
+What changed in GRB064 (flash-excited units, gap ≥80 ms):
+
+- Observed increase after the exit (normalized, mean): 0.17 (was 1.05);
+  14 of 22 units higher; p = 0.17 normalized, 0.021 in spikes/s.
+- Full model 0.21; without flash × exit 0.80.
+- Leak-corrected flash × exit, held out, log-ratio median: ×0.77,
+  p = 0.021, 6 of 22 units left out (was ×0.85, p = 0.39). Pooled over the
+  mice: ×0.82, 95% ×0.64 to ×1.04, p = 0.063. GRB006 does not change.
+- The first-flash miss (flash minus no flash) is now significant in GRB064
+  too: median 0.36, p = 0.008; pooled 0.65, p = 0.001.
+
+So neither mouse shows a flash-specific increase; in GRB064 the flash
+response after the exit is smaller than the other terms predict. More
+sessions will come. Not rerun on 20261008: `power_test` and the raw-video
+checks, whose GRB064 numbers are still from 20260916.
