@@ -24,9 +24,10 @@ exit. There is no head or eye tracking. That is a limitation of the study.
    held-out spikes at 0.55 / 0.48 bits per spike. All terms pass the
    inclusion tests.
 3. **The flash × exit term carries almost none of the increase.** After the
-   leak correction, the log ratio is −0.07 / −0.12 (pooled median −0.10, 95%
-   −0.32 to +0.10). The test has 80% power at +0.21 / +0.28, so a large
-   flash-specific effect is unlikely. A smaller one is still possible.
+   leak correction, the held-out log ratio is −0.10 / −0.26 in medians
+   (pooled median −0.20, 95% −0.45 to +0.04; GRB064 p = 0.02, below zero).
+   The test has 80% power at +0.21 / +0.15, so a positive flash-specific
+   effect of that size is unlikely. A smaller one is still possible.
 4. **What the increase is instead:**
    - **Gain on all activity.** The rate before the flash goes up by the same
      factor as the flash response (GRB006: g_b 1.84, g_f 1.65; GRB064 cannot

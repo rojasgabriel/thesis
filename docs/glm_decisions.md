@@ -1129,5 +1129,7 @@ What changed in GRB064 (flash-excited units, gap ≥80 ms):
 
 So neither mouse shows a flash-specific increase; in GRB064 the flash
 response after the exit is smaller than the other terms predict. More
-sessions will come. Not rerun on 20261008: `power_test` and the raw-video
-checks, whose GRB064 numbers are still from 20260916.
+sessions will come. `power_test` was rerun on 2026-11-04: in GRB064 80%
+power at +0.15 in log ratio (was +0.28), 0 of 20 false positives. Not rerun
+on 20261008: the raw-video checks, whose GRB064 numbers are still from
+20260916.
