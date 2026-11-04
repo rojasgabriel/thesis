@@ -1133,3 +1133,13 @@ sessions will come. `power_test` was rerun on 2026-11-04: in GRB064 80%
 power at +0.15 in log ratio (was +0.28), 0 of 20 false positives. Not rerun
 on 20261008: the raw-video checks, whose GRB064 numbers are still from
 20260916.
+
+Robustness of the GRB064 result (2026-11-04). The log-ratio measure leaves out
+6 of 22 flash-excited units (17, 438, 446, 456, 482, 50): a model peak is ≤ 0,
+in most of them the peak after the exit. Their normalized values scatter
+around zero (−0.22 to +0.21). With all 22 units, the normalized measure gives
+the same result: median −0.25, p = 0.036. Leaving out any one of the 16 units
+keeps the log-ratio median at −0.25 to −0.26 and p between 0.008 and 0.041. So
+the exclusion does not make the result. It is one session, and p is not
+corrected over the two gap classes and two mice. In GRB006 the same checks
+give no effect (log −0.10, p = 0.45; normalized +0.09, p = 0.47).
