@@ -13,7 +13,7 @@ motion energy at the flash (slope 0); over the units of a mouse, the median
 slope is 0.
 
 - Units: the flash-excited units of `raw_video_trust_classification.json`
-  (30 / 15); each mouse is analyzed alone (different camera views).
+  (30 / 22); each mouse is analyzed alone (different camera views).
 - Flashes: completed GLM trials; flashes in the port (before the center exit)
   with a gap of at least `MIN_GAP_S` from the flash before; the first flash
   of a trial is left out (no flash before; it also starts the fixation drop).

@@ -174,7 +174,7 @@ def session_gains(session: str, excited: list[int]) -> dict:
     out["stats"] = {
         "units": int(len(table)),
         "units_without_g_f": int(np.sum(~defined)),
-        "median_g_b": float(np.median(table[:, 1])),
+        "median_g_b": float(np.nanmedian(table[:, 1])),
         "median_g_f": float(np.median(g_f)),
         "median_g_f_minus_g_b": float(np.median(g_f - g_b)),
         "wilcoxon_p_g_f_minus_g_b": float(wilcoxon(g_f - g_b).pvalue),
