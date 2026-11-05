@@ -16,12 +16,13 @@ exit. There is no head or eye tracking. That is a limitation of the study.
 
 ## What the data show
 
-1. **Observation.** After the exit, flash responses are larger: 26 of 30 /
-   13 of 15 flash-excited units at long gaps (normalized peak +1.71 / +1.05).
-   At short gaps, most of the increase is a higher rate before the flash.
+1. **Observation.** After the exit, flash responses are larger in GRB006:
+   26 of 30 flash-excited units at long gaps (normalized peak +1.71). In
+   GRB064 (20261008) the increase is small: 14 of 22 units, +0.17. At short
+   gaps, most of the increase is a higher rate before the flash.
 2. **Model.** A Poisson GLM with 13 terms (flash history with gap, recovery,
    exit, and side modifiers; task events; video; spike history) predicts
-   held-out spikes at 0.55 / 0.48 bits per spike. All terms pass the
+   held-out spikes at 0.55 / 0.47 bits per spike. All terms pass the
    inclusion tests.
 3. **The flash × exit term carries almost none of the increase.** After the
    leak correction, the held-out log ratio is −0.10 / −0.26 in medians
