@@ -4,7 +4,7 @@
 - **Why:** predictive accuracy, repeatability, recovery, and control comparisons answer different questions. They do not all establish that a fitted flash effect is independent of locomotion.
 - **Finding:** prediction is useful, but known-weight recovery and zero-effect simulations show limits on reading the weights. Raw video does not remove those limits.
 - **Next:** use these checks to qualify the three main figures. Side preference is a check of the turn term, not part of the main sensory-enhancement argument.
-- **Scope:** GRB006 / GRB064 order; one session per mouse. Model of 2026-10-29, with flash recovery at τ = 50 ms (`dmat.FLASH_RECOVERY`) and flash × side (`dmat.FLASH_SIDE`). The numbers of the model of 2026-10-24 are in `results/glm/_before_flash_side_2026_10_29/`. The raw-video control and the design grids ran on the design of 2026-10-17, without flash recovery. The held-out rate comparison of the main analysis is leak-corrected in its own measure; the supporting kernel-peak scatter is not. GRB064 is session 20261008 since 2026-11-01 (115 units, 22 flash-excited). Sections marked "GRB064 20260916" (raw video, the flash × side candidate test and direction, the decoder leftover, some in-port checks) were not run again on the new session.
+- **Scope:** GRB006 / GRB064 order; one session per mouse. Model of 2026-10-29, with flash recovery at τ = 50 ms (`dmat.FLASH_RECOVERY`) and flash × side (`dmat.FLASH_SIDE`). The numbers of the model of 2026-10-24 are in `results/glm/_before_flash_side_2026_10_29/`. The design grids ran on the design of 2026-10-17, without flash recovery; the raw-video control was run again on the model of 2026-10-29 on 2026-11-07. The held-out rate comparison of the main analysis is leak-corrected in its own measure; the supporting kernel-peak scatter is not. GRB064 is session 20261008 since 2026-11-01 (115 units, 22 flash-excited). Values marked "GRB064 20260916" were not run again on the new session.
 
 ## Does the fit support interpretation of the flash component?
 
@@ -101,13 +101,13 @@
 
 ## Do the conclusions depend on the video model?
 
-These fits are of the design of 2026-10-17, without flash recovery. GRB064 numbers in this part are from session 20260916 (79 units); they were not run again on 20261008.
+These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The kernel comparisons use six fixed task terms; flash recovery and flash × side are in both models but are not compared. The results of the design of 2026-10-17 (GRB064 20260916) are in `results/glm/_raw_video_design_2026_10_17/`.
 
 ### Does raw video improve held-out spike prediction?
 
 - **Question:** do raw pixels contain predictive information beyond motion energy?
 - **Why:** if they add information, we must check whether the model assigns that information to task terms when raw video is absent.
-- **Finding:** adding 10 raw-video PCs to 10 motion-energy PCs improves median paired D² by **+0.00046 / +0.00109** across all **243** eligible units and the same ten folds. Prediction improves in **116/167 / 61/76** units. Pooled gain is **0.00069 D²**, 95% interval **0.00035–0.00151**. Coefficients and penalties are re-estimated; video preprocessing is not fully nested.
+- **Finding:** adding 10 raw-video PCs to 10 motion-energy PCs improves median paired D² by **+0.00051 / +0.00142** across all **287** eligible units and the same ten folds. Prediction improves in **123/172 / 97/115** units (Wilcoxon p = 3e-13 / 1e-13). Pooled gain is **0.00083 D²**, 95% interval **0.00043–0.00169**. Coefficients and penalties are re-estimated; video preprocessing is not fully nested.
 - **Next:** better prediction does not establish more accurate task weights. Check their levels, repeatability, and recovery below.
 
 ![Paired held-out prediction scores and gains from added raw video](../figures/glm/raw_video_full/raw_video_test.svg)
@@ -116,7 +116,7 @@ These fits are of the design of 2026-10-17, without flash recovery. GRB064 numbe
 
 - **Question:** how much do the signed task levels shift when raw-video terms enter the model?
 - **Why:** similar kernel shapes can still have different sizes. The fixation result depends on both.
-- **Finding:** median fixation levels become less negative: **−0.382 → −0.294 / −0.516 → −0.396 Δ log rate**. Pooled paired change is **+0.062**, 95% interval **0.051–0.089**. Fixation and response-period changes pass Holm correction; signed turn and flash × exit changes do not. Bars show fold SD on both axes, not independent confidence intervals.
+- **Finding:** median fixation levels become less negative: **−0.364 → −0.312 / −0.445 → −0.355 Δ log rate**. Pooled paired change is **+0.055**, 95% interval **0.044–0.084**. Fixation and flash changes pass Holm correction in both mice (the flash changes are small, +0.008 / +0.012); the short-gap and response-period changes pass only in GRB006; signed turn and flash × exit changes do not pass. Bars show fold SD on both axes, not independent confidence intervals.
 - **Next:** the magnitude is sensitive to video modeling. Check whether adding video improves repeatability or resolves estimation bias before choosing between the weight estimates.
 
 ![Paired signed task-kernel levels with and without raw video](../figures/glm/raw_video_full/raw_video_kernel_levels.svg)
@@ -125,7 +125,7 @@ These fits are of the design of 2026-10-17, without flash recovery. GRB064 numbe
 
 - **Question:** do kernels fitted to alternate trials agree more after adding raw video?
 - **Why:** extra predictors can improve spike prediction while making the allocation among task terms less stable.
-- **Finding:** among all eligible units, fixation agreement falls **0.872 → 0.851 / 0.936 → 0.900**; both changes pass correction for six tests per mouse (p = 1.2 × 10⁻¹⁰ / 5.5 × 10⁻⁵). Turn agreement rises **0.552 → 0.610 / 0.664 → 0.706**; only GRB006 passes correction. This all-unit selection differs from the needed-term selection in the main model checks.
+- **Finding:** among all eligible units, fixation agreement falls **0.870 → 0.849 / 0.907 → 0.874**; both changes pass correction for six tests per mouse (p = 3 × 10⁻¹² / 4 × 10⁻⁶). Flash agreement also falls a little (0.859 → 0.839 / 0.835 → 0.806, p = 0.003 / 0.003). Turn agreement rises **0.511 → 0.557 / 0.450 → 0.480**; neither change passes correction (p = 0.31 / 0.23). This all-unit selection differs from the needed-term selection in the main model checks.
 - **Next:** prediction and repeatability do not pick one model uniformly. Simulations with known weights test the remaining bias.
 
 ![Paired split-half task-kernel agreement with and without raw video](../figures/glm/raw_video_full/split_half.svg)
@@ -134,7 +134,7 @@ These fits are of the design of 2026-10-17, without flash recovery. GRB064 numbe
 
 - **Question:** does adding raw video improve recovery of known fixation weights or settle the corrected flash × exit effect?
 - **Why:** repeatable weights can still be biased. Recovery and zero-effect simulations address that limitation directly.
-- **Finding:** in the fixed **20-unit pilot per mouse**, fixation-level recovery changes **0.763 → 0.753 / 0.842 → 0.759**. Largest condition indices rise **8.07 → 15.02 / 9.78 → 11.63**, below the chosen limit of 30. Corrected flash × exit kernel medians remain opposite: **+0.102 / −0.164 Δ log rate**. Each model has its own simulated truth and spikes. Only **three / five** pilot units are classified as excited, so their matched peaks cannot settle the population result.
+- **Finding:** in the fixed **20-unit pilot per mouse**, fixation-level recovery changes **0.763 → 0.598 / 0.747 → 0.849** (15 / 19 paired units), so it does not improve in a consistent direction. Largest condition indices rise **10.1 → 15.9 / 10.0 → 10.7**, below the chosen limit of 30. Corrected flash × exit kernel medians do not change with raw video and remain different in the two mice: **+0.023 → +0.035 / −0.253 → −0.242 Δ log rate** (GRB064 Holm p = 0.002 in both models). Each model has its own simulated truth and spikes. Only **three / seven** pilot units are classified as excited, so their matched peaks cannot settle the population result.
 - **Next:** retain raw video as a sensitivity control. It does not resolve fixation-weight bias; the small pilot cannot resolve the sensory question.
 
 ![Raw-video pilot collinearity, recovery, and leak checks](../figures/glm/raw_video_trust.svg)
@@ -361,8 +361,8 @@ uv run python -m thesis.ephys.analyses.glm.model_trust
 - Raw-video comparison and side preference:
 
 ~~~bash
-nice -n 10 uv run python -m thesis.ephys.analyses.glm.raw_video_full --workers 2
-nice -n 10 uv run python -m thesis.ephys.analyses.glm.raw_video_trust --workers 2
+nice -n 10 uv run python -m thesis.ephys.analyses.glm.raw_video_full --workers 4
+nice -n 10 uv run python -m thesis.ephys.analyses.glm.raw_video_trust --workers 4
 nice -n 10 uv run python -m thesis.ephys.analyses.glm.side_preference
 nice -n 10 uv run python -m thesis.ephys.analyses.glm.side_preference --raw-video
 ~~~
@@ -385,12 +385,12 @@ nice -n 10 uv run python -m thesis.ephys.analyses.glm.synthetic_check --out <new
 
 - **Question:** can the extra predictive information be assigned to movement alone?
 - **Why:** otherwise a raw-video control could be read as a specific locomotion control.
-- **Finding:** the first ten components explain **74.3% / 40.3%** of training-frame variance. The maps below show the GRB006 back view, then the GRB064 bottom view. Components mix posture, position, and illumination; brightness correlations reach **|ρ| = 0.64 / 0.49**. The two views are different measures.
+- **Finding:** the first ten components explain **74.3% / 40.9%** of training-frame variance. The maps below show the GRB006 back view, then the GRB064 bottom view. Components mix posture, position, and illumination; brightness correlations reach **|ρ| = 0.64 / 0.65**. The two views are different measures.
 - **Next:** interpret added video as a broad nuisance control. Identifying locomotion, posture, or illumination requires a more specific measurement; there is no useful pupil measurement here.
 
 ![GRB006 raw-video spatial components, back view](../figures/glm/GRB006_20240821_121447/raw_video_test/raw_components.svg)
 
-![GRB064 (20260916) raw-video spatial components, bottom view](../figures/glm/GRB064_20260916_132939/raw_video_test/raw_components.svg)
+![GRB064 raw-video spatial components, bottom view](../figures/glm/GRB064_20261008_143359/raw_video_test/raw_components.svg)
 
 ### Which checks remain incomplete?
 
