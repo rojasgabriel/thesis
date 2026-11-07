@@ -1,4 +1,10 @@
-"""Trial tables combining Chipmunk metadata with ephys event timestamps."""
+"""Trial tables combining Chipmunk metadata with ephys event timestamps.
+
+Sessions with passive replay have more OBX/NIDQ trial_start (Bpod sync) pulses
+than task trials: the N task pulses come first, then one pulse per replay.
+`build_trial_table` uses only the task pulses; `build_replay_table` gives the
+replay trials.
+"""
 
 from __future__ import annotations
 
@@ -159,6 +165,48 @@ def _select_task_ev_sequence(
     }
 
 
+def _replay_trials(subject: str, session: str) -> pd.DataFrame:
+    """Return ChipmunkPassive.Trial rows in replay order (empty without the table)."""
+    columns = ["passive_trial_num", "source_trial_num"]
+    try:
+        from chipmunk import ChipmunkPassive
+    except ImportError:  # plugin version before the passive dataset
+        return pd.DataFrame(columns=columns)
+    rows = (
+        ChipmunkPassive.Trial & {"subject_name": subject, "session_name": session}
+    ).fetch(*columns, order_by="passive_trial_num", as_dict=True)
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _split_trial_starts(
+    trial_starts_s: np.ndarray, n_task: int, n_replay: int, subject: str, session: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the task and replay trial_start pulses of a session.
+
+    Replay pulses follow the task pulses. One extra last pulse is accepted: a
+    replay stopped after its sync pulse but before its stimulus has no row.
+    """
+    if not n_replay:
+        return trial_starts_s, trial_starts_s[:0]
+    if len(trial_starts_s) - n_task - n_replay not in (0, 1):
+        raise ValueError(
+            f"Trial-start pulses do not match task plus replay trials for "
+            f"{subject} {session}: pulses={len(trial_starts_s)}, "
+            f"task={n_task}, replay={n_replay}."
+        )
+    return trial_starts_s[:n_task], trial_starts_s[n_task:]
+
+
+def _split_by_windows(windows, times_s, values=None) -> list[list[float]]:
+    """Return values (default: the times) inside each (start, end) window."""
+    times_s = np.asarray(times_s, dtype=float)
+    values = times_s if values is None else np.asarray(values, dtype=float)
+    return [
+        values[(times_s >= start_s) & (times_s < end_s)].tolist()
+        for start_s, end_s in windows
+    ]
+
+
 @cached
 def build_trial_table(
     subject: str, session: str, *, include_frames: bool = True
@@ -216,7 +264,13 @@ def build_trial_table(
         )
     )
 
-    trial_starts_s = sess_ev["trial_start"]
+    trial_starts_s, replay_starts_s = _split_trial_starts(
+        sess_ev["trial_start"],
+        len(trial_table),
+        len(_replay_trials(subject, session)),
+        subject,
+        session,
+    )
     n_ev_trials = len(trial_starts_s)
     n_chipmunk_trials = len(trial_table)
     n_trials = min(n_ev_trials, n_chipmunk_trials)
@@ -251,17 +305,13 @@ def build_trial_table(
         labels=["low_rate", "boundary", "high_rate"],
     )
 
-    trial_ends_s = np.r_[trial_starts_s[1:n_trials], np.inf]
+    # The last task trial ends at the first replay pulse, so replay events stay out.
+    task_end_s = replay_starts_s[0] if len(replay_starts_s) else np.inf
+    trial_ends_s = np.r_[trial_starts_s[1:n_trials], task_end_s]
     trial_windows = list(zip(trial_starts_s[:n_trials], trial_ends_s, strict=True))
 
     def split_by_trial(times_s, values=None) -> list[list[float]]:
-        """Return values (default: the times) inside each trial's window."""
-        times_s = np.asarray(times_s, dtype=float)
-        values = times_s if values is None else np.asarray(values, dtype=float)
-        return [
-            values[(times_s >= start_s) & (times_s < end_s)].tolist()
-            for start_s, end_s in trial_windows
-        ]
+        return _split_by_windows(trial_windows, times_s, values)
 
     ev_column_by_role = {
         "frames": "frame_times_s",
@@ -438,3 +488,75 @@ def build_trial_table(
             "response_entry_source",
         ]
     ]
+
+
+@cached
+def build_replay_table(subject: str, session: str) -> pd.DataFrame:
+    """Return one row per passive replay trial with hardware events.
+
+    Replay j is trial_start pulse N + j, where N is the number of task trials.
+    Its window ends at the next pulse; the last one ends at the end of the
+    recording. The replay plays the full intended train of its source task
+    trial, so the rate and boundary come from that trial. Empty for sessions
+    without replay.
+    """
+    from chipmunk import Chipmunk
+
+    from thesis.ephys.events import fetch_session_events
+
+    replays = _replay_trials(subject, session)
+    columns = [
+        "passive_trial_num",
+        "source_trial_num",
+        "visual_stim_rate_hz",
+        "category_boundary_hz",
+        "trial_start_s",
+        "first_stim_times_s",
+        "stim_pulse_times_s",
+        "stim_pulse_widths_ms",
+        "left_port_entry_times_s",
+        "center_port_entry_times_s",
+        "right_port_entry_times_s",
+    ]
+    if replays.empty:
+        return pd.DataFrame(columns=columns)
+    key = {"subject_name": subject, "session_name": session}
+    source = (
+        (Chipmunk.trial_query(**key).proj("stim_rate_vision", "category_boundary"))
+        .fetch(format="frame")
+        .reset_index()
+    )
+    sess_ev, stim_pulses = fetch_session_events(
+        subject, session, allow_incomplete=True, include_frames=False
+    )
+    _, replay_starts_s = _split_trial_starts(
+        sess_ev["trial_start"], len(source), len(replays), subject, session
+    )
+    bounds_s = np.r_[replay_starts_s, np.inf]
+    windows = list(zip(bounds_s[: len(replays)], bounds_s[1 : len(replays) + 1]))
+    table = replays.merge(
+        source[["trial_num", "stim_rate_vision", "category_boundary"]].rename(
+            columns={
+                "trial_num": "source_trial_num",
+                "stim_rate_vision": "visual_stim_rate_hz",
+                "category_boundary": "category_boundary_hz",
+            }
+        ),
+        on="source_trial_num",
+        how="left",
+        validate="many_to_one",
+    )
+    table["trial_start_s"] = bounds_s[: len(replays)]
+    pulse_times_s = stim_pulses["timestamp"]
+    table["stim_pulse_times_s"] = _split_by_windows(windows, pulse_times_s)
+    table["stim_pulse_widths_ms"] = _split_by_windows(
+        windows, pulse_times_s, stim_pulses["width_ms"]
+    )
+    table["first_stim_times_s"] = _split_by_windows(
+        windows, stim_pulses.loc[stim_pulses["first_in_train"], "timestamp"]
+    )
+    for side in ("left", "center", "right"):
+        table[f"{side}_port_entry_times_s"] = _split_by_windows(
+            windows, sess_ev.get(f"{side}_port", [])
+        )
+    return table[columns]
