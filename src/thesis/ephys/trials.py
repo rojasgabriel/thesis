@@ -1,7 +1,9 @@
 """Trial tables combining Chipmunk metadata with ephys event timestamps.
 
 Sessions with passive replay have more OBX/NIDQ trial_start (Bpod sync) pulses
-than task trials: the N task pulses come first, then one pulse per replay.
+than task trials: the N task pulses come first, then one pulse per replay. A
+trial cut short by Stop adds one unsaved pulse; the Bpod sync event values (clock
+pulse numbers) skip it.
 `build_trial_table` uses only the task pulses; `build_replay_table` gives the
 replay trials.
 """
@@ -178,23 +180,36 @@ def _replay_trials(subject: str, session: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def _split_trial_starts(
+def _trial_start_indices(
     trial_starts_s: np.ndarray, n_task: int, n_replay: int, subject: str, session: str
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return the task and replay trial_start pulses of a session.
+) -> np.ndarray | None:
+    """Return the trial_start pulse index of each task trial, then each replay.
 
-    Replay pulses follow the task pulses. One extra last pulse is accepted: a
-    replay stopped after its sync pulse but before its stimulus has no row.
+    None for sessions without replay, which keep the old one-pulse tolerance.
+    Pulses are paired by the clock pulse numbers of the Bpod sync stream, so the
+    unsaved pulse of a trial cut short by Stop is skipped.
     """
     if not n_replay:
-        return trial_starts_s, trial_starts_s[:0]
-    if len(trial_starts_s) - n_task - n_replay not in (0, 1):
-        raise ValueError(
-            f"Trial-start pulses do not match task plus replay trials for "
-            f"{subject} {session}: pulses={len(trial_starts_s)}, "
-            f"task={n_task}, replay={n_replay}."
-        )
-    return trial_starts_s[:n_task], trial_starts_s[n_task:]
+        return None
+    from labdata.schema import DatasetEvents
+
+    from thesis.ephys.events import saved_pulse_indices
+
+    rows = (
+        DatasetEvents.Digital()
+        & {
+            "subject_name": subject,
+            "session_name": session,
+            "dataset_name": "chipmunk",
+            "stream_name": "bpod",
+            "event_name": "sync",
+        }
+    ).fetch("event_values")
+    numbers = rows[0] if len(rows) == 1 else None
+    try:
+        return saved_pulse_indices(len(trial_starts_s), n_task + n_replay, numbers)
+    except ValueError as error:
+        raise ValueError(f"{subject} {session}: trial-start pulses: {error}") from error
 
 
 def _split_by_windows(windows, times_s, values=None) -> list[list[float]]:
@@ -264,12 +279,18 @@ def build_trial_table(
         )
     )
 
-    trial_starts_s, replay_starts_s = _split_trial_starts(
-        sess_ev["trial_start"],
+    all_starts_s = sess_ev["trial_start"]
+    start_index = _trial_start_indices(
+        all_starts_s,
         len(trial_table),
         len(_replay_trials(subject, session)),
         subject,
         session,
+    )
+    trial_starts_s = (
+        all_starts_s
+        if start_index is None
+        else all_starts_s[start_index[: len(trial_table)]]
     )
     n_ev_trials = len(trial_starts_s)
     n_chipmunk_trials = len(trial_table)
@@ -305,9 +326,12 @@ def build_trial_table(
         labels=["low_rate", "boundary", "high_rate"],
     )
 
-    # The last task trial ends at the first replay pulse, so replay events stay out.
-    task_end_s = replay_starts_s[0] if len(replay_starts_s) else np.inf
-    trial_ends_s = np.r_[trial_starts_s[1:n_trials], task_end_s]
+    # With replay, each trial ends at the next clock pulse, so the events of a
+    # trial cut short by Stop and of the replays stay out of the last task trial.
+    if start_index is None:
+        trial_ends_s = np.r_[trial_starts_s[1:n_trials], np.inf]
+    else:
+        trial_ends_s = np.r_[all_starts_s, np.inf][start_index[:n_trials] + 1]
     trial_windows = list(zip(trial_starts_s[:n_trials], trial_ends_s, strict=True))
 
     def split_by_trial(times_s, values=None) -> list[list[float]]:
@@ -373,6 +397,8 @@ def build_trial_table(
     if valid_bpod_react.any() or valid_bpod_entry.any() or missing_port_roles:
         from labdata.schema import StreamSync
 
+        from thesis.ephys.events import bpod_to_clock
+
         bpod_sync = StreamSync() & {
             "subject_name": subject,
             "session_name": session,
@@ -385,6 +411,7 @@ def build_trial_table(
                 f"Missing Bpod StreamSync for {subject} {session}; "
                 "run uv run insert-stream-sync for its ephys dataset"
             )
+        to_clock = bpod_to_clock(subject, session)
 
         for port_role in missing_port_roles:
             entries_by_trial = []
@@ -392,27 +419,19 @@ def build_trial_table(
             for pokes in trial_table[f"{port_role.removesuffix('_port')}_poke"]:
                 bpod_entries, bpod_exits = _split_bpod_pokes(pokes)
                 entries_by_trial.append(
-                    bpod_sync.apply(bpod_entries, force=True, warn=False).tolist()
-                    if bpod_entries.size
-                    else []
+                    to_clock(bpod_entries).tolist() if bpod_entries.size else []
                 )
                 exits_by_trial.append(
-                    bpod_sync.apply(bpod_exits, force=True, warn=False).tolist()
-                    if bpod_exits.size
-                    else []
+                    to_clock(bpod_exits).tolist() if bpod_exits.size else []
                 )
             trial_table[f"{port_role}_entry_times_s"] = entries_by_trial
             trial_table[f"{port_role}_exit_times_s"] = exits_by_trial
 
-        predicted_react_s[valid_bpod_react] = bpod_sync.apply(
-            bpod_react_s[valid_bpod_react], force=True, warn=False
-        )
-        predicted_entry_s[valid_bpod_entry] = bpod_sync.apply(
-            bpod_entry_s[valid_bpod_entry], force=True, warn=False
-        )
+        predicted_react_s[valid_bpod_react] = to_clock(bpod_react_s[valid_bpod_react])
+        predicted_entry_s[valid_bpod_entry] = to_clock(bpod_entry_s[valid_bpod_entry])
         if valid_bpod_response.any():
-            predicted_response_s[valid_bpod_response] = bpod_sync.apply(
-                bpod_response_s[valid_bpod_response], force=True, warn=False
+            predicted_response_s[valid_bpod_response] = to_clock(
+                bpod_response_s[valid_bpod_response]
             )
 
     if missing_port_roles or missing_frames:
@@ -529,11 +548,11 @@ def build_replay_table(subject: str, session: str) -> pd.DataFrame:
     sess_ev, stim_pulses = fetch_session_events(
         subject, session, allow_incomplete=True, include_frames=False
     )
-    _, replay_starts_s = _split_trial_starts(
+    replay_index = _trial_start_indices(
         sess_ev["trial_start"], len(source), len(replays), subject, session
-    )
-    bounds_s = np.r_[replay_starts_s, np.inf]
-    windows = list(zip(bounds_s[: len(replays)], bounds_s[1 : len(replays) + 1]))
+    )[len(source) :]
+    bounds_s = np.r_[sess_ev["trial_start"], np.inf]
+    windows = list(zip(bounds_s[replay_index], bounds_s[replay_index + 1]))
     table = replays.merge(
         source[["trial_num", "stim_rate_vision", "category_boundary"]].rename(
             columns={
@@ -546,7 +565,7 @@ def build_replay_table(subject: str, session: str) -> pd.DataFrame:
         how="left",
         validate="many_to_one",
     )
-    table["trial_start_s"] = bounds_s[: len(replays)]
+    table["trial_start_s"] = bounds_s[replay_index]
     pulse_times_s = stim_pulses["timestamp"]
     table["stim_pulse_times_s"] = _split_by_windows(windows, pulse_times_s)
     table["stim_pulse_widths_ms"] = _split_by_windows(
