@@ -35,12 +35,14 @@ slope is 0.
   `ME_WINDOW_MS[0]` to `ME_WINDOW_MS[1]` around the flash, z-scored over the
   analyzed flashes of the session. The window ends at the flash, so it holds
   no movement that the flash causes. Flashes with no frame are left out.
-  Checked on 2026-10-30: windows of -50 to +100 and 0 to +100 ms give the
-  same sign and size; the flash does not change the motion energy (0-50 ms
-  after over 50-0 ms before: 0.95 / 0.97), so the light of the flash is not
-  read as movement; leaving out the first 300 ms of the wait, or adding the
-  time since the first flash and the gap as predictors, keeps the result
-  (movement is larger early in the wait, rho -0.17 / -0.37).
+  Checks (`--checks`, in the report): motion-energy windows of
+  `CHECK_ME_WINDOWS_MS`; the motion energy 0-50 ms after the flash over 50-0
+  ms before it (the light of the flash must not read as movement); flashes
+  earlier than `CHECK_MIN_WAIT_S` after the center entry left out (movement
+  is larger early in the wait); and the time since the center entry and the
+  gap as more predictors of the line fit. On 2026-11-06 (GRB064 20261008)
+  the last check gave -42% / -12% (p = 3e-5 / 0.3): in GRB064 the movement
+  effect is not separate from the time in the wait.
 - Flash response of one flash: the mean rate from `RESPONSE_MS[0]` to
   `RESPONSE_MS[1]` minus the mean rate from -40 to 0 ms (a mean, not the
   largest bin, which a single noisy flash would bias).
@@ -68,13 +70,14 @@ The script writes `figures/glm/flash_movement_in_port.svg` and
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
 import matplotlib
 import numpy as np
 from matplotlib.colors import to_rgb
-from scipy.stats import wilcoxon
+from scipy.stats import spearmanr, wilcoxon
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -97,6 +100,8 @@ MIN_GAP_S = 0.1
 WINDOW_MS = (-40, 150)
 RESPONSE_MS = (40, 100)
 ME_WINDOW_MS = (-100, 0)
+CHECK_ME_WINDOWS_MS = ((-50, 100), (0, 100))
+CHECK_MIN_WAIT_S = 0.3
 PERCENT_LIMIT = 150  # display limit of the histograms (%)
 QUINTILES = 5
 BIN_MS = 10
@@ -107,12 +112,13 @@ _MOTION = np.array(to_rgb(CONCEPT_COLORS["motion energy"]))
 SHADES = [tuple(1 - (1 - _MOTION) * f) for f in np.linspace(0.3, 1.0, QUINTILES)]
 
 
-def in_port_flashes(trials, prepared) -> tuple[np.ndarray, np.ndarray]:
-    """Return the window rows (flash, 1-ms bin) and the times (s) of the analyzed flashes."""
+def in_port_flashes(trials, prepared, min_wait_s: float = 0.0):
+    """Return the window rows (flash, 1-ms bin), times (s), gaps (s) and times since
+    the center entry (s) of the analyzed flashes; `min_wait_s` leaves out earlier ones."""
     n_bins = len(prepared["relative_centers"])
     valid = dmat._valid_bin_mask(prepared).reshape(len(trials), -1)
     lags = np.arange(*WINDOW_MS)
-    rows, times = [], []
+    rows, times, kept_gaps, waits = [], [], [], []
     for row, (_, trial) in enumerate(trials.iterrows()):
         flashes = np.asarray(trial["stim_pulse_times_s"], dtype=float)
         gaps = np.diff(flashes, prepend=-np.inf)
@@ -121,6 +127,7 @@ def in_port_flashes(trials, prepared) -> tuple[np.ndarray, np.ndarray]:
                 time >= trial["center_exit_s"]
                 or not np.isfinite(gap)
                 or gap < MIN_GAP_S
+                or time - trial["center_entry_s"] < min_wait_s
             ):
                 continue
             start = time - prepared["alignments"][row] - prepared["relative_centers"][0]
@@ -129,23 +136,27 @@ def in_port_flashes(trials, prepared) -> tuple[np.ndarray, np.ndarray]:
                 continue
             rows.append(row * n_bins + columns)
             times.append(time)
-    return np.asarray(rows), np.asarray(times)
+            kept_gaps.append(gap)
+            waits.append(time - trial["center_entry_s"])
+    return tuple(np.asarray(v) for v in (rows, times, kept_gaps, waits))
 
 
-def flash_motion(root: Path, times: np.ndarray) -> np.ndarray:
+def flash_motion(root: Path, times: np.ndarray, window_ms=ME_WINDOW_MS) -> np.ndarray:
     """Return the mean total motion energy of the frames around each flash (NaN if none)."""
     with np.load(root / "video_me_features.npz", allow_pickle=False) as video:
         frame_times, total = video["frame_times_s"], video["total"]
     order = np.argsort(frame_times)
     frame_times, total = frame_times[order], total[order]
-    lo = np.searchsorted(frame_times, times + ME_WINDOW_MS[0] / 1000)
-    hi = np.searchsorted(frame_times, times + ME_WINDOW_MS[1] / 1000)
+    lo = np.searchsorted(frame_times, times + window_ms[0] / 1000)
+    hi = np.searchsorted(frame_times, times + window_ms[1] / 1000)
     cumulative = np.concatenate([[0.0], np.cumsum(total)])
     with np.errstate(invalid="ignore", divide="ignore"):
         return (cumulative[hi] - cumulative[lo]) / (hi - lo)
 
 
-def session_values(session: str, excited: list[int]) -> dict:
+def session_values(
+    session: str, excited: list[int], window_ms=ME_WINDOW_MS, min_wait_s: float = 0.0
+) -> dict:
     """Return per unit the flash responses, backgrounds and PSTHs of the analyzed flashes."""
     root = OUT / session
     prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
@@ -158,8 +169,8 @@ def session_values(session: str, excited: list[int]) -> dict:
         "training_mean": np.asarray(metadata["training_mean"])[other],
         "training_scale": np.asarray(metadata["training_scale"])[other],
     }
-    rows, times = in_port_flashes(trials, prepared)
-    motion = flash_motion(root, times)
+    rows, times, gaps, waits = in_port_flashes(trials, prepared, min_wait_s)
+    motion = flash_motion(root, times, window_ms)
     keep = np.isfinite(motion)
     rows, motion = rows[keep], motion[keep]
     z = (motion - motion.mean()) / motion.std()
@@ -216,6 +227,9 @@ def session_values(session: str, excited: list[int]) -> dict:
         "flashes": int(len(z)),
         "flashes_without_video": int((~keep).sum()),
         "z": z,
+        "times": times[keep],
+        "gaps": gaps[keep],
+        "waits": waits[keep],
         **{k: np.asarray(v) for k, v in out.items()},
     }
 
@@ -332,7 +346,58 @@ def plot(sessions: list[dict]) -> Path:
         return save_figure(figure, OUT / "flash_movement_in_port")
 
 
+def median_percent(z: np.ndarray, response: np.ndarray, x=None) -> dict:
+    """Median percent per SD and Wilcoxon p; with `x`, the movement slope of a
+    fit with the other columns of `x` as predictors (centered)."""
+    if x is None:
+        percent = percent_slopes(z, response)
+    else:
+        design = np.column_stack(
+            [np.ones(len(z)), z, *((c - c.mean()) / c.std() for c in x)]
+        )
+        b = np.linalg.lstsq(design, response.T, rcond=None)[0]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            percent = np.where(b[0] > 0, 100 * b[1] / b[0], np.nan)
+    percent = percent[np.isfinite(percent)]
+    return {
+        "units": int(len(percent)),
+        "median_percent_per_sd": float(np.median(percent)),
+        "wilcoxon_p": float(wilcoxon(percent).pvalue),
+    }
+
+
+def checks(session: str, excited: list[int], main: dict) -> dict:
+    """Return the checks of one session: each changes one rule of the main measure."""
+    root = OUT / session
+    out = {}
+    for window in CHECK_ME_WINDOWS_MS:
+        s = session_values(session, excited, window)
+        out[f"motion energy {window[0]} to {window[1]} ms"] = median_percent(
+            s["z"], s["response"]
+        )
+    after = flash_motion(root, main["times"], (0, 50))
+    before = flash_motion(root, main["times"], (-50, 0))
+    both = np.isfinite(after) & np.isfinite(before)
+    out["motion energy 0-50 ms after over 50-0 ms before the flash"] = float(
+        after[both].mean() / before[both].mean()
+    )
+    out["spearman of motion energy and time since center entry"] = float(
+        spearmanr(main["z"], main["waits"]).statistic
+    )
+    out["with time since center entry and gap as predictors"] = median_percent(
+        main["z"], main["response"], (main["waits"], main["gaps"])
+    )
+    s = session_values(session, excited, min_wait_s=CHECK_MIN_WAIT_S)
+    out[
+        f"without the first {1000 * CHECK_MIN_WAIT_S:.0f} ms after the center entry"
+    ] = median_percent(s["z"], s["response"])
+    return out
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--checks", action="store_true", help="Also run the checks.")
+    args = parser.parse_args()
     excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
     rng = np.random.default_rng(SEED)
     sessions, report = [], {}
@@ -352,6 +417,10 @@ def main() -> None:
             "background_percent_per_sd": background.tolist(),
             **s["stats"],
         }
+        if args.checks:
+            report[s["subject"]]["checks"] = checks(
+                session, sorted(excited[session]), s
+            )
         sessions.append(s)
     (OUT / "flash_movement_in_port.json").write_text(json.dumps(report, indent=1))
     print(
