@@ -1,8 +1,7 @@
 """The one measure of a flash response, for the observed rate and the model alike.
 
 Every comparison of flash responses (in port against after exit, one gap against
-another) uses this measure, as `stim_responses_by_locomotion.py` does on raw
-spikes:
+another) uses this measure:
 
 - the trial-mean rate around the flashes of a condition, in `PSTH_BIN_MS` bins;
 - the baseline is the rate of the reference condition (the first of the pair)

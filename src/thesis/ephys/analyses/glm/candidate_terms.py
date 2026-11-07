@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -39,26 +40,57 @@ import numpy as np
 from thesis.ephys.analyses.glm import cli, dmat, unique_dev
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices, load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.hold_effect import _fit_variant
+from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.units import fetch_unit_table
 
 # Earlier runs (other suffixes, other candidates) are in docs/glm_decisions.md.
-# This run (2026-10-23): graded adaptation (`dmat.FLASH_RECOVERY`), with the
-# recovery time constant set in advance from in-port flashes (`flash_recovery.py`).
-ROOT_SUFFIX = "_flash_recovery"
-CANDIDATES = {"FLASH_RECOVERY_TERM": dmat.FLASH_RECOVERY}
+# The run of 2026-10-23 (`_flash_recovery`) added `dmat.FLASH_RECOVERY`.
+# The run of 2026-10-29 (`_flash_side`): flash × side (`dmat.FLASH_SIDE`), a
+# flash response that differs with the side of the turn after the exit. It
+# passed and is now in the model.
+# The run of 2026-10-31 (`_trial_rate`, GRB064 20261008: the session where the
+# rate and the flash count are partly separate): the trial rate
+# (`dmat.TRIAL_RATE`), a level from the first flash to the exit that scales with
+# the stimulus strength. A positive gain does not prove tuning to the rate: if
+# the flash terms model the sum or the adaptation of the flash responses badly,
+# what is left also differs between fast and slow trains. No gain is the
+# clearer result.
+ROOT_SUFFIX = "_trial_rate"
+CANDIDATES = {"TRIAL_RATE_COLUMN": dmat.TRIAL_RATE}
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4
+
+
+def _fit_variant(
+    source: Path, unit_set: str, suffix: str, attributes: dict, workers: int | None
+) -> Path:
+    """Fit the design with some `dmat` attributes replaced, in a sibling directory."""
+    root = source.with_name(source.name + suffix)
+    model = cli.PoissonGLM(root=root)
+    root.mkdir(exist_ok=True)
+    for name in INPUTS:
+        if not (root / name).exists():
+            shutil.copy(source / name, root / name)
+    # ponytail: the design reads module attributes; set them for this fit.
+    # Make them arguments if the design gets more callers.
+    with dmat.switched(attributes):
+        if not model.design.exists():
+            dmat.prepare_common_design(model.windows, model.video, model.design)
+        # Each stage reuses its finished units, so this fits only the units
+        # that are new or stopped (for example after a change of unit table).
+        model.fit(unit_set, workers)
+    return root
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=cli.PoissonGLM().root)
     parser.add_argument("--units", type=cli._unit_set, default="all")
+    parser.add_argument("--workers", type=int, help="Units to fit at once.")
     args = parser.parse_args()
     switches = dict.fromkeys(CANDIDATES, True)
-    root = _fit_variant(args.root, args.units, ROOT_SUFFIX, switches)
+    root = _fit_variant(args.root, args.units, ROOT_SUFFIX, switches, args.workers)
     model = cli.PoissonGLM(root=root)
     unique_dir = model.fit_dir(args.units) / "checkpoints" / "unique"
     final = load_unit_records(
@@ -67,7 +99,7 @@ def main() -> None:
     if len(list(unique_dir.glob("unit_*.json"))) < len(final):
         # The unique step reads the bases of the design, so the switches stay on.
         with dmat.switched(switches):
-            model.unique(args.units)
+            model.unique(args.units, args.workers)
     records = unique_dev.add_bits_per_spike(
         load_unit_records(unique_dir, "unit_*.json"),
         model.fit_dir(args.units) / "checkpoints",

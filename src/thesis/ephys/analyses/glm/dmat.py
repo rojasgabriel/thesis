@@ -32,7 +32,7 @@ from damn.objects.design_matrix_objects import DesignMatrix
 from damn.objects.regressor_objects import EventRegressor
 
 from thesis.ephys.cache import atomic_output
-from thesis.ephys.trials import build_trial_table
+from thesis.ephys.trials import build_trial_table, stimulus_strength
 
 # The window starts this long before the first flash. With 0.5 s it has about
 # 0.45 s before the center entry (the entry is 26 to 106 ms before the first
@@ -121,7 +121,8 @@ HOLD_LOG_STRETCH_S = 0.05
 # that factor squared times weaker. With the same penalty, the fit makes the
 # fixation kernel too small and gives a part of the level to the flash × after exit
 # kernels (`leak_test.py`); a factor of 10 removes that leak with the same
-# prediction, and is the sensitivity analysis (`_weaker_fixation_penalty`). The
+# prediction (the sensitivity fit, removed 2026-10-29: `leak_test.py` corrects
+# for the leak; old fits in `results/glm/_before_flash_side_2026_10_29/`). The
 # saved scale of the columns has the factor in it, so the kernels are read in
 # the same way. A factor above 10 stops the convergence.
 HOLD_PENALTY_SCALE = 1.0
@@ -190,6 +191,15 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # rounded to 10 ms. Until 2026-10-24 it was 120 ms, from a fit with c bounded
 # at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
 FLASH_RECOVERY_TERM = True
+# Flash × side (in the model from 2026-10-29; `candidate_terms.py` passed it in
+# both mice, docs/glm_checks.md): the side of the response (+1 right, -1 left)
+# for a flash after the center exit, 0 in the fixation and for the first flash.
+# After the exit the head turns to that side, so the LED panel above the center
+# port lies in another part of the visual field; this kernel is how the flash
+# response differs between the two sides. Without it, a side-dependent flash
+# response can only go to the turn term, which is not locked to the flashes.
+FLASH_SIDE_TERM = True
+FLASH_SIDE = "flash_side"
 FLASH_RECOVERY = "flash_recovery"
 FLASH_RECOVERY_TAU_S = 0.05
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
@@ -217,6 +227,15 @@ EXIT_LOG_STRETCH_S = 0.025
 # mice on 2026-10-15. `unique_dev.py` shuffles it over trials.
 PREVIOUS_OUTCOME_COLUMN = False
 PREVIOUS_OUTCOME = "previous_outcome"
+# Trial rate, a candidate (`candidate_terms.py`, 2026-10-31): the stimulus
+# strength of the trial, (rate - 12 Hz) / 8 Hz, from the first flash to the
+# center exit, else 0 (0 also for a trial at the boundary). The flash terms
+# give every flash a response that depends only on its own history, so this
+# column is what is left that depends on the rate of the whole train: a test
+# of rate tuning beyond the sum of the flash responses. `unique_dev.py` keeps
+# each trial's window and takes the strength of another trial.
+TRIAL_RATE_COLUMN = False
+TRIAL_RATE = "trial_rate"
 # Response period (decided with Gabriel, 2026-10-15): the `exit_basis` with no
 # sign, from the center exit to the response entry; it takes the place of the
 # withdrawal kernel. With turn direction it splits the time after the exit into
@@ -473,6 +492,7 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         FLASH_JUST_BEFORE: flash,
         FLASH_AFTER_EXIT: flash,
         FLASH_RECOVERY: flash,
+        FLASH_SIDE: flash,
         "hold": (
             StretchedCosineBasis(
                 HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
@@ -492,6 +512,8 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         del bases[FLASH_AFTER_EXIT]
     if not FLASH_RECOVERY_TERM:
         del bases[FLASH_RECOVERY]
+    if not FLASH_SIDE_TERM:
+        del bases[FLASH_SIDE]
     if not FLASH_JUST_BEFORE_TERM:
         del bases[FLASH_JUST_BEFORE]
     if not WITHDRAWAL_KERNEL:
@@ -619,6 +641,39 @@ def flash_after_exit(trials) -> np.ndarray:
     return np.where(first, 0.0, after)
 
 
+def flash_side(trials) -> np.ndarray:
+    """Return the side of the response for each modeled flash after the exit.
+
+    +1 right, -1 left, in the order of `flash_events`; 0 for a flash in the
+    fixation and for the first flash of a trial (as `flash_after_exit`).
+    """
+    sides = []
+    for flashes, center_entry, response_entry, response in zip(
+        trials["stim_pulse_times_s"],
+        trials["center_entry_s"],
+        trials["response_port_entry_s"],
+        trials["response"],
+        strict=True,
+    ):
+        flashes = np.asarray(flashes, dtype=float)
+        modeled = (flashes >= center_entry) & (flashes <= response_entry)
+        sides.append(np.full(int(modeled.sum()), float(response)))
+    sides = np.concatenate(sides)
+    if not np.isin(sides, (-1.0, 1.0)).all():
+        raise ValueError("Every modeled trial needs a response side of -1 or 1.")
+    return flash_after_exit(trials) * sides
+
+
+def trial_rate_strength(trials) -> np.ndarray:
+    """Return the stimulus strength of each trial (0 at the boundary)."""
+    return stimulus_strength(trials["visual_stim_rate_hz"].to_numpy(dtype=float))
+
+
+def trial_rate_window(times, first, before_exit) -> np.ndarray:
+    """Return the bins of each trial from the first flash to the center exit."""
+    return ((times >= first) & before_exit).astype(float)
+
+
 def _bumps(position: np.ndarray, count: int) -> np.ndarray:
     """Return `count` raised cosines with even spacing over a position of 0 to 1.
 
@@ -698,6 +753,14 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "sensory",
             f"1 - exp(-gap / {1000 * FLASH_RECOVERY_TAU_S:.0f} ms), centered, "
             "for a flash after a long gap; 0 after a short gap",
+        ),
+        (
+            FLASH_SIDE,
+            flashes,
+            flash_side(trials) if FLASH_SIDE_TERM else None,
+            "sensory",
+            "the side of the response (+1 right, -1 left) for a flash after "
+            "the center exit; 0 in the fixation and for the first flash",
         ),
         (
             "hold",
@@ -800,6 +863,27 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "columns": 1,
                 "coding": "+1 (rewarded) or -1 (not) for the last trial with a "
                 "response, over the whole window, else 0",
+            }
+        )
+    if TRIAL_RATE_COLUMN:
+        first = np.asarray(alignments, dtype=float)[:, None]
+        values = np.column_stack(
+            (
+                values,
+                (
+                    trial_rate_strength(trials)[:, None]
+                    * trial_rate_window(times, first, before_exit)
+                ).ravel(),
+            )
+        )
+        manifest.append(
+            {
+                "name": TRIAL_RATE,
+                "group": "task",
+                "events": len(alignments),
+                "columns": 1,
+                "coding": "stimulus strength (rate - 12 Hz) / 8 Hz from the first "
+                "flash to the center exit, else 0",
             }
         )
     if SESSION_DRIFT:
@@ -1108,6 +1192,7 @@ def _common_design_is_current(output: Path) -> bool:
             (FIXATION, 1, FIXATION_COLUMN),
             (PREVIOUS_SIDE, 1, PREVIOUS_SIDE_COLUMN),
             (PREVIOUS_OUTCOME, 1, PREVIOUS_OUTCOME_COLUMN),
+            (TRIAL_RATE, 1, TRIAL_RATE_COLUMN),
             (DRIFT, drift_columns, SESSION_DRIFT),
             (RESPONSE_PERIOD, TURN_DIRECTION_BASES, RESPONSE_PERIOD_TERM),
             (TURN_DIRECTION, TURN_DIRECTION_BASES, TURN_DIRECTION_TERM),

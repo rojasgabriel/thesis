@@ -1,6 +1,6 @@
 """Does raw video change prediction, task weights, or split-half stability?
 
-Use all eligible units (167 GRB006, 76 GRB064), paired by unit ID with the
+Use all eligible units (172 GRB006, 115 GRB064 20261008), paired by unit ID with the
 unchanged main model. Trial selection, first-flash alignment, pre-entry
 baseline, response-entry mask, and exclusions follow fit.py. The comparison
 is 10 motion-energy PCs versus these PCs plus 10 raw-video PCs on the same

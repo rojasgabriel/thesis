@@ -8,6 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from thesis.ephys.cache import cached
 from thesis.ephys.trials import build_trial_table
 from thesis.ephys.units import fetch_unit_table
 
@@ -62,6 +63,7 @@ def load_decoding_data(
     return unit_table, eligible, window_rates(unit_table, starts_s, stops_s)
 
 
+@cached
 def _units_with_mua(subject: str, session: str, unit_criteria_id: int) -> pd.DataFrame:
     """Return the spike times of all single- and multi-units (not noise)."""
     from labdata.schema import SpikeSorting, UnitCount

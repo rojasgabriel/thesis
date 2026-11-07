@@ -60,7 +60,9 @@ All units enter their group means; complete mean SEM bars set display limits.
 Absolute peaks and statistics remain in the report. Supporting kernel
 scatters stay linear because their values are already changes in log rate.
 
-Writes flash_observation.svg, flash_comparison.svg, flash_model.svg (supporting), PNG previews, and
+Writes flash_observation.svg, its two gap classes as slides of one size and the
+same limits (flash_observation_80ms.svg, flash_observation_40ms.svg),
+flash_comparison.svg, flash_model.svg (supporting), PNG previews, and
 flash_movement.json under results/glm. Older working figures remain intact.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
@@ -654,6 +656,31 @@ def plot(sessions):
         match_scatter_limits(scatters)
         label_panels(panels, x=-0.12, y=1.08)
         write_figure(figure, "flash_observation")
+
+        # One slide per gap class, with the same size and limits.
+        rate_limits, scatter_limits = psths[0].get_ylim(), scatters[0].get_xlim()
+        for gap, (label, name) in enumerate(
+            zip(GAP_LABELS, ("80ms", "40ms"), strict=True)
+        ):
+            figure, axes = plt.subplots(
+                1, 3, figsize=(9.0, 3.4), layout="constrained", width_ratios=(1, 1, 1.3)
+            )
+            for mouse, data in enumerate(sessions):
+                psth_panel(axes[mouse], data, gap, labels=mouse == 0)
+                axes[mouse].set_ylim(rate_limits)
+            axes[1].set_ylabel("")
+            peak_scatter(axes[2], sessions, "observed", gap)
+            axes[2].text(
+                0.98, 1.03, label, transform=axes[2].transAxes, ha="right", va="bottom"
+            )
+            axes[2].set(
+                xlabel="stationary peak / mean observed rate",
+                ylabel="movement peak / mean observed rate",
+                xlim=scatter_limits,
+            )
+            match_scatter_limits(axes[2:])
+            label_panels(axes, x=-0.12, y=1.08)
+            write_figure(figure, f"flash_observation_{name}")
 
         figure, axes = plt.subplots(1, 2, figsize=(7.6, 3.5), layout="constrained")
         for gap, (axis, label) in enumerate(zip(axes, GAP_LABELS, strict=True)):

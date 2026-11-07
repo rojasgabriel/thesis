@@ -39,7 +39,6 @@ recovered from raw files.
 
 ```bash
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.flash_movement
-uv run python -m thesis.ephys.analyses.stim_responses_by_locomotion
 uv run double-peak-candidates GRB064 20260916_132939
 uv run python -m thesis.ephys.analyses.double_peaks
 uv run python -m thesis.ephys.analyses.category_decoding -a GRB006 -s 20240821_121447
@@ -53,8 +52,7 @@ a saved response classification, and completed GLM fits. The main outputs are
 `figures/glm/flash_observation.svg` and `figures/glm/flash_comparison.svg`;
 `figures/glm/flash_model.svg` is the supporting kernel-only view.
 [glm.md](docs/glm.md) gives the scientific argument and links to its checks.
-The second command makes the separate working peak comparison at
-`figures/locomotion/locomotion_peaks.svg`. The third shows
+The second command shows
 confirmed 15 ms double-peak candidates for one session and writes
 `figures/double_peak/grb064_candidates.svg`. The `double_peaks` command makes the
 separate cross-session double-peak supplement, including its 30 ms control.

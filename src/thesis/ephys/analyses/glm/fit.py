@@ -81,6 +81,9 @@ EXCLUDED_UNITS = {
         414: "no spikes in the validation trials",
         437: "no spikes in the validation trials",
     },
+    ("GRB064", "20261008_143359"): {
+        453: "no spikes in the validation trials",
+    },
 }
 
 
