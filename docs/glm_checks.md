@@ -154,7 +154,7 @@ These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The
 
 - **Question:** does the side-preference result depend on omitting raw-video components?
 - **Why:** motion energy captures frame changes. Raw pixels can carry additional position, posture, and illumination signals that share information with response side.
-- **Finding (model of 2026-10-17, GRB064 20260916, not run again):** with 10 added raw-video components, full-model agreement is **ρ = 0.988 / 0.992** and falls to **0.348 / 0.505** without turn. Median error rises from **0.010 → 0.152 / 0.009 → 0.187**; pooled paired error reduction is **0.128**, 95% interval **0.104–0.170**. The fitted turn contribution remains large, although its allocation among shared signals changes.
+- **Finding (model of 2026-10-29, run 2026-11-07):** with 10 added raw-video components, full-model agreement is **ρ = 0.988 / 0.947** and falls to **0.531 / 0.299** without turn. Median error rises from **0.011 → 0.145 / 0.017 → 0.195**; keeping turn lowers error in **168/172 / 105/115** units; pooled paired error reduction is **0.125**, 95% interval **0.105–0.176**. The fitted turn contribution remains large, although its allocation among shared signals changes.
 - **Next:** the fitted term takes much of the preference under both video models, as it was built to. Linking it to choice decoding remains open. This is a check of the turn term; it does not settle the sensory-response question.
 
 ![Side preference after adding raw video, with and without the turn contribution](../figures/glm/raw_video_full/side_preference.svg)
