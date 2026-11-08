@@ -46,7 +46,7 @@ Comparison: simulated spikes with a known effect, analyzed as the real data.
   precision. A unit with a peak ≤ 0 in a fit has no log ratio and is left
   out of that replicate, as in the real test. The effect at 80% power is the
   linear interpolation of power against the median true effect.
-- Units: the flash-excited units of `raw_video_trust_classification.json`
+- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`)
   (the units of result 3). Trials, alignment, pairs, baseline (in port, -40
   to 0 ms), peak window and exclusions: those of `flash_movement.py` and
   `leak_test.py`. The long-gap class (preceding gap of 80 ms or more) is the
@@ -82,7 +82,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import binomtest, wilcoxon
 
-from thesis.ephys.analyses.glm import cli, dmat, flash_movement, leak_test
+from thesis.ephys.analyses.glm import cli, dmat, flash_movement, leak_test, peaks
 from thesis.ephys.analyses.glm.fit import (
     CV_FOLDS,
     CV_SEED,
@@ -447,7 +447,7 @@ def main() -> None:
         "--reuse", action="store_true", help="read the saved npz; simulate nothing"
     )
     args = parser.parse_args()
-    excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+    excited = peaks.load_excited_units()
     if not args.reuse:
         for session in SESSIONS:
             print(

@@ -40,7 +40,7 @@ on the same scales.
 
 Units: the GLM units (`fetch_unit_table` with criteria 1 and stability 0,
 without `fit.excluded_units`); flash-excited units from
-`raw_video_trust_classification.json`. Example neuron: among the units that
+`flash_excited_units.json` (`peaks.excited_units`). Example neuron: among the units that
 are flash-excited by that table and by the flash weights of the GLM
 (`flash_weight_check.json`), with a mean rate of at least
 `MIN_EXAMPLE_RATE_HZ`, the unit whose response to in-port flashes is easiest to
@@ -66,7 +66,7 @@ from scipy.stats import false_discovery_control, wilcoxon
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat
+from thesis.ephys.analyses.glm import dmat, peaks
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.units import fetch_unit_table
@@ -482,7 +482,7 @@ def plot_flash_population(
 
 
 def main() -> None:
-    classes = json.loads((GLM / "raw_video_trust_classification.json").read_text())
+    classes = peaks.load_excited_units()
     model = json.loads((GLM / "flash_weight_check.json").read_text())
     sessions = [
         session_data(

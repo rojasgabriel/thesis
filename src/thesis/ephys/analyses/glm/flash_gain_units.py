@@ -28,7 +28,7 @@ port. g_f = g_b is a pure gain; g_f = 1 an unchanged flash response.
   response to the flash before and its dip). In port: the flashes before the
   exit; after the exit: the later flashes (the first after the exit is left
   out: it is larger than any gain, `exit_flash_responses.py`).
-- Units: the flash-excited units of `raw_video_trust_classification.json`.
+- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`).
 - Intervals: `BOOTSTRAPS` draws of the trials with replacement (`SPLITS`
   each); a drawn trial brings its flashes of both periods, so the periods
   stay paired, and all units of a mouse use the same draws. Per unit: 95%,
@@ -62,7 +62,7 @@ from scipy.stats import wilcoxon
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat, exit_flash_responses
+from thesis.ephys.analyses.glm import dmat, exit_flash_responses, peaks
 from thesis.ephys.analyses.glm.fit import build_unit_counts
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.units import fetch_unit_table
@@ -313,7 +313,7 @@ def plot(sessions: list[dict]) -> Path:
 
 
 def main() -> None:
-    excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+    excited = peaks.load_excited_units()
     sessions = [session_gains(s, sorted(excited[s])) for s in SESSIONS]
     (OUT / "flash_gain_units.json").write_text(json.dumps(sessions, indent=1))
     print(

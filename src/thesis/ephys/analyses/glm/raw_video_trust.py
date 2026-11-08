@@ -456,14 +456,7 @@ def main():
         report = json.loads(summary_path.read_text())
         plot(report["sessions"], output)
         return
-    classification_path = output / "raw_video_trust_classification.json"
-    if not classification_path.exists():
-        classes = {}
-        for session in SESSIONS:
-            subject, stamp = session.split("_", 1)
-            classes[session] = sorted(peaks.excited_units(subject, stamp))
-        fit._write_json_atomic(classification_path, classes)
-    classes = json.loads(classification_path.read_text())
+    classes = peaks.load_excited_units()
     sessions = []
     for session in SESSIONS:
         root = output / session
@@ -516,7 +509,7 @@ def main():
         }
         manifest = {
             "inputs": inputs,
-            "classifications": fingerprint(classification_path),
+            "classifications": fingerprint(peaks.EXCITED_UNITS),
             "simulations": SIMULATIONS,
             "seed": 0,
             "method": 2,

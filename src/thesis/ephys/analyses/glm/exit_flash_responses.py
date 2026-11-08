@@ -27,7 +27,7 @@ left out: the response to the flash before falls into their windows.
   if the interval of the in-port peak (or dip) includes 0; then the ratios of
   that gap are not stable.
 - Group (`--group`): "excited" (default), the flash-excited units of
-  `raw_video_trust_classification.json`; "flash-suppressed", the units whose
+  `flash_excited_units.json` (`peaks.excited_units`); "flash-suppressed", the units whose
   flash weights are below 0 (`flash_weight_check.json`, weight + 1.96 SE < 0),
   with the dip (the rate before the flash minus the smallest bin from 30 to
   120 ms) in place of the peak; outputs with `_flash_suppressed`.
@@ -62,7 +62,7 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat, flash_movement
+from thesis.ephys.analyses.glm import dmat, flash_movement, peaks
 from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     cross_validation_partitions,
@@ -398,7 +398,7 @@ def main() -> None:
             for s in SESSIONS
         }
     else:
-        units = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+        units = peaks.load_excited_units()
     sessions = [session_values(s, sorted(units[s]), dip) for s in SESSIONS]
     keys = [k for k in sessions[0]["values"] if all(k in s["values"] for s in sessions)]
     boot = draws(sessions)

@@ -62,7 +62,7 @@ paired: each unit has its real effect and its leak.
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script simulates and refits each unit and
 writes `leak_test.json` in `--out` and `leak_test.npz` in each session
-directory. The excited units are those of `raw_video_trust_classification.json`
+directory. The excited units are those of `flash_excited_units.json` (`peaks.excited_units`)
 (the units of `flash_movement.py`); `flash_movement.json` must exist.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
@@ -438,11 +438,11 @@ def comparison_values(out: Path) -> dict:
 
     Normalized, (unit, gap) for each of "real (final refit)", "leak" (the
     mean over simulations) and "real (held out)" (from `flash_movement.json`),
-    with the unit ids, the excited units of `raw_video_trust_classification.json`,
+    with the unit ids, the excited units of `flash_excited_units.json` (`peaks.excited_units`),
     and the simulated fixation level. If the peaks are saved, the same three
     as log ratios ("log ..."; NaN where a peak is ≤ 0).
     """
-    excited = json.loads((out / "raw_video_trust_classification.json").read_text())
+    excited = peaks.load_excited_units()
     report = json.loads((out / "flash_movement.json").read_text())["sessions"]
     values = {}
     for session in SESSIONS:

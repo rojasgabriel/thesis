@@ -12,7 +12,7 @@ Null hypothesis: in the port, a unit's flash response does not depend on the
 motion energy at the flash (slope 0); over the units of a mouse, the median
 slope is 0.
 
-- Units: the flash-excited units of `raw_video_trust_classification.json`
+- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`)
   (30 / 22); each mouse is analyzed alone (different camera views).
 - Flashes: completed GLM trials; flashes in the port (before the center exit)
   with a gap of at least `MIN_GAP_S` from the flash before; the first flash
@@ -86,7 +86,7 @@ from scipy.stats import spearmanr, wilcoxon
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat, fit
+from thesis.ephys.analyses.glm import dmat, fit, peaks
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.results import raw_contribution
 from thesis.ephys.units import fetch_unit_table
@@ -418,7 +418,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--checks", action="store_true", help="Also run the checks.")
     args = parser.parse_args()
-    excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+    excited = peaks.load_excited_units()
     rng = np.random.default_rng(SEED)
     sessions, report = [], {}
     for session in SESSIONS:

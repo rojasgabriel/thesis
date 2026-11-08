@@ -1112,7 +1112,7 @@ session of the decoders and the behavior figures: 9 rates against 4 in
 20260916, and behavior closer to expert. Fit: 115 units (unit 453 excluded,
 no spikes in the validation trials), median D² 0.079, 0.47 bits/spike;
 22 flash-excited units (StimulusResponse, added to
-`raw_video_trust_classification.json`). The old results are in
+`raw_video_trust_classification.json`, now `flash_excited_units.json`). The old results are in
 `results/glm/_before_grb064_switch_2026_11_01/`; the rerun script and the
 inputs made by hand are in `results/glm/_refit_grb064_switch_logs/run.sh`.
 

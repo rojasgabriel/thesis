@@ -91,7 +91,7 @@ from thesis.plotting import PERIOD_COLORS as PERIOD_COLOR_OF
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat
+from thesis.ephys.analyses.glm import dmat, peaks
 from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     cross_validation_partitions,
@@ -719,7 +719,7 @@ def plot(sessions):
 
 
 def main():
-    classes = json.loads((OUTPUT / "raw_video_trust_classification.json").read_text())
+    classes = peaks.load_excited_units()
     sessions = [session_data(session, classes[session]) for session in SESSIONS]
     plot(sessions)
     report = {

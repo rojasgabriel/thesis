@@ -359,6 +359,12 @@ uv run python -m thesis.ephys.analyses.glm.model_trust
 ~~~
 
 - Control arrays come from collinearity, parameter_recovery, kernel_reliability, and leak_test; hold_effect also reads the model-free onset, exit, and motion controls.
+- Flash-excited units (`results/glm/flash_excited_units.json`, read by every analysis of the excited units): the stable units that StimulusResponse classes as excited (`peaks.excited_units`). The command writes the file and reports a saved list that differs from the rule; it needs the database:
+
+~~~bash
+uv run python -m thesis.ephys.analyses.glm.peaks
+~~~
+
 - Raw-video comparison and side preference:
 
 ~~~bash

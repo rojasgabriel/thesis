@@ -44,7 +44,7 @@ flash × side kernels have opposite signs).
   all activity, which the turn term models).
 - First-flash excess: log(peak first / peak in port) minus log(before first /
   before in port), at the same gap class.
-- Units: the flash-excited units of `raw_video_trust_classification.json`
+- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`)
   (30 / 22). Intervals: 95% over `BOOTSTRAPS` draws of trials and units
   together. Each draw takes the trials with replacement (one draw for all
   units and groups; a trial brings all its flashes) and the units with
@@ -73,7 +73,7 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat, exit_flash_responses
+from thesis.ephys.analyses.glm import dmat, exit_flash_responses, peaks
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import LAGS_MS
 from thesis.plotting import (
@@ -430,7 +430,7 @@ def plot(sessions: list[dict]) -> Path:
 
 
 def main() -> None:
-    excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+    excited = peaks.load_excited_units()
     sessions = [session_stats(s, sorted(excited[s])) for s in SESSIONS]
     (OUT / "exit_flash_side.json").write_text(json.dumps(sessions, indent=1))
     print(
