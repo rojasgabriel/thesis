@@ -132,7 +132,7 @@ def session_peaks(
         stability_param_id=0,
         include_metrics=False,
     )
-    excited = excited_units(subject, session)
+    excited = set(load_excited_units()[f"{subject}_{session}"])
     metadata = json.loads(model.design.with_suffix(".json").read_text())
     removed = [
         index
@@ -246,6 +246,8 @@ def main() -> None:
                 continue
         elif old == units:
             print(f"{session}: {len(units)} units, as saved")
+        else:
+            print(f"{session}: {len(units)} units, new entry: {units}")
         saved[session] = units
     _write_json_atomic(EXCITED_UNITS, saved)
 
