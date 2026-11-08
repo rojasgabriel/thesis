@@ -386,11 +386,12 @@ def plot(stats: dict) -> Path:
                 null = levels[0]
                 top.text(
                     0.98,
-                    0.30 - 0.12 * row,
-                    f"{mode.replace('_', '-')}: no effect, p < 0.05 in "
+                    0.36 - 0.16 * row,
+                    f"{mode.replace('_', '-')}, no effect:\np < 0.05 in "
                     f"{null['fraction_p_below_0.05']:.0%} of {null['replicates']}",
                     color=COLOR,
                     ha="right",
+                    va="bottom",
                     fontsize=6,
                     transform=top.transAxes,
                 )

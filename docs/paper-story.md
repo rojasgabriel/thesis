@@ -27,7 +27,7 @@ exit. There is no head or eye tracking. That is a limitation of the study.
 3. **The flash × exit term carries almost none of the increase.** After the
    leak correction, the held-out log ratio is −0.10 / −0.26 in medians
    (pooled median −0.20, 95% −0.45 to +0.04; GRB064 p = 0.02, below zero).
-   The test has 80% power at +0.21 / +0.15, so a positive flash-specific
+   The test has 80% power at +0.23 / +0.14, so a positive flash-specific
    effect of that size is unlikely. A smaller one is still possible.
 4. **What the increase is instead:**
    - **Gain on all activity.** The rate before the flash goes up (GRB006:
