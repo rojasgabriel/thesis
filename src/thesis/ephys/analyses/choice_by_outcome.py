@@ -34,6 +34,19 @@ The same decoders are also scored on held-out correct trials (the reference).
 - A window is plotted at its center, so the window at -50 ms covers -150 to
   +50 ms and holds time after the exit.
 - Sessions: `decoding_time_course.SESSIONS` (one per mouse).
+- Matched to the stimulus (since 2026-11-07, lower row): error trials are
+  mostly near the boundary, where the stimulus is weak, so an error-trial AUC
+  near 0.5 can mean a weak stimulus and not "neither". At one flash rate the
+  stimulus is the same, and the choice splits the trials into correct and
+  error. Each correct trial gets the output of the decoders (trained on
+  correct trials) that did not see it, each error trial the mean output of
+  all of them; `MATCHED_REPEATS` fold splits, averaged. At each rate with at
+  least `MIN_PER_CHOICE` trials of each choice, the AUC of the output for the
+  choice; the mean over rates, weighted by n_right · n_left (choice
+  probability). Above 0.5: V1 follows the choice at a fixed stimulus; 0.5:
+  only the stimulus. Chance and test: the choices permuted within each rate
+  (outputs fixed), `N_PERMUTATIONS` in the tested window (two-sided),
+  `N_SHUFFLES` 2.5–97.5 percentiles in the time course.
 
 The script writes `figures/choice_by_outcome/choice_by_outcome.svg` and
 `results/choice_by_outcome/choice_by_outcome.json`.
@@ -79,6 +92,8 @@ ERROR_COLOR = CONCEPT_COLORS["task"]
 AUC_LIMITS = (0.0, 1.02)
 PRE_EXIT_S = (-0.5, -0.1)
 N_PERMUTATIONS = 10000
+MATCHED_REPEATS = 10
+MIN_PER_CHOICE = 3
 
 
 def scores(rates, side, correct, rng, shuffle: bool, n_resamples: int) -> np.ndarray:
@@ -168,6 +183,47 @@ def pre_exit_test(rates, side, correct, rng) -> dict:
     }
 
 
+def held_out_outputs(rates, side, correct) -> np.ndarray:
+    """Return a decoder output for every trial, from decoders trained on correct trials.
+
+    A correct trial gets the output of the fold decoders that did not see it;
+    an error trial the mean of all fold decoders. Mean over `MATCHED_REPEATS`
+    fold splits.
+    """
+    train, errors = np.flatnonzero(correct), np.flatnonzero(~correct)
+    out = np.zeros(len(side))
+    for repeat in range(MATCHED_REPEATS):
+        folds = StratifiedKFold(CV_FOLDS, shuffle=True, random_state=SEED + repeat)
+        for fit, test in folds.split(train, side[train]):
+            model = decoder().fit(rates[train[fit]], side[train[fit]])
+            out[train[test]] += model.decision_function(rates[train[test]])
+            out[errors] += model.decision_function(rates[errors]) / CV_FOLDS
+    return out / MATCHED_REPEATS
+
+
+def matched_auc(output, side, stimulus) -> float:
+    """Return the mean over rates of the AUC for the choice, weighted by n_right · n_left."""
+    total = weight = 0.0
+    for rate in np.unique(stimulus):
+        here = stimulus == rate
+        right = int(side[here].sum())
+        left = int(here.sum()) - right
+        if min(right, left) < MIN_PER_CHOICE:
+            continue
+        total += right * left * roc_auc_score(side[here], output[here])
+        weight += right * left
+    return total / weight if weight else np.nan
+
+
+def within_rate_shuffle(side, stimulus, rng) -> np.ndarray:
+    """Return the choices permuted within each rate."""
+    out = side.copy()
+    for rate in np.unique(stimulus):
+        here = np.flatnonzero(stimulus == rate)
+        out[here] = rng.permutation(side[here])
+    return out
+
+
 def session_course(session: str) -> dict:
     subject, stamp = session.split("_", 1)
     units, trials, _ = load_decoding_data(
@@ -183,6 +239,7 @@ def session_course(session: str) -> dict:
     category = trials["stim_category"].eq("high_rate").to_numpy(int)
     side = (trials["response"].to_numpy(int) == 1).astype(int)
     correct = category == side
+    stimulus = trials["visual_stim_rate_hz"].to_numpy(float)
     rng = np.random.default_rng(SEED)
     curves = {
         "correct": [],
@@ -190,6 +247,8 @@ def session_course(session: str) -> dict:
         "error": [],
         "error_sem": [],
         "chance": [],
+        "matched": [],
+        "matched_chance": [],
     }
     for center in CENTERS_S:
         rates = window_rates(
@@ -205,11 +264,38 @@ def session_course(session: str) -> dict:
             for _ in range(N_SHUFFLES)
         ]
         curves["chance"].append(np.percentile(null, [2.5, 97.5]).tolist())
-    pre_exit = pre_exit_test(
-        window_rates(units, exit_s + PRE_EXIT_S[0], exit_s + PRE_EXIT_S[1]),
-        side,
-        correct,
-        rng,
+        output = held_out_outputs(rates, side, correct)
+        curves["matched"].append(matched_auc(output, side, stimulus))
+        null = [
+            matched_auc(output, within_rate_shuffle(side, stimulus, rng), stimulus)
+            for _ in range(N_SHUFFLES)
+        ]
+        curves["matched_chance"].append(np.percentile(null, [2.5, 97.5]).tolist())
+    window = window_rates(units, exit_s + PRE_EXIT_S[0], exit_s + PRE_EXIT_S[1])
+    pre_exit = pre_exit_test(window, side, correct, rng)
+    output = held_out_outputs(window, side, correct)
+    auc = matched_auc(output, side, stimulus)
+    null = np.asarray(
+        [
+            matched_auc(output, within_rate_shuffle(side, stimulus, rng), stimulus)
+            for _ in range(N_PERMUTATIONS)
+        ]
+    )
+    used = {
+        f"{rate:g} Hz": {
+            "right": int(side[stimulus == rate].sum()),
+            "left": int((stimulus == rate).sum() - side[stimulus == rate].sum()),
+        }
+        for rate in np.unique(stimulus)
+        if min(side[stimulus == rate].sum(), (side[stimulus == rate] == 0).sum())
+        >= MIN_PER_CHOICE
+    }
+    pre_exit.update(
+        matched_auc=float(auc),
+        matched_permutation_p=float(
+            (np.sum(np.abs(null - 0.5) >= abs(auc - 0.5)) + 1) / (N_PERMUTATIONS + 1)
+        ),
+        matched_rates=used,
     )
     print(subject, "done", pre_exit, flush=True)
     return {
@@ -232,10 +318,11 @@ def session_course(session: str) -> dict:
 def plot(results: list[dict]) -> Path:
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
-            1,
+            2,
             len(results),
-            figsize=(4.4 * len(results), 3.4),
-            sharey=True,
+            figsize=(4.4 * len(results), 6.4),
+            sharey="row",
+            sharex=True,
             squeeze=False,
         )
         for axis, result in zip(axes[0], results, strict=True):
@@ -268,7 +355,6 @@ def plot(results: list[dict]) -> Path:
                 color="0.5",
             )
             axis.set_ylim(AUC_LIMITS)
-            axis.set_xlabel("time from center exit (ms)")
             errors = result["error_trials"]
             axis.set_title(
                 f"{result['subject']}: {result['units']} units, "
@@ -277,6 +363,39 @@ def plot(results: list[dict]) -> Path:
                 f" (p = {result['pre_exit']['error_auc_permutation_p']:.2g})",
                 fontsize=8,
             )
+        for axis, result in zip(axes[1], results, strict=True):
+            x = 1000 * np.asarray(result["centers_s"])
+            chance = np.asarray(result["matched_chance"])
+            axis.fill_between(x, chance[:, 0], chance[:, 1], color="0.85", lw=0)
+            axis.plot(
+                x,
+                result["matched"],
+                color=OBSERVED_COLOR,
+                lw=1.4,
+                marker=MOUSE_MARKERS.get(result["subject"]),
+                ms=3,
+            )
+            axis.axhline(0.5, color=REFERENCE_COLOR, ls=":", lw=0.8)
+            axis.axvline(0, color=REFERENCE_COLOR, lw=0.8)
+            axis.axvspan(*(1000 * np.asarray(PRE_EXIT_S)), color="0.93", lw=0, zorder=0)
+            axis.set_xlabel("time from center exit (ms)")
+            test = result["pre_exit"]
+            axis.set_title(
+                f"same flash rate, correct vs error: {len(test['matched_rates'])} rates\n"
+                f"500-100 ms before exit: AUC {test['matched_auc']:.2f}"
+                f" (p = {test['matched_permutation_p']:.2g})",
+                fontsize=8,
+            )
+        axes[1, 0].set_ylabel("AUC for the choice\nat the same flash rate")
+        axes[1, 0].text(
+            0.03,
+            0.97,
+            "above 0.5: follows the choice\nat a fixed stimulus",
+            color=OBSERVED_COLOR,
+            transform=axes[1, 0].transAxes,
+            va="top",
+            fontsize=7,
+        )
         first = axes[0, 0]
         first.set_ylabel("AUC for the choice\n(decoder trained on correct trials)")
         for y, text, color in (

@@ -49,9 +49,12 @@ exit. There is no head or eye tracking. That is a limitation of the study.
    - **Category:** the category signal around the exit is mostly visual.
      Without the flash terms, the AUC falls by 0.09 / 0.21. The GRB006
      leftover comes from a known miss of the flash model at high flash rates.
-   - **Choice:** before the exit, the choice decoder does not follow the
-     choice on error trials (AUC 0.43 / 0.38, p = 0.28 / 0.18). The choice
-     signal appears with the movement.
+   - **Choice:** before the exit, a decoder trained on correct trials leans
+     toward the stimulus on error trials (AUC 0.41 / 0.38, p = 0.20 / 0.17),
+     but that measure mixes the rates. At the same flash rate, the activity
+     before the exit goes with the choice in GRB064 (choice probability 0.62,
+     p = 0.03; GRB006 0.57, p = 0.16). The large choice signal appears with
+     the movement.
 7. **Depth.** No movement-related kernel changes with depth.
 
 ## Current claim
@@ -95,7 +98,7 @@ fine as controls or methods.
   can test flash × exit, the direction of flash × side, and candidate terms.
 - **Candidate terms for new sessions:** in-port movement × flash, and better
   summation at high flash rates.
-- **More error trials** to test whether the pre-exit signal follows the
-  stimulus.
+- **More error trials** to test the choice signal before the exit at a fixed
+  stimulus in both mice.
 - **Brightness protocol** (brightnesschipmunk draft PR #1): rig test and more
   brightness levels.
