@@ -1103,7 +1103,7 @@ model was fit on GRB064 20261008 (9 rates; 115 units, median D² 0.079,
 each trial's window and takes the strength of another trial. It fails: 3 of
 115 units need it (chance 14), median gain −0.00001 bits/spike (p = 0.46),
 2% of units are worse with it. So the per-flash terms explain the fast −
-slow difference in the port; no rate tuning is left to model. It stays out.
+slow difference in the port; no rate tuning is left to model. It stays out. Its code was removed on 2026-11-07; the commit before that (on `glm-link-analyses`) has it.
 
 ### GRB064 moves to 20261008, 2026-11-01
 

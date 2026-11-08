@@ -24,9 +24,7 @@ side (±1, or 0 for unknown) on a time course of the trial itself
 course and takes the actual side code of the other trial. The swap is in raw
 columns before applying the saved centering and scale. Taking the rows of the other trial would
 also move a time course that is aligned to the events of that trial, and
-test the timing and not the side. The trial rate (a candidate) is shuffled
-in the same way: each trial keeps its window from the first flash to the exit
-and takes the stimulus strength of the other trial. All columns of a block move
+test the timing and not the side. All columns of a block move
 together. One permutation (`SHUFFLE_SEED`) is shared by all
 units, folds, and blocks. Motion-energy PCs stay one block. The blocks are the
 three broad groups (task, video, history) and each regressor of the design
@@ -51,15 +49,12 @@ from thesis.ephys.analyses.glm.dmat import (
     HISTORY_COLUMNS,
     PREVIOUS_OUTCOME,
     PREVIOUS_SIDE,
-    TRIAL_RATE,
     TURN_DIRECTION,
     _design_with_history,
     _load_selected_trials,
     _load_windows,
     build_unit_history,
     training_zscore,
-    trial_rate_strength,
-    trial_rate_window,
 )
 from thesis.ephys.analyses.glm.fit import (
     _SHARED,
@@ -204,22 +199,6 @@ def shuffled_side_columns(
     return ((shuffled - mean) / scale).astype(standardized.dtype)
 
 
-def shuffled_trial_values(
-    mean: np.ndarray,
-    scale: np.ndarray,
-    values: np.ndarray,
-    support: np.ndarray,
-    partner: np.ndarray,
-) -> np.ndarray:
-    """Put another trial's value on each trial's own window, in standardized units.
-
-    `support` is trial × bin × column (the raw window, 1 where the column is
-    on); `values` is one value per trial.
-    """
-    shuffled = support * np.asarray(values, dtype=float)[partner, None, None]
-    return ((shuffled - mean) / scale).astype(np.float32)
-
-
 def _scored_folds(counts, partitions, alphas) -> list[tuple[dict, float]]:
     """Pair saved alphas with the folds that contained test spikes."""
     folds = [fold for fold in partitions if counts[fold["test"]].sum() > 0]
@@ -323,15 +302,6 @@ def _block_task(job: dict) -> dict:
                 partner,
                 job.get("unknown_previous_support") if name == PREVIOUS_SIDE else None,
             ).reshape(len(common), -1)
-    if TRIAL_RATE in groups:
-        columns = groups[TRIAL_RATE]
-        side_blocks[TRIAL_RATE] = shuffled_trial_values(
-            job["common_mean"][columns],
-            job["common_scale"][columns],
-            job["trial_rate_values"],
-            job["trial_rate_support"],
-            partner,
-        ).reshape(len(common), -1)
     complete_folds, trial_specific = [], []
     for fold_index, (fold, alpha) in enumerate(
         _scored_folds(counts, _SHARED["partitions"], job["alphas"]), start=1
@@ -410,7 +380,7 @@ def _block_task(job: dict) -> dict:
 
         for group in order:
             columns = groups[group]
-            if previous is None or group in (*SIGN_OVER_TRIALS, TRIAL_RATE):
+            if previous is None or group in SIGN_OVER_TRIALS:
                 put(columns, shuffle_of(group))
                 removed = score(f"{group} shuffled")
                 put(columns, None)
@@ -612,20 +582,8 @@ def run_unique(
                 f"Preserved unique unit {unit_id} differs from current fits."
             )
 
-    trial_rate = {}
-    if TRIAL_RATE in groups:
-        first = prepared["alignments"][:, None]
-        times = prepared["bin_times"].reshape(len(trials), -1)
-        exits = trials["center_exit_s"].to_numpy(dtype=float)[:, None]
-        trial_rate = {
-            "trial_rate_values": trial_rate_strength(trials),
-            "trial_rate_support": trial_rate_window(times, first, times < exits)[
-                ..., None
-            ].astype(np.float32),
-        }
     jobs = [
         {
-            **trial_rate,
             "unit_id": int(units.iloc[row]["unit_id"]),
             "depth": float(units.iloc[row]["depth"]),
             "spike_times": np.asarray(units.iloc[row]["spike_times_s"], dtype=float),

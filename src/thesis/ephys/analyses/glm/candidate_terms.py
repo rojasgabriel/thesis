@@ -49,15 +49,12 @@ from thesis.ephys.units import fetch_unit_table
 # The run of 2026-10-29 (`_flash_side`): flash × side (`dmat.FLASH_SIDE`), a
 # flash response that differs with the side of the turn after the exit. It
 # passed and is now in the model.
-# The run of 2026-10-31 (`_trial_rate`, GRB064 20261008: the session where the
-# rate and the flash count are partly separate): the trial rate
-# (`dmat.TRIAL_RATE`), a level from the first flash to the exit that scales with
-# the stimulus strength. A positive gain does not prove tuning to the rate: if
-# the flash terms model the sum or the adaptation of the flash responses badly,
-# what is left also differs between fast and slow trains. No gain is the
-# clearer result.
-ROOT_SUFFIX = "_trial_rate"
-CANDIDATES = {"TRIAL_RATE_COLUMN": dmat.TRIAL_RATE}
+# The run of 2026-10-31 (`_trial_rate`): the trial rate, which failed; its
+# code was removed on 2026-11-07 (docs/glm_decisions.md). The model is frozen:
+# test the next candidate on new sessions only. Put its `dmat` switch and term
+# name here, and a new suffix.
+ROOT_SUFFIX = ""
+CANDIDATES: dict[str, str] = {}
 # The units of the design choices: the sets of 20 units of the grids.
 SELECTION_SETS = 4
 
@@ -89,6 +86,8 @@ def main() -> None:
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, help="Units to fit at once.")
     args = parser.parse_args()
+    if not CANDIDATES:
+        parser.error("No candidate: set CANDIDATES and ROOT_SUFFIX first.")
     switches = dict.fromkeys(CANDIDATES, True)
     root = _fit_variant(args.root, args.units, ROOT_SUFFIX, switches, args.workers)
     model = cli.PoissonGLM(root=root)

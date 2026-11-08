@@ -204,6 +204,11 @@ def comparison_peaks(intercept: float, coefficients, history, width: int) -> np.
     contribution = raw_contribution(
         design, coefficients, _SHARED["metadata"], _SHARED["removed_columns"]
     )
+    return peaks_from(log_rate, contribution)
+
+
+def peaks_from(log_rate: np.ndarray, contribution: np.ndarray) -> np.ndarray:
+    """Return the peaks of `comparison_peaks` from the log rate on the pair rows."""
     rates = np.exp(np.stack([log_rate, log_rate - contribution])) / dmat.BINWIDTH_S
     return np.asarray(
         [
