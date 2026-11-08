@@ -83,7 +83,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import dmat, fit
-from thesis.ephys.analyses.glm.decoding_without_terms import FLASH_TERMS
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.results import raw_contribution
 from thesis.ephys.units import fetch_unit_table
@@ -164,7 +163,7 @@ def session_values(
     metadata = json.loads((root / "common_design_me.json").read_text())
     design = np.load(root / "common_design_me.npy", mmap_mode="r", allow_pickle=False)
     names = metadata["column_names"]
-    other = [i for i, n in enumerate(names) if not n.startswith(FLASH_TERMS)]
+    other = [i for i, n in enumerate(names) if not n.startswith(dmat.FLASH_TERMS)]
     scaling = {
         "training_mean": np.asarray(metadata["training_mean"])[other],
         "training_scale": np.asarray(metadata["training_scale"])[other],

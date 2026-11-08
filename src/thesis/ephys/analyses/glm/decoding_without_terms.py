@@ -42,11 +42,11 @@ Limits:
   that is not visual, not evidence for one.
 - A weak observed signal gives a small change: GRB006 in the port is only
   just above chance (0.61 against 0.42–0.57 on 2026-10-29).
-- Choice: the flash terms are the same for both sides (the after-exit flash
-  kernel has no side), so a flash response that changes with the side of the
-  turn is not in the flash part; it stays in the version without the flash
-  terms. A choice signal that survives does not exclude the visual
-  hypothesis; only a large fall supports it. The other part holds the turn
+- Choice: since 2026-10-29 the flash part holds flash × side, which is coded
+  with the response side, so dividing it out takes away a side signal by
+  construction. A side-dependent flash response that the model misses stays
+  in the version without the flash terms. A choice signal that survives does
+  not exclude the visual hypothesis. The other part holds the turn
   term, which is the side of the response after the exit, so the choice
   signal must fall without the other terms; that version is only a check.
 - The division by exp(part) does not let a few trials dominate: on
@@ -55,8 +55,8 @@ Limits:
 
 - Sessions and units: the GLM sessions (`flash_kernels.SESSIONS`) and the GLM
   units with a final fit (unit criteria 1, stability 0, exclusions of
-  `fit.py`): 172 and 79. These are not the decoder defaults
-  (single units and multi-units, and another GRB064 session).
+  `fit.py`): 172 and 115. These are not the decoder default (single units
+  and multi-units).
 - Trials: the selected GLM trials that are not at the category boundary.
   Each resample takes equal numbers of the four category × choice groups, so
   the category decoder cannot use the choice, and the choice decoder cannot
@@ -145,13 +145,7 @@ N_SHUFFLES = 50
 # points are. Fewer than N_RESAMPLES; the resamples share most trials.
 NULL_RESAMPLES = 10
 SEED = 0
-FLASH_TERMS = (
-    "visual_flash",
-    "flash_just_before",
-    "flash_after_exit",
-    "flash_recovery",
-    "flash_side",  # in the model since 2026-10-29
-)
+FLASH_TERMS = dmat.FLASH_TERMS
 VERSIONS = ("observed", "without the flash terms", "without the other terms")
 ALL_UNITS = "observed, single and multi-units"
 COLORS = {

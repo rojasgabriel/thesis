@@ -202,6 +202,14 @@ FLASH_SIDE_TERM = True
 FLASH_SIDE = "flash_side"
 FLASH_RECOVERY = "flash_recovery"
 FLASH_RECOVERY_TAU_S = 0.05
+# Every flash term: the "flash part" that analyses divide out of the rate.
+FLASH_TERMS = (
+    FLASH_COMMON,
+    FLASH_JUST_BEFORE,
+    FLASH_AFTER_EXIT,
+    FLASH_RECOVERY,
+    FLASH_SIDE,
+)
 # Turn direction (from 2026-10-15; `candidate_terms.py`): the side of the
 # response (+1 right, -1 left) times the `exit_basis` (`TURN_DIRECTION_BASES`
 # raised cosines, even in log(t + `EXIT_LOG_STRETCH_S`), from the center exit

@@ -58,6 +58,7 @@ from scipy.stats import mannwhitneyu
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses._decoding import load_decoding_data
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -68,7 +69,6 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/condition_responses")
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
 BIN_S = 0.02
 MIN_RATE_HZ = 3.0
 LIMIT = 2.0

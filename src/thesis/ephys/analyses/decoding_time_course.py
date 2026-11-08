@@ -44,6 +44,7 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses._decoding import (
     add_units_argument,
     balanced_indices,
@@ -60,7 +61,6 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/decoding_time_course")
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
 WIDTH_S = 0.2
 STEP_S = 0.05
 FIRST_FLASH_CENTERS_S = np.arange(-0.1, 1.0001, STEP_S)

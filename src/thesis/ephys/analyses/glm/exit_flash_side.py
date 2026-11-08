@@ -45,7 +45,7 @@ flash × side kernels have opposite signs).
 - First-flash excess: log(peak first / peak in port) minus log(before first /
   before in port), at the same gap class.
 - Units: the flash-excited units of `raw_video_trust_classification.json`
-  (30 / 15). Intervals: bootstrap over units (`BOOTSTRAPS`, 95%), the same
+  (30 / 22). Intervals: bootstrap over units (`BOOTSTRAPS`, 95%), the same
   draws for every group, so late minus early is paired. Units with a peak or
   rate ≤ 0 have no log value and are not drawn as points; the summaries use
   means over all units. The sampling unit is the unit.

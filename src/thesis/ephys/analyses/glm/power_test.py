@@ -73,6 +73,7 @@ from thesis.ephys.units import unit_spikes
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
+    MOUSE_MARKERS,
     REFERENCE_COLOR,
     label_panels,
     save_figure,
@@ -84,7 +85,6 @@ REPLICATES = 20
 SEED = 100
 POWER = 0.8
 COLOR = CONCEPT_COLORS["visual"]
-MARKERS = {"GRB006": "o", "GRB064": "^"}
 
 
 def _columns(names: list[str], term: str) -> list[int]:
@@ -255,7 +255,7 @@ def plot(stats: dict) -> Path:
             levels = stats[subject]["by_gap"][gap]["log"]
             true = np.asarray([level["median_true"] for level in levels])
             power = np.asarray([level["power"] for level in levels])
-            marker = MARKERS.get(subject, "o")
+            marker = MOUSE_MARKERS.get(subject, "o")
             top, bottom = axes[0, column], axes[1, column]
             top.plot(true, power, color=COLOR, marker=marker, lw=1.2)
             top.axhline(POWER, color=REFERENCE_COLOR, ls="--", lw=0.8)

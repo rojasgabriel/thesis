@@ -26,7 +26,7 @@ Groups (`GROUPS`):
   their values are those of `unique_dev.py` (same shuffles and seed), read
   from its checkpoints, not fit again.
 
-Units: all GLM units with a final fit (172 / 79), the two GLM sessions
+Units: all GLM units with a final fit (172 / 115), the two GLM sessions
 (`flash_kernels.SESSIONS`). The sampling unit is the unit. Each fold's ΔD² is
 turned into bits per spike with the factor of `unique_dev.add_bits_per_spike`.
 The figure shows the pooled median with its hierarchical-bootstrap 95% interval
@@ -58,7 +58,7 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import cli
+from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.dmat import (
     PREVIOUS_SIDE,
     TURN_DIRECTION,
@@ -105,13 +105,7 @@ from thesis.plotting import (
     save_figure,
 )
 
-FLASH = (
-    "visual_flash",
-    "flash_just_before",
-    "flash_after_exit",
-    "flash_recovery",
-    "flash_side",
-)
+FLASH = dmat.FLASH_TERMS
 TASK_EVENTS = ("fixation", "hold", "previous_side", "response_period", "turn_direction")
 # Fit here (several terms) or read from `unique_dev` (one term).
 GROUPS = {"flash": FLASH, "task events": TASK_EVENTS}

@@ -14,7 +14,7 @@ probe as stored by the spike sorting). No new fit.
   150-500 ms from the exit), both from `hold_effect.kernel_values`; the flash
   kernel, the flash × after exit kernel and the flash × side kernel (+ = a
   larger flash response for a right turn), each the mean from `RESPONSE_MS`.
-- Units: all GLM units with a final fit (172 / 79), each mouse alone: the
+- Units: all GLM units with a final fit (172 / 115), each mouse alone: the
   two probes are not at the same place, so depth is not comparable between
   them.
 - Statistics: per mouse, the Spearman correlation of each measure with

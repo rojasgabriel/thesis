@@ -20,7 +20,7 @@ flash, so the first ~100 ms after it hold both; a flash response that the
 model misses stays in (the first flash after the exit is the main one,
 `first_flash_after_exit.py`).
 
-- Units: all GLM units with a final fit (172 / 79); examples: the units of
+- Units: all GLM units with a final fit (172 / 115); examples: the units of
   `hold_effect.py` panel a (the lowest and the highest fixation level), read
   from `hold_effect_stats.json`.
 - Alignment: the first flash (bins before the center exit only) and the center
@@ -48,7 +48,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import dmat, fit
-from thesis.ephys.analyses.glm.decoding_without_terms import FLASH_TERMS
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.hold_effect import EXIT_WINDOW_MS, FLASH_WINDOW_MS
 from thesis.ephys.units import fetch_unit_table
@@ -82,7 +81,9 @@ def session_psths(session: str, examples: list[int]) -> dict:
     metadata = json.loads((root / "common_design_me.json").read_text())
     design = np.load(root / "common_design_me.npy", mmap_mode="r", allow_pickle=False)
     flash = [
-        i for i, n in enumerate(metadata["column_names"]) if n.startswith(FLASH_TERMS)
+        i
+        for i, n in enumerate(metadata["column_names"])
+        if n.startswith(dmat.FLASH_TERMS)
     ]
     # Raw flash columns: a raw zero gives no contribution (`results.raw_contribution`).
     offset = (

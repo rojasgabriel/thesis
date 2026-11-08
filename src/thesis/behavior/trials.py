@@ -30,6 +30,8 @@ from thesis.ephys.trials import CATEGORY_BOUNDARY_HZ
 
 RECORDED = {"GRB006": "20240821_121447", "GRB064": "20261008_143359"}
 SUBJECTS = tuple(RECORDED)
+# The one list of the analyzed sessions; the neural analyses import it.
+SESSIONS = tuple(f"{subject}_{name}" for subject, name in RECORDED.items())
 MIN_RATES = 6
 MODALITIES = ("visual", "visual+audio")
 STIM_S = 1.0
