@@ -41,8 +41,12 @@ slope is 0.
   earlier than `CHECK_MIN_WAIT_S` after the center entry left out (movement
   is larger early in the wait); and the time since the center entry and the
   gap as more predictors of the line fit. On 2026-11-06 (GRB064 20261008)
-  the last check gave -42% / -12% (p = 3e-5 / 0.3): in GRB064 the movement
-  effect is not separate from the time in the wait.
+  that check gave -42% / -12% (p = 3e-5 / 0.3): in GRB064 the movement
+  effect is not separate from the time in the wait. Last check: the
+  motion-energy part stays in the rate (only the other non-flash parts are
+  divided out). If movement adds to the rate and does not scale it, dividing
+  out a fitted gain makes the flash response smaller at high movement by
+  itself; with the part kept, that cannot happen.
 - Flash response of one flash: the mean rate from `RESPONSE_MS[0]` to
   `RESPONSE_MS[1]` minus the mean rate from -40 to 0 ms (a mean, not the
   largest bin, which a single noisy flash would bias).
@@ -101,6 +105,7 @@ RESPONSE_MS = (40, 100)
 ME_WINDOW_MS = (-100, 0)
 CHECK_ME_WINDOWS_MS = ((-50, 100), (0, 100))
 CHECK_MIN_WAIT_S = 0.3
+VIDEO_COLUMNS = "video_pc_"  # the motion-energy PCs of the design
 PERCENT_LIMIT = 150  # display limit of the histograms (%)
 QUINTILES = 5
 BIN_MS = 10
@@ -154,16 +159,24 @@ def flash_motion(root: Path, times: np.ndarray, window_ms=ME_WINDOW_MS) -> np.nd
 
 
 def session_values(
-    session: str, excited: list[int], window_ms=ME_WINDOW_MS, min_wait_s: float = 0.0
+    session: str,
+    excited: list[int],
+    window_ms=ME_WINDOW_MS,
+    min_wait_s: float = 0.0,
+    keep_video: bool = False,
 ) -> dict:
-    """Return per unit the flash responses, backgrounds and PSTHs of the analyzed flashes."""
+    """Return per unit the flash responses, backgrounds and PSTHs of the analyzed flashes.
+
+    With `keep_video`, the motion-energy part stays in the rate.
+    """
     root = OUT / session
     prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
     metadata = json.loads((root / "common_design_me.json").read_text())
     design = np.load(root / "common_design_me.npy", mmap_mode="r", allow_pickle=False)
     names = metadata["column_names"]
-    other = [i for i, n in enumerate(names) if not n.startswith(dmat.FLASH_TERMS)]
+    left_in = dmat.FLASH_TERMS + ((VIDEO_COLUMNS,) if keep_video else ())
+    other = [i for i, n in enumerate(names) if not n.startswith(left_in)]
     scaling = {
         "training_mean": np.asarray(metadata["training_mean"])[other],
         "training_scale": np.asarray(metadata["training_scale"])[other],
@@ -390,6 +403,14 @@ def checks(session: str, excited: list[int], main: dict) -> dict:
     out[
         f"without the first {1000 * CHECK_MIN_WAIT_S:.0f} ms after the center entry"
     ] = median_percent(s["z"], s["response"])
+    s = session_values(session, excited, keep_video=True)
+    out["motion-energy part kept in the rate"] = {
+        "flash response": median_percent(s["z"], s["response"]),
+        "background": median_percent(s["z"], s["background"]),
+        "flash response, time since center entry and gap as predictors": (
+            median_percent(s["z"], s["response"], (s["waits"], s["gaps"]))
+        ),
+    }
     return out
 
 
