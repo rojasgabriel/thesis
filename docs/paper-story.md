@@ -30,9 +30,10 @@ exit. There is no head or eye tracking. That is a limitation of the study.
    The test has 80% power at +0.21 / +0.15, so a positive flash-specific
    effect of that size is unlikely. A smaller one is still possible.
 4. **What the increase is instead:**
-   - **Gain on all activity.** The rate before the flash goes up by the same
-     factor as the flash response (GRB006: g_b 1.84, g_f 1.65; GRB064 cannot
-     decide).
+   - **Gain on all activity.** The rate before the flash goes up (GRB006:
+     g_b 1.84). Per unit, with the trial noise included, the flash response
+     cannot be told apart from the same gain or from no change (GRB006: g_f
+     1.61; GRB064 cannot decide).
    - **Adaptation reset.** The first flash after the exit is larger than this
      gain predicts.
    - **Side.** The flash response differs with the response side

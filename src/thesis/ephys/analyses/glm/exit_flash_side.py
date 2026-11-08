@@ -45,10 +45,15 @@ flash × side kernels have opposite signs).
 - First-flash excess: log(peak first / peak in port) minus log(before first /
   before in port), at the same gap class.
 - Units: the flash-excited units of `raw_video_trust_classification.json`
-  (30 / 22). Intervals: bootstrap over units (`BOOTSTRAPS`, 95%), the same
-  draws for every group, so late minus early is paired. Units with a peak or
-  rate ≤ 0 have no log value and are not drawn as points; the summaries use
-  means over all units. The sampling unit is the unit.
+  (30 / 22). Intervals: 95% over `BOOTSTRAPS` draws of trials and units
+  together. Each draw takes the trials with replacement (one draw for all
+  units and groups; a trial brings all its flashes) and the units with
+  replacement, so the intervals hold the trial noise and the trials that the
+  units share; late minus early and long minus short are paired. There is no
+  test: only intervals. The flash count of each group is in the report; the
+  side groups of error trials are small. Units with a peak or rate ≤ 0 have
+  no log value and are not drawn as points; the summaries use means over all
+  units. The sampling unit is the unit.
 
 The script writes `figures/glm/exit_flash_side.svg` and
 `results/glm/exit_flash_side.json`.
@@ -89,7 +94,7 @@ SIDES = (1, -1)  # right, left
 GAPS = exit_flash_responses.GAPS
 GAP_LABELS = exit_flash_responses.GAP_LABELS
 MIN_FLASHES = 8
-BOOTSTRAPS = 2000
+BOOTSTRAPS = 1000
 SEED = 7
 SOURCES = {"observed": ("before", "peak"), "model": ("model_before", "model_peak")}
 COLORS = {"observed": OBSERVED_COLOR, "model": MODEL_COLOR}
@@ -226,9 +231,22 @@ def with_interval(function, units: int, rng) -> dict:
     }
 
 
+def drawn(values: dict, k: int) -> dict:
+    """Return the measures of trial draw `k` in the form of the point values."""
+    return {
+        key: {
+            name: measures[f"{name}_draws"][:, k]
+            for name in ("before", "peak", "model_before", "model_peak")
+        }
+        for key, measures in values.items()
+    }
+
+
 def session_stats(session: str, excited: list[int]) -> dict:
     """Return the side effects and first-flash excesses of one session."""
-    data = exit_flash_responses.session_values(session, excited, False, grouping)
+    data = exit_flash_responses.session_values(
+        session, excited, False, grouping, trial_draws=BOOTSTRAPS
+    )
     values = data["values"]
     units = len(next(iter(values.values()))["peak"])
     stats = {
@@ -243,12 +261,15 @@ def session_stats(session: str, excited: list[int]) -> dict:
     }
     for source in SOURCES:
         rng = np.random.default_rng(SEED)
-        boot = [rng.integers(0, units, units) for _ in range(BOOTSTRAPS)]
+        # Draw k: trial draw k and a draw of the units.
+        boot = [
+            (drawn(values, k), rng.integers(0, units, units)) for k in range(BOOTSTRAPS)
+        ]
         everyone = np.arange(units)
         entry = {}
         for time in TIMES:
             point = side_effect(values, time, source, everyone)
-            draws = [side_effect(values, time, source, b) for b in boot]
+            draws = [side_effect(v, time, source, b) for v, b in boot]
             entry[time] = {
                 **point,
                 "effect_95": np.nanpercentile(
@@ -273,7 +294,7 @@ def session_stats(session: str, excited: list[int]) -> dict:
             for half in ("short delay", "long delay"):
                 point = first_excess(values, index, half, source, everyone)
                 draws = np.asarray(
-                    [first_excess(values, index, half, source, b) for b in boot]
+                    [first_excess(v, index, half, source, b) for v, b in boot]
                 )
                 halves[half] = {
                     "excess": point,
