@@ -1069,7 +1069,7 @@ wheels = [
 
 [[package]]
 name = "labdata"
-version = "0.1.25"
+version = "0.1.27"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -1081,9 +1081,9 @@ dependencies = [
     { name = "safe-exit" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/5a/611ef1a1af6c405503084589f266493003e0b4f5805aac4c44435464ec6a/labdata-0.1.25.tar.gz", hash = "sha256:31cd5a9a433f06450e4c218699042c6d0a461545d7ac77f4c1be77bf79976e87", size = 514052, upload-time = "2026-10-24T18:24:24.888Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/85/9e98612cebbeaad37c88bd236f724a7857098b37e87042917b20e363b9fc/labdata-0.1.27.tar.gz", hash = "sha256:baf62c19aca00522078ec9cb2feb4db4e9e3892d48c1f1e07bc96e0bc21e6b1f", size = 527658, upload-time = "2026-10-28T22:06:59.964Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/1e/2ee84a072094347e77efda26ea0d098e4be76ceb97357f9753724cc58456/labdata-0.1.25-py3-none-any.whl", hash = "sha256:b4b6b99b5e929a9627bcd5761ae4101d794ae84518622a7e7789f6fd2cc1c248", size = 548814, upload-time = "2026-10-24T18:24:23.405Z" },
+    { url = "https://files.pythonhosted.org/packages/97/0d/6753107d797cd588f92ab975270d621f4246c7e9c1d77a7373f29b5549fe/labdata-0.1.27-py3-none-any.whl", hash = "sha256:03729a211a7140f7910cf61ea223faa5e4a5ad87f8e3fa9788f654619626d418", size = 562153, upload-time = "2026-10-28T22:06:58.246Z" },
 ]
 
 [[package]]
@@ -2383,7 +2383,7 @@ requires-dist = [
     { name = "h5py" },
     { name = "ipykernel", specifier = ">=7.4.0" },
     { name = "ipympl", specifier = ">=0.10.0" },
-    { name = "labdata", specifier = ">=0.1.25" },
+    { name = "labdata", specifier = ">=0.1.27" },
     { name = "matlab-dpca", git = "https://github.com/rojasgabriel/matlab_dpca_in_python?rev=8055ce10ff8d185bd7beb1d4563a4e2ecd3e92a8" },
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "numpy", specifier = ">=2.4.6" },
