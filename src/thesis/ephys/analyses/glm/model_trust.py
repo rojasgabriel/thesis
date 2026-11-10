@@ -475,7 +475,7 @@ def main() -> None:
             parts.append(
                 {
                     "real": data["real (held out)"][excited],
-                    "leak": data["leak"][excited],
+                    "leak": data["leak (held out)"][excited],
                     "level": data["level"][excited],
                 }
             )

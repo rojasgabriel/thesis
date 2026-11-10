@@ -1143,3 +1143,17 @@ keeps the log-ratio median at −0.25 to −0.26 and p between 0.008 and 0.041. 
 the exclusion does not make the result. It is one session, and p is not
 corrected over the two gap classes and two mice. In GRB006 the same checks
 give no effect (log −0.10, p = 0.45; normalized +0.09, p = 0.47).
+
+## The held-out measure takes a held-out leak (2026-11-09)
+
+The power test in its held-out version (2026-11-08) showed that the main
+measure of result 3 kept a bias in GRB006: with no planted effect, its median
+was −0.04 in log ratio after the leak correction, because the leak came from
+fits to all trials and the measure from held-out folds. Gabriel's decision: the
+held-out measure takes its leak from held-out folds (the median over the 200
+no-effect simulations of `power_test.py --mode held_out`, flash-excited units;
+`leak_test.py --reuse` makes the statistics again). Result 3 moves from
+−0.10 / −0.26 (p = 0.45 / 0.021; pooled −0.20, −0.45 to 0.04) to −0.05 / −0.31
+(p = 0.71 / 0.011; pooled −0.16, −0.39 to 0.01). Leaving out any one GRB064
+unit keeps its median at −0.36 to −0.26 and p between 0.002 and 0.022. The
+conclusions do not change. Old outputs: `results/glm/logs/*_before_held_out_leak_20261109.json`.

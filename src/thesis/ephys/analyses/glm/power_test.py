@@ -302,6 +302,10 @@ def session_power(session: str, leak: dict, mode: str) -> dict | None:
         alphas = saved["alphas"].tolist()
         true_peaks, fit_peaks = saved["true_peaks"], saved["fit_peaks"]
     order = [leak["unit_ids"].index(unit) for unit in ids]
+    # Each version of the test takes its own leak, as the real data does. Held
+    # out, the leak is the mean of the α = 0 replicates of this file, so their
+    # estimates are centered on 0 by construction.
+    leak_key = "leak (held out)" if mode == "held_out" else "leak"
     out = {"units": len(ids), "by_gap": {}}
     for g, gap in enumerate(flash_movement.GAP_LABELS):
         entry = {}
@@ -309,11 +313,11 @@ def session_power(session: str, leak: dict, mode: str) -> dict | None:
             if scale == "log":
                 true = leak_test.log_part(true_peaks)[..., g]  # (unit, alpha)
                 fits = leak_test.log_part(fit_peaks)[..., g]  # (unit, alpha, rep)
-                base = leak["log leak"][order, g]
+                base = leak["log " + leak_key][order, g]
             else:
                 true = leak_test.comparison_part(true_peaks)[..., g]
                 fits = leak_test.comparison_part(fit_peaks)[..., g]
-                base = leak["leak"][order, g]
+                base = leak[leak_key][order, g]
             estimates = fits - base[:, None, None]
             levels = []
             for a, alpha in enumerate(alphas):
