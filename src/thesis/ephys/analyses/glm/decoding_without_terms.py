@@ -11,7 +11,7 @@ Questions (`--target`):
   choice signal, or the flash responses changed by the turn of the head,
   which moves the LED panel to another part of the visual field?
 
-Comparison: a decoder of the target on three versions of the same rates, in
+Comparison: a decoder of the target on five versions of the same rates, in
 the same trials and resamples, so the versions are paired:
 
 - observed: the spike counts;
@@ -21,7 +21,11 @@ the same trials and resamples, so the versions are paired:
 - without the other terms: the counts divided by exp(the part of every other
   column of the common design: the fixation kernel (`hold`) and level,
   response period, turn direction, previous side, session drift and
-  motion-energy PCs).
+  motion-energy PCs);
+- without the movement terms: the same with only the movement columns
+  (`MOVEMENT_TERMS`: turn direction and the video PCs);
+- without movement and flash × side: the movement columns and flash × side,
+  the flash response that depends on the side of the turn.
 
 Spike history is in neither part, so it stays in all versions. A signal that
 is visual should fall when the flash part is divided out and stay when the
@@ -146,14 +150,27 @@ N_SHUFFLES = 50
 NULL_RESAMPLES = 10
 SEED = 0
 FLASH_TERMS = dmat.FLASH_TERMS
-VERSIONS = ("observed", "without the flash terms", "without the other terms")
+MOVEMENT_TERMS = (dmat.TURN_DIRECTION, "video_pc")
+MOVEMENT_SIDE = "without movement and flash × side"
+# Each version and the columns whose part it divides out (None: observed).
+VERSION_TERMS = {
+    "observed": None,
+    "without the flash terms": "flash",
+    "without the other terms": "other",
+    "without the movement terms": "movement",
+    MOVEMENT_SIDE: "movement and side",
+}
+VERSIONS = tuple(VERSION_TERMS)
 ALL_UNITS = "observed, single and multi-units"
 COLORS = {
     "observed": OBSERVED_COLOR,
     "without the flash terms": CONCEPT_COLORS["visual"],
     "without the other terms": CONCEPT_COLORS["task"],
+    "without the movement terms": CONCEPT_COLORS["motion energy"],
+    MOVEMENT_SIDE: CONCEPT_COLORS["motion energy"],
     ALL_UNITS: OBSERVED_COLOR,  # observed too; an open marker tells it apart
 }
+OPEN_MARKERS = (MOVEMENT_SIDE, ALL_UNITS)
 PERIODS = ("in port", "after exit")
 ALL_VERSIONS = (*VERSIONS, ALL_UNITS)
 AUC_LIMITS = (0.1, 1.02)
@@ -173,6 +190,8 @@ def session_rates(session: str, fit_suffix: str = "", mask_s: float = 0.0) -> di
     names = metadata["column_names"]
     flash = [i for i, n in enumerate(names) if n.startswith(FLASH_TERMS)]
     other = [i for i in range(len(names)) if i not in flash]
+    movement = [i for i, n in enumerate(names) if n.startswith(MOVEMENT_TERMS)]
+    side = [i for i, n in enumerate(names) if n.startswith(dmat.FLASH_SIDE)]
     centers = prepared["relative_centers"]
     n_trials, n_bins = len(prepared["alignments"]), len(centers)
     exit_s = trials["center_exit_s"].to_numpy(float) - prepared["alignments"]
@@ -204,7 +223,12 @@ def session_rates(session: str, fit_suffix: str = "", mask_s: float = 0.0) -> di
             t = centers[windows["after exit"][row]]
             kept["after exit"][row] = ~((t >= start) & (t < start + mask_s))
             masked[row] = (after[0], min(after[0] + mask_s, exits_abs[row] + WINDOW_S))
-    parts = {"flash": flash, "other": other}
+    parts = {
+        "flash": flash,
+        "other": other,
+        "movement": movement,
+        "movement and side": movement + side,
+    }
     designs = {
         (p, k): np.asarray(design[r.ravel()][:, cols]).reshape(*r.shape, len(cols))
         for p, r in rows.items()
@@ -246,15 +270,8 @@ def session_rates(session: str, fit_suffix: str = "", mask_s: float = 0.0) -> di
                         np.arange(len(cols)),
                     ).reshape(x.shape[:2])
                 log_parts[k] = part
-            for version, values in zip(
-                VERSIONS,
-                (
-                    window,
-                    window * np.exp(-log_parts["flash"]),
-                    window * np.exp(-log_parts["other"]),
-                ),
-                strict=True,
-            ):
+            for version, term in VERSION_TERMS.items():
+                values = window if term is None else window * np.exp(-log_parts[term])
                 duration = np.where(
                     kept[period].all(1),
                     WINDOW_S,
@@ -380,7 +397,7 @@ def summary(
 
 
 def plot(reports: list[dict], target: str, name: str) -> Path:
-    offsets = (np.arange(len(ALL_VERSIONS)) - 1.5) * 0.2
+    offsets = (np.arange(len(ALL_VERSIONS)) - (len(ALL_VERSIONS) - 1) / 2) * 0.13
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(
             1, len(reports), figsize=(3.4 * len(reports), 3.2), sharey=True
@@ -392,7 +409,7 @@ def plot(reports: list[dict], target: str, name: str) -> Path:
                     x = p + offsets[v]
                     low, high = values["shuffle_auc_95"]
                     axis.fill_between(
-                        [x - 0.08, x + 0.08], low, high, color="0.85", linewidth=0
+                        [x - 0.055, x + 0.055], low, high, color="0.85", linewidth=0
                     )
                     mean = values["auc_mean"]
                     sem = values["auc_sem_across_folds"]
@@ -402,9 +419,9 @@ def plot(reports: list[dict], target: str, name: str) -> Path:
                         yerr=sem,
                         fmt=mouse_marker(report["subject"], index),
                         color=COLORS[version],
-                        mfc="white" if version == ALL_UNITS else COLORS[version],
-                        capsize=3,
-                        ms=6,
+                        mfc="white" if version in OPEN_MARKERS else COLORS[version],
+                        capsize=2.5,
+                        ms=5.5,
                     )
             axis.axhline(0.5, color="0.6", linestyle=":", linewidth=0.8)
             axis.set_xticks(range(len(PERIODS)), PERIODS)
@@ -414,7 +431,7 @@ def plot(reports: list[dict], target: str, name: str) -> Path:
             axis.text(
                 0.02,
                 1.02,
-                f"{report['subject']}: {report['units']} neurons"
+                f"{report['subject']}: {report['units']} units"
                 f" ({report['units_with_multi_units']} with multi-units)",
                 color=OBSERVED_COLOR,
                 transform=axis.transAxes,
@@ -433,8 +450,8 @@ def plot(reports: list[dict], target: str, name: str) -> Path:
         for v, version in enumerate(ALL_VERSIONS):
             axes[0].text(
                 0.02,
-                0.20 - 0.055 * v,
-                version,
+                0.27 - 0.045 * v,
+                version + (" (open)" if version == MOVEMENT_SIDE else ""),
                 color=COLORS[version],
                 transform=axes[0].transAxes,
                 ha="left",

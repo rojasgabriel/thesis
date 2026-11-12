@@ -22,9 +22,10 @@ on the same scales.
   (`FLASH_WINDOW_S`) inside its period; below, the rate in 10-ms bins,
   mean ± SEM over flashes.
 - Population (`dataset_population.svg`): every unit around the first flash
-  and around the center exit, 40-ms bins (one flash slot), as log2 of the rate over the unit's
-  mean rate; units sorted by their mean from 150 to 500 ms after the first
-  flash.
+  and around the center exit, 10-ms bins, as (rate − the unit's rate in the
+  40 ms before the first flash, in trials with that window in the port) over
+  the unit's mean rate; the same baseline for the exit panel; units sorted by
+  their mean from 150 to 500 ms after the first flash.
 - Flash population (`dataset_flash_population.svg`): every unit around the
   in-port flashes of the flash raster, 10-ms bins, the rate minus the rate in
   the 40 ms before the flash, over the unit's mean rate; units sorted by their
@@ -92,8 +93,8 @@ FLASH_WINDOW_S = (-0.05, 0.15)
 SORT_WINDOW_S = (0.15, 0.5)
 PEAK_WINDOW_S = (0.03, 0.12)
 BASELINE_WINDOW_S = (-0.04, 0.0)
-LOG2_LIMIT = 1.5
-POPULATION_BIN_S = 0.04  # one flash slot
+POPULATION_LIMIT = 1.5
+POPULATION_BIN_S = 0.01
 FLASH_LIMIT = 1.5
 FDR = 0.05
 CLASS_GAP_S = 0.16
@@ -267,7 +268,7 @@ def plot_flash_raster(sessions: list[dict]) -> Path:
             raster.text(
                 0,
                 1.02,
-                f"{data['subject']}: one flash-excited neuron",
+                f"{data['subject']}: one flash-excited unit",
                 transform=raster.transAxes,
                 va="bottom",
             )
@@ -340,7 +341,7 @@ def plot_first_flash(sessions: list[dict]) -> Path:
             raster.text(
                 0,
                 1.02,
-                f"{data['subject']}: one flash-excited neuron",
+                f"{data['subject']}: one flash-excited unit",
                 transform=raster.transAxes,
                 va="bottom",
             )
@@ -399,43 +400,53 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
                     for s in data["spikes"]
                 ]
             )
-            log_first = np.log2(np.maximum(near_first, 0.1) / mean)
-            log_exit = np.log2(np.maximum(near_exit, 0.1) / mean)
-            order = np.argsort(log_first[:, sort].mean(1))
+            pre = np.array(
+                [
+                    counts_around(
+                        s, data["first_in_port"], np.array(BASELINE_WINDOW_S)
+                    )[:, 0].mean()
+                    / (BASELINE_WINDOW_S[1] - BASELINE_WINDOW_S[0])
+                    for s in data["spikes"]
+                ]
+            )[:, None]
+            change_first = (near_first - pre) / mean
+            change_exit = (near_exit - pre) / mean
+            order = np.argsort(change_first[:, sort].mean(1))
             n = len(order)
             image = _heat(
                 axes[row, 0],
-                log_first[order],
+                change_first[order],
                 (*FIRST_FLASH_WINDOW_S, n, 0),
-                LOG2_LIMIT,
+                POPULATION_LIMIT,
                 "RdBu_r",
             )
             _heat(
                 axes[row, 1],
-                log_exit[order],
+                change_exit[order],
                 (*EXIT_WINDOW_S, n, 0),
-                LOG2_LIMIT,
+                POPULATION_LIMIT,
                 "RdBu_r",
             )
             for axis in axes[row]:
                 axis.axvline(0, color="0.2", linewidth=0.6)
-            axes[row, 0].set_ylabel(f"{data['subject']}: {n} neurons")
+            axes[row, 0].set_ylabel(f"{data['subject']}: {n} units")
             axes[row, 1].set_yticks([])
             report[data["subject"]] = {
                 "units": n,
                 "fraction_lower_150_500_ms": float(
-                    np.mean(log_first[:, sort].mean(1) < 0)
+                    np.mean(change_first[:, sort].mean(1) < 0)
                 ),
                 "values_past_the_color_limit": int(
                     np.sum(
-                        np.abs(np.r_[log_first.ravel(), log_exit.ravel()]) > LOG2_LIMIT
+                        np.abs(np.r_[change_first.ravel(), change_exit.ravel()])
+                        > POPULATION_LIMIT
                     )
                 ),
             }
         axes[-1, 0].set_xlabel("time from the first flash (s)")
         axes[-1, 1].set_xlabel("time from the center exit (s)")
         bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.02)
-        bar.set_label("rate / mean rate (log2)")
+        bar.set_label("(rate − pre-flash rate) ÷ mean rate")
         label_panels(axes[:, 0], x=-0.2, y=1.02)
         return save_figure(figure, OUT / "dataset_population"), report
 
@@ -466,7 +477,7 @@ def plot_flash_population(
                 "RdBu_r",
             )
             axis.axvline(0, color="0.2", linewidth=0.6)
-            axis.set_ylabel(f"{data['subject']}: {n} neurons")
+            axis.set_ylabel(f"{data['subject']}: {n} units")
             report[data["subject"]] = {
                 "units": n,
                 "flashes": int(len(data[events])),
@@ -476,7 +487,7 @@ def plot_flash_population(
             }
         axes[-1].set_xlabel(xlabel)
         bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.04)
-        bar.set_label("rate change / mean rate")
+        bar.set_label("(rate − pre-flash rate) ÷ mean rate")
         label_panels(axes, x=-0.35, y=1.02)
         return save_figure(figure, OUT / name), report
 

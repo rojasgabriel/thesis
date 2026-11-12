@@ -69,7 +69,7 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/condition_responses")
-BIN_S = 0.02
+BIN_S = 0.01
 MIN_RATE_HZ = 3.0
 LIMIT = 2.0
 MIN_TRIALS_IN_BIN = 0.5  # fraction of the trials of each group
@@ -287,7 +287,7 @@ def draw_population(axis, data: dict, spec: dict):
     )
     axis.axvline(0, color=OBSERVED_COLOR, lw=0.8)
     axis.set_xlabel(f"time from the {spec['align']} (s)")
-    axis.set_ylabel(f"{data['subject']}: {len(order)} neurons")
+    axis.set_ylabel(f"{data['subject']}: {len(order)} units")
     return image
 
 

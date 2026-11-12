@@ -61,7 +61,7 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/glm")
-BIN_MS = 20
+BIN_MS = 10
 VERSIONS = {"observed": OBSERVED_COLOR, "without the flash part": MODEL_COLOR}
 ALIGNMENTS = {
     "flash": (
