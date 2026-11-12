@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "damn",
     "datajoint>=0.14.8,<0.15",
-    "diptest>=0.11.0",
+    "diptest>=0.12.0",
     "h5py",  # spks imports h5py, torch, and torchaudio at import time
     "ipykernel>=7.4.0",
     "ipympl>=0.10.0",
