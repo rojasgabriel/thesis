@@ -27,7 +27,7 @@ left out: the response to the flash before falls into their windows.
   if the interval of the in-port peak (or dip) includes 0; then the ratios of
   that gap are not stable.
 - Group (`--group`): "excited" (default), the flash-excited units of
-  `raw_video_trust_classification.json`; "flash-suppressed", the units whose
+  `flash_excited_units.json` (`peaks.excited_units`); "flash-suppressed", the units whose
   flash weights are below 0 (`flash_weight_check.json`, weight + 1.96 SE < 0),
   with the dip (the rate before the flash minus the smallest bin from 30 to
   120 ms) in place of the peak; outputs with `_flash_suppressed`.
@@ -62,7 +62,7 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat, flash_movement
+from thesis.ephys.analyses.glm import dmat, flash_movement, peaks
 from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     cross_validation_partitions,
@@ -144,8 +144,33 @@ def events(trials, prepared) -> dict:
     return {k: np.asarray(v) for k, v in found.items() if len(v) >= MIN_FLASHES}
 
 
-def session_values(session: str, excited: list[int], dip: bool) -> dict:
-    """Return per-unit measures and traces of each event group of one session."""
+def rows_before_and_peak(
+    traces: np.ndarray, dip: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return `before_and_peak` of each row of 10-ms traces, (..., bin)."""
+    before = traces[..., BASELINE].mean(-1)
+    if dip:
+        return before, before - traces[..., PEAK].min(-1)
+    return before, traces[..., PEAK].max(-1) - before
+
+
+def session_values(
+    session: str,
+    excited: list[int],
+    dip: bool,
+    grouping=None,
+    trial_draws: int = 0,
+) -> dict:
+    """Return per-unit measures and traces of each event group of one session.
+
+    `grouping(trials, prepared)` gives the window bins of each group (default
+    `events`). "model_before" and "model_peak" are the rate before the flash
+    of the held-out model and the mean peak of its Poisson draws. With
+    `trial_draws`, each of "before", "peak", "model_before" and "model_peak"
+    also has "<name>_draws", (unit, draw): the same measure when the trials
+    are drawn with replacement, one draw shared by all units and groups (a
+    trial brings all its flashes, so the groups stay paired).
+    """
     root = OUT / session
     metadata = json.loads((root / "common_design_me.json").read_text())
     records = {
@@ -160,7 +185,7 @@ def session_values(session: str, excited: list[int], dip: bool) -> dict:
     )
     prepared = dmat._load_windows(root / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
-    windows = events(trials, prepared)
+    windows = (grouping or events)(trials, prepared)
     common = np.load(root / "common_design_me.npy", mmap_mode="r", allow_pickle=False)
     valid = dmat._valid_bin_mask(prepared)
     partitions = cross_validation_partitions(
@@ -169,8 +194,26 @@ def session_values(session: str, excited: list[int], dip: bool) -> dict:
     requested = np.zeros(len(valid), dtype=bool)
     requested[np.concatenate([w.ravel() for w in windows.values()])] = True
     rng = np.random.default_rng(SEED)
+    # Its own generator: the point values do not change with `trial_draws`.
+    boot_rng = np.random.default_rng([SEED, 1])
+    n_trials, n_bins = len(trials), len(prepared["relative_centers"])
+    pool = np.unique(np.concatenate([w[:, 0] // n_bins for w in windows.values()]))
+    times_drawn = np.asarray(
+        [
+            np.bincount(boot_rng.choice(pool, len(pool)), minlength=n_trials)
+            for _ in range(trial_draws)
+        ]
+    )  # (draw, trial)
     values = {
-        key: {"before": [], "peak": [], "miss": [], "trace": []} for key in windows
+        key: {
+            "before": [],
+            "peak": [],
+            "miss": [],
+            "trace": [],
+            "model_before": [],
+            "model_peak": [],
+        }
+        for key in windows
     }
     for unit_id in sorted(set(excited) & set(records)):
         spikes = table.loc[unit_id, "spike_times_s"]
@@ -192,7 +235,38 @@ def session_values(session: str, excited: list[int], dip: bool) -> dict:
             values[key]["before"].append(before)
             values[key]["peak"].append(peak)
             values[key]["miss"].append(peak - noise)
+            values[key]["model_before"].append(
+                before_and_peak(predicted[window] * to_rate, dip)[0]
+            )
+            values[key]["model_peak"].append(noise)
             values[key]["trace"].append(trace(counts[window] * to_rate))
+            if trial_draws:
+                weights = times_drawn[:, window[:, 0] // n_bins]  # (draw, flash)
+                weights = weights / np.maximum(weights.sum(1, keepdims=True), 1)
+                weights[weights.sum(1) == 0] = np.nan  # a draw with no flash
+                shape = (len(window), -1, 10)
+                observed = counts[window].reshape(shape).mean(-1) * to_rate
+                model = predicted[window].reshape(shape).mean(-1) * to_rate
+                noisy = (
+                    boot_rng.poisson(
+                        np.broadcast_to(predicted[window], (DRAWS, *window.shape))
+                    )
+                    .reshape(DRAWS, *shape)
+                    .mean(-1)
+                    * to_rate
+                )  # (Poisson draw, flash, bin)
+                before_b, peak_b = rows_before_and_peak(weights @ observed, dip)
+                model_b = rows_before_and_peak(weights @ model, dip)[0]
+                noise_b = rows_before_and_peak(
+                    np.einsum("bf,dfk->dbk", weights, noisy, optimize=True), dip
+                )[1].mean(0)
+                for name, draw in (
+                    ("before", before_b),
+                    ("peak", peak_b),
+                    ("model_before", model_b),
+                    ("model_peak", noise_b),
+                ):
+                    values[key].setdefault(f"{name}_draws", []).append(draw)
         print(f"{session}: unit {unit_id}", flush=True)
     return {
         "subject": subject,
@@ -324,7 +398,7 @@ def main() -> None:
             for s in SESSIONS
         }
     else:
-        units = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+        units = peaks.load_excited_units()
     sessions = [session_values(s, sorted(units[s]), dip) for s in SESSIONS]
     keys = [k for k in sessions[0]["values"] if all(k in s["values"] for s in sessions)]
     boot = draws(sessions)

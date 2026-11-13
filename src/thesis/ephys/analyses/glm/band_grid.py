@@ -2,7 +2,8 @@
 
 Question: the model has one L2 penalty for all terms. With it, the fixation
 level is too small, and a 100 times weaker penalty on the fixation kernel
-changes the flash × after exit result of GRB006 (`penalty_sensitivity.py`).
+changed the flash × after exit result of GRB006 (a sensitivity fit, removed
+2026-10-29).
 That factor was chosen by hand. Does a penalty for each band of regressors,
 chosen by a fixed rule, predict better?
 

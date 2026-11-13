@@ -22,17 +22,26 @@ on the same scales.
   (`FLASH_WINDOW_S`) inside its period; below, the rate in 10-ms bins,
   mean ± SEM over flashes.
 - Population (`dataset_population.svg`): every unit around the first flash
-  and around the center exit, 40-ms bins (one flash slot), as log2 of the rate over the unit's
-  mean rate; units sorted by their mean from 150 to 500 ms after the first
-  flash.
+  and around the center exit, 10-ms bins, as (rate − the unit's rate in the
+  40 ms before the first flash, in trials with that window in the port) over
+  the unit's mean rate; the same baseline for the exit panel; units sorted by
+  their mean from 150 to 500 ms after the first flash.
 - Flash population (`dataset_flash_population.svg`): every unit around the
   in-port flashes of the flash raster, 10-ms bins, the rate minus the rate in
   the 40 ms before the flash, over the unit's mean rate; units sorted by their
   mean from 30 to 120 ms.
+- Per-flash classes (json only): for each unit, the rate in `PEAK_WINDOW_S`
+  minus the rate in `BASELINE_WINDOW_S` of each in-port flash of the flash
+  raster with a gap of at least `CLASS_GAP_S` from the flash before;
+  Wilcoxon signed-rank over flashes, Benjamini–Hochberg at `FDR` in each
+  mouse; excited or suppressed by the sign of the mean change. With gaps of
+  80 ms the baseline falls 40-80 ms after the flash before, on its response,
+  and many excited units look suppressed (2026-11-04: GRB006 7 excited and
+  22 suppressed at 80 ms, against 29 and 2 at 160 ms).
 
 Units: the GLM units (`fetch_unit_table` with criteria 1 and stability 0,
 without `fit.excluded_units`); flash-excited units from
-`raw_video_trust_classification.json`. Example neuron: among the units that
+`flash_excited_units.json` (`peaks.excited_units`). Example neuron: among the units that
 are flash-excited by that table and by the flash weights of the GLM
 (`flash_weight_check.json`), with a mean rate of at least
 `MIN_EXAMPLE_RATE_HZ`, the unit whose response to in-port flashes is easiest to
@@ -53,11 +62,12 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
+from scipy.stats import false_discovery_control, wilcoxon
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat
+from thesis.ephys.analyses.glm import dmat, peaks
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.units import fetch_unit_table
@@ -83,9 +93,11 @@ FLASH_WINDOW_S = (-0.05, 0.15)
 SORT_WINDOW_S = (0.15, 0.5)
 PEAK_WINDOW_S = (0.03, 0.12)
 BASELINE_WINDOW_S = (-0.04, 0.0)
-LOG2_LIMIT = 1.5
-POPULATION_BIN_S = 0.04  # one flash slot
+POPULATION_LIMIT = 1.5
+POPULATION_BIN_S = 0.01
 FLASH_LIMIT = 1.5
+FDR = 0.05
+CLASS_GAP_S = 0.16
 
 
 def counts_around(
@@ -106,7 +118,7 @@ def session_data(session: str, excited: set[int]) -> dict:
     exit_s = trials["center_exit_s"].to_numpy(float)
     response = trials["response_port_entry_s"].to_numpy(float)
     entry = trials["center_entry_s"].to_numpy(float)
-    still, moving = [], []
+    still, moving, still_gaps = [], [], []
     for times, widths, en, ex, rp in zip(
         trials["stim_pulse_times_s"],
         trials["stim_pulse_widths_ms"],
@@ -121,7 +133,9 @@ def session_data(session: str, excited: set[int]) -> dict:
         long &= np.asarray(widths, dtype=float) == 15  # flashes only
         # The whole flash window lies inside its period.
         start, stop = times + FLASH_WINDOW_S[0], times + FLASH_WINDOW_S[1]
-        still.extend(times[long & (start >= en) & (stop <= ex)])
+        in_port = long & (start >= en) & (stop <= ex)
+        still.extend(times[in_port])
+        still_gaps.extend(gaps[in_port])
         moving.extend(times[long & (start >= ex) & (stop <= rp)])
     still, moving = np.asarray(still), np.asarray(moving)
     spikes = [np.sort(np.asarray(s, dtype=float)) for s in units["spike_times_s"]]
@@ -176,6 +190,7 @@ def session_data(session: str, excited: set[int]) -> dict:
         "first_in_port": first_in_port,
         "exit": exit_s,
         "still": still,
+        "still_gaps": np.asarray(still_gaps),
         "moving": moving,
         "mean_rate": mean_rate,
         "flash_centers": flash_centers,
@@ -184,6 +199,27 @@ def session_data(session: str, excited: set[int]) -> dict:
         "first_response": first_response,
         "peak": peak,
         "example": example,
+    }
+
+
+def flash_classes(data: dict) -> dict:
+    """Count the units that each in-port flash excites or suppresses (per flash)."""
+    duration = np.ptp(PEAK_WINDOW_S)
+    flashes = data["still"][data["still_gaps"] >= CLASS_GAP_S]
+    changes = [
+        counts_around(s, flashes, np.asarray(PEAK_WINDOW_S))[:, 0] / duration
+        - counts_around(s, flashes, np.asarray(BASELINE_WINDOW_S))[:, 0]
+        / np.ptp(BASELINE_WINDOW_S)
+        for s in data["spikes"]
+    ]
+    p = np.array([wilcoxon(c).pvalue if np.any(c) else 1.0 for c in changes])
+    significant = false_discovery_control(np.nan_to_num(p, nan=1.0)) < FDR
+    sign = np.array([np.mean(c) for c in changes])
+    return {
+        "units": len(changes),
+        "flashes": int(len(flashes)),
+        "excited": int(np.sum(significant & (sign > 0))),
+        "suppressed": int(np.sum(significant & (sign < 0))),
     }
 
 
@@ -232,7 +268,7 @@ def plot_flash_raster(sessions: list[dict]) -> Path:
             raster.text(
                 0,
                 1.02,
-                f"{data['subject']}: one flash-excited neuron",
+                f"{data['subject']}: one flash-excited unit",
                 transform=raster.transAxes,
                 va="bottom",
             )
@@ -305,7 +341,7 @@ def plot_first_flash(sessions: list[dict]) -> Path:
             raster.text(
                 0,
                 1.02,
-                f"{data['subject']}: one flash-excited neuron",
+                f"{data['subject']}: one flash-excited unit",
                 transform=raster.transAxes,
                 va="bottom",
             )
@@ -364,43 +400,53 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
                     for s in data["spikes"]
                 ]
             )
-            log_first = np.log2(np.maximum(near_first, 0.1) / mean)
-            log_exit = np.log2(np.maximum(near_exit, 0.1) / mean)
-            order = np.argsort(log_first[:, sort].mean(1))
+            pre = np.array(
+                [
+                    counts_around(
+                        s, data["first_in_port"], np.array(BASELINE_WINDOW_S)
+                    )[:, 0].mean()
+                    / (BASELINE_WINDOW_S[1] - BASELINE_WINDOW_S[0])
+                    for s in data["spikes"]
+                ]
+            )[:, None]
+            change_first = (near_first - pre) / mean
+            change_exit = (near_exit - pre) / mean
+            order = np.argsort(change_first[:, sort].mean(1))
             n = len(order)
             image = _heat(
                 axes[row, 0],
-                log_first[order],
+                change_first[order],
                 (*FIRST_FLASH_WINDOW_S, n, 0),
-                LOG2_LIMIT,
+                POPULATION_LIMIT,
                 "RdBu_r",
             )
             _heat(
                 axes[row, 1],
-                log_exit[order],
+                change_exit[order],
                 (*EXIT_WINDOW_S, n, 0),
-                LOG2_LIMIT,
+                POPULATION_LIMIT,
                 "RdBu_r",
             )
             for axis in axes[row]:
                 axis.axvline(0, color="0.2", linewidth=0.6)
-            axes[row, 0].set_ylabel(f"{data['subject']}: {n} neurons")
+            axes[row, 0].set_ylabel(f"{data['subject']}: {n} units")
             axes[row, 1].set_yticks([])
             report[data["subject"]] = {
                 "units": n,
                 "fraction_lower_150_500_ms": float(
-                    np.mean(log_first[:, sort].mean(1) < 0)
+                    np.mean(change_first[:, sort].mean(1) < 0)
                 ),
                 "values_past_the_color_limit": int(
                     np.sum(
-                        np.abs(np.r_[log_first.ravel(), log_exit.ravel()]) > LOG2_LIMIT
+                        np.abs(np.r_[change_first.ravel(), change_exit.ravel()])
+                        > POPULATION_LIMIT
                     )
                 ),
             }
         axes[-1, 0].set_xlabel("time from the first flash (s)")
         axes[-1, 1].set_xlabel("time from the center exit (s)")
         bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.02)
-        bar.set_label("rate / mean rate (log2)")
+        bar.set_label("(rate − pre-flash rate) ÷ mean rate")
         label_panels(axes[:, 0], x=-0.2, y=1.02)
         return save_figure(figure, OUT / "dataset_population"), report
 
@@ -431,7 +477,7 @@ def plot_flash_population(
                 "RdBu_r",
             )
             axis.axvline(0, color="0.2", linewidth=0.6)
-            axis.set_ylabel(f"{data['subject']}: {n} neurons")
+            axis.set_ylabel(f"{data['subject']}: {n} units")
             report[data["subject"]] = {
                 "units": n,
                 "flashes": int(len(data[events])),
@@ -441,13 +487,13 @@ def plot_flash_population(
             }
         axes[-1].set_xlabel(xlabel)
         bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.04)
-        bar.set_label("rate change / mean rate")
+        bar.set_label("(rate − pre-flash rate) ÷ mean rate")
         label_panels(axes, x=-0.35, y=1.02)
         return save_figure(figure, OUT / name), report
 
 
 def main() -> None:
-    classes = json.loads((GLM / "raw_video_trust_classification.json").read_text())
+    classes = peaks.load_excited_units()
     model = json.loads((GLM / "flash_weight_check.json").read_text())
     sessions = [
         session_data(
@@ -489,6 +535,7 @@ def main() -> None:
     report["population"] = population
     report["flash_population"] = flashes
     report["first_flash_population"] = first
+    report["per_flash_classes"] = {d["subject"]: flash_classes(d) for d in sessions}
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "dataset_overview.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))

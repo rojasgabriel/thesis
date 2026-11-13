@@ -28,7 +28,7 @@ the same bins, `SEED`) have the same bias. The miss is observed minus model
   baseline, the peak is the largest bin from 30 to 120 ms (as in
   `flash_movement.py`). Each unit's values are divided by its mean observed
   rate over all valid bins.
-- Units: the flash-excited units of `raw_video_trust_classification.json`
+- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`)
   (the units of `flash_movement.py`). The sampling unit is the unit; the
   comparisons are paired over units, within each mouse (two-sided Wilcoxon
   signed-rank test), and pooled with the hierarchical bootstrap.
@@ -57,7 +57,7 @@ from scipy.stats import sem, wilcoxon
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.glm import dmat, flash_movement
+from thesis.ephys.analyses.glm import dmat, flash_movement, peaks
 from thesis.ephys.analyses.glm.fit import (
     build_unit_counts,
     cross_validation_partitions,
@@ -233,7 +233,7 @@ def summary(groups: list[np.ndarray], subjects: list[str]) -> dict:
 
 
 def main() -> None:
-    classes = json.loads((OUTPUT / "raw_video_trust_classification.json").read_text())
+    classes = peaks.load_excited_units()
     sessions = [session_values(session, classes[session]) for session in SESSIONS]
     subjects = [data["subject"] for data in sessions]
     names = sessions[0]["names"]

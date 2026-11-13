@@ -41,8 +41,14 @@ paired: each unit has its real effect and its leak.
   valid interval of the paired trials, as in `flash_movement.py`. The real
   part uses the final refit with the observed history; the leak uses each fit
   to simulated spikes with their own history. Both are fits to all trials, so
-  real minus leak compares like with like. The held-out real part of
-  `flash_movement.json` minus the same leak is also given.
+  real minus leak compares like with like.
+- The held-out real part of `flash_movement.json` (the main measure) gets its
+  own leak, also from held-out folds: the median over the 200 simulations with
+  no planted effect of `power_test.py --mode held_out`
+  (`HELD_OUT_SIMULATIONS`), which exist for the flash-excited units. With the
+  final-refit leak, the held-out measure kept a bias in GRB006 (median −0.04
+  in log ratio with no effect). `--reuse` makes these statistics again from
+  the saved files, with no new simulation.
 - The same comparison as a log ratio: log(after exit / in port) of the peak
   of the model rate minus the same without the raw flash × after exit
   contribution. It does not depend on the normalization of the unit. The four
@@ -62,7 +68,7 @@ paired: each unit has its real effect and its leak.
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script simulates and refits each unit and
 writes `leak_test.json` in `--out` and `leak_test.npz` in each session
-directory. The excited units are those of `raw_video_trust_classification.json`
+directory. The excited units are those of `flash_excited_units.json` (`peaks.excited_units`)
 (the units of `flash_movement.py`); `flash_movement.json` must exist.
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \
@@ -110,6 +116,9 @@ LEVEL_MS = HOLD_LEVEL_MS
 MIN_LEVEL = 0.1
 GAPS_MS = {"80+ ms gap": 100, "40 ms gap": 40}
 REMOVED = (dmat.FLASH_AFTER_EXIT,)
+# Fold-model peaks on simulated spikes (`power_test.py --mode held_out`); its
+# replicates with no planted effect give the leak of the held-out measure.
+HELD_OUT_SIMULATIONS = "power_test_held_out.npz"
 _SHARED: dict = {}
 
 
@@ -204,6 +213,11 @@ def comparison_peaks(intercept: float, coefficients, history, width: int) -> np.
     contribution = raw_contribution(
         design, coefficients, _SHARED["metadata"], _SHARED["removed_columns"]
     )
+    return peaks_from(log_rate, contribution)
+
+
+def peaks_from(log_rate: np.ndarray, contribution: np.ndarray) -> np.ndarray:
+    """Return the peaks of `comparison_peaks` from the log rate on the pair rows."""
     rates = np.exp(np.stack([log_rate, log_rate - contribution])) / dmat.BINWIDTH_S
     return np.asarray(
         [
@@ -433,11 +447,11 @@ def comparison_values(out: Path) -> dict:
 
     Normalized, (unit, gap) for each of "real (final refit)", "leak" (the
     mean over simulations) and "real (held out)" (from `flash_movement.json`),
-    with the unit ids, the excited units of `raw_video_trust_classification.json`,
+    with the unit ids, the excited units of `flash_excited_units.json` (`peaks.excited_units`),
     and the simulated fixation level. If the peaks are saved, the same three
     as log ratios ("log ..."; NaN where a peak is ≤ 0).
     """
-    excited = json.loads((out / "raw_video_trust_classification.json").read_text())
+    excited = peaks.load_excited_units()
     report = json.loads((out / "flash_movement.json").read_text())["sessions"]
     values = {}
     for session in SESSIONS:
@@ -474,10 +488,35 @@ def comparison_values(out: Path) -> dict:
             logs["log real (held out)"] = np.asarray(
                 [log_part(peaks_by_unit[unit][:, 1:]) for unit in ids]
             )
+        # The leak of the held-out measure: the fold models of `power_test.py
+        # --mode held_out` on spikes simulated with no effect. Only its units
+        # (flash-excited) have one; the others keep the final-refit leak. The
+        # median over the simulations, not the mean: a fold model gives an
+        # extreme rate on its test trials in about 1% of the simulations.
+        held_leak = {"leak (held out)": leak.copy()}
+        if logs:
+            held_leak["log leak (held out)"] = logs["log leak"].copy()
+        held_path = out / session / HELD_OUT_SIMULATIONS
+        if held_path.exists():
+            with np.load(held_path) as saved:
+                rows = [ids.index(unit) for unit in saved["unit_ids"].tolist()]
+                null = saved["fit_peaks"][:, saved["alphas"].tolist().index(0.0)]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                held_leak["leak (held out)"][rows] = np.nanmedian(
+                    comparison_part(null), 1
+                )
+                if logs:
+                    sims = log_part(null)  # (unit, simulation, gap)
+                    enough = np.isfinite(sims).mean(1) >= 0.5
+                    held_leak["log leak (held out)"][rows] = np.where(
+                        enough, np.nanmedian(sims, 1), np.nan
+                    )
         values[subject] = {
             "excited": np.isin(ids, list(excited[session])),
             "real (final refit)": real,
             "leak": leak,
+            **held_leak,
             "real (held out)": held_out,
             "unit_ids": ids,
             "level": level,
@@ -491,8 +530,10 @@ def comparison_statistics(out: Path, scale: str = "normalized") -> dict:
 
     `scale` "normalized": peak changes as in `flash_movement.py`; "log": log
     ratios, with the units that have no log ratio left out. "final refit": the real
-    part of the final refit minus the leak; "held out": the real part of
-    `flash_movement.json` (held-out folds) minus the same leak. Within each
+    part of the final refit minus the leak of final refits; "held out": the real
+    part of `flash_movement.json` (held-out folds) minus the leak of held-out
+    folds (`HELD_OUT_SIMULATIONS`; flash-excited units only, so in "all units"
+    the other units keep the final-refit leak). Within each
     mouse, a two-sided Wilcoxon signed-rank test over units; pooled, the median
     with a hierarchical bootstrap (mice, then units).
     """
@@ -501,16 +542,16 @@ def comparison_statistics(out: Path, scale: str = "normalized") -> dict:
     for group in ("excited units", "all units"):
         for index, gap in enumerate(flash_movement.GAP_LABELS):
             entry = {}
-            for name, real_key in (
-                ("final refit", "real (final refit)"),
-                ("held out", "real (held out)"),
+            for name, real_key, leak_key in (
+                ("final refit", "real (final refit)", "leak"),
+                ("held out", "real (held out)", "leak (held out)"),
             ):
                 by_mouse = {}
                 for subject, data in values.items():
                     keep = data["excited"] if group == "excited units" else slice(None)
                     prefix = "log " if scale == "log" else ""
                     real = data[prefix + real_key][keep, index]
-                    leak = data[prefix + "leak"][keep, index]
+                    leak = data[prefix + leak_key][keep, index]
                     finite = np.isfinite(real - leak)
                     real, leak = real[finite], leak[finite]
                     rest = real - leak
@@ -543,19 +584,27 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument(
+        "--reuse", action="store_true", help="read the saved npz; simulate nothing"
+    )
     args = parser.parse_args()
-    stats = {
-        session: simulate_session(args.out, session, args.units, args.workers)
-        for session in SESSIONS
-    }
+    report = args.out / "leak_test.json"
+    stats = (
+        json.loads(report.read_text())
+        if args.reuse
+        else {
+            session: simulate_session(args.out, session, args.units, args.workers)
+            for session in SESSIONS
+        }
+    )
     stats["main comparison (normalized), real minus leak"] = comparison_statistics(
         args.out
     )
     stats["main comparison (log ratio), real minus leak"] = comparison_statistics(
         args.out, "log"
     )
-    (args.out / "leak_test.json").write_text(json.dumps(stats, indent=1))
-    print(json.dumps(stats, indent=1))
+    report.write_text(json.dumps(stats, indent=1))
+    print(json.dumps({k: v for k, v in stats.items() if k not in SESSIONS}, indent=1))
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ from sklearn.preprocessing import StandardScaler
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses._decoding import (
     add_units_argument,
     balanced_indices,
@@ -76,7 +77,6 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/decoding_transfer")
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
 WINDOW_S = 0.3
 CV_FOLDS = 10
 N_RESAMPLES = 50

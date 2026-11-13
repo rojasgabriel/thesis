@@ -16,7 +16,7 @@ center exit), so the task period does not change with the gap.
 - Response: the trial mean in 10-ms bins, the peak from 30 to 120 ms after
   the flash minus the mean from -40 to 0 ms, divided by the mean observed rate
   of the unit over all valid bins.
-- Units: the flash-excited units of `raw_video_trust_classification.json`.
+- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`).
   The sampling unit is the unit; points are the mean over units with a 95%
   interval (1.96 SEM).
 - Fit: response = A (1 - c exp(-gap / tau)), weighted by the SEM of each
@@ -51,7 +51,7 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import build_unit_counts
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.peaks import LAGS_MS
+from thesis.ephys.analyses.glm.peaks import LAGS_MS, load_excited_units
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -169,7 +169,7 @@ def tau_interval(gaps, peaks, use) -> tuple[list[float], int]:
 
 
 def main() -> None:
-    excited = json.loads((OUT / "raw_video_trust_classification.json").read_text())
+    excited = load_excited_units()
     data = {s.split("_")[0]: session_peaks(s, sorted(excited[s])) for s in SESSIONS}
     report = {}
     gaps, peaks = data["GRB006"]

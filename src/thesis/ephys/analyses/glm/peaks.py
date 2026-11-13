@@ -1,8 +1,7 @@
 """The one measure of a flash response, for the observed rate and the model alike.
 
 Every comparison of flash responses (in port against after exit, one gap against
-another) uses this measure, as `stim_responses_by_locomotion.py` does on raw
-spikes:
+another) uses this measure:
 
 - the trial-mean rate around the flashes of a condition, in `PSTH_BIN_MS` bins;
 - the baseline is the rate of the reference condition (the first of the pair)
@@ -14,17 +13,30 @@ The same function gives the peak of the observed counts, of the rate of the
 fitted model, and of that rate with some terms set to 0. The units are those
 with the "excited" classification of StimulusResponse: a peak has no meaning
 for a unit with no response to the flash.
+
+The flash-excited units of every analysis are saved in `EXCITED_UNITS` and
+read with `load_excited_units`. This module writes that file from
+`excited_units` (it needs the database; run it where the database is
+reachable):
+
+    uv run python -m thesis.ephys.analyses.glm.peaks
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
 import numpy as np
 
+from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses.glm import cli, dmat
-from thesis.ephys.analyses.glm.fit import build_unit_counts, load_unit_records
+from thesis.ephys.analyses.glm.fit import (
+    _write_json_atomic,
+    build_unit_counts,
+    load_unit_records,
+)
 from thesis.ephys.analyses.glm.results import raw_contribution
 from thesis.ephys.units import fetch_unit_table
 
@@ -33,6 +45,14 @@ BASELINE_MS = (-40, 0)
 PEAK_MS = (30, 120)
 LAGS_MS = np.arange(BASELINE_MS[0], PEAK_MS[1])
 STIM_RESPONSE_PARAM_ID = 0
+# The flash-excited units of each session, {session: [unit id]} (`main`).
+# Until 2026-11-07: results/glm/raw_video_trust_classification.json.
+EXCITED_UNITS = Path("results/glm/flash_excited_units.json")
+
+
+def load_excited_units() -> dict[str, list[int]]:
+    """Return the saved flash-excited units of each session."""
+    return json.loads(EXCITED_UNITS.read_text())
 
 
 def excited_units(subject: str, session: str) -> set[int]:
@@ -112,7 +132,7 @@ def session_peaks(
         stability_param_id=0,
         include_metrics=False,
     )
-    excited = excited_units(subject, session)
+    excited = set(load_excited_units()[f"{subject}_{session}"])
     metadata = json.loads(model.design.with_suffix(".json").read_text())
     removed = [
         index
@@ -199,3 +219,38 @@ def paired_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             still.append(inside[-1])
             move.append(outside[0])
     return np.asarray(rows), np.asarray(still), np.asarray(move)
+
+
+def main() -> None:
+    """Write the flash-excited units of each session of `SESSIONS` to `EXCITED_UNITS`.
+
+    Entries of other sessions stay. A saved list that differs from the rule is
+    reported and kept, unless `--replace`: the saved results used it.
+    """
+    parser = argparse.ArgumentParser(description=main.__doc__.splitlines()[0])
+    parser.add_argument("--replace", action="store_true")
+    args = parser.parse_args()
+    saved = load_excited_units() if EXCITED_UNITS.exists() else {}
+    for session in SESSIONS:
+        subject, stamp = session.split("_", 1)
+        units = sorted(excited_units(subject, stamp))
+        old = saved.get(session)
+        if old is not None and old != units:
+            print(
+                f"{session}: the rule gives {len(units)} units, the file has "
+                f"{len(old)}; only the rule: {sorted(set(units) - set(old))}, "
+                f"only the file: {sorted(set(old) - set(units))}"
+                + ("; replaced" if args.replace else "; kept (use --replace)")
+            )
+            if not args.replace:
+                continue
+        elif old == units:
+            print(f"{session}: {len(units)} units, as saved")
+        else:
+            print(f"{session}: {len(units)} units, new entry: {units}")
+        saved[session] = units
+    _write_json_atomic(EXCITED_UNITS, saved)
+
+
+if __name__ == "__main__":
+    main()

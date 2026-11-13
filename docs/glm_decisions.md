@@ -906,6 +906,49 @@ its τ, and a design with another τ is not reused.
   With the weaker fixation penalty: +0.62 / −0.07 (p = 0.43 / 0.60).
 - The conclusions do not change.
 
+### Flash × side in the model, 2026-10-29
+
+After the exit the head turns to the side of the response, so the LED panel
+lies in another part of the visual field for each side. Without a term for
+this, a flash response that differs with the side can only go to the turn
+term, which is not locked to the flashes.
+
+- Form: the after-exit flash basis times the side of the response (+1 right,
+  −1 left), 0 in the fixation and for the first flash (`dmat.FLASH_SIDE`).
+- Inclusion (`candidate_terms.py`, all units): 56 of 172 and 25 of 79 units
+  need it (Holm p = 2e-18 and 7e-7); median +0.0032 / +0.0032 bits per spike.
+  The kernel has the shape of a flash response (peak +0.15 / +0.20 at
+  60–80 ms), not of a side offset. All other terms still pass.
+- Adopted (Gabriel, 2026-10-29): the candidate fit is the model (same inputs,
+  units and PC count); the earlier fits are in
+  `results/glm/_before_flash_side_2026_10_29/`. The checks and figures that
+  read the fit were run again. Not run again: the raw-video control and the
+  design grids (design of 2026-10-17), and `synthetic_check.py`.
+- Removed with it (Gabriel, 2026-10-29): `penalty_sensitivity.py` (the 100×
+  weaker fixation penalty refit; `leak_test.py` corrects the leak directly,
+  and the result did not change with the penalty) and panel g of
+  `hold_effect.py` (the two-step fit with the fixation kernel last; the
+  unique deviance of the fixation kernel answers the same question).
+- Effects: 0.551 / 0.477 bits per spike (from 0.552 / 0.472), D² 0.073 / 0.075.
+  Result 3: the raw flash × exit part falls from +0.31 / −0.11 to
+  −0.04 / −0.19, because flash × side takes a part of the after-exit flash
+  response; leak-corrected +0.74 / −0.16 (p = 0.47 / 0.49; was +0.86 / −0.13),
+  pooled +0.05 (−0.49 to 0.22). On the log scale, all units, long gaps, the
+  corrected part is −0.09 (−0.19 to −0.01). The pooled first-flash miss with a
+  flash minus with no flash now includes 0 (+0.74, −0.12 to 1.12). The
+  conclusion does not change: no consistent flash × exit effect.
+
+### Frozen model and the main measure of result 3, 2026-10-29
+
+- The model is frozen (Gabriel, after a review of the figures as a PI would
+  do it): flash × side was chosen after the decoding was seen, and with two
+  sessions more terms risk fitting the analysis to these data. A new term
+  (for example the miss at high flash rates found by the category decoding)
+  is tested only on new sessions.
+- Result 3 uses the log ratio as its main measure, chosen after both
+  measures were seen: the normalized GRB006 mean depends on a few units and
+  on the normalization. The normalized measure stays as the second measure.
+
 ## Moved from glm.md (2026-10-17)
 
 These sections are on the designs of 2026-10-11 to 2026-10-13. They are kept
@@ -1044,3 +1087,73 @@ Both sessions were fit again with the weaker penalty (design of 2026-10-13,
 - The numbers of the other sections (flash kernels by period, kernel
   stability, collinearity, unique ΔD²) are from the model in use, with the
   same penalty on all terms.
+
+### Trial rate, candidate, 2026-10-31
+
+Question: do the neurons code the rate of the train beyond the sum of their
+flash responses? The count-matched test (`rate_vs_count.py`) left a small
+fast − slow difference in GRB064 20261008 (+0.12 of the mean rate, 26
+units), but not in GRB006. The GLM session of GRB064 (20260916) has only
+4, 6, 18 and 20 Hz, where rate and flash count cannot be separated, so the
+model was fit on GRB064 20261008 (9 rates; 115 units, median D² 0.079,
+0.47 bits/spike, against 0.075 and 0.48 for 20260916).
+
+`candidate_terms.py` (`_trial_rate`) adds one column, the stimulus strength
+(rate − 12) / 8 from the first flash to the center exit. The shuffle keeps
+each trial's window and takes the strength of another trial. It fails: 3 of
+115 units need it (chance 14), median gain −0.00001 bits/spike (p = 0.46),
+2% of units are worse with it. So the per-flash terms explain the fast −
+slow difference in the port; no rate tuning is left to model. It stays out. Its code was removed on 2026-11-07; the commit before that (on `glm-link-analyses`) has it.
+
+### GRB064 moves to 20261008, 2026-11-01
+
+All GLM analyses of GRB064 now use 20261008 (`flash_kernels.SESSIONS`), the
+session of the decoders and the behavior figures: 9 rates against 4 in
+20260916, and behavior closer to expert. Fit: 115 units (unit 453 excluded,
+no spikes in the validation trials), median D² 0.079, 0.47 bits/spike;
+22 flash-excited units (StimulusResponse, added to
+`raw_video_trust_classification.json`, now `flash_excited_units.json`). The old results are in
+`results/glm/_before_grb064_switch_2026_11_01/`; the rerun script and the
+inputs made by hand are in `results/glm/_refit_grb064_switch_logs/run.sh`.
+
+What changed in GRB064 (flash-excited units, gap ≥80 ms):
+
+- Observed increase after the exit (normalized, mean): 0.17 (was 1.05);
+  14 of 22 units higher; p = 0.17 normalized, 0.021 in spikes/s.
+- Full model 0.21; without flash × exit 0.80.
+- Leak-corrected flash × exit, held out, log-ratio median: ×0.77,
+  p = 0.021, 6 of 22 units left out (was ×0.85, p = 0.39). Pooled over the
+  mice: ×0.82, 95% ×0.64 to ×1.04, p = 0.063. GRB006 does not change.
+- The first-flash miss (flash minus no flash) is now significant in GRB064
+  too: median 0.36, p = 0.008; pooled 0.65, p = 0.001.
+
+So neither mouse shows a flash-specific increase; in GRB064 the flash
+response after the exit is smaller than the other terms predict. More
+sessions will come. `power_test` was rerun on 2026-11-04: in GRB064 80%
+power at +0.15 in log ratio (was +0.28), 0 of 20 false positives. Not rerun
+on 20261008: the raw-video checks, whose GRB064 numbers are still from
+20260916.
+
+Robustness of the GRB064 result (2026-11-04). The log-ratio measure leaves out
+6 of 22 flash-excited units (17, 438, 446, 456, 482, 50): a model peak is ≤ 0,
+in most of them the peak after the exit. Their normalized values scatter
+around zero (−0.22 to +0.21). With all 22 units, the normalized measure gives
+the same result: median −0.25, p = 0.036. Leaving out any one of the 16 units
+keeps the log-ratio median at −0.25 to −0.26 and p between 0.008 and 0.041. So
+the exclusion does not make the result. It is one session, and p is not
+corrected over the two gap classes and two mice. In GRB006 the same checks
+give no effect (log −0.10, p = 0.45; normalized +0.09, p = 0.47).
+
+## The held-out measure takes a held-out leak (2026-11-09)
+
+The power test in its held-out version (2026-11-08) showed that the main
+measure of result 3 kept a bias in GRB006: with no planted effect, its median
+was −0.04 in log ratio after the leak correction, because the leak came from
+fits to all trials and the measure from held-out folds. Gabriel's decision: the
+held-out measure takes its leak from held-out folds (the median over the 200
+no-effect simulations of `power_test.py --mode held_out`, flash-excited units;
+`leak_test.py --reuse` makes the statistics again). Result 3 moves from
+−0.10 / −0.26 (p = 0.45 / 0.021; pooled −0.20, −0.45 to 0.04) to −0.05 / −0.31
+(p = 0.71 / 0.011; pooled −0.16, −0.39 to 0.01). Leaving out any one GRB064
+unit keeps its median at −0.36 to −0.26 and p between 0.002 and 0.022. The
+conclusions do not change. Old outputs: `results/glm/logs/*_before_held_out_leak_20261109.json`.

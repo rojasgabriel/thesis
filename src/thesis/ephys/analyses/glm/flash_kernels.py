@@ -1,6 +1,7 @@
 """Save the flash-kernel response of every unit, for the grouping of units.
 
-The sessions of the two-animal figures (`SESSIONS`) are also defined here.
+The sessions of the two-animal figures (`SESSIONS`) are imported here from
+`behavior.trials`.
 
 No new fit; the kernels are from the final refit of each unit (`fit.py`).
 
@@ -28,12 +29,15 @@ from pathlib import Path
 
 import numpy as np
 
+from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.results import flash_kernel_at
 
-# The sessions of the two-animal figures. Each test is within one animal.
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20260916_132939")
+# The sessions of the two-animal figures (`behavior.trials.RECORDED`). Each test
+# is within one animal. GRB064: 20261008 since 2026-11-01 (9 rates, the decoder
+# session; until then 20260916, which has only 4 extreme rates; old results in
+# results/glm/_before_grb064_switch_2026_11_01/).
 
 # name: (gap in ms that selects the gap class, after the center exit)
 CONDITIONS = {

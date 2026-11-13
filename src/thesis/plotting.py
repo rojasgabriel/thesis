@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cycler
 from matplotlib.axes import Axes
+from scipy.stats import gaussian_kde
 
 # One color for one concept in every figure, and color is used for nothing
 # else. The colors are those of Okabe and Ito: color-blind readers can tell
@@ -108,6 +109,27 @@ def hierarchical_interval(groups, seed: int = 0) -> dict:
         "p_bootstrap": float(max(p_value, 1 / BOOTSTRAPS)),
         "median_of_each_mouse": [float(np.median(values)) for values in groups],
     }
+
+
+def density_contours(
+    axis, points, color, x_grid, y_grid, shares=(0.9, 0.5), zorder=3
+) -> None:
+    """Draw the density contours that hold `shares` (outer, inner) of the points.
+
+    `points` is (2, n). Gaussian kernel density; the inner region is filled,
+    the outer is a line.
+    """
+    density = gaussian_kde(points)
+    x, y = np.meshgrid(x_grid, y_grid)
+    z = density(np.vstack([x.ravel(), y.ravel()])).reshape(x.shape)
+    # The level that a share of the points lies above, for each share.
+    outer, inner = np.quantile(density(points), [1 - s for s in shares])
+    axis.contourf(
+        x, y, z, levels=[inner, np.inf], colors=color, alpha=0.35, zorder=zorder
+    )
+    axis.contour(
+        x, y, z, levels=[outer], colors=color, linewidths=1.0, zorder=zorder + 1
+    )
 
 
 def pooled_points(

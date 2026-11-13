@@ -115,6 +115,7 @@ REGRESSORS = {
     "flash_gap_3": ("flash, 160+ ms gap", VISUAL),
     "flash_after_exit": ("flash × after exit", VISUAL),
     "flash_recovery": ("flash × recovery", VISUAL),
+    "flash_side": ("flash × side", VISUAL),
     "fixation": ("pre-stimulus", TASK),
     "hold": ("fixation", TASK),
     "withdrawal": ("withdrawal", TASK),
@@ -299,6 +300,17 @@ def design_rows(components: int) -> list[tuple]:
                 "long",
                 None,
                 f"long gaps, × recovery (τ {1000 * dmat.FLASH_RECOVERY_TAU_S:.0f} ms)",
+            )
+        )
+    if dmat.FLASH_SIDE_TERM:
+        rows.append(
+            (
+                "flash_side",
+                dmat.FLASH_BASES,
+                "flash",
+                "after",
+                None,
+                "flashes after the exit, × side (±1)",
             )
         )
     if dmat.FIXATION_COLUMN:

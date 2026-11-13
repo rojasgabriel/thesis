@@ -51,7 +51,7 @@ triangle: GRB064). The tests are within each mouse.
   values are in the measure of `flash_movement.py`: the flash × after exit
   part of the after-exit minus in-port peak, divided by the observed mean
   rate of the unit, on the flash-excited units of
-  `raw_video_trust_classification.json`. The real part is the held-out one
+  `flash_excited_units.json` (`peaks.excited_units`). The real part is the held-out one
   of `flash_movement.py`. g, the real part against the leak (preceding gap
   80+ ms); h, real minus leak at the two gap classes (two-sided Wilcoxon
   signed-rank test in each mouse, and the hierarchical bootstrap); i, the
@@ -475,7 +475,7 @@ def main() -> None:
             parts.append(
                 {
                     "real": data["real (held out)"][excited],
-                    "leak": data["leak"][excited],
+                    "leak": data["leak (held out)"][excited],
                     "level": data["level"][excited],
                 }
             )

@@ -58,6 +58,7 @@ from scipy.stats import mannwhitneyu
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses._decoding import load_decoding_data
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -68,8 +69,7 @@ from thesis.plotting import (
 )
 
 OUT = Path("results/condition_responses")
-SESSIONS = ("GRB006_20240821_121447", "GRB064_20261008_143359")
-BIN_S = 0.02
+BIN_S = 0.01
 MIN_RATE_HZ = 3.0
 LIMIT = 2.0
 MIN_TRIALS_IN_BIN = 0.5  # fraction of the trials of each group
@@ -287,7 +287,7 @@ def draw_population(axis, data: dict, spec: dict):
     )
     axis.axvline(0, color=OBSERVED_COLOR, lw=0.8)
     axis.set_xlabel(f"time from the {spec['align']} (s)")
-    axis.set_ylabel(f"{data['subject']}: {len(order)} neurons")
+    axis.set_ylabel(f"{data['subject']}: {len(order)} units")
     return image
 
 
