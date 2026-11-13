@@ -182,19 +182,25 @@ def _replay_trials(subject: str, session: str) -> pd.DataFrame:
 
 def _trial_start_indices(
     trial_starts_s: np.ndarray, n_task: int, n_replay: int, subject: str, session: str
-) -> np.ndarray | None:
+) -> np.ndarray:
     """Return the trial_start pulse index of each task trial, then each replay.
 
-    None for sessions without replay, which keep the old one-pulse tolerance.
     Pulses are paired by the clock pulse numbers of the Bpod sync stream, so the
     unsaved pulse of a trial cut short by Stop is skipped.
     """
-    if not n_replay:
-        return None
     from labdata.schema import DatasetEvents
 
-    from thesis.ephys.events import saved_pulse_indices
+    from thesis.ephys.events import _bpod_pulse_numbers, saved_pulse_indices
 
+    trial_starts_s = np.asarray(trial_starts_s, dtype=float)
+    if (
+        trial_starts_s.ndim != 1
+        or not np.isfinite(trial_starts_s).all()
+        or np.any(np.diff(trial_starts_s) <= 0)
+    ):
+        raise ValueError(
+            f"{subject} {session}: invalid hardware trial-start timestamps"
+        )
     rows = (
         DatasetEvents.Digital()
         & {
@@ -205,7 +211,25 @@ def _trial_start_indices(
             "event_name": "sync",
         }
     ).fetch("event_values")
-    numbers = rows[0] if len(rows) == 1 else None
+    if len(rows) > 1:
+        raise ValueError(f"{subject} {session}: multiple Bpod sync streams")
+    numbers = (
+        _bpod_pulse_numbers(rows[0], n_task + n_replay) if len(rows) == 1 else None
+    )
+    # Preserve the legacy task-only tolerance, never apply it to replay or gaps.
+    if (
+        not n_replay
+        and len(trial_starts_s) == n_task - 1
+        and (numbers is None or np.array_equal(numbers, np.arange(n_task)))
+    ):
+        import warnings
+
+        warnings.warn(
+            f"{subject} {session}: missing final hardware trial-start pulse; "
+            "omitting the final saved task trial",
+            stacklevel=2,
+        )
+        return np.arange(len(trial_starts_s))
     try:
         return saved_pulse_indices(len(trial_starts_s), n_task + n_replay, numbers)
     except ValueError as error:
@@ -287,11 +311,7 @@ def build_trial_table(
         subject,
         session,
     )
-    trial_starts_s = (
-        all_starts_s
-        if start_index is None
-        else all_starts_s[start_index[: len(trial_table)]]
-    )
+    trial_starts_s = all_starts_s[start_index[: len(trial_table)]]
     n_ev_trials = len(trial_starts_s)
     n_chipmunk_trials = len(trial_table)
     n_trials = min(n_ev_trials, n_chipmunk_trials)
@@ -326,12 +346,8 @@ def build_trial_table(
         labels=["low_rate", "boundary", "high_rate"],
     )
 
-    # With replay, each trial ends at the next clock pulse, so the events of a
-    # trial cut short by Stop and of the replays stay out of the last task trial.
-    if start_index is None:
-        trial_ends_s = np.r_[trial_starts_s[1:n_trials], np.inf]
-    else:
-        trial_ends_s = np.r_[all_starts_s, np.inf][start_index[:n_trials] + 1]
+    # Even an unsaved trial's pulse bounds the preceding saved trial.
+    trial_ends_s = np.r_[all_starts_s, np.inf][start_index[:n_trials] + 1]
     trial_windows = list(zip(trial_starts_s[:n_trials], trial_ends_s, strict=True))
 
     def split_by_trial(times_s, values=None) -> list[list[float]]:
@@ -513,9 +529,9 @@ def build_trial_table(
 def build_replay_table(subject: str, session: str) -> pd.DataFrame:
     """Return one row per passive replay trial with hardware events.
 
-    Replay j is trial_start pulse N + j, where N is the number of task trials.
-    Its window ends at the next pulse; the last one ends at the end of the
-    recording. The replay plays the full intended train of its source task
+    Saved Bpod clock pulse numbers identify each replay, skipping interrupted
+    trials. Each window ends at the next actual pulse, or remains unbounded
+    when no later pulse is known. The replay plays the full intended train of its source task
     trial, so the rate and boundary come from that trial. Empty for sessions
     without replay.
     """
@@ -553,6 +569,14 @@ def build_replay_table(subject: str, session: str) -> pd.DataFrame:
     )[len(source) :]
     bounds_s = np.r_[sess_ev["trial_start"], np.inf]
     windows = list(zip(bounds_s[replay_index], bounds_s[replay_index + 1]))
+    missing_sources = replays.loc[
+        ~replays["source_trial_num"].isin(source["trial_num"]), "source_trial_num"
+    ]
+    if not missing_sources.empty:
+        raise ValueError(
+            f"{subject} {session}: replay references missing task trials "
+            f"{missing_sources.tolist()}"
+        )
     table = replays.merge(
         source[["trial_num", "stim_rate_vision", "category_boundary"]].rename(
             columns={

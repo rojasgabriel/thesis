@@ -1,5 +1,8 @@
 """Do the flash weights of the GLM agree with the StimulusResponse table?
 
+Task-only event population; stored classifications and caches must be validated
+as described in thesis.ephys.task_events before running this analysis.
+
 Question: the StimulusResponse table calls a unit flash-excited from its raw
 response to the first flash of each trial. The GLM gives each unit a flash
 kernel. If the model reads the flash response correctly, the units the table
@@ -84,7 +87,7 @@ CONTOUR_SHARES = (0.9, 0.5)
 def table_values(subject: str, session: str, unit_ids: list[int]) -> dict:
     """Return the table class, the stored rate delta and the log ratio with its SE."""
     from labdata_plugin.schema import StimulusResponse, StimulusResponseParam
-    from thesis.ephys.events import fetch_session_events
+    from thesis.ephys.task_events import fetch_task_stimulus_pulses
 
     param = (StimulusResponseParam & {"stim_response_param_id": PARAM_ID}).fetch1()
     assert (param["baseline_start"], param["baseline_end"]) == BASELINE_S
@@ -98,7 +101,7 @@ def table_values(subject: str, session: str, unit_ids: list[int]) -> dict:
     stored = {
         int(r["unit_id"]): r for r in (StimulusResponse.Unit & key).fetch(as_dict=True)
     }
-    _, pulses = fetch_session_events(subject, session)
+    pulses = fetch_task_stimulus_pulses(subject, session)
     onsets = pulses.loc[pulses["first_in_train"], "timestamp"].to_numpy(float)
     units = fetch_unit_table(
         subject,

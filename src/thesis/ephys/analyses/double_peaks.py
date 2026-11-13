@@ -1,5 +1,8 @@
 """Test whether double-peaked visual-pulse responses reflect pulse onset and offset.
 
+Task-only event population; stored classifications and caches must be validated
+as described in thesis.ephys.task_events before running this analysis.
+
 This supplemental figure shows discovery examples (a), spike duration (b) and
 depth (c) of double-peak units against other excited units, 15 and 30 ms pulse
 responses (d), and the second-peak latency error for 30 ms pulses (e).
@@ -58,6 +61,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.events import fetch_session_events
+from thesis.ephys.task_events import fetch_task_stimulus_pulses
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import separate_axes
 
@@ -188,9 +192,11 @@ def _collect_session(subject: str, session: str, *, controls: bool = True) -> di
         "response_type": "excited",
     }
     excited_ids = set((StimulusResponse.Unit & response_query).fetch("unit_id"))
-    _, pulses = fetch_session_events(subject, session)
-    pulses = pulses.copy()
-    pulses["next_pulse_delay_s"] = pulses["timestamp"].shift(-1) - pulses["timestamp"]
+    pulses = fetch_task_stimulus_pulses(subject, session)
+    _, all_pulses = fetch_session_events(subject, session)
+    # An excluded replay flash can still contaminate a task flash's response window.
+    delays = all_pulses["timestamp"].shift(-1) - all_pulses["timestamp"]
+    pulses["next_pulse_delay_s"] = delays.reindex(pulses.index)
     first_pulses = pulses[pulses["first_in_train"]]
     mixed_widths = pulses["width_ms"].dropna().nunique() > 1
     first_15ms = first_pulses.loc[

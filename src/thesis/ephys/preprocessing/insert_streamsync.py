@@ -43,6 +43,8 @@ def _strictly_matched_count(
     clock_values: np.ndarray | None,
     allow_trailing_clock_pulse: bool = False,
     clock_pulse_numbers: np.ndarray | None = None,
+    *,
+    source_is_bpod: bool = False,
 ) -> int:
     """Return the matched pulse count or raise for an unsafe mapping.
 
@@ -55,16 +57,30 @@ def _strictly_matched_count(
         raise ValueError("sync timestamps must be one-dimensional")
     if not np.isfinite(source).all() or not np.isfinite(clock).all():
         raise ValueError("sync timestamps must be finite")
-    if 2 * len(source) - 4 <= len(clock) <= 2 * len(source) + 4:
-        clock = _rising_edges(clock, clock_values)
-    elif 2 * len(clock) - 4 <= len(source) <= 2 * len(clock) + 4:
-        source = _rising_edges(source, source_values)
-    if clock_pulse_numbers is not None:
-        from thesis.ephys.events import saved_pulse_indices
+    if source_is_bpod or clock_pulse_numbers is not None:
+        from thesis.ephys.events import (
+            _bpod_pulse_numbers,
+            _sync_clock_onsets,
+            saved_pulse_indices,
+        )
 
-        clock = clock[saved_pulse_indices(len(clock), len(source), clock_pulse_numbers)]
-    elif allow_trailing_clock_pulse and len(clock) == len(source) + 1:
-        clock = clock[:-1]
+        clock = _sync_clock_onsets(
+            {"event_timestamps": clock, "event_values": clock_values}
+        )
+        clock = clock[
+            saved_pulse_indices(
+                len(clock),
+                len(source),
+                _bpod_pulse_numbers(clock_pulse_numbers, len(source)),
+            )
+        ]
+    else:
+        if 2 * len(source) - 4 <= len(clock) <= 2 * len(source) + 4:
+            clock = _rising_edges(clock, clock_values)
+        elif 2 * len(clock) - 4 <= len(source) <= 2 * len(clock) + 4:
+            source = _rising_edges(source, source_values)
+        if allow_trailing_clock_pulse and len(clock) == len(source) + 1:
+            clock = clock[:-1]
     if len(source) != len(clock):
         raise ValueError(
             f"pulse-count mismatch: source={len(source)}, clock={len(clock)}"
@@ -171,6 +187,7 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
                 clock["event_values"],
                 allow_trailing_clock_pulse,
                 source["event_values"] if source_key["stream_name"] == "bpod" else None,
+                source_is_bpod=source_key["stream_name"] == "bpod",
             )
         except ValueError as error:
             print(f"Skipped unsafe mapping {source_key}: {error}")

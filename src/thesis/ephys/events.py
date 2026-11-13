@@ -101,26 +101,65 @@ def saved_pulse_indices(n_clock: int, n_saved: int, pulse_numbers=None) -> np.nd
 
     A trial or replay cut short by Stop sends a sync pulse that Bpod does not
     save. The Chipmunk plugin stores clock pulse numbers as the Bpod sync event
-    values, so they skip that pulse. Equal counts mean Stop came before the
-    pulse was sent, so pulses pair in order. One extra last clock pulse is
-    accepted (the last trial or replay cut short).
+    values, so they skip that pulse. Supplied numbers must be zero-based,
+    strictly increasing integers in range. Without numbering, pair in order.
+    One extra final clock pulse is accepted (the last trial cut short).
     """
-    numbers = None if pulse_numbers is None else np.asarray(pulse_numbers)
-    if (
-        numbers is None
-        or numbers.shape != (n_saved,)
-        or (n_saved and (numbers[0] != 0 or np.any(np.diff(numbers) < 1)))
-    ):
+    if pulse_numbers is None:
         numbers = np.arange(n_saved)
-    numbers = numbers.astype(int)
-    if n_clock == n_saved:
-        return np.arange(n_saved)
-    if n_saved and n_clock - (numbers[-1] + 1) in (0, 1):
+    else:
+        numbers = np.asarray(pulse_numbers)
+        if (
+            numbers.shape != (n_saved,)
+            or numbers.dtype.kind not in "iuf"
+            or not np.isfinite(numbers).all()
+            or np.any(numbers != np.floor(numbers))
+            or np.any(numbers < 0)
+            or np.any(numbers >= n_clock)
+            or (n_saved and numbers[0] != 0)
+            or np.any(np.diff(numbers.astype(float)) <= 0)
+        ):
+            raise ValueError("Invalid saved Bpod clock pulse numbers")
+        numbers = numbers.astype(int)
+    if n_clock - (numbers[-1] + 1 if n_saved else 0) in (0, 1):
         return numbers
     raise ValueError(
         f"Clock pulses do not match the saved Bpod pulses: clock={n_clock}, "
         f"saved={n_saved}, last clock pulse number={numbers[-1] if n_saved else None}"
     )
+
+
+def _bpod_pulse_numbers(values, n_saved: int):
+    """All-high digital onset values carry no pulse numbering."""
+    if values is not None:
+        values = np.asarray(values)
+        if values.shape != (n_saved,):
+            raise ValueError("Bpod sync values must match the saved pulse count")
+        if values.size and np.all(values == 1):
+            return None
+    return values
+
+
+def _sync_clock_onsets(clock: dict) -> np.ndarray:
+    """Use digital states, never pulse counts, to identify clock onsets."""
+    timestamps = np.asarray(clock["event_timestamps"], dtype=float)
+    values = clock.get("event_values")
+    if values is None:
+        raise ValueError("Sync clock encoding is ambiguous without event_values")
+    values = np.asarray(values)
+    if (
+        timestamps.ndim != 1
+        or values.shape != timestamps.shape
+        or not np.isfinite(timestamps).all()
+        or np.any(np.diff(timestamps) <= 0)
+        or not np.isin(values, (0, 1)).all()
+    ):
+        raise ValueError(
+            "Sync clock values must be ordered timestamp-matched binary states"
+        )
+    if np.any(values == 0) and np.any(np.diff(values.astype(int)) == 0):
+        raise ValueError("Sync clock edges must alternate states")
+    return timestamps[values == 1]
 
 
 def bpod_to_clock(subject: str, session: str):
@@ -155,11 +194,12 @@ def bpod_to_clock(subject: str, session: str):
         }
     ).fetch1()
     source_s = np.asarray(bpod["event_timestamps"], dtype=float)
-    clock_s = np.asarray(clock["event_timestamps"], dtype=float)
-    if 2 * len(source_s) - 4 <= len(clock_s) <= 2 * len(source_s) + 4:
-        values = clock["event_values"]
-        clock_s = clock_s[::2] if values is None else clock_s[np.asarray(values) == 1]
-    index = saved_pulse_indices(len(clock_s), len(source_s), bpod["event_values"])
+    clock_s = _sync_clock_onsets(clock)
+    index = saved_pulse_indices(
+        len(clock_s),
+        len(source_s),
+        _bpod_pulse_numbers(bpod["event_values"], len(source_s)),
+    )
     return CubicSpline(source_s, clock_s[index])
 
 
@@ -435,7 +475,11 @@ def fetch_session_events(
         ev_values = None if ev_values is None else np.asarray(ev_values)
         if ev_values is not None and ev_values.shape != ev_timestamps.shape:
             raise ValueError(f"Event values do not match timestamps for {ev_role}")
-        if ev_role in ("trial_start", "frames"):
+        if ev_role == "trial_start":
+            sess_ev[ev_role] = _sync_clock_onsets(
+                {"event_timestamps": ev_timestamps, "event_values": ev_values}
+            )
+        elif ev_role == "frames":
             sess_ev[ev_role] = (
                 ev_timestamps[::2]
                 if ev_values is None
