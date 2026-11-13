@@ -41,13 +41,13 @@ exit. There is no head or eye tracking. That is a limitation of the study.
      head position, a visual-field shift and a side-specific gain look the
      same.
 5. **Body movement does not make the flash response larger.** In the port,
-   more motion energy goes with a smaller flash response (−29% / −38% per
-   SD; 22 of 27 / 13 of 13 units). After the exit, the response does not
+   more motion energy goes with a smaller flash response (−29% / −28% per
+   SD; 22 of 27 / 17 of 21 units). After the exit, the response does not
    change with motion energy. This can be movement or a state that goes with
    it.
 6. **Decoding.**
    - **Category:** the category signal around the exit is mostly visual.
-     Without the flash terms, the AUC falls by 0.09 / 0.21. The GRB006
+     Without the flash terms, the AUC falls by 0.09 / 0.16. The GRB006
      leftover comes from a known miss of the flash model at high flash rates.
    - **Choice:** before the exit, a decoder trained on correct trials leans
      toward the stimulus on error trials (AUC 0.41 / 0.38, p = 0.20 / 0.17),
