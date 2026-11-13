@@ -16,7 +16,9 @@ flash × previous choice, flash × motion energy) are also there.
 Names changed over time: "hold" is the fixation, "stimulus during fixation" is
 the fixation kernel, "side after exit" is the choice, "previous side" is the
 previous choice, "in fixation" and "after exit" are "still" and "move", and
-"flash × fixation" is "flash × move".
+"flash × fixation" is "flash × move". Since 2026-11-13 the docs use the
+names of the guide to the analyses: the flash × exit test, "result 3" in the
+entries below, is Result 2.
 
 ## The first full design and what was removed from it
 

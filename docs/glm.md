@@ -4,7 +4,7 @@
 - **Thread:** establish the apparent enhancement → model the overlapping signals → compare the flash-related component between stationary and movement periods.
 - **Scope:** these are task periods before and after center exit, not a direct locomotion measurement. GRB006 / GRB064 values below use that order. Model of 2026-10-29 (flash recovery with τ = 50 ms, and flash × side), fit to the units of the corrected amplifier gain (×100, not ×80): **172 / 115** units, **30 / 22** flash-excited. GRB064 is session 20261008 since 2026-11-01 (9 rates, behavior closer to expert; [switch](glm_decisions.md#grb064-moves-to-20261008-2026-11-01)). The two mice differ; more sessions will come, so the conclusions can change. Prediction is held-out bits per spike and D². **The model is frozen from 2026-10-29:** a new term is tested only on new sessions, not chosen on these two. Model validation, video controls, side preference, and full methods are in [the supplement](glm_checks.md).
 
-## 1. Are flash responses larger during the movement period?
+## Result 1: the movement-induced increase in activity
 
 - **Question:** do flash-aligned firing rates and peaks increase after the mouse leaves the center port?
 - **Why:** the PSTHs establish the observation; the paired scatter tests whether it extends across units. They belong in one figure.
@@ -13,16 +13,16 @@
 
 ![Observed flash responses: population PSTHs and paired stationary/movement peak scatters for long and short preceding gaps](../figures/glm/flash_observation.svg)
 
-## 2. Can an encoding model account for the overlapping signals?
+## The encoding model
 
 - **Question:** can flash history, task events, response side, video, and spike history account for the firing?
 - **Why:** these signals overlap during movement. A flash-aligned average cannot separate their fitted contributions.
-- **Finding:** the Poisson GLM has **13 regressors, 91 columns, and 1-ms bins**. Median held-out prediction is **0.551 / 0.47 bits per spike** (D² **0.073 / 0.079**) over a constant rate. All 13 terms pass both inclusion tests. The flash part is a flash kernel (the response in the port after a long gap) with four modifiers: a short gap, the period after the exit, recovery from adaptation (the gap above 50 ms, through 1 − exp(−gap / 50 ms); [recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)), and the side of the response after the exit (flash × side, since 2026-10-29; [link to the decoders](glm_checks.md#link-to-the-decoders-2026-10-29)), alongside task and video terms.
+- **Finding:** the Poisson GLM has **13 regressors, 91 columns, and 1-ms bins**. Median held-out prediction is **0.551 / 0.47 bits per spike** (D² **0.073 / 0.079**) over a constant rate. All 13 terms pass both inclusion tests. The flash part is a flash kernel (the response in the port after a long gap) with four modifiers: a short gap, the period after the exit, recovery from adaptation (the gap above 50 ms, through 1 − exp(−gap / 50 ms); [recovery](glm_checks.md#how-fast-do-flash-responses-recover-from-adaptation)), and the side of the response after the exit (flash × side, since 2026-10-29; [link to the decoders](glm_checks.md#result-4-decoding-stimulus-and-choice)), alongside task and video terms.
 - **Next:** compare observed and held-out predicted peaks on the same flashes, then remove flash × exit while keeping the other fitted contributions fixed. This connects the fitted term to the measured enhancement; predictive accuracy alone does not establish unique separation.
 
 ![Encoding-model design, example prediction, fitted kernels, and population prediction scores](../figures/glm/main_figure.svg)
 
-## 3. Is the enhancement independent of locomotion?
+## Result 2: the flash-specific change (main test)
 
 - **Question:** how much of the peak enhancement is carried by the fitted flash × exit term, after accounting for the other modeled signals?
 - **Why:** compare observed peaks, held-out full-model peaks, and peaks after removing only that term. All three columns use the same units, paired flashes, complete windows, baseline rule, peak calculation, and observed normalization rate per unit. Rows separate long and short preceding gaps.
@@ -36,8 +36,8 @@
   | all units, long gaps | −0.11, p = 0.006, 60 units | −0.24, p < 0.001, 81 units |
 
   The observed increase after the exit (result 1, normalized, long gaps) was 1.05 on 20260916 and is 0.17 on 20261008. So within one mouse, the size of the effect changes between sessions as much as between the mice. More sessions per mouse are needed, with the session as a level of the analysis.
-- **Power:** in simulations with a known effect, the final-refit version of this test finds an effect of about +0.23 / +0.14 in log ratio (26% / 15%) in 80% of replicates, with 3.5% / 2.0% false positives (200 replicates). The held-out main measure, with its own leak, finds +0.17 / +0.14 in 80% of replicates, with 5.5% / 4.5% false positives ([power](glm_checks.md#could-the-flash--exit-test-find-an-effect)). The upper end of the pooled interval of the main measure is +0.01, so a positive effect of that size is unlikely; a smaller one cannot be excluded.
-- **Next:** neither mouse shows a flash-specific increase after the exit; in GRB064 the flash response after the exit is smaller than the other terms predict, and in GRB006 it does not change. More sessions and a third mouse are needed. What the full model leaves is not spread over the movement period. Apart from the first flash after the exit, the increase after the exit is one gain on all activity (the rate before the flash grows by the same factor). The first flash after the exit is larger than an in-port flash at the same gap, by more than that gain: adaptation looks reset at the exit ([exit and adaptation](glm_checks.md#what-changes-the-flash-response-at-the-exit)). In the port, more body movement goes with a smaller flash response (−29% / −28% per SD of motion energy; in GRB064 this is not separate from the time in the wait), so the increase is not a direct effect of how much the body moves ([in-port movement](glm_checks.md#in-the-port-does-the-flash-response-change-with-body-movement)). The comparison measures the allocation to one fitted term; it does not establish a causal effect or independence from locomotion.
+- **Power:** in simulations with a known effect, the final-refit version of this test finds an effect of about +0.23 / +0.14 in log ratio (26% / 15%) in 80% of replicates, with 3.5% / 2.0% false positives (200 replicates). The held-out main measure, with its own leak, finds +0.17 / +0.14 in 80% of replicates, with 5.5% / 4.5% false positives ([power](glm_checks.md#sensitivity-check-could-the-flash--exit-test-find-an-effect)). The upper end of the pooled interval of the main measure is +0.01, so a positive effect of that size is unlikely; a smaller one cannot be excluded.
+- **Next:** neither mouse shows a flash-specific increase after the exit; in GRB064 the flash response after the exit is smaller than the other terms predict, and in GRB006 it does not change. More sessions and a third mouse are needed. What the full model leaves is not spread over the movement period. Apart from the first flash after the exit, the increase after the exit is one gain on all activity (the rate before the flash grows by the same factor). The first flash after the exit is larger than an in-port flash at the same gap, by more than that gain: adaptation looks reset at the exit ([exit and adaptation](glm_checks.md#gain-on-all-activity-what-changes-the-flash-response-at-the-exit)). In the port, more body movement goes with a smaller flash response (−29% / −28% per SD of motion energy; in GRB064 this is not separate from the time in the wait), so the increase is not a direct effect of how much the body moves ([in-port movement](glm_checks.md#movement-while-waiting-in-the-port-does-the-flash-response-change-with-body-movement)). The comparison measures the allocation to one fitted term; it does not establish a causal effect or independence from locomotion.
 
 ![Matched flash peaks: observed, held-out full model, and the same prediction without flash × exit; rows show long and short preceding gaps](../figures/glm/flash_comparison.svg)
 
@@ -59,4 +59,5 @@
 THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m thesis.ephys.analyses.glm.flash_movement
 ~~~
 
+- Result 3 (what the increase is: [gain](glm_checks.md#gain-on-all-activity-what-changes-the-flash-response-at-the-exit), [first flash](glm_checks.md#first-flash-during-movement-which-flash-response-does-the-model-miss-after-the-exit), [movement while waiting](glm_checks.md#movement-while-waiting-in-the-port-does-the-flash-response-change-with-body-movement), [turns](glm_checks.md#left-and-right-turns-does-the-side-difference-of-the-flash-response-grow-as-the-head-turns)) and [Result 4 (decoding)](glm_checks.md#result-4-decoding-stimulus-and-choice) are in glm_checks.md.
 - [Validation, controls, related results, and full methods](glm_checks.md) · [Earlier design decisions](glm_decisions.md)
