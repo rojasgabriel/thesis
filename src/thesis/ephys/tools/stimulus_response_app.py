@@ -1,5 +1,8 @@
 """Browse stimulus-response classifications for one session.
 
+Task-only event population; stored classifications and caches must be validated
+as described in thesis.ephys.task_events before running this analysis.
+
 Before the window opens, the app runs StimulusResponse.populate for the
 selected session, unit criteria, and stimulus-response parameter set. If rows
 are missing, the app computes them and inserts them into the database. Thus the
@@ -27,7 +30,7 @@ def _load_data(
         StimulusResponseParam,
         initialize_schema,
     )
-    from thesis.ephys.events import fetch_session_events
+    from thesis.ephys.task_events import fetch_task_stimulus_pulses
     from thesis.ephys.units import fetch_unit_table
 
     key = {
@@ -51,7 +54,7 @@ def _load_data(
     rows = rows[rows["unit_id"].isin(spikes_by_unit)]
     if rows.empty:
         raise RuntimeError("No responsive units pass the selected filters")
-    _, stimulus_pulses = fetch_session_events(subject, session)
+    stimulus_pulses = fetch_task_stimulus_pulses(subject, session)
     first_stimulus = stimulus_pulses.loc[
         stimulus_pulses["first_in_train"], "timestamp"
     ].to_numpy(dtype=float)

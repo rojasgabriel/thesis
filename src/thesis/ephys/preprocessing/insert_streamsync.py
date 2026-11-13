@@ -2,7 +2,11 @@
 
 Each mapping converts one source clock to the NIDQ or OneBox clock from the
 same ephys dataset. Probe mappings use every available ``imecN`` stream.
-Bpod mappings allow the expected extra final hardware trial-start pulse.
+Bpod mappings pair pulses by the clock pulse numbers that the Chipmunk plugin
+stores as event values. This skips the unsaved pulse of a trial cut short by
+Stop and allows the expected extra final hardware trial-start pulse. labdata's
+own ``StreamSync.apply`` does not use these numbers; thesis code maps Bpod time
+with ``thesis.ephys.events.bpod_to_clock``.
 Matched pulse intervals must agree after clock-rate scaling, within 2 ms plus
 0.1% of each clock interval. This permits small clock drift but rejects dropped
 or extra middle pulses; it does not repair ambiguous pulse sequences.
@@ -38,20 +42,45 @@ def _strictly_matched_count(
     clock_timestamps: np.ndarray,
     clock_values: np.ndarray | None,
     allow_trailing_clock_pulse: bool = False,
+    clock_pulse_numbers: np.ndarray | None = None,
+    *,
+    source_is_bpod: bool = False,
 ) -> int:
-    """Return the matched pulse count or raise for an unsafe mapping."""
+    """Return the matched pulse count or raise for an unsafe mapping.
+
+    With `clock_pulse_numbers` (Bpod sync event values), clock pulses are
+    paired by number, which skips the unsaved pulse of a trial cut short by Stop.
+    """
     source = np.asarray(source_timestamps, dtype=float)
     clock = np.asarray(clock_timestamps, dtype=float)
     if source.ndim != 1 or clock.ndim != 1:
         raise ValueError("sync timestamps must be one-dimensional")
     if not np.isfinite(source).all() or not np.isfinite(clock).all():
         raise ValueError("sync timestamps must be finite")
-    if 2 * len(source) - 4 <= len(clock) <= 2 * len(source) + 4:
-        clock = _rising_edges(clock, clock_values)
-    elif 2 * len(clock) - 4 <= len(source) <= 2 * len(clock) + 4:
-        source = _rising_edges(source, source_values)
-    if allow_trailing_clock_pulse and len(clock) == len(source) + 1:
-        clock = clock[:-1]
+    if source_is_bpod or clock_pulse_numbers is not None:
+        from thesis.ephys.events import (
+            _bpod_pulse_numbers,
+            _sync_clock_onsets,
+            saved_pulse_indices,
+        )
+
+        clock = _sync_clock_onsets(
+            {"event_timestamps": clock, "event_values": clock_values}
+        )
+        clock = clock[
+            saved_pulse_indices(
+                len(clock),
+                len(source),
+                _bpod_pulse_numbers(clock_pulse_numbers, len(source)),
+            )
+        ]
+    else:
+        if 2 * len(source) - 4 <= len(clock) <= 2 * len(source) + 4:
+            clock = _rising_edges(clock, clock_values)
+        elif 2 * len(clock) - 4 <= len(source) <= 2 * len(clock) + 4:
+            source = _rising_edges(source, source_values)
+        if allow_trailing_clock_pulse and len(clock) == len(source) + 1:
+            clock = clock[:-1]
     if len(source) != len(clock):
         raise ValueError(
             f"pulse-count mismatch: source={len(source)}, clock={len(clock)}"
@@ -157,6 +186,8 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
                 clock["event_timestamps"],
                 clock["event_values"],
                 allow_trailing_clock_pulse,
+                source["event_values"] if source_key["stream_name"] == "bpod" else None,
+                source_is_bpod=source_key["stream_name"] == "bpod",
             )
         except ValueError as error:
             print(f"Skipped unsafe mapping {source_key}: {error}")

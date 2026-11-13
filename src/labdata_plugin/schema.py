@@ -253,6 +253,8 @@ class StimulusResponseParam(dj.Lookup):
 
 @rojasbowe_schema
 class StimulusResponse(dj.Computed):
+    """Task-only first-pulse responses; see thesis.ephys.task_events for refresh requirements."""
+
     definition = """
     -> UnitCount
     -> StimulusResponseParam
@@ -427,7 +429,7 @@ class StimulusResponse(dj.Computed):
         import numpy as np
         from spks.event_aligned import population_peth
 
-        from thesis.ephys.events import fetch_session_events
+        from thesis.ephys.task_events import fetch_task_stimulus_pulses
 
         response_param = (StimulusResponseParam & key).fetch1()
         unit_keys = (UnitCount.Unit & key & "passes = 1").fetch("KEY")
@@ -436,7 +438,7 @@ class StimulusResponse(dj.Computed):
             raise ValueError(f"No passing units for {key}")
 
         unit_ids = [unit_record["unit_id"] for unit_record in unit_records]
-        _, stimulus_pulses = fetch_session_events(
+        stimulus_pulses = fetch_task_stimulus_pulses(
             key["subject_name"], key["session_name"]
         )
         first_stimulus = stimulus_pulses.loc[

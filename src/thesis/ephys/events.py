@@ -96,6 +96,113 @@ def _bpod_sound_events(trials: list[dict]) -> dict[str, np.ndarray]:
     return events
 
 
+def saved_pulse_indices(n_clock: int, n_saved: int, pulse_numbers=None) -> np.ndarray:
+    """Return the clock-pulse index of each saved Bpod sync pulse.
+
+    A trial or replay cut short by Stop sends a sync pulse that Bpod does not
+    save. The Chipmunk plugin stores clock pulse numbers as the Bpod sync event
+    values, so they skip that pulse. Supplied numbers must be zero-based,
+    strictly increasing integers in range. Without numbering, pair in order.
+    One extra final clock pulse is accepted (the last trial cut short).
+    """
+    if pulse_numbers is None:
+        numbers = np.arange(n_saved)
+    else:
+        numbers = np.asarray(pulse_numbers)
+        if (
+            numbers.shape != (n_saved,)
+            or numbers.dtype.kind not in "iuf"
+            or not np.isfinite(numbers).all()
+            or np.any(numbers != np.floor(numbers))
+            or np.any(numbers < 0)
+            or np.any(numbers >= n_clock)
+            or (n_saved and numbers[0] != 0)
+            or np.any(np.diff(numbers.astype(float)) <= 0)
+        ):
+            raise ValueError("Invalid saved Bpod clock pulse numbers")
+        numbers = numbers.astype(int)
+    if n_clock - (numbers[-1] + 1 if n_saved else 0) in (0, 1):
+        return numbers
+    raise ValueError(
+        f"Clock pulses do not match the saved Bpod pulses: clock={n_clock}, "
+        f"saved={n_saved}, last clock pulse number={numbers[-1] if n_saved else None}"
+    )
+
+
+def _bpod_pulse_numbers(values, n_saved: int):
+    """All-high digital onset values carry no pulse numbering."""
+    if values is not None:
+        values = np.asarray(values)
+        if values.shape != (n_saved,):
+            raise ValueError("Bpod sync values must match the saved pulse count")
+        if values.size and np.all(values == 1):
+            return None
+    return values
+
+
+def _sync_clock_onsets(clock: dict) -> np.ndarray:
+    """Use digital states, never pulse counts, to identify clock onsets."""
+    timestamps = np.asarray(clock["event_timestamps"], dtype=float)
+    values = clock.get("event_values")
+    if values is None:
+        raise ValueError("Sync clock encoding is ambiguous without event_values")
+    values = np.asarray(values)
+    if (
+        timestamps.ndim != 1
+        or values.shape != timestamps.shape
+        or not np.isfinite(timestamps).all()
+        or np.any(np.diff(timestamps) <= 0)
+        or not np.isin(values, (0, 1)).all()
+    ):
+        raise ValueError(
+            "Sync clock values must be ordered timestamp-matched binary states"
+        )
+    if np.any(values == 0) and np.any(np.diff(values.astype(int)) == 0):
+        raise ValueError("Sync clock edges must alternate states")
+    return timestamps[values == 1]
+
+
+def bpod_to_clock(subject: str, session: str):
+    """Return a function from Chipmunk Bpod time to the session's ephys clock.
+
+    It uses the clock that the Bpod StreamSync row names and the same cubic
+    spline as labdata, but pairs pulses with `saved_pulse_indices`. labdata's
+    ``StreamSync.apply(force=True)`` cuts the longer list at the end, which
+    misaligns every pulse after an unsaved pulse in the middle (Stop during a
+    trial, followed by passive replay).
+    """
+    from labdata.schema import DatasetEvents, StreamSync
+    from scipy.interpolate import CubicSpline
+
+    key = {
+        "subject_name": subject,
+        "session_name": session,
+        "dataset_name": "chipmunk",
+        "stream_name": "bpod",
+        "event_name": "sync",
+    }
+    row = (StreamSync() & key).fetch1()
+    bpod = (DatasetEvents.Digital() & key).fetch1()
+    clock = (
+        DatasetEvents.Digital()
+        & {
+            "subject_name": subject,
+            "session_name": session,
+            "dataset_name": row["clock_dataset"],
+            "stream_name": row["clock_stream"],
+            "event_name": row["clock_stream_event"],
+        }
+    ).fetch1()
+    source_s = np.asarray(bpod["event_timestamps"], dtype=float)
+    clock_s = _sync_clock_onsets(clock)
+    index = saved_pulse_indices(
+        len(clock_s),
+        len(source_s),
+        _bpod_pulse_numbers(bpod["event_values"], len(source_s)),
+    )
+    return CubicSpline(source_s, clock_s[index])
+
+
 def _fetch_audio_events(
     subject: str,
     session: str,
@@ -127,13 +234,18 @@ def _fetch_audio_events(
             )
         return classified
 
-    bpod_sync = StreamSync() & {
-        **restriction,
-        "dataset_name": "chipmunk",
-        "stream_name": "bpod",
-        "event_name": "sync",
-    }
-    if len(bpod_sync) != 1:
+    if (
+        len(
+            StreamSync()
+            & {
+                **restriction,
+                "dataset_name": "chipmunk",
+                "stream_name": "bpod",
+                "event_name": "sync",
+            }
+        )
+        != 1
+    ):
         warnings.warn(
             f"Audio event timing unavailable for {subject} {session}: "
             "no measured obx/io1 or Bpod StreamSync",
@@ -159,6 +271,7 @@ def _fetch_audio_events(
         .fetch(as_dict=True, order_by="trial_num")
     )
     bpod_events = _bpod_sound_events(trials)
+    to_clock = bpod_to_clock(subject, session)
     warnings.warn(
         f"No measured obx/io1 for {subject} {session}; "
         "using synchronized Bpod sound-command times",
@@ -167,7 +280,7 @@ def _fetch_audio_events(
     )
     return {
         role: (
-            np.asarray(bpod_sync.apply(timestamps, force=True, warn=False), dtype=float)
+            np.asarray(to_clock(timestamps), dtype=float)
             if len(timestamps)
             else np.array([])
         )
@@ -362,7 +475,11 @@ def fetch_session_events(
         ev_values = None if ev_values is None else np.asarray(ev_values)
         if ev_values is not None and ev_values.shape != ev_timestamps.shape:
             raise ValueError(f"Event values do not match timestamps for {ev_role}")
-        if ev_role in ("trial_start", "frames"):
+        if ev_role == "trial_start":
+            sess_ev[ev_role] = _sync_clock_onsets(
+                {"event_timestamps": ev_timestamps, "event_values": ev_values}
+            )
+        elif ev_role == "frames":
             sess_ev[ev_role] = (
                 ev_timestamps[::2]
                 if ev_values is None

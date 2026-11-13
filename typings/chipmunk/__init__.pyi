@@ -5,3 +5,6 @@ from typing import Any
 class Chipmunk:
     @classmethod
     def trial_query(cls, **key: Any) -> Any: ...
+
+class ChipmunkPassive:
+    Trial: Any
