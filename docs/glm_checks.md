@@ -4,6 +4,7 @@
 - **Why:** predictive accuracy, repeatability, recovery, and control comparisons answer different questions. They do not all establish that a fitted flash effect is independent of locomotion.
 - **Finding:** prediction is useful, but known-weight recovery and zero-effect simulations show limits on reading the weights. Raw video does not remove those limits.
 - **Next:** use these checks to qualify the three main figures. Side preference is a check of the turn term, not part of the main sensory-enhancement argument.
+- **Names:** the sections use the names of the guide to the analyses (2026-11-13). False-effect check = leak test (`leak_test.py`); sensitivity check = power test (`power_test.py`); known-answer check = parameter recovery; kernel stability = kernel reliability; prediction accuracy = calibration; movement measure = raw-video control. Result 2 (the flash-specific change) was result 3 before 2026-11-13.
 - **Scope:** GRB006 / GRB064 order; one session per mouse. Model of 2026-10-29, with flash recovery at τ = 50 ms (`dmat.FLASH_RECOVERY`) and flash × side (`dmat.FLASH_SIDE`). The numbers of the model of 2026-10-24 are in `results/glm/_before_flash_side_2026_10_29/`. The design grids ran on the design of 2026-10-17, without flash recovery; the raw-video control was run again on the model of 2026-10-29 on 2026-11-07. The held-out rate comparison of the main analysis is leak-corrected in its own measure; the supporting kernel-peak scatter is not. GRB064 is session 20261008 since 2026-11-01 (115 units, 22 flash-excited). Values marked "GRB064 20260916" were not run again on the new session.
 
 ## Does the fit support interpretation of the flash component?
@@ -26,13 +27,13 @@
 - **Finding:** units: the 172 / 115 GLM units. Data: the log rate ratio, recomputed from the spikes; it equals the stored `rate_delta` within 0.0001 spikes/s.
   - **(a) Flash weights** (the flash kernel at the first flash, 30–120 ms): they separate the table's excited units from the other units (AUC **0.91** [0.85, 0.95] / **0.95** [0.91, 0.98]); Spearman ρ **0.64 / 0.80**. Only 2 of the 52 excited units (GRB006 units 7 and 198) have weights ≤ 0. The weights are smaller than the data response: the model gives a part of the first-flash response, mostly the drop in rate, to the fixation kernel, which starts at the same flash.
   - **(b) All terms locked to the first flash** (flash kernel + fixation kernel − pre-stimulus step) fall near the identity line: ρ **0.86 / 0.94**, AUC **0.94 / 0.98**.
-  - So the model reproduces the first-flash response, and the flash weights carry its sign. The size is shared with the fixation kernel (the known leak; [leak test](#can-the-fit-create-an-apparent-flash--exit-effect)).
+  - So the model reproduces the first-flash response, and the flash weights carry its sign. The size is shared with the fixation kernel (the known leak; [leak test](#false-effect-check-can-the-fit-create-an-apparent-flash--exit-effect)).
   - The table calls **88 / 62** units suppressed at the first flash, which is the fixation drop. With a 95% fold interval as the rule, the model calls about half of the table's excited units "not responsive" (13 of 30 / 10 of 22). The rule is stricter, not opposite: no excited unit is suppressed by the flash weights.
 - **Next:** none for the model.
 
 ![Model flash response against the data first-flash response, by StimulusResponse class](../figures/glm/flash_weight_check.svg)
 
-### Can the fit create an apparent flash × exit effect?
+### False-effect check: can the fit create an apparent flash × exit effect?
 
 - **Question:** can a fitted flash × exit effect appear when it is absent from simulated spikes?
 - **Why:** a repeated flash kernel can resemble a sustained rate change. The penalty can assign background changes to flash terms.
@@ -61,7 +62,7 @@
 
 ![Observed and predicted flash-response time courses by gap and task period](../figures/glm/flash_by_gap.svg)
 
-### Which flash response does the model miss after the exit?
+### First flash during movement: which flash response does the model miss after the exit?
 
 - **Question:** the full model predicts less long-gap enhancement than observed. Which flashes does it miss, and does the missing part need a flash?
 - **Why:** an observed peak is the maximum of a noisy mean, so it is larger than the peak of a smooth predicted rate even when the model is correct. Spikes drawn from the held-out model rate have the same bias, so observed minus that "model + noise" peak is the miss. A miss that is there with no flash is an exit transient; a miss only with a flash is a change of the flash response.
@@ -80,7 +81,7 @@
 
 ![In-port flash peak against the gap from the flash before, with the recovery fit](../figures/glm/flash_recovery.svg)
 
-### What changes the flash response at the exit?
+### Gain on all activity: what changes the flash response at the exit?
 
 - **Question:** how much of the larger flash response after the exit is a gain on all activity, how much is the gap from the flash before, and what is left?
 - **Why:** with a log link, a term that raises the rate after the exit multiplies every response. If only that gain acts, the flash peak grows by the same factor as the rate before the flash.
@@ -90,7 +91,7 @@
 
 ![Flash peak, latency, gain test and model miss by period, rank and gap](../figures/glm/exit_flash_responses.svg)
 
-### Is the predicted rate calibrated over its range?
+### Prediction accuracy: is the predicted rate calibrated over its range?
 
 - **Question:** is the held-out predicted rate correct where it is low and where it is high?
 - **Why:** a model can predict well on average and still compress its range, which would make the size of every effect too small.
@@ -99,7 +100,7 @@
 
 ![Observed over predicted spike count by predicted-rate percentile](../figures/glm/calibration.svg)
 
-## Do the conclusions depend on the video model?
+## Movement measure: do the conclusions depend on the video model?
 
 These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The kernel comparisons use six fixed task terms; flash recovery and flash × side are in both models but are not compared. The results of the design of 2026-10-17 (GRB064 20260916) are in `results/glm/_raw_video_design_2026_10_17/`.
 
@@ -159,7 +160,7 @@ These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The
 
 ![Side preference after adding raw video, with and without the turn contribution](../figures/glm/raw_video_full/side_preference.svg)
 
-## Link to the decoders (2026-10-29)
+## Result 4: decoding stimulus and choice
 
 `glm/decoding_without_terms.py`: a decoder on the rates 300 ms before and after the center exit, from the observed spikes, with the fitted flash part divided out, and with all other model terms divided out (each trial changed by the fold model that held it out). GLM sessions and units (172 / 115); trials balanced for category × choice; chance is the 2.5–97.5% range of a mean AUC over shuffles.
 
@@ -186,20 +187,20 @@ These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The
 
 ## Follow-ups of 2026-10-29
 
-### Could the flash × exit test find an effect?
+### Sensitivity check: could the flash × exit test find an effect?
 
-- **Measure (`power_test.py`):** spikes simulated from each flash-excited unit's final refit with flash × after exit set to α times its flash weights (after the exit the flash kernel is (1 + α) times the in-port kernel; α = 0, 0.05, 0.1, 0.175, 0.25, 0.375, 0.5), refit with the real design and penalty, analyzed as the real data (log-ratio measure of result 3, minus each unit's leak). 200 replicates with no effect and 50 per planted size, each with one simulation of every unit; detected = Wilcoxon p < 0.05 with a median above 0. The intervals of the fractions are Clopper-Pearson 95%. The fits use all trials, as the leak does (run of 2026-11-07; the run of 2026-11-04, with 20 replicates per α, is in `results/glm/_power_test_2026_11_04/`).
+- **Measure (`power_test.py`):** spikes simulated from each flash-excited unit's final refit with flash × after exit set to α times its flash weights (after the exit the flash kernel is (1 + α) times the in-port kernel; α = 0, 0.05, 0.1, 0.175, 0.25, 0.375, 0.5), refit with the real design and penalty, analyzed as the real data (log-ratio measure of Result 2, minus each unit's leak). 200 replicates with no effect and 50 per planted size, each with one simulation of every unit; detected = Wilcoxon p < 0.05 with a median above 0. The intervals of the fractions are Clopper-Pearson 95%. The fits use all trials, as the leak does (run of 2026-11-07; the run of 2026-11-04, with 20 replicates per α, is in `results/glm/_power_test_2026_11_04/`).
 - **Finding (long gaps):** with no effect, p < 0.05 in **3.5% / 2.0%** of 200 replicates (95%: 1.4–7.1% / 0.5–5.0%), so the test keeps its 5% false-positive rate. 80% power is reached at a planted effect of about **+0.23 / +0.14** in log ratio (GRB006: power 0.66 at +0.19 and 0.92 at +0.26; GRB064: 0.36 at +0.09 and 0.82 at +0.15). After the exit, this is a flash response about 26% / 15% larger than the model gives without the term. The measure gives back about 60–65% / 75–90% of the planted effect (shrinkage by the penalty), so a true effect can be larger than its estimate.
 - **Short gaps (40 ms):** the power is lower: 0.74 at +0.26 in GRB006 (80% is not reached), and 80% at +0.36 in GRB064. With no effect, p < 0.05 in 6.5% / 7.5% of replicates, but almost all of these have a median below 0 (detected 1% / 0%).
-- **Held-out version (the main measure of result 3):** `--mode held_out` fits the 10 fold models of each simulation at their saved penalties and takes each flash from the model that did not see its trial (run of 2026-11-08 on Hodgkin, same replicate counts; open markers).
+- **Held-out version (the main measure of Result 2):** `--mode held_out` fits the 10 fold models of each simulation at their saved penalties and takes each flash from the model that did not see its trial (run of 2026-11-08 on Hodgkin, same replicate counts; open markers).
   - **Why the leak changed (2026-11-09):** with the leak of final refits, the held-out measure kept a bias in GRB006. With no effect its median was **−0.04**, and p < 0.05 in 25% of 200 replicates, all below 0 (GRB064: −0.01, 1.0%); 80% power needed +0.34 / +0.16. So the held-out measure now takes its leak from held-out folds: the median over the 200 simulations with no effect of this run (`leak_test.comparison_values`). The median, because a fold model gives an extreme rate on its test trials in about 1% of the simulations (92 of 6000 / 60 of 4400 with a normalized part above 20); with the mean, the log-ratio result is the same (−0.06 / −0.30, p = 0.69 / 0.009).
   - **Power with its own leak:** 80% power at about **+0.17 / +0.14** (GRB006: 0.58 at +0.11, 0.88 at +0.19; GRB064: 0.38 at +0.09, 0.82 at +0.15). With no effect, p < 0.05 in **5.5% / 4.5%** of 200 (2.8–9.6% / 2.1–8.4%), and the median estimate is 0.00 / 0.00. The no-effect replicates also give the leak, so their center is 0 by construction; their spread, and the replicates with a planted effect, are not.
-  - **Result 3 with this leak:** medians **−0.05 / −0.31** (p = 0.71 / 0.011), pooled −0.16 (−0.39 to 0.01); before, −0.10 / −0.26 (p = 0.45 / 0.021), pooled −0.20 (−0.45 to 0.04). The conclusions are the same: no change in GRB006, a decrease in GRB064.
+  - **Result 2 with this leak:** medians **−0.05 / −0.31** (p = 0.71 / 0.011), pooled −0.16 (−0.39 to 0.01); before, −0.10 / −0.26 (p = 0.45 / 0.021), pooled −0.20 (−0.45 to 0.04). The conclusions are the same: no change in GRB006, a decrease in GRB064.
 - **Final-refit measure on the real data:** the medians over units are **−0.15 / −0.26**. The upper end of the pooled interval of the held-out main measure is **+0.01** (−0.39 to 0.01). So a positive flash × exit effect of the size that these tests find 80% of the time is unlikely; a smaller one cannot be excluded.
 
 ![Power and estimate against the planted flash × exit effect](../figures/glm/power_test.svg)
 
-### Does the side difference of the flash response grow as the head turns?
+### Left and right turns: does the side difference of the flash response grow as the head turns?
 
 - **Question:** if flash × side comes from the panel moving in the visual field, the side difference must be small just after the exit and grow later. Does the first flash after the exit grow more when it comes later after the exit?
 - **Measure (`exit_flash_side.py`, flash-excited units, each mouse alone):** log(peak right / peak left) − log(rate before right / rate before left), within each stimulus category (so slow and fast trials also compare correct and error), for flashes after the exit except the first, < 250 ms and ≥ 250 ms from the exit; the held-out model + noise on the same flashes. Intervals (since 2026-11-07): draws of trials and units together, so they hold the trial noise; no test. Flashes per group: 11–59 / 8–32.
@@ -220,7 +221,7 @@ These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The
 
 ![Choice decoder trained on correct trials, scored on correct and error trials](../figures/choice_by_outcome/choice_by_outcome.svg)
 
-### Per unit, is the larger flash response after the exit one gain on all activity?
+### Gain on all activity, per unit: is the larger flash response after the exit one gain?
 
 - **Measure (`flash_gain_units.py`, flash-excited units, 100–200 ms gaps, the first flash after the exit left out):** per unit, g_b = rate before the flash after the exit / in port, and g_f = flash peak above that rate after the exit / in port. The peak bin is chosen on the flashes of one half of the trials and read on the other half (both ways, 50 random splits): the largest bin of a noisy trace is biased upward, more in the period with fewer flashes (141 / 46 after the exit against 309 / 246 in port), which would push g_f toward g_b. Intervals (since 2026-11-07): 500 draws of the trials, shared by all units, with the same 50 splits in each draw; error bars in both directions. Until then the bootstrap drew flashes, and the halves were of flashes, so a flash drawn twice could fall in both halves and bring back the bias. The median over units also has an interval from draws of trials and units together. g_f = g_b is one gain on all activity; g_f = 1 an unchanged flash response on a higher background.
 - **Finding:** GRB006: median g_b **1.84**, g_f **1.61**; g_f − 1 is **+0.61** (Wilcoxon p = 0.007, 17 of 28 units above 1) and g_f − g_b **−0.50** (p = 0.25). With the trial noise, the intervals of both medians include 0: g_f − 1 −0.19 to +1.98, g_f − g_b −1.50 to +1.14. GRB064: g_b 1.64, g_f 0.81; g_f − g_b −1.37 (−2.71 to 0.00, p = 0.08), g_f − 1 −0.19 (−1.05 to +0.71). So per unit, with these trials, neither mouse can tell one gain on all activity from an unchanged flash response; the Wilcoxon p of GRB006 takes each unit's value as exact and does not hold with the trial noise. Units with no split-half in-port peak have no g_f: 2 / 4.
@@ -228,7 +229,7 @@ These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The
 
 ![Per-unit gain of the flash response against the gain of the rate before the flash](../figures/glm/flash_gain_units.svg)
 
-### In the port, does the flash response change with body movement?
+### Movement while waiting: in the port, does the flash response change with body movement?
 
 - **Question:** flash × exit holds every change of the after-exit flash response that is the same for both turns: a flash-specific effect of movement or state, or a visual change that is the same for both turns. In the center port the nose is in the poke, so the panel stays at about the same place in the visual field while the body moves. Does the flash response change with movement there?
 - **Measure (`flash_movement_in_port.py`, flash-excited units, each mouse alone):** in-port flashes with a gap of 100 ms or more, without the first flash of a trial; rates with the non-flash terms of the held-out model divided out (fixation drop, previous choice, drift, motion-energy PCs). Per flash, the mean rate 40–100 ms after the flash minus the rate 40–0 ms before it, against the total motion energy of the video 100–0 ms before the flash (z-scored); per unit, the slope in percent of the response at average movement.
