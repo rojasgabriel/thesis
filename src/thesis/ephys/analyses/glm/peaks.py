@@ -19,7 +19,8 @@ for a unit with no response to the flash.
 The flash-excited units of every analysis are saved in `EXCITED_UNITS` and
 read with `load_excited_units`. This module writes that file from
 `excited_units` (it needs the database; run it where the database is
-reachable):
+reachable). The flash-suppressed units ("suppressed" classification, the same
+rule) are saved the same way in `SUPPRESSED_UNITS`:
 
     uv run python -m thesis.ephys.analyses.glm.peaks
 """
@@ -53,6 +54,7 @@ STIM_RESPONSE_PARAM_ID = 0
 # The flash-excited units of each session, {session: [unit id]} (`main`).
 # Until 2026-11-07: results/glm/raw_video_trust_classification.json.
 EXCITED_UNITS = Path("results/glm/flash_excited_units.json")
+SUPPRESSED_UNITS = Path("results/glm/flash_suppressed_units.json")
 
 
 def load_excited_units() -> dict[str, list[int]]:
@@ -60,8 +62,15 @@ def load_excited_units() -> dict[str, list[int]]:
     return json.loads(EXCITED_UNITS.read_text())
 
 
-def excited_units(subject: str, session: str) -> set[int]:
-    """Return the stable units with the "excited" classification of StimulusResponse.
+def load_suppressed_units() -> dict[str, list[int]]:
+    """Return the saved flash-suppressed units of each session."""
+    return json.loads(SUPPRESSED_UNITS.read_text())
+
+
+def excited_units(
+    subject: str, session: str, response_type: str = "excited"
+) -> set[int]:
+    """Return the stable units with a classification of StimulusResponse.
 
     Stable: the units of `fetch_unit_table` with quality criteria 1 and
     stability 0, the unit rule of the GLM. StimulusResponse itself has no
@@ -75,7 +84,7 @@ def excited_units(subject: str, session: str) -> set[int]:
         "session_name": session,
         "unit_criteria_id": 1,
         "stim_response_param_id": STIM_RESPONSE_PARAM_ID,
-        "response_type": "excited",
+        "response_type": response_type,
     }
     stable = fetch_unit_table(
         subject,
@@ -246,7 +255,7 @@ def paired_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 
 def main() -> None:
-    """Write the flash-excited units of each session of `SESSIONS` to `EXCITED_UNITS`.
+    """Write the flash-excited and flash-suppressed units of each session of `SESSIONS`.
 
     Entries of other sessions stay. A saved list that differs from the rule is
     reported and kept, unless `--replace`: the saved results used it.
@@ -254,26 +263,31 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=main.__doc__.splitlines()[0])
     parser.add_argument("--replace", action="store_true")
     args = parser.parse_args()
-    saved = load_excited_units() if EXCITED_UNITS.exists() else {}
-    for session in SESSIONS:
-        subject, stamp = session.split("_", 1)
-        units = sorted(excited_units(subject, stamp))
-        old = saved.get(session)
-        if old is not None and old != units:
-            print(
-                f"{session}: the rule gives {len(units)} units, the file has "
-                f"{len(old)}; only the rule: {sorted(set(units) - set(old))}, "
-                f"only the file: {sorted(set(old) - set(units))}"
-                + ("; replaced" if args.replace else "; kept (use --replace)")
-            )
-            if not args.replace:
-                continue
-        elif old == units:
-            print(f"{session}: {len(units)} units, as saved")
-        else:
-            print(f"{session}: {len(units)} units, new entry: {units}")
-        saved[session] = units
-    _write_json_atomic(EXCITED_UNITS, saved)
+    for response_type, path in (
+        ("excited", EXCITED_UNITS),
+        ("suppressed", SUPPRESSED_UNITS),
+    ):
+        saved = json.loads(path.read_text()) if path.exists() else {}
+        for session in SESSIONS:
+            subject, stamp = session.split("_", 1)
+            units = sorted(excited_units(subject, stamp, response_type))
+            old = saved.get(session)
+            name = f"{session} ({response_type})"
+            if old is not None and old != units:
+                print(
+                    f"{name}: the rule gives {len(units)} units, the file has "
+                    f"{len(old)}; only the rule: {sorted(set(units) - set(old))}, "
+                    f"only the file: {sorted(set(old) - set(units))}"
+                    + ("; replaced" if args.replace else "; kept (use --replace)")
+                )
+                if not args.replace:
+                    continue
+            elif old == units:
+                print(f"{name}: {len(units)} units, as saved")
+            else:
+                print(f"{name}: {len(units)} units, new entry: {units}")
+            saved[session] = units
+        _write_json_atomic(path, saved)
 
 
 if __name__ == "__main__":

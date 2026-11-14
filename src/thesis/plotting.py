@@ -29,6 +29,14 @@ PERIOD_COLORS = {
     "in port": CONCEPT_COLORS["task"],
     "after exit": CONCEPT_COLORS["motion energy"],
 }
+# The direction of the fixation modulation (`hold_effect.fixation_groups`).
+# Not Okabe-Ito: those colors stand for other concepts here. Both colors are
+# legible as text on white.
+FIXATION_COLORS = {
+    "fixation-suppressed": "#332288",
+    "no fixation effect": "0.6",
+    "fixation-excited": "#B8860B",
+}
 # A mouse is never a color: it is a marker shape and a black label.
 MOUSE_MARKERS = {"GRB006": "o", "GRB064": "^"}
 _OTHER_MARKERS = "sDv"
