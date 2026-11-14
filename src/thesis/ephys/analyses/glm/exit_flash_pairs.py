@@ -29,6 +29,9 @@ after the exit, so every unit has a value in both periods (paired).
   largest (after - before) / sqrt(after + before) over the in-port flashes at
   least 80 ms after the flash before (as `dataset_overview.py`). The rasters
   show the same trials in the same order on both axes.
+- Scatter: marker = mouse, color = the direction of the fixation modulation
+  (`hold_effect.fixation_groups`, `plotting.FIXATION_COLORS`). Light points:
+  units; open markers: the median of each mouse and fixation group.
 - Display limit of the scatter (`SCATTER_LIMIT`): points past it are drawn at
   the edge as open triangles and stay in the statistics; the report lists
   them.
@@ -60,14 +63,20 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.hold_effect import fixation_suppressed
+from thesis.ephys.analyses.glm.hold_effect import (
+    FIXATION_GROUPS,
+    fixation_groups,
+    fixation_suppressed,
+)
 from thesis.ephys.analyses.glm.peaks import load_excited_units, window_peak
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
-    OBSERVED_COLOR,
+    FIXATION_COLORS,
     PERIOD_COLORS,
+    POINT_ALPHA,
     label_panels,
+    median_marker,
     mouse_marker,
     save_figure,
 )
@@ -82,6 +91,16 @@ GAPS = (40, 80, 120, 160, 200)
 SCATTER_LIMIT = (-1.0, 4.0)
 PORT, EXIT = PERIOD_COLORS["in port"], PERIOD_COLORS["after exit"]
 NAMES = {"in port": "last in port", "after exit": "first after exit"}
+
+
+def mean_rate(spikes, first_flashes):
+    """Return a unit's mean rate from 0.5 s before to 1.5 s after each first flash.
+
+    The one normalization of every flash peak (`exit_flash_pairs.py`,
+    `model_flash_peaks.py`): a peak is divided by this rate.
+    """
+    edges = np.c_[first_flashes - 0.5, first_flashes + 1.5]
+    return np.mean(np.diff(np.searchsorted(spikes, edges), axis=1)) / 2.0
 
 
 def counts(spikes, events):
@@ -128,22 +147,16 @@ def session(sess, excited_ids):
     first = np.asarray(first)
     spikes = [np.sort(np.asarray(s, float)) for s in units["spike_times_s"]]
     ids = units["unit_id"].astype(int).to_numpy()
-    mean_rate = np.array(
-        [
-            np.mean(
-                np.diff(np.searchsorted(s, np.c_[first - 0.5, first + 1.5]), axis=1)
-            )
-            / 2.0
-            for s in spikes
-        ]
-    )
+    rate = np.array([mean_rate(s, first) for s in spikes])
     exc = np.array([i for i in range(len(ids)) if ids[i] in excited_ids])
+    groups = fixation_groups(OUT / sess)
     return dict(
+        group=np.asarray([groups.get(int(i), "") for i in ids]),
         subject=subject,
         ids=ids,
         spikes=spikes,
         ev=ev,
-        mean_rate=mean_rate,
+        mean_rate=rate,
         exc=exc,
         rank=np.asarray(rank),
         byg={g: {k: np.asarray(v) for k, v in d.items()} for g, d in byg.items()},
@@ -262,23 +275,22 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                 m, se = tr.mean(0), tr.std(0, ddof=1) / np.sqrt(len(tr))
                 a.plot(1000 * CENTERS, m, color=c)
                 a.fill_between(1000 * CENTERS, m - se, m + se, color=c, alpha=0.2, lw=0)
-                a.text(
-                    0.98,
-                    0.95 - 0.09 * (k == "after exit"),
-                    f"{NAMES[k]} ({len(d['ev'][k][0])} trials)",
-                    color=c,
-                    transform=a.transAxes,
-                    ha="right",
-                    va="top",
-                    fontsize=7,
-                )
+                if j == 0:
+                    # One legend per figure, next to its line: the after-exit
+                    # label right of its peak, the in-port label under its line.
+                    if k == "after exit":
+                        t = int(np.argmax(m))
+                        xy, va = (1000 * CENTERS[t] + 6, m[t]), "center"
+                    else:
+                        t = int(np.argmin(np.abs(1000 * CENTERS - 55)))
+                        xy, va = (1000 * CENTERS[t], m[t] - se[t] - 0.1), "top"
+                    a.text(*xy, NAMES[k], color=c, va=va, fontsize=7)
             a.axvline(0, color="0.6", ls="--", lw=0.7)
             a.set_xlabel("time from flash (ms)")
             a.text(
                 0,
                 1.02,
-                f"{d['subject']}: {len(d['exc'])} "
-                + d.get("exc_label", "flash-excited units"),
+                d["subject"],
                 transform=a.transAxes,
                 va="bottom",
             )
@@ -302,16 +314,47 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
         x, y = np.concatenate(allp["in port"]), np.concatenate(allp["after exit"])
         lo, hi = SCATTER_LIMIT
         out = (x > hi) | (y > hi) | (x < lo) | (y < lo)
-        a.scatter(x[~out], y[~out], s=22, color=OBSERVED_COLOR, alpha=0.55, lw=0)
-        a.scatter(
-            np.clip(x[out], lo, hi),
-            np.clip(y[out], lo, hi),
-            s=34,
-            marker="^",
-            facecolor="white",
-            edgecolor=OBSERVED_COLOR,
-            lw=0.9,
+        group = np.concatenate([d["group"][d["exc"]] for d in data])
+        marker = np.concatenate(
+            [
+                [mouse_marker(d["subject"], j)] * len(d["exc"])
+                for j, d in enumerate(data)
+            ]
         )
+        for fixation in FIXATION_GROUPS:
+            color = FIXATION_COLORS[fixation]
+            for mk in np.unique(marker):
+                k = (group == fixation) & (marker == mk)
+                a.scatter(
+                    x[k & ~out],
+                    y[k & ~out],
+                    s=22,
+                    marker=mk,
+                    color=color,
+                    alpha=POINT_ALPHA,
+                    lw=0,
+                )
+                a.scatter(
+                    np.clip(x[k & out], lo, hi),
+                    np.clip(y[k & out], lo, hi),
+                    s=34,
+                    marker="^",
+                    facecolor="white",
+                    edgecolor=color,
+                    lw=0.9,
+                )
+        shown = [f for f in FIXATION_GROUPS if (group == f).any()]
+        for k, fixation in enumerate(shown):
+            a.text(
+                0.66,
+                0.42 - 0.055 * k,
+                fixation,
+                color=FIXATION_COLORS[fixation],
+                transform=a.transAxes,
+                ha="left",
+                va="top",
+                fontsize=7,
+            )
         report["display_limit" + tag] = dict(
             limit=list(SCATTER_LIMIT),
             units_past=int(out.sum()),
@@ -322,24 +365,23 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
         a.set_ylim(lo - 0.2, hi + 0.3)
         a.set_aspect("equal")
         for j, d in enumerate(data):
-            mx, my = np.median(allp["in port"][j]), np.median(allp["after exit"][j])
-            a.plot(
-                mx,
-                my,
-                mouse_marker(d["subject"], j),
-                color="white",
-                mec="black",
-                ms=10,
-                mew=1.8,
-                zorder=5,
-            )
+            mouse_group = d["group"][d["exc"]]
+            for fixation in FIXATION_GROUPS:
+                k = mouse_group == fixation
+                if k.any():
+                    median_marker(
+                        a,
+                        np.median(allp["in port"][j][k]),
+                        np.median(allp["after exit"][j][k]),
+                        mouse_marker(d["subject"], j),
+                        FIXATION_COLORS[fixation],
+                    )
         a.set_xlabel("peak in port (÷ mean rate)")
         a.set_ylabel("peak after exit (÷ mean rate)")
         a.text(
             0,
             1.02,
-            f"{len(x)} units, 2 mice · {int(out.sum())} outside the axes: "
-            "open triangles at the edge",
+            "open triangles at the edge: units outside the axes",
             transform=a.transAxes,
             va="bottom",
             fontsize=7.5,
@@ -414,7 +456,6 @@ def main() -> None:
     for d, s in zip(data, SESSIONS, strict=True):
         keep = fixation_suppressed(OUT / s)
         d["exc"] = np.array([u for u in d["exc"] if d["ids"][u] in keep])
-        d["exc_label"] = "fixation-suppressed flash-excited units"
     print(
         plot_population(
             data,

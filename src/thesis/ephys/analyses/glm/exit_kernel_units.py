@@ -12,20 +12,19 @@ largest value from 30 to 120 ms, Δ log rate), the peak measure of the other
 figures (until 2026-11-13: the mean kernel from 40 to 100 ms). Uncertainty: the SD
 of the same measure over the cross-validation fold fits, on both axes.
 
-- One panel, one point per unit, for the units with a flash classification:
-  flash-excited units (`peaks.load_excited_units`) with the peak, and
-  flash-suppressed units (`peaks.load_suppressed_units`) with the dip of the
-  kernel (`flash_kernels.py` `dip`: the same window around its most negative
-  value), as a peak has no meaning for them. The sign of the measure tells
-  the two apart. Units with no flash classification are not shown.
+- Panel a: the flash-excited units (`peaks.load_excited_units`), with the
+  kernel peak. Panel b: the flash-suppressed units
+  (`peaks.load_suppressed_units`), with the kernel dip (`flash_kernels.py`
+  `dip`: the same window around its most negative value), as a peak has no
+  meaning for them. One point per unit. Units with no flash classification
+  are not shown.
 - Color: the direction of the fixation modulation
   (`hold_effect.fixation_groups`, `plotting.FIXATION_COLORS`).
 - Sessions: `flash_kernels.SESSIONS`. Statistics: Wilcoxon signed-rank (after
   exit against in port), each mouse alone, for flash-excited and
   flash-suppressed units, also in each fixation group. The sampling unit is
-  the unit. Big open markers: the median of each mouse for flash-excited and
-  for flash-suppressed units.
-- Display limit (`LIMIT`): units past it are drawn at the edge as open
+  the unit. Open markers: the median of each mouse and fixation group.
+- Display limits (`PANELS`): units past it are drawn at the edge as open
   triangles and stay in the statistics; the report lists them.
 
 Needs `flash_kernels.npz` with `dip` (run `flash_kernels` first) and the saved
@@ -59,14 +58,20 @@ from thesis.ephys.analyses.glm.peaks import (
 from thesis.plotting import (
     FIGURE_STYLE,
     FIXATION_COLORS,
-    OBSERVED_COLOR,
+    POINT_ALPHA,
+    label_panels,
+    median_marker,
     mouse_marker,
     save_figure,
 )
 
 OUT = Path("results/glm")
 PORT, EXIT = "in port, 80+ ms gap", "after exit, 80+ ms gap"
-LIMIT = (-2.25, 2.5)
+# One panel per flash response: (units, measure, display limit).
+PANELS = {
+    "excited": ("peak", (-0.75, 2.5)),
+    "suppressed": ("dip", (-2.25, 0.5)),
+}
 
 
 def summary(x: np.ndarray, y: np.ndarray) -> dict:
@@ -81,61 +86,63 @@ def summary(x: np.ndarray, y: np.ndarray) -> dict:
 
 def main() -> None:
     flash = {"excited": load_excited_units(), "suppressed": load_suppressed_units()}
-    report = {"limit": list(LIMIT), "peak_half_ms": PEAK_HALF_MS}
-    lo, hi = LIMIT
+    report = {
+        "limits": {kind: list(limit) for kind, (_, limit) in PANELS.items()},
+        "peak_half_ms": PEAK_HALF_MS,
+    }
+    sessions = []
+    for session in SESSIONS:
+        d = np.load(OUT / session / "flash_kernels.npz")
+        groups = fixation_groups(OUT / session)
+        sessions.append(
+            (
+                session.split("_")[0],
+                d,
+                np.asarray([groups.get(int(u), "") for u in d["unit_ids"]]),
+            )
+        )
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(figsize=(4.8, 4.8), layout="constrained")
-        for m, session in enumerate(SESSIONS):
-            subject = session.split("_")[0]
-            d = np.load(OUT / session / "flash_kernels.npz")
-            cond = list(d["conditions"])
-            i, j = cond.index(PORT), cond.index(EXIT)
-            groups = fixation_groups(OUT / session)
-            group = np.asarray([groups.get(int(u), "") for u in d["unit_ids"]])
-            marker = mouse_marker(subject, m)
-            report[subject] = {}
-            for kind, measure in (("excited", "peak"), ("suppressed", "dip")):
-                keep = np.isin(d["unit_ids"], flash[kind][session])
+        fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.6), layout="constrained")
+        for ax, (kind, (measure, limit)) in zip(axes, PANELS.items(), strict=True):
+            lo, hi = limit
+            for m, (subject, d, group) in enumerate(sessions):
+                cond = list(d["conditions"])
+                i, j = cond.index(PORT), cond.index(EXIT)
+                marker = mouse_marker(subject, m)
+                keep = np.isin(d["unit_ids"], flash[kind][SESSIONS[m]])
                 x, y = d[measure][:, i], d[measure][:, j]
                 sx, sy = d[f"{measure}_sd"][:, i], d[f"{measure}_sd"][:, j]
                 out = (x < lo) | (x > hi) | (y < lo) | (y > hi)
                 for name in FIXATION_GROUPS:
                     color = FIXATION_COLORS[name]
-                    inside = keep & (group == name) & ~out
+                    k = keep & (group == name)
                     ax.errorbar(
-                        x[inside],
-                        y[inside],
-                        xerr=sx[inside],
-                        yerr=sy[inside],
+                        x[k & ~out],
+                        y[k & ~out],
+                        xerr=sx[k & ~out],
+                        yerr=sy[k & ~out],
                         fmt=marker,
                         ms=3.5,
                         color=color,
                         ecolor=color,
                         elinewidth=0.4,
-                        alpha=0.75,
+                        alpha=POINT_ALPHA,
                         lw=0,
                     )
-                    edge = keep & (group == name) & out
                     ax.scatter(
-                        np.clip(x[edge], lo, hi),
-                        np.clip(y[edge], lo, hi),
+                        np.clip(x[k & out], lo, hi),
+                        np.clip(y[k & out], lo, hi),
                         marker="^",
                         s=22,
                         facecolor="white",
                         edgecolor=color,
                         lw=0.8,
                     )
-                ax.plot(
-                    np.median(x[keep]),
-                    np.median(y[keep]),
-                    marker,
-                    ms=11,
-                    color="white",
-                    mec=OBSERVED_COLOR,
-                    mew=1.8,
-                    zorder=5,
-                )
-                report[subject][kind] = {
+                    if k.any():
+                        median_marker(
+                            ax, np.median(x[k]), np.median(y[k]), marker, color
+                        )
+                report.setdefault(subject, {})[kind] = {
                     "measure": measure,
                     **summary(x[keep], y[keep]),
                     "by_fixation_group": {
@@ -154,33 +161,36 @@ def main() -> None:
                         )
                     ],
                 }
-        ax.plot(LIMIT, LIMIT, color="0.6", ls="--", lw=0.8)
-        ax.axhline(0, color="0.85", lw=0.6, zorder=0)
-        ax.axvline(0, color="0.85", lw=0.6, zorder=0)
-        ax.set_xlim(lo - 0.1, hi + 0.1)
-        ax.set_ylim(lo - 0.1, hi + 0.1)
-        ax.set_aspect("equal")
-        ax.set_xlabel("kernel response in port (Δ log rate)")
-        ax.set_ylabel("kernel response after exit (Δ log rate)")
-        for k, name in enumerate(FIXATION_GROUPS):
+            ax.plot(limit, limit, color="0.6", ls="--", lw=0.8)
+            ax.axhline(0, color="0.85", lw=0.6, zorder=0)
+            ax.axvline(0, color="0.85", lw=0.6, zorder=0)
+            ax.set_xlim(lo - 0.1, hi + 0.1)
+            ax.set_ylim(lo - 0.1, hi + 0.1)
+            ax.set_aspect("equal")
+            ax.set_xlabel(f"kernel {measure} in port (Δ log rate)")
+            ax.set_ylabel(f"kernel {measure} after exit (Δ log rate)")
             ax.text(
-                0.03,
-                0.97 - 0.055 * k,
-                name,
-                color=FIXATION_COLORS[name],
+                0,
+                1.02,
+                f"flash-{kind} units",
                 transform=ax.transAxes,
-                va="top",
-                fontsize=7,
+                va="bottom",
             )
-        ax.text(
-            0.97,
-            0.03,
-            "flash-excited: peak\nflash-suppressed: dip",
-            transform=ax.transAxes,
-            ha="right",
-            va="bottom",
-            fontsize=7,
-        )
+            if kind != "excited":
+                continue
+            # One color legend per figure, in panel a, next to the points below
+            # the diagonal.
+            for k, name in enumerate(FIXATION_GROUPS):
+                ax.text(
+                    0.68,
+                    0.33 - 0.055 * k,
+                    name,
+                    color=FIXATION_COLORS[name],
+                    transform=ax.transAxes,
+                    va="top",
+                    fontsize=7,
+                )
+        label_panels(axes, x=-0.2, y=1.02)
         print(save_figure(fig, OUT / "exit_kernel_units"))
     (OUT / "exit_kernel_units.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
