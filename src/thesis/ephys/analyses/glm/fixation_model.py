@@ -287,10 +287,8 @@ def main() -> None:
                     if row == len(rows) - 1:
                         axis.set_xlabel(xlabel)
                     if offset == 0:
-                        n = len(values)
                         axis.set_title(
-                            f"{session['subject']}, "
-                            + (f"all {n} units" if keep is None else f"{n} {group}"),
+                            f"{session['subject']}, {group}",
                             fontsize=8,
                             loc="left",
                         )
