@@ -29,6 +29,8 @@ after the exit, so every unit has a value in both periods (paired).
   largest (after - before) / sqrt(after + before) over the in-port flashes at
   least 80 ms after the flash before (as `dataset_overview.py`). The rasters
   show the same trials in the same order on both axes.
+- Scatter: marker = mouse, color = the direction of the fixation modulation
+  (`hold_effect.fixation_groups`, `plotting.FIXATION_COLORS`).
 - Display limit of the scatter (`SCATTER_LIMIT`): points past it are drawn at
   the edge as open triangles and stay in the statistics; the report lists
   them.
@@ -60,12 +62,16 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.hold_effect import fixation_suppressed
+from thesis.ephys.analyses.glm.hold_effect import (
+    FIXATION_GROUPS,
+    fixation_groups,
+    fixation_suppressed,
+)
 from thesis.ephys.analyses.glm.peaks import load_excited_units, window_peak
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
-    OBSERVED_COLOR,
+    FIXATION_COLORS,
     PERIOD_COLORS,
     label_panels,
     mouse_marker,
@@ -138,7 +144,9 @@ def session(sess, excited_ids):
         ]
     )
     exc = np.array([i for i in range(len(ids)) if ids[i] in excited_ids])
+    groups = fixation_groups(OUT / sess)
     return dict(
+        group=np.asarray([groups.get(int(i), "") for i in ids]),
         subject=subject,
         ids=ids,
         spikes=spikes,
@@ -302,16 +310,47 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
         x, y = np.concatenate(allp["in port"]), np.concatenate(allp["after exit"])
         lo, hi = SCATTER_LIMIT
         out = (x > hi) | (y > hi) | (x < lo) | (y < lo)
-        a.scatter(x[~out], y[~out], s=22, color=OBSERVED_COLOR, alpha=0.55, lw=0)
-        a.scatter(
-            np.clip(x[out], lo, hi),
-            np.clip(y[out], lo, hi),
-            s=34,
-            marker="^",
-            facecolor="white",
-            edgecolor=OBSERVED_COLOR,
-            lw=0.9,
+        group = np.concatenate([d["group"][d["exc"]] for d in data])
+        marker = np.concatenate(
+            [
+                [mouse_marker(d["subject"], j)] * len(d["exc"])
+                for j, d in enumerate(data)
+            ]
         )
+        for fixation in FIXATION_GROUPS:
+            color = FIXATION_COLORS[fixation]
+            for mk in np.unique(marker):
+                k = (group == fixation) & (marker == mk)
+                a.scatter(
+                    x[k & ~out],
+                    y[k & ~out],
+                    s=22,
+                    marker=mk,
+                    color=color,
+                    alpha=0.75,
+                    lw=0,
+                )
+                a.scatter(
+                    np.clip(x[k & out], lo, hi),
+                    np.clip(y[k & out], lo, hi),
+                    s=34,
+                    marker="^",
+                    facecolor="white",
+                    edgecolor=color,
+                    lw=0.9,
+                )
+        shown = [f for f in FIXATION_GROUPS if (group == f).any()]
+        for k, fixation in enumerate(shown):
+            a.text(
+                0.97,
+                0.5 - 0.055 * k,
+                fixation,
+                color=FIXATION_COLORS[fixation],
+                transform=a.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+            )
         report["display_limit" + tag] = dict(
             limit=list(SCATTER_LIMIT),
             units_past=int(out.sum()),
