@@ -110,7 +110,10 @@ def window_peak(
     source = binned if latency_from is None else latency_from
     window = (centers >= PEAK_MS[0]) & (centers < PEAK_MS[1])
     at = centers[window][np.argmax(source[..., window], axis=-1)]
-    near = np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS
+    # The tolerance keeps bins exactly PEAK_HALF_MS away: centers such as
+    # 1000 * 0.035 are 34.999..., and without it the window lost 1-2 of its
+    # 5 bins in `exit_flash_pairs.py` (until 2026-11-13).
+    near = np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS + 1e-6
     return (binned * near).sum(-1) / near.sum(-1)
 
 

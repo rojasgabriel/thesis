@@ -56,6 +56,17 @@ def mouse_marker(subject: str, index: int = 0) -> str:
     return MOUSE_MARKERS.get(subject, _OTHER_MARKERS[index % len(_OTHER_MARKERS)])
 
 
+# Every scatter of units: each unit is a light point (`POINT_ALPHA`), and the
+# median of each mouse is an open marker in the shape of the mouse, in the
+# color of its group (`median_marker`).
+POINT_ALPHA = 0.3
+
+
+def median_marker(axis, x, y, marker: str, color, size: float = 9) -> None:
+    """Draw the median of one mouse: an open marker with an edge in `color`."""
+    axis.plot(x, y, marker, ms=size, color="white", mec=color, mew=1.6, zorder=5)
+
+
 BOOTSTRAPS = 2000
 
 

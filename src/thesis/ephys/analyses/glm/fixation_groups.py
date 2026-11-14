@@ -20,8 +20,9 @@ movement terms of the GLM explain? Exploratory; no new fit.
   direction (all units): held-out bits per spike lost when that term is
   shuffled (`unique_dev.py`).
 
-Sampling unit: the unit. Each dot is a unit; the mouse is the marker shape;
-big open markers: the median of each mouse and group. c and d use a
+Sampling unit: the unit. Each dot is a unit; the mouse is the marker shape and
+the color is the fixation group; open markers: the median of each mouse and
+group. c and d use a
 symmetric log axis, linear within ±0.01 bits/spike. Statistics, each mouse
 alone: Kruskal-Wallis over the three groups (groups with fewer than 3 units
 are left out of the test).
@@ -53,8 +54,10 @@ from thesis.ephys.analyses.glm.peaks import load_excited_units
 from thesis.ephys.analyses.glm.unique_dev import UNIQUE_BITS, add_bits_per_spike
 from thesis.plotting import (
     FIGURE_STYLE,
-    OBSERVED_COLOR,
+    FIXATION_COLORS,
+    POINT_ALPHA,
     label_panels,
+    median_marker,
     mouse_marker,
     save_figure,
 )
@@ -134,20 +137,13 @@ def main() -> None:
                         v,
                         s=9,
                         marker=marker,
-                        color=OBSERVED_COLOR,
-                        alpha=0.35,
+                        color=FIXATION_COLORS[name],
+                        alpha=POINT_ALPHA,
                         lw=0,
                     )
                     if len(v):
-                        axis.plot(
-                            x,
-                            np.median(v),
-                            marker,
-                            ms=10,
-                            color="white",
-                            mec=OBSERVED_COLOR,
-                            mew=1.6,
-                            zorder=5,
+                        median_marker(
+                            axis, x, np.median(v), marker, FIXATION_COLORS[name]
                         )
                 tested = [v for v in by_group if len(v) >= 3]
                 report.setdefault(key, {})[d["subject"]] = {
