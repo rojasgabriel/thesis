@@ -19,7 +19,9 @@ after the exit, so every unit has a value in both periods (paired).
   120, 160, 200+ ms; the first flash of a trial has no gap).
 - Measure (as `peaks.py`): per unit and condition, the mean rate in 10-ms
   bins; baseline = the in-port rate from -40 to 0 ms, the same baseline for
-  both periods; peak = the largest bin from 30 to 120 ms minus that baseline;
+  both periods; peak = the mean over the bins within 20 ms of the largest bin
+  from 30 to 120 ms (`peaks.window_peak`; until 2026-11-12 the largest bin
+  alone), minus that baseline, found in each period apart;
   divided by the unit's mean rate (0.5 s before to 1.5 s after the first
   flash). The sampling unit is the unit; tests within each mouse (Wilcoxon
   signed-rank, after exit against in port).
@@ -31,7 +33,12 @@ after the exit, so every unit has a value in both periods (paired).
   the edge as open triangles and stay in the statistics; the report lists
   them.
 
+- Fixation-suppressed units (`exit_flash_population_fixation_suppressed.svg`):
+  the population figure for the flash-excited units whose fixation level is
+  below 0 by more than 2 fold SDs (`hold_effect.fixation_suppressed`).
+
 Writes `figures/glm/exit_flash_examples.svg`, `exit_flash_population.svg`,
+`exit_flash_population_fixation_suppressed.svg`,
 `exit_flash_by_gap.svg` and `results/glm/exit_flash_pairs.json`.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
@@ -53,7 +60,8 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.peaks import load_excited_units
+from thesis.ephys.analyses.glm.hold_effect import fixation_suppressed
+from thesis.ephys.analyses.glm.peaks import load_excited_units, window_peak
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
@@ -153,7 +161,8 @@ def peaks(d, events=None):
         r = {k: rates(d["spikes"][u], events[k]) for k in out}
         base = r["in port"][BASE].mean()
         for k in out:
-            out[k].append((r[k][PEAK].max() - base) / max(d["mean_rate"][u], 1e-9))
+            peak = window_peak(r[k], 1000 * CENTERS) - base
+            out[k].append(peak / max(d["mean_rate"][u], 1e-9))
     return {k: np.asarray(v) for k, v in out.items()}
 
 
@@ -233,7 +242,7 @@ def plot_examples(data, report):
         return save_figure(fig, OUT / "exit_flash_examples")
 
 
-def plot_population(data, report):
+def plot_population(data, report, name="exit_flash_population", tag=""):
     """Mean PSTH of the flash-excited units of each mouse, and the paired peak scatter."""
     with plt.rc_context(FIGURE_STYLE):
         fig, ax = plt.subplots(
@@ -268,7 +277,8 @@ def plot_population(data, report):
             a.text(
                 0,
                 1.02,
-                f"{d['subject']}: {len(d['exc'])} flash-excited units",
+                f"{d['subject']}: {len(d['exc'])} "
+                + d.get("exc_label", "flash-excited units"),
                 transform=a.transAxes,
                 va="bottom",
             )
@@ -278,7 +288,7 @@ def plot_population(data, report):
             for k in allp:
                 allp[k].append(p[k])
             w = wilcoxon(p["after exit"], p["in port"])
-            report[d["subject"] + "_all"] = dict(
+            report[d["subject"] + "_all" + tag] = dict(
                 units=len(p["in port"]),
                 higher=int(np.sum(p["after exit"] > p["in port"])),
                 median_in_port=float(np.median(p["in port"])),
@@ -302,7 +312,7 @@ def plot_population(data, report):
             edgecolor=OBSERVED_COLOR,
             lw=0.9,
         )
-        report["display_limit"] = dict(
+        report["display_limit" + tag] = dict(
             limit=list(SCATTER_LIMIT),
             units_past=int(out.sum()),
             values=[[float(u), float(v)] for u, v in zip(x[out], y[out])],
@@ -323,14 +333,6 @@ def plot_population(data, report):
                 mew=1.8,
                 zorder=5,
             )
-            a.annotate(
-                f"{d['subject']} median",
-                (mx, my),
-                xytext=(14, 18 - 30 * j),
-                textcoords="offset points",
-                fontsize=7,
-                arrowprops=dict(arrowstyle="-", color="0.4", lw=0.6),
-            )
         a.set_xlabel("peak in port (÷ mean rate)")
         a.set_ylabel("peak after exit (÷ mean rate)")
         a.text(
@@ -344,7 +346,7 @@ def plot_population(data, report):
         )
         label_panels(ax, x=-0.18, y=1.04)
         fig.tight_layout()
-        return save_figure(fig, OUT / "exit_flash_population")
+        return save_figure(fig, OUT / name)
 
 
 def plot_by_gap(data, report):
@@ -408,6 +410,19 @@ def main() -> None:
     report = {}
     for plot in (plot_examples, plot_population, plot_by_gap):
         print(plot(data, report))
+    # The fixation-suppressed flash-excited units only (Anne, 2026-11-12).
+    for d, s in zip(data, SESSIONS, strict=True):
+        keep = fixation_suppressed(OUT / s)
+        d["exc"] = np.array([u for u in d["exc"] if d["ids"][u] in keep])
+        d["exc_label"] = "fixation-suppressed flash-excited units"
+    print(
+        plot_population(
+            data,
+            report,
+            "exit_flash_population_fixation_suppressed",
+            "_fixation_suppressed",
+        )
+    )
     (OUT / "exit_flash_pairs.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
 
