@@ -14,6 +14,8 @@ No new fit; the kernels are from the final refit of each unit (`fit.py`).
 - Peak of a condition (`peak`): the mean kernel within `peaks.PEAK_HALF_MS`
   of its largest value from 30 to 120 ms (`peaks.window_peak`, 1-ms lags),
   the peak measure of the observed and model rates.
+- Dip of a condition (`dip`): the same window around its most negative value,
+  for the flash-suppressed units.
 - Spread of a response or peak (`response_sd`, `peak_sd`): its SD over the
   cross-validation fold fits.
 - Fixation response: the mean response over the two in-port conditions.
@@ -81,7 +83,7 @@ def session_kernels(root: Path, unit_set: str) -> Path:
     center = metadata.get("flash_recovery_center")
 
     def response(coefficients) -> np.ndarray:
-        """Return the mean kernel and its window peak, (2, condition)."""
+        """Return the mean kernel, its window peak and its window dip, (3, condition)."""
         weights = np.asarray(coefficients, dtype=float)
         terms = {
             term: (lags, (weights[index] / scale[index]) @ basis.basis.T)
@@ -93,7 +95,13 @@ def session_kernels(root: Path, unit_set: str) -> Path:
                 for gap, after in CONDITIONS.values()
             ]
         )
-        return np.stack([curves[:, window].mean(-1), window_peak(curves, lags)])
+        return np.stack(
+            [
+                curves[:, window].mean(-1),
+                window_peak(curves, lags),
+                -window_peak(-curves, lags),
+            ]
+        )
 
     final = load_unit_records(
         model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
@@ -123,6 +131,8 @@ def session_kernels(root: Path, unit_set: str) -> Path:
         response_sd=spread[:, 0],
         peak=responses[:, 1],
         peak_sd=spread[:, 1],
+        dip=responses[:, 2],
+        dip_sd=spread[:, 2],
         fixation_response=responses[:, 0, fixation].mean(1),
     )
     return path
