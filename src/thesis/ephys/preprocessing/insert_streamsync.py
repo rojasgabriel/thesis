@@ -213,6 +213,10 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
         event_names = (
             DatasetEvents.Digital() & dataset_key & {"stream_name": stream_name}
         ).fetch("event_name")
+        # Other rows of the stream (for example status-bit backups) are not sync events.
+        event_names = event_names[
+            [name.endswith("_sync_onsets") for name in event_names]
+        ]
         if len(event_names) != 1:
             print(
                 f"Skipped {stream_name}: expected one sync event, "
