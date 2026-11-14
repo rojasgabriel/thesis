@@ -17,7 +17,10 @@ Report all exclusion counts and selected trial IDs. Align to measured flash onse
 10-ms bins, and subtract the stationary -40..0-ms baseline within each gap
 class from both peaks. The peak is the mean over ±20 ms around the largest
 bin from 30 to 120 ms (`peaks.window_peak`, since 2026-11-13; before, the
-largest bin). Every model source is measured in the window of the observed
+largest bin). The in-port window ends at 90 ms (`IN_PORT_END_MS`, the pair
+separation; since 2026-11-14): later, the after-exit flash can be in it, and
+with a weak in-port response (40-ms gap) its flash × after exit term took the
+in-port peak. Every model source is measured in the window of the observed
 peak of the same unit, gap class and period. Restrict all sources to the GLM's selected
 completed trials and full paired windows inside its valid native 1-ms grid.
 Round flash anchors to the nearest model bin. Other flashes can enter the window.
@@ -111,6 +114,9 @@ GAPS_MS = (100, 40)
 GAP_LABELS = ("preceding gap ≥80 ms", "preceding gap 40 ms")
 PERIOD_COLORS = (PERIOD_COLOR_OF["in port"], PERIOD_COLOR_OF["after exit"])
 MIN_PAIR_SEPARATION_S = 0.09  # the 30..120-ms peak windows do not overlap
+# The in-port peak window ends here: from the pair separation on, the
+# after-exit flash can be in the in-port window (since 2026-11-14).
+IN_PORT_END_MS = 1000 * MIN_PAIR_SEPARATION_S
 RATE_SOURCES = ("observed", "full model", "without flash × exit")
 
 
@@ -181,8 +187,23 @@ def observed_peaks(rate, centers, latency=None):
     `rate`), so a model trace is measured in the window of the observed trace.
     """
     rate = np.asarray(rate)
+    centers_ms = 1000 * np.asarray(centers)
     baseline = rate[..., 0, (centers >= -0.04) & (centers < 0)].mean(-1)
-    response = peaks.window_peak(rate, 1000 * np.asarray(centers), latency)
+    latency = rate if latency is None else np.broadcast_to(latency, rate.shape)
+    # Condition 0 is in port: its window ends at the pair separation, where
+    # the after-exit flash (and its flash × after exit term) can start.
+    response = np.stack(
+        [
+            peaks.window_peak(
+                rate[..., c, :],
+                centers_ms,
+                latency[..., c, :],
+                IN_PORT_END_MS if c == 0 else peaks.PEAK_MS[1],
+            )
+            for c in range(rate.shape[-2])
+        ],
+        -1,
+    )
     return response - baseline[..., None]
 
 

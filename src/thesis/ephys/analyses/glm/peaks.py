@@ -98,22 +98,29 @@ def excited_units(
 
 
 def window_peak(
-    binned: np.ndarray, centers: np.ndarray, latency_from: np.ndarray | None = None
+    binned: np.ndarray,
+    centers: np.ndarray,
+    latency_from: np.ndarray | None = None,
+    end_ms: float = PEAK_MS[1],
 ) -> np.ndarray:
     """Return the mean over `PEAK_HALF_MS` around the peak bin, along the last axis.
 
     The peak bin is the largest bin of `latency_from` (default: `binned`) with
-    its center in `PEAK_MS`; the mean is over the bins with centers within
-    `PEAK_HALF_MS` of it, clipped to the trace. Give the observed trace as
-    `latency_from` to measure a model trace in the same window.
+    its center from `PEAK_MS[0]` to `end_ms` (default `PEAK_MS[1]`); the mean
+    is over the bins with centers within `PEAK_HALF_MS` of it, clipped to the
+    trace and to `end_ms`. Give the observed trace as `latency_from` to
+    measure a model trace in the same window.
     """
     source = binned if latency_from is None else latency_from
-    window = (centers >= PEAK_MS[0]) & (centers < PEAK_MS[1])
+    # The tolerance (here and below) handles centers such as 1000 * 0.035 =
+    # 34.999...; without it the window lost 1-2 of its 5 bins in
+    # `exit_flash_pairs.py` (until 2026-11-13).
+    before_end = centers < end_ms - 1e-6
+    window = (centers >= PEAK_MS[0] - 1e-6) & before_end
     at = centers[window][np.argmax(source[..., window], axis=-1)]
-    # The tolerance keeps bins exactly PEAK_HALF_MS away: centers such as
-    # 1000 * 0.035 are 34.999..., and without it the window lost 1-2 of its
-    # 5 bins in `exit_flash_pairs.py` (until 2026-11-13).
-    near = np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS + 1e-6
+    near = (
+        np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS + 1e-6
+    ) & before_end
     return (binned * near).sum(-1) / near.sum(-1)
 
 
