@@ -34,7 +34,11 @@ paired: each unit has its real effect and its leak.
 - Effect in the measure of the main comparison (`flash_movement.py`, result
   3 of `docs/glm.md`): the same pairs (last in-port and first after-exit flash
   of a trial, both with the same gap class; complete windows on the valid
-  grid), 10-ms bins, the in-port -40..0 ms baseline, the peak from 30..120 ms,
+  grid), 10-ms bins, the in-port -40..0 ms baseline, the window peak
+  (`peaks.window_peak`: ±20 ms around the largest bin from 30..120 ms, since
+  2026-11-13), with both model sources in the window of the peak of the spikes
+  that were fit (real, or simulated for the leak; for the true effect of
+  `power_test.py`, the full rate),
   and the flash × after exit part = (after exit minus in port of the model
   rate) minus the same without the raw flash × after exit contribution, for
   each gap class. It is divided by the observed mean rate of the unit over the
@@ -176,11 +180,15 @@ def _load(windows: Path, design: Path) -> None:
     )
 
 
-def matched_part(intercept: float, coefficients, history, width: int) -> float:
+def matched_part(
+    intercept: float, coefficients, history, width: int, counts: np.ndarray
+) -> float:
     """Return the part of the after-exit-minus-in-port peak that flash × after exit carries.
 
-    The peak of the model rate (`peaks.py`, spikes/s) on the paired flashes of
-    `peaks.paired_flashes`, minus the same with the flash × after exit columns set to 0.
+    The window peak of the model rate (`peaks.window_peaks`, spikes/s) on the
+    paired flashes of `peaks.paired_flashes`, minus the same with the flash ×
+    after exit columns set to 0; both in the window of the peak of `counts`
+    (the spikes that were fit, trial × bin) on the same flashes.
     """
     design = dmat._design_with_history(
         _SHARED["common"], history, width, _SHARED["window_rows"]
@@ -190,20 +198,24 @@ def matched_part(intercept: float, coefficients, history, width: int) -> float:
     log_rate = float(intercept) + design @ coefficients
     changes = []
     contribution = raw_contribution(design, coefficients, _SHARED["metadata"], removed)
+    observed = np.asarray(counts).ravel()[_SHARED["window_rows"]]
+    latency = observed[_SHARED["window_position"]].mean(1) / dmat.BINWIDTH_S
     for values in (log_rate, log_rate - contribution):
         rate = np.exp(values)[_SHARED["window_position"]] / dmat.BINWIDTH_S
-        peak = peaks.peaks(rate.mean(1))  # (period, bin) -> (period,)
+        peak = peaks.window_peaks(rate.mean(1), latency)  # (period, bin) -> (period,)
         changes.append(peak[1] - peak[0])
     return float(changes[0] - changes[1])
 
 
-def comparison_peaks(intercept: float, coefficients, history, width: int) -> np.ndarray:
+def comparison_peaks(
+    intercept: float, coefficients, history, width: int, counts=None
+) -> np.ndarray:
     """Return the model peaks of the main comparison, (gap, source, period), spikes/s.
 
     The peak of the model rate on the pairs of `flash_movement.py`, with the
     peak measure of `flash_movement.matched_rate_peaks`. Source: the full
     rate, then the rate without the raw flash × after exit contribution.
-    Period: in port, then after exit.
+    Period: in port, then after exit. The window: see `peaks_from`.
     """
     design = dmat._design_with_history(
         _SHARED["common"], history, width, _SHARED["pair_rows"]
@@ -213,15 +225,32 @@ def comparison_peaks(intercept: float, coefficients, history, width: int) -> np.
     contribution = raw_contribution(
         design, coefficients, _SHARED["metadata"], _SHARED["removed_columns"]
     )
-    return peaks_from(log_rate, contribution)
+    return peaks_from(log_rate, contribution, counts)
 
 
-def peaks_from(log_rate: np.ndarray, contribution: np.ndarray) -> np.ndarray:
-    """Return the peaks of `comparison_peaks` from the log rate on the pair rows."""
+def peaks_from(
+    log_rate: np.ndarray, contribution: np.ndarray, counts=None
+) -> np.ndarray:
+    """Return the peaks of `comparison_peaks` from the log rate on the pair rows.
+
+    Both sources are measured in the window of the peak of `counts` (the
+    spikes that were fit, trial × bin, real or simulated) on the same pairs,
+    as the held-out main measure takes the window of the observed spikes.
+    With no `counts` (the true effect of `power_test.py`), the window is that
+    of the full rate.
+    """
     rates = np.exp(np.stack([log_rate, log_rate - contribution])) / dmat.BINWIDTH_S
+    if counts is None:
+        latency = rates[:1]
+    else:
+        latency = (
+            np.asarray(counts).ravel()[_SHARED["pair_rows"]][None] / dmat.BINWIDTH_S
+        )
     return np.asarray(
         [
-            flash_movement.matched_rate_peaks(rates[:, position].mean(2))
+            flash_movement.matched_rate_peaks(
+                rates[:, position].mean(2), latency[:, position].mean(2)
+            )
             for position in _SHARED["pair_position"]  # (period, trial, bin)
         ]
     )
@@ -315,15 +344,17 @@ def _unit(job: dict) -> dict:
     raw = dmat.build_unit_history(alignments, job["spike_times"])
     real_history, mean, scale = dmat.training_zscore(raw, valid)
     real = measures(record, scale)
-    real_part = matched_part(record["intercept"], coefficients, real_history, width)
-    real_peaks = comparison_peaks(
-        record["intercept"], coefficients, real_history, width
-    )
-    # The denominator of `flash_movement.py`: the observed mean rate over the
-    # valid interval of the paired trials.
     observed = build_unit_counts(alignments, job["spike_times"]).reshape(
         len(alignments), -1
     )
+    real_part = matched_part(
+        record["intercept"], coefficients, real_history, width, observed
+    )
+    real_peaks = comparison_peaks(
+        record["intercept"], coefficients, real_history, width, observed
+    )
+    # The denominator of `flash_movement.py`: the observed mean rate over the
+    # valid interval of the paired trials.
     valid_bins = valid.reshape(len(alignments), -1)
     paired = _SHARED["paired_trials"]
     scale_rate = (observed * valid_bins)[paired].sum() / (
@@ -344,9 +375,11 @@ def _unit(job: dict) -> dict:
         model = fit_poisson_at_alpha(design, counts.ravel()[valid], job["alpha"])
         result = {"components": record["components"], "coefficients": model.coef_}
         fits.append(measures(result, simulated_scale))
-        leak_parts.append(matched_part(model.intercept_, model.coef_, scaled, width))
+        leak_parts.append(
+            matched_part(model.intercept_, model.coef_, scaled, width, counts)
+        )
         leak_peaks.append(
-            comparison_peaks(model.intercept_, model.coef_, scaled, width)
+            comparison_peaks(model.intercept_, model.coef_, scaled, width, counts)
         )
     null_level = measures({**record, "coefficients": null}, scale)[2]
     return {

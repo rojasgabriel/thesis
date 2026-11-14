@@ -15,7 +15,10 @@ is to the immediately preceding measured pulse of any width; the first pulse
 of a trial has none and is not used. A trial can give a pair to each class.
 Report all exclusion counts and selected trial IDs. Align to measured flash onset, use
 10-ms bins, and subtract the stationary -40..0-ms baseline within each gap
-class from both peaks (30..120 ms). Restrict all sources to the GLM's selected
+class from both peaks. The peak is the mean over ±20 ms around the largest
+bin from 30 to 120 ms (`peaks.window_peak`, since 2026-11-13; before, the
+largest bin). Every model source is measured in the window of the observed
+peak of the same unit, gap class and period. Restrict all sources to the GLM's selected
 completed trials and full paired windows inside its valid native 1-ms grid.
 Round flash anchors to the nearest model bin. Other flashes can enter the window.
 PSTHs show each gap class on its own, above the scatter of that class: the
@@ -32,7 +35,7 @@ This removes a fitted contribution without refitting or simulating history;
 it is not a test of unique necessity, a causal effect, or locomotion independence.
 
 Supporting model view: reconstruct raw flash kernels from saved final coefficients and
-column scales. Compare the peak of each 10-ms-averaged kernel at 30..120 ms
+column scales. Compare the window peak of each 10-ms-averaged kernel at 30..120 ms
 in port versus after exit, separately at 40-ms and 80+-ms preceding gaps.
 Only flash, short-gap and flash-by-exit terms enter; nuisance terms cancel
 when held at the same reference. Peaks are changes in log rate, not spikes/s.
@@ -169,11 +172,17 @@ def paired_flashes_by_gap(trials):
     return groups, counts
 
 
-def observed_peaks(rate, centers):
-    """Peak of (..., condition, time), using one stationary baseline."""
+def observed_peaks(rate, centers, latency=None):
+    """Peak of (..., condition, time), using one stationary baseline.
+
+    The peak is `peaks.window_peak`: the mean over ±20 ms around the largest
+    bin from 30 to 120 ms (since 2026-11-13; before, the largest bin). The
+    largest bin is found in `latency` (default: `rate`; it broadcasts against
+    `rate`), so a model trace is measured in the window of the observed trace.
+    """
     rate = np.asarray(rate)
     baseline = rate[..., 0, (centers >= -0.04) & (centers < 0)].mean(-1)
-    response = rate[..., (centers >= 0.03) & (centers < 0.12)].max(-1)
+    response = peaks.window_peak(rate, 1000 * np.asarray(centers), latency)
     return response - baseline[..., None]
 
 
@@ -195,14 +204,15 @@ def kernel_peaks(coefficients, metadata, basis, lags):
     # The basis includes its 150-ms endpoint; 10-ms bins are half-open.
     inside = (np.round(lags, 6) >= 0) & (np.round(lags, 6) < 150)
     centers = lags[inside].reshape(-1, 10).mean(-1) + 0.5
-    window = (centers >= 30) & (centers < 120)
     return np.asarray(
         [
             [
-                flash_kernel_at(terms, gap, after, center)[inside]
-                .reshape(-1, 10)
-                .mean(-1)[window]
-                .max()
+                peaks.window_peak(
+                    flash_kernel_at(terms, gap, after, center)[inside]
+                    .reshape(-1, 10)
+                    .mean(-1),
+                    centers,
+                )
                 for after in (False, True)
             ]
             for gap in GAPS_MS
@@ -287,12 +297,18 @@ def held_out_rates(
     return predicted
 
 
-def matched_rate_peaks(rates):
-    """Apply the same 10-ms-bin peak measure to every source and bootstrap."""
+def matched_rate_peaks(rates, latency=None):
+    """Apply the same 10-ms-bin peak measure to every source and bootstrap.
+
+    `latency` (1-ms bins, broadcast against `rates`) gives the peak window.
+    """
     rates = np.asarray(rates)
     binned = rates.reshape(*rates.shape[:-1], -1, 10).mean(-1)
+    if latency is not None:
+        latency = np.asarray(latency)
+        latency = latency.reshape(*latency.shape[:-1], -1, 10).mean(-1)
     centers = (LAGS_MS.reshape(-1, 10).mean(-1) + 0.5) / 1000
-    return observed_peaks(binned, centers)
+    return observed_peaks(binned, centers, latency)
 
 
 def normalize_peaks(peaks, peak_draws, scale, scale_draws):
@@ -406,12 +422,13 @@ def session_data(session, excited):
         for window, weights in zip(windows, draws, strict=True):
             # (source, period, trial, native 1-ms bin), identical across sources.
             rates = sources[:, window]
-            peaks.append(matched_rate_peaks(rates.mean(2)))
+            # Every source in the window of the observed peak (source 0).
+            peaks.append(matched_rate_peaks(rates.mean(2), rates[:1].mean(2)))
             # Average 1-ms bins before bootstrapping to keep the calculation small.
             binned = rates.reshape(*rates.shape[:-1], -1, 10).mean(-1)
             repeated = np.einsum("bt,sptj->bspj", weights, binned)
             centers = (LAGS_MS.reshape(-1, 10).mean(-1) + 0.5) / 1000
-            boot_peaks = observed_peaks(repeated, centers)
+            boot_peaks = observed_peaks(repeated, centers, repeated[:, :1])
             spreads.append(boot_peaks.std(axis=0, ddof=1))
             peak_draws.append(boot_peaks)
             enhancement = boot_peaks[..., 1] - boot_peaks[..., 0]
@@ -731,7 +748,7 @@ def main():
         "gap_rule": "both flashes in the trial pair must have the same preceding-gap class",
         "model_error_bars": "SD over saved trial folds",
         "rate_sources": RATE_SOURCES,
-        "rate_peak_scale": "spikes/s; identical 10-ms bins, stationary baseline and 30..120-ms peak",
+        "rate_peak_scale": "spikes/s; identical 10-ms bins, stationary baseline, ±20-ms window around the observed 30..120-ms peak bin",
         "rate_prediction": "saved whole-trial held-out folds; observed history; raw flash-by-exit removal; no refit",
         "rate_error_bars": "paired-trial bootstrap SD (500 shared draws); fixed fitted models",
         "rate_scatter_axes": "linear; population and flash-excited means with complete SEM bars; no individual units",

@@ -175,7 +175,7 @@ def held_out_peaks(counts, history, width: int, alphas: list[float]) -> np.ndarr
         )
         log_rate[here] = model.intercept_ + test @ model.coef_
         contribution[here] = raw_contribution(test, model.coef_, metadata, removed)
-    return leak_test.peaks_from(log_rate, contribution)
+    return leak_test.peaks_from(log_rate, contribution, counts)
 
 
 def _unit(job: dict) -> dict:
@@ -221,7 +221,7 @@ def _unit(job: dict) -> dict:
                     design, counts.ravel()[valid], job["alpha"]
                 )
                 fitted[a, r] = leak_test.comparison_peaks(
-                    model.intercept_, model.coef_, scaled, width
+                    model.intercept_, model.coef_, scaled, width, counts
                 )
             else:
                 fitted[a, r] = held_out_peaks(counts, scaled, width, fold_alphas)

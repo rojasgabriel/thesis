@@ -9,7 +9,7 @@ another) uses this measure:
 - the peak (`window_peak`) is the mean baseline-corrected rate over the bins
   within `PEAK_HALF_MS` of the largest bin with a center in `PEAK_MS`, found
   in each condition apart (spikes/s). `peaks` still gives the single largest
-  bin for `leak_test.py` and `flash_by_gap.py`.
+  bin for `flash_by_gap.py`.
 
 The same function gives the peak of the observed counts, of the rate of the
 fitted model, and of that rate with some terms set to 0. The units are those
@@ -114,12 +114,32 @@ def window_peak(
     return (binned * near).sum(-1) / near.sum(-1)
 
 
+def window_peaks(trace: np.ndarray, latency: np.ndarray | None = None) -> np.ndarray:
+    """Return the window peak of each condition; trace is (condition, 1-ms bin), spikes/s.
+
+    As `peaks`, with `window_peak` in place of the largest bin. `latency`
+    (same shape, default `trace`) gives the window of each condition: give
+    the observed trace to measure a model trace in the observed window.
+    """
+    binned = trace.reshape(len(trace), -1, PSTH_BIN_MS).mean(-1)
+    source = (
+        binned
+        if latency is None
+        else latency.reshape(binned.shape[0], -1, PSTH_BIN_MS).mean(-1)
+    )
+    centers = LAGS_MS.reshape(-1, PSTH_BIN_MS).mean(-1) + 0.5
+    baseline = binned[
+        0, (centers >= BASELINE_MS[0]) & (centers < BASELINE_MS[1])
+    ].mean()
+    return window_peak(binned, centers, source) - baseline
+
+
 def peaks(trace: np.ndarray) -> np.ndarray:
     """Return the peak of each condition; trace is (condition, 1-ms bin) in spikes/s.
 
-    The largest single bin, as before 2026-11-12 (`leak_test.py` and
-    `flash_by_gap.py` keep it until they are rerun with `window_peak`). The
-    baseline comes from the first condition and is taken from all.
+    The largest single bin, as before 2026-11-12 (`flash_by_gap.py` keeps it
+    until it is rerun with `window_peak`). The baseline comes from the first
+    condition and is taken from all.
     """
     binned = trace.reshape(len(trace), -1, PSTH_BIN_MS).mean(-1)
     centers = LAGS_MS.reshape(-1, PSTH_BIN_MS).mean(-1) + 0.5
