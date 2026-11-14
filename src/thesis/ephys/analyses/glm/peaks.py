@@ -6,8 +6,10 @@ another) uses this measure:
 - the trial-mean rate around the flashes of a condition, in `PSTH_BIN_MS` bins;
 - the baseline is the rate of the reference condition (the first of the pair)
   from `BASELINE_MS`, and the same baseline is taken from both conditions;
-- the peak is the largest baseline-corrected rate with a bin center in
-  `PEAK_MS`, found in each condition apart (spikes/s).
+- the peak (`window_peak`) is the mean baseline-corrected rate over the bins
+  within `PEAK_HALF_MS` of the largest bin with a center in `PEAK_MS`, found
+  in each condition apart (spikes/s). `peaks` still gives the single largest
+  bin for `leak_test.py` and `flash_by_gap.py`.
 
 The same function gives the peak of the observed counts, of the rate of the
 fitted model, and of that rate with some terms set to 0. The units are those
@@ -43,6 +45,9 @@ from thesis.ephys.units import fetch_unit_table
 PSTH_BIN_MS = 10
 BASELINE_MS = (-40, 0)
 PEAK_MS = (30, 120)
+# Half-width of the window around the peak bin that gives the peak (2026-11-12,
+# Anne: a window, not the single largest bin). 20 ms = 5 bins of 10 ms.
+PEAK_HALF_MS = 20
 LAGS_MS = np.arange(BASELINE_MS[0], PEAK_MS[1])
 STIM_RESPONSE_PARAM_ID = 0
 # The flash-excited units of each session, {session: [unit id]} (`main`).
@@ -83,10 +88,29 @@ def excited_units(subject: str, session: str) -> set[int]:
     return excited & set(stable)
 
 
+def window_peak(
+    binned: np.ndarray, centers: np.ndarray, latency_from: np.ndarray | None = None
+) -> np.ndarray:
+    """Return the mean over `PEAK_HALF_MS` around the peak bin, along the last axis.
+
+    The peak bin is the largest bin of `latency_from` (default: `binned`) with
+    its center in `PEAK_MS`; the mean is over the bins with centers within
+    `PEAK_HALF_MS` of it, clipped to the trace. Give the observed trace as
+    `latency_from` to measure a model trace in the same window.
+    """
+    source = binned if latency_from is None else latency_from
+    window = (centers >= PEAK_MS[0]) & (centers < PEAK_MS[1])
+    at = centers[window][np.argmax(source[..., window], axis=-1)]
+    near = np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS
+    return (binned * near).sum(-1) / near.sum(-1)
+
+
 def peaks(trace: np.ndarray) -> np.ndarray:
     """Return the peak of each condition; trace is (condition, 1-ms bin) in spikes/s.
 
-    The baseline comes from the first condition and is taken from all.
+    The largest single bin, as before 2026-11-12 (`leak_test.py` and
+    `flash_by_gap.py` keep it until they are rerun with `window_peak`). The
+    baseline comes from the first condition and is taken from all.
     """
     binned = trace.reshape(len(trace), -1, PSTH_BIN_MS).mean(-1)
     centers = LAGS_MS.reshape(-1, PSTH_BIN_MS).mean(-1) + 0.5

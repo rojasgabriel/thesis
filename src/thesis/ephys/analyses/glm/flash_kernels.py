@@ -11,6 +11,11 @@ No new fit; the kernels are from the final refit of each unit (`fit.py`).
   after exit, at the 40 ms and the 80+ ms gap.
 - Response of a unit in a condition: the mean of its kernel from
   `RESPONSE_MS` after the flash (Δ log rate).
+- Peak of a condition (`peak`): the mean kernel within `peaks.PEAK_HALF_MS`
+  of its largest value from 30 to 120 ms (`peaks.window_peak`, 1-ms lags),
+  the peak measure of the observed and model rates.
+- Spread of a response or peak (`response_sd`, `peak_sd`): its SD over the
+  cross-validation fold fits.
 - Fixation response: the mean response over the two in-port conditions.
   `flash_by_gap.py` uses it to sort units into the units that fire more and
   less after a flash (`KIND_LIMIT`).
@@ -32,6 +37,7 @@ import numpy as np
 from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
+from thesis.ephys.analyses.glm.peaks import window_peak
 from thesis.ephys.analyses.glm.results import flash_kernel_at
 
 # The sessions of the two-animal figures (`behavior.trials.RECORDED`). Each test
@@ -75,31 +81,49 @@ def session_kernels(root: Path, unit_set: str) -> Path:
     center = metadata.get("flash_recovery_center")
 
     def response(coefficients) -> np.ndarray:
-        """Return the mean kernel of each condition in the response window."""
+        """Return the mean kernel and its window peak, (2, condition)."""
         weights = np.asarray(coefficients, dtype=float)
         terms = {
             term: (lags, (weights[index] / scale[index]) @ basis.basis.T)
             for term, index in columns.items()
         }
-        return np.stack(
+        curves = np.stack(
             [
                 flash_kernel_at(terms, gap, after, center)
                 for gap, after in CONDITIONS.values()
             ]
-        )[:, window].mean(-1)
+        )
+        return np.stack([curves[:, window].mean(-1), window_peak(curves, lags)])
 
     final = load_unit_records(
         model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
     )
     responses = np.asarray([response(item["coefficients"]) for item in final])
+    folds = {
+        int(item["unit_id"]): item["folds"]
+        for item in load_unit_records(
+            model.fit_dir(unit_set) / "checkpoints", "unit_*_folds.json"
+        )
+    }
+    spread = np.asarray(
+        [
+            np.std(
+                [response(f["coefficients"]) for f in folds[int(item["unit_id"])]], 0
+            )
+            for item in final
+        ]
+    )
     fixation = [list(CONDITIONS).index(name) for name in FIXATION]
     path = root / "flash_kernels.npz"
     np.savez(
         path,
         unit_ids=np.asarray([int(item["unit_id"]) for item in final]),
         conditions=np.asarray(list(CONDITIONS)),
-        response=responses,
-        fixation_response=responses[:, fixation].mean(1),
+        response=responses[:, 0],
+        response_sd=spread[:, 0],
+        peak=responses[:, 1],
+        peak_sd=spread[:, 1],
+        fixation_response=responses[:, 0, fixation].mean(1),
     )
     return path
 

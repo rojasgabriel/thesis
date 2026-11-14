@@ -237,6 +237,35 @@ def kernel_values(root: Path, unit_set: str) -> dict:
     return out
 
 
+FIXATION_GROUPS = ("fixation-suppressed", "no fixation effect", "fixation-excited")
+
+
+def fixation_groups(root: Path, unit_set: str = "all") -> dict[int, str]:
+    """Return the fixation group of each unit (`FIXATION_GROUPS`).
+
+    Fixation level: the mean of the fixation kernel over `LEVEL_MS` (final
+    refit); SD: over the cross-validation fold fits (`kernel_values`).
+    Suppressed: level below 0 by more than 2 SDs; excited: above 0 by more
+    than 2 SDs; otherwise no effect.
+    """
+    kernels = kernel_values(root, unit_set)
+    level, sd = kernels[dmat.HOLD]["level"], kernels[dmat.HOLD]["level_sd"]
+    group = np.where(level + 2 * sd < 0, 0, np.where(level - 2 * sd > 0, 2, 1))
+    return {
+        int(unit): FIXATION_GROUPS[g]
+        for unit, g in zip(kernels["unit_ids"], group, strict=True)
+    }
+
+
+def fixation_suppressed(root: Path, unit_set: str = "all") -> set[int]:
+    """Return the fixation-suppressed units (`fixation_groups`)."""
+    return {
+        unit
+        for unit, group in fixation_groups(root, unit_set).items()
+        if group == FIXATION_GROUPS[0]
+    }
+
+
 def raw_rates(source: Path, unit_set: str, examples: tuple[int, ...]) -> dict:
     """Return each unit's normalized rate from the first flash and from the center exit."""
     prepared = dmat._load_windows(source / "stimulus_windows_me.npz")

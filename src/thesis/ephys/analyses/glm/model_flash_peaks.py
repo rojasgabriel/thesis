@@ -24,12 +24,21 @@ Comparison: the observed rate against the rate of the final refit of each unit
 - Measure: per unit, the mean over flashes in 10-ms bins, divided by the
   unit's mean observed rate over all valid bins; baseline = the in-port rate
   from -40 to 0 ms of the last in-port flash, the same for both periods; peak
-  = the largest bin from 30 to 120 ms minus that baseline. Mean ± SEM over
+  = the mean over the bins within 20 ms of the largest observed bin from 30
+  to 120 ms (`peaks.window_peak`), minus that baseline. Every version is
+  measured in the window of the observed peak, so the model is not measured
+  at its own peak (until 2026-11-12: the largest bin of each version). Mean ± SEM over
   units, each mouse alone. The sampling unit is the unit.
 - The final refit is fit to all trials, so this comparison is in-sample, not
   held out.
 
-Writes `figures/glm/model_without_terms.svg`, `figures/glm/model_first_flash.svg`
+- By fixation group (`model_without_terms_by_fixation.svg`): the same peaks
+  for the flash-excited units of each fixation group, one row each
+  (`hold_effect.fixation_groups`: the fixation level below 0, above 0 or
+  neither by more than 2 fold SDs).
+
+Writes `figures/glm/model_without_terms.svg`, `figures/glm/model_first_flash.svg`,
+`figures/glm/model_without_terms_by_fixation.svg`
 and `results/glm/model_flash_peaks.json`.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
@@ -51,6 +60,7 @@ from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm import peaks as P
 from thesis.ephys.analyses.glm.fit import build_unit_counts, load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
+from thesis.ephys.analyses.glm.hold_effect import FIXATION_GROUPS, fixation_groups
 from thesis.ephys.analyses.glm.results import raw_contribution
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
@@ -173,11 +183,14 @@ def session_traces(sess: str) -> dict:
         )
         out.append(
             {
-                name: {
-                    k: src[r_[:, None], c_].mean(0) / dmat.BINWIDTH_S / mean_rate
-                    for k, (r_, c_) in win.items()
-                }
-                for name, src in sources.items()
+                "id": int(uid),
+                **{
+                    name: {
+                        k: src[r_[:, None], c_].mean(0) / dmat.BINWIDTH_S / mean_rate
+                        for k, (r_, c_) in win.items()
+                    }
+                    for name, src in sources.items()
+                },
             }
         )
     return dict(subject=subject, units=out, n={k: len(v[0]) for k, v in conds.items()})
@@ -190,66 +203,94 @@ def binned(trace):
 
 CENTERS = binned(LAGS.astype(float))
 BASE = (CENTERS >= -40) & (CENTERS < 0)
-PEAK = (CENTERS >= 30) & (CENTERS < 120)
 
 
 def peak(unit, version, flash):
+    """Window peak of a version, in the window of the observed peak of that flash."""
     base = binned(unit[version]["last in port"])[BASE].mean()
-    return (binned(unit[version][flash])[PEAK] - base).max()
+    trace = binned(unit[version][flash])
+    observed = binned(unit["observed"][flash])
+    return P.window_peak(trace, CENTERS, latency_from=observed) - base
 
 
-def plot_peaks(data, summary):
+def plot_peaks(rows, summary, name="model_without_terms"):
+    """One row of the four versions per unit group; rows: [(label, data)]."""
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(1, 4, figsize=(12, 3.4), sharex=True, sharey=True)
-        for a, version in zip(ax, VERSIONS, strict=True):
-            color = OBSERVED_COLOR if version == "observed" else MODEL_COLOR
-            for m, d in enumerate(data):
-                s = d["subject"]
-                x = np.array([peak(u, version, "last in port") for u in d["units"]])
-                y = np.array([peak(u, version, "first after exit") for u in d["units"]])
-                ex, ey = (v.std(ddof=1) / np.sqrt(len(v)) for v in (x, y))
-                a.errorbar(
-                    x.mean(),
-                    y.mean(),
-                    xerr=ex,
-                    yerr=ey,
-                    fmt=mouse_marker(s, m),
-                    color=color,
-                    ms=7,
-                    capsize=3,
-                )
-                summary.setdefault(version, {})[s] = dict(
-                    in_port=float(x.mean()),
-                    after_exit=float(y.mean()),
-                    increase=float(np.mean(y - x)),
-                    units=len(x),
-                )
-                a.annotate(
-                    s,
-                    (x.mean(), y.mean()),
-                    xytext=(6, -12 if m else 6),
-                    textcoords="offset points",
-                    fontsize=7,
-                )
-            lim = (0, 3.5)
+        fig, axes = plt.subplots(
+            len(rows),
+            4,
+            figsize=(10, 2.6 * len(rows) + 0.5),
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+            layout="constrained",
+        )
+        ends = [0.0, 3.5]
+        for row, (label, data) in enumerate(rows):
+            for a, version in zip(axes[row], VERSIONS, strict=True):
+                color = OBSERVED_COLOR if version == "observed" else MODEL_COLOR
+                for m, d in enumerate(data):
+                    s = d["subject"]
+                    x = np.array([peak(u, version, "last in port") for u in d["units"]])
+                    y = np.array(
+                        [peak(u, version, "first after exit") for u in d["units"]]
+                    )
+                    if not len(x):
+                        continue
+                    ex, ey = (
+                        v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else 0.0
+                        for v in (x, y)
+                    )
+                    a.errorbar(
+                        x.mean(),
+                        y.mean(),
+                        xerr=ex,
+                        yerr=ey,
+                        fmt=mouse_marker(s, m),
+                        color=color,
+                        ms=7,
+                        capsize=3,
+                    )
+                    ends = [
+                        min(ends[0], x.mean() - ex, y.mean() - ey),
+                        max(ends[1], x.mean() + ex, y.mean() + ey),
+                    ]
+                    summary.setdefault(label, {}).setdefault(version, {})[s] = dict(
+                        in_port=float(x.mean()),
+                        after_exit=float(y.mean()),
+                        increase=float(np.mean(y - x)),
+                        units=len(x),
+                    )
+                if row == 0:
+                    a.text(
+                        0,
+                        1.12,
+                        version,
+                        transform=a.transAxes,
+                        va="bottom",
+                        fontsize=8,
+                        color=color,
+                    )
+                if row == len(rows) - 1:
+                    a.set_xlabel("peak, last in port")
+            n = ", ".join(f"{d['subject']} {len(d['units'])}" for d in data)
+            axes[row, 0].text(
+                0,
+                1.01,
+                f"{label} ({n})",
+                transform=axes[row, 0].transAxes,
+                va="bottom",
+                fontsize=8,
+            ).set_in_layout(False)
+            axes[row, 0].set_ylabel("peak, first after exit\n(÷ mean rate)")
+        lim = (np.floor(ends[0] * 2) / 2, np.ceil(ends[1] * 2) / 2)
+        for a in axes.ravel():
             a.plot(lim, lim, color="0.6", ls="--", lw=0.8)
             a.set_xlim(lim)
             a.set_ylim(lim)
             a.set_aspect("equal")
-            a.text(
-                0,
-                1.03,
-                version,
-                transform=a.transAxes,
-                va="bottom",
-                fontsize=8,
-                color=color,
-            )
-            a.set_xlabel("peak, last in port")
-        ax[0].set_ylabel("peak, first after exit\n(÷ mean rate)")
-        label_panels(ax, x=-0.12, y=1.1)
-        fig.tight_layout()
-        return save_figure(fig, OUT / "model_without_terms")
+        label_panels(axes[:, 0], x=-0.3, y=1.1)
+        return save_figure(fig, OUT / name)
 
 
 def plot_traces(data):
@@ -313,9 +354,27 @@ def main() -> None:
     for d in data:
         print(d["subject"], len(d["units"]), d["n"], flush=True)
     summary = {}
-    print(plot_peaks(data, summary))
+    print(plot_peaks([("flash-excited units", data)], summary))
     print(plot_traces(data))
-    report = {"peaks": summary, "flashes": {d["subject"]: d["n"] for d in data}}
+    # The same peaks in each fixation group (Anne, 2026-11-12; all groups 11-13).
+    groups = [fixation_groups(OUT / s) for s in SESSIONS]
+    rows = [
+        (
+            f"{name} units",
+            [
+                {**d, "units": [u for u in d["units"] if g.get(u["id"]) == name]}
+                for d, g in zip(data, groups, strict=True)
+            ],
+        )
+        for name in FIXATION_GROUPS
+    ]
+    by_group = {}
+    print(plot_peaks(rows, by_group, "model_without_terms_by_fixation"))
+    report = {
+        "peaks": summary,
+        "peaks_by_fixation_group": by_group,
+        "flashes": {d["subject"]: d["n"] for d in data},
+    }
     (OUT / "model_flash_peaks.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
 
