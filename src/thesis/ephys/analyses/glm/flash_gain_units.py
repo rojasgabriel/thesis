@@ -9,11 +9,12 @@ background (additive), or something else? A check before the GLM.
 
 Measures, per unit and period, from the trial mean in 10-ms bins of the
 flashes of the gap class 100-200 ms: the rate before the flash (-40 to 0 ms)
-and the peak above it: the bin from 30 to 120 ms chosen on one half of the
-trials and read on the other half, minus that rate (split half by trial, both
-ways, mean over `SPLITS` random splits; the largest bin of a noisy trace is
-biased upward, more in the period with fewer flashes, which would push g_f
-toward g_b). The halves are of trials, not flashes, so a trial that a
+and the peak above it: the window peak (`peaks.window_peak`, the mean over
+±20 ms around the peak bin; since 2026-11-15, one bin before) with the peak
+bin from 30 to 120 ms chosen on one half of the trials and the window read on
+the other half, minus that rate (split half by trial, both ways, mean over
+`SPLITS` random splits; the largest bin of a noisy trace is biased upward,
+more in the period with fewer flashes, which would push g_f toward g_b). The halves are of trials, not flashes, so a trial that a
 bootstrap draw takes twice falls in one half only.
 g_b = rate before after the exit / in port; g_f = peak after the exit / in
 port. g_f = g_b is a pure gain; g_f = 1 an unchanged flash response.
@@ -33,7 +34,8 @@ port. g_f = g_b is a pure gain; g_f = 1 an unchanged flash response.
   each); a drawn trial brings its flashes of both periods, so the periods
   stay paired, and all units of a mouse use the same draws. Per unit: 95%,
   error bars in both directions. A unit whose in-port peak is ≤ 0 has no
-  g_f and is counted.
+  g_f, and one with no in-port rate before the flash no g_b; both are counted
+  and left out of the tests that need them.
 - Statistics: per mouse, two-sided Wilcoxon signed-rank tests over units of
   g_f - g_b (pure gain at 0) and of g_f - 1 (unchanged response at 0); they
   take each unit's value as exact and the units as independent. With them,
@@ -65,6 +67,7 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import dmat, exit_flash_responses, peaks
 from thesis.ephys.analyses.glm.fit import build_unit_counts
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
+from thesis.ephys.analyses.glm.peaks import window_peak
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -81,6 +84,7 @@ PERIODS = ("in port", "later after exit")
 BIN_MS = 10
 BEFORE_BINS = 4  # -40 to 0 ms
 PEAK_BINS = slice(7, 16)  # 30 to 120 ms
+CENTERS_MS = np.arange(-40, 120, BIN_MS) + BIN_MS / 2
 BOOTSTRAPS = 500
 SPLITS = 50
 SEED = 3
@@ -116,7 +120,8 @@ def split_peak(counts: np.ndarray, trials: np.ndarray, rng, splits: int):
     """Return the rate before the flash and the split-half peak above it (spikes/s).
 
     The peak bin is chosen on the flashes of a random half of the trials and
-    its value is read on the other half, then the halves swap; the mean over
+    the window around it (`peaks.window_peak`) is read on the other half,
+    then the halves swap; the mean over
     `splits` random splits. The maximum of a noisy trace is biased upward,
     more with fewer flashes; reading it on other trials removes that bias.
     """
@@ -127,9 +132,9 @@ def split_peak(counts: np.ndarray, trials: np.ndarray, rng, splits: int):
     for _ in range(splits):
         first = np.isin(trials, rng.permutation(ids)[: len(ids) // 2])
         for pick, read in ((first, ~first), (~first, first)):
-            chosen = counts[pick].mean(0)[PEAK_BINS].argmax()
             trace = counts[read].mean(0) * to_rate
-            peaks.append(trace[PEAK_BINS][chosen] - trace[:BEFORE_BINS].mean())
+            window = window_peak(trace, CENTERS_MS, counts[pick].mean(0))
+            peaks.append(window - trace[:BEFORE_BINS].mean())
     return float(before), float(np.mean(peaks))
 
 
@@ -183,7 +188,11 @@ def session_gains(session: str, excited: list[int]) -> dict:
         )
     table = np.asarray(out["gains"])
     defined = np.isfinite(table[:, 2])
-    g_b, g_f = table[defined, 1], table[defined, 2]
+    g_f = table[defined, 2]
+    # g_f - g_b needs both: a unit with no rate before the flash in the port
+    # has no g_b.
+    both = defined & np.isfinite(table[:, 1])
+    pair = table[both, 2] - table[both, 1]
     out["flashes"] = {
         f"{p}, gap {exit_flash_responses.GAP_LABELS[g]} ms": int(len(windows[(p, g)]))
         for p in PERIODS
@@ -193,11 +202,12 @@ def session_gains(session: str, excited: list[int]) -> dict:
     out["stats"] = {
         "units": int(len(table)),
         "units_without_g_f": int(np.sum(~defined)),
+        "units_without_g_b": int(np.sum(~np.isfinite(table[:, 1]))),
         "median_g_b": float(np.nanmedian(table[:, 1])),
         "median_g_f": float(np.median(g_f)),
-        "median_g_f_minus_g_b": float(np.median(g_f - g_b)),
-        "wilcoxon_p_g_f_minus_g_b": float(wilcoxon(g_f - g_b).pvalue),
-        "units_g_f_above_g_b": int(np.sum(g_f > g_b)),
+        "median_g_f_minus_g_b": float(np.median(pair)),
+        "wilcoxon_p_g_f_minus_g_b": float(wilcoxon(pair).pvalue),
+        "units_g_f_above_g_b": int(np.sum(pair > 0)),
         "median_g_f_minus_1": float(np.median(g_f - 1)),
         "wilcoxon_p_g_f_minus_1": float(wilcoxon(g_f - 1).pvalue),
         "units_g_f_above_1": int(np.sum(g_f > 1)),
@@ -256,6 +266,20 @@ def plot(sessions: list[dict]) -> Path:
                 elinewidth=0.5,
                 alpha=0.6,
             )
+            # A unit past the axes is drawn open at the edge; it stays in the
+            # statistics, and the title counts it.
+            beyond = ((gains[:, 1:] < limits[0]) | (gains[:, 1:] > limits[1])).any(1)
+            edge = np.clip(gains[beyond, 1:], *limits)
+            axis.plot(
+                edge[:, 0],
+                edge[:, 1],
+                marker,
+                ls="",
+                ms=4,
+                mfc="white",
+                mec=COLOR,
+                clip_on=False,
+            )
             axis.plot(
                 np.nanmedian(gains[:, 1]),
                 np.nanmedian(gains[:, 2]),
@@ -281,6 +305,11 @@ def plot(sessions: list[dict]) -> Path:
                 f"g_f - 1: median {st['median_g_f_minus_1']:+.2f}"
                 f" [{st['median_g_f_minus_1_95_trials_and_units'][0]:+.2f},"
                 f" {st['median_g_f_minus_1_95_trials_and_units'][1]:+.2f}]"
+                + (
+                    f"\n{int(beyond.sum())} units past the axes (open, at the edge)"
+                    if beyond.any()
+                    else ""
+                )
                 + (f"\n{outside} interval ends outside the axes" if outside else ""),
                 fontsize=7,
             )
@@ -295,13 +324,16 @@ def plot(sessions: list[dict]) -> Path:
                 rotation=45,
                 rotation_mode="anchor",
             )
+            # Outside the panel, right of its line, where no point can be.
             axis.text(
-                limits[1] - 0.1,
-                1.08,
-                "same flash response",
-                ha="right",
+                limits[1] + 0.15,
+                1,
+                "same flash\nresponse",
+                ha="left",
+                va="center",
                 fontsize=6,
                 color="0.4",
+                clip_on=False,
             )
             axis.set_xlabel(
                 "gain of the rate before the flash, g_b\n(after exit over in port)"
@@ -314,7 +346,12 @@ def plot(sessions: list[dict]) -> Path:
 
 def main() -> None:
     excited = peaks.load_excited_units()
-    sessions = [session_gains(s, sorted(excited[s])) for s in SESSIONS]
+    # A session of `SESSIONS` with no fit yet has no units (GRB061 on
+    # 2026-11-15); it is skipped and named.
+    skipped = [s for s in SESSIONS if s not in excited]
+    if skipped:
+        print(f"No units yet, skipped: {', '.join(skipped)}")
+    sessions = [session_gains(s, sorted(excited[s])) for s in SESSIONS if s in excited]
     (OUT / "flash_gain_units.json").write_text(json.dumps(sessions, indent=1))
     print(
         json.dumps(

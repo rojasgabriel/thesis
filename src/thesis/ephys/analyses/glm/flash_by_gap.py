@@ -37,8 +37,10 @@ gaps and between periods are paired: each unit has a value in each condition.
   before and the solid line is the flash. In the group with the longest gaps
   the flash comes at different times: the solid line is the shortest gap and
   the band goes to the longest one.
-- Measure in the output: the matched peak of `peaks.py` (spikes/s; baseline
-  from the still rate before the flash), for each gap group, in the port and after the exit,
+- Measure in the output: the window peak of `peaks.py` (`peaks.window_peaks`,
+  since 2026-11-15; the largest bin before; spikes/s; baseline from the still
+  rate before the flash; the model is measured in the window of the observed
+  rate), for each gap group, in the port and after the exit,
   on the observed rate and the model rate, for the flash-excited units of
   `flash_excited_units.json` (`peaks.excited_units`) (StimulusResponse of 2026-10-24, after the gain fix); and the two-sided Wilcoxon signed-rank test of move minus
   still for each gap group. The traces are of all units of each kind, as
@@ -232,7 +234,12 @@ def session_traces(root: Path, unit_set: str) -> dict:
             mean = np.einsum("cf,mfl->cml", in_condition, around)[:, :, in_peak]
             out["peak"].append(
                 [
-                    [peaks.peaks(mean[[g, groups + g], m]) for m in range(len(NAMES))]
+                    [
+                        peaks.window_peaks(
+                            mean[[g, groups + g], m], mean[[g, groups + g], 0]
+                        )
+                        for m in range(len(NAMES))
+                    ]
                     for g in range(groups)
                 ]
             )
@@ -261,7 +268,7 @@ def session_traces(root: Path, unit_set: str) -> dict:
         },
     }
     change = peak[..., 1] - peak[..., 0]  # (excited unit, group, observed or model)
-    stats["matched peak (spikes/s), after exit minus in port, excited units"] = {
+    stats["window peak (spikes/s), after exit minus in port, excited units"] = {
         "units": len(peak),
         **{
             name: {
@@ -380,7 +387,12 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
-    sessions = [session_traces(args.out / session, args.units) for session in SESSIONS]
+    # A session of `SESSIONS` with no fit yet has no kernels (GRB061 on
+    # 2026-11-15); it is skipped and named.
+    fitted = [s for s in SESSIONS if (args.out / s / "flash_kernels.npz").exists()]
+    if len(fitted) < len(SESSIONS):
+        print(f"No fit yet, skipped: {', '.join(set(SESSIONS) - set(fitted))}")
+    sessions = [session_traces(args.out / session, args.units) for session in fitted]
     with plt.rc_context(FIGURE_STYLE):
         figure = plt.figure(figsize=(7.4, 6.2))
         outer = figure.add_gridspec(
@@ -412,7 +424,7 @@ def main() -> None:
             )
         print(save_figure(figure, args.out / "flash_by_gap"))
     stats = {
-        session: data["stats"] for session, data in zip(SESSIONS, sessions, strict=True)
+        session: data["stats"] for session, data in zip(fitted, sessions, strict=True)
     }
     output = args.out / "flash_by_gap.json"
     output.write_text(json.dumps(stats, indent=1))

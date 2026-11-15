@@ -8,8 +8,8 @@ another) uses this measure:
   from `BASELINE_MS`, and the same baseline is taken from both conditions;
 - the peak (`window_peak`) is the mean baseline-corrected rate over the bins
   within `PEAK_HALF_MS` of the largest bin with a center in `PEAK_MS`, found
-  in each condition apart (spikes/s). `peaks` still gives the single largest
-  bin for `flash_by_gap.py`.
+  in each condition apart (spikes/s). Since 2026-11-15 every analysis uses
+  it; the single-largest-bin `peaks` is removed.
 
 The same function gives the peak of the observed counts, of the rate of the
 fitted model, and of that rate with some terms set to 0. The units are those
@@ -34,13 +34,9 @@ from pathlib import Path
 import numpy as np
 
 from thesis.behavior.trials import SESSIONS
-from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import (
     _write_json_atomic,
-    build_unit_counts,
-    load_unit_records,
 )
-from thesis.ephys.analyses.glm.results import raw_contribution
 from thesis.ephys.units import fetch_unit_table
 
 PSTH_BIN_MS = 10
@@ -127,7 +123,7 @@ def window_peak(
 def window_peaks(trace: np.ndarray, latency: np.ndarray | None = None) -> np.ndarray:
     """Return the window peak of each condition; trace is (condition, 1-ms bin), spikes/s.
 
-    As `peaks`, with `window_peak` in place of the largest bin. `latency`
+    The baseline comes from the first condition and is taken from all. `latency`
     (same shape, default `trace`) gives the window of each condition: give
     the observed trace to measure a model trace in the observed window.
     """
@@ -142,117 +138,6 @@ def window_peaks(trace: np.ndarray, latency: np.ndarray | None = None) -> np.nda
         0, (centers >= BASELINE_MS[0]) & (centers < BASELINE_MS[1])
     ].mean()
     return window_peak(binned, centers, source) - baseline
-
-
-def peaks(trace: np.ndarray) -> np.ndarray:
-    """Return the peak of each condition; trace is (condition, 1-ms bin) in spikes/s.
-
-    The largest single bin, as before 2026-11-12 (`flash_by_gap.py` keeps it
-    until it is rerun with `window_peak`). The baseline comes from the first
-    condition and is taken from all.
-    """
-    binned = trace.reshape(len(trace), -1, PSTH_BIN_MS).mean(-1)
-    centers = LAGS_MS.reshape(-1, PSTH_BIN_MS).mean(-1) + 0.5
-    baseline = binned[
-        0, (centers >= BASELINE_MS[0]) & (centers < BASELINE_MS[1])
-    ].mean()
-    window = (centers >= PEAK_MS[0]) & (centers < PEAK_MS[1])
-    return (binned[:, window] - baseline).max(1)
-
-
-def session_peaks(
-    root: Path, unit_set: str, conditions, zeroed: tuple[str, ...] = ()
-) -> dict:
-    """Return the peak of each excited unit in each condition, for three rates.
-
-    `conditions` gives, for each condition, the trial row and the time of each
-    flash of it (two arrays). The rates are the observed counts, the rate of
-    the final refit (all terms, with the observed spike history; in-sample),
-    and that rate with the raw regressors in `zeroed` set to 0. Removing a
-    raw contribution also adjusts for column centering, so the rate where
-    that regressor was already zero stays fixed.
-    Returns `peaks` (unit, rate, condition) in spikes/s.
-    """
-    model = cli.PoissonGLM(root=root)
-    prepared = dmat._load_windows(model.windows)
-    alignments, relative = prepared["alignments"], prepared["relative_centers"]
-    grid = (len(alignments), len(relative))
-    valid = dmat._valid_bin_mask(prepared)
-    windows = []
-    for rows, times in conditions:
-        first = np.rint((times - alignments[rows] - relative[0]) / dmat.BINWIDTH_S)
-        columns = first.astype(int)[:, None] + LAGS_MS[None, :]
-        if columns.min() < 0 or columns.max() >= grid[1]:
-            raise ValueError("A response window is outside the model grid.")
-        windows.append((rows, columns))
-    subject, session = (
-        prepared["metadata"][key] for key in ("subject_name", "session_name")
-    )
-    units = fetch_unit_table(
-        subject,
-        session,
-        unit_criteria_id=1,
-        stability_param_id=0,
-        include_metrics=False,
-    )
-    excited = set(load_excited_units()[f"{subject}_{session}"])
-    metadata = json.loads(model.design.with_suffix(".json").read_text())
-    removed = [
-        index
-        for index, name in enumerate(metadata["column_names"])
-        if name.startswith(tuple(f"{term}_basis" for term in zeroed))
-    ]
-    common = np.load(model.design, mmap_mode="r", allow_pickle=False)
-    final = {
-        int(item["unit_id"]): item
-        for item in load_unit_records(
-            model.fit_dir(unit_set) / "checkpoints", "unit_*_final.json"
-        )
-    }
-    out, unit_ids = [], []
-    for unit_id, spikes in zip(units["unit_id"], units["spike_times_s"], strict=True):
-        if int(unit_id) not in final or int(unit_id) not in excited:
-            continue
-        record = final[int(unit_id)]
-        spikes = np.asarray(spikes, dtype=float)
-        observed = build_unit_counts(alignments, spikes).reshape(grid)
-        width = int(metadata["base_columns"]) + int(record["components"])
-        weights = np.asarray(record["coefficients"], dtype=float)
-        history, _, _ = dmat.training_zscore(
-            dmat.build_unit_history(alignments, spikes), valid
-        )
-        log_rate = (
-            float(record["intercept"])
-            + np.asarray(common[:, :width]) @ weights[:width]
-            + history @ weights[width:]
-        )
-        without = log_rate - raw_contribution(common, weights, metadata, removed)
-        sources = (
-            observed,
-            np.exp(log_rate).reshape(grid),
-            np.exp(without).reshape(grid),
-        )
-        out.append(
-            [
-                peaks(
-                    np.stack(
-                        [
-                            source[rows[:, None], columns].mean(0)
-                            for rows, columns in windows
-                        ]
-                    )
-                    / dmat.BINWIDTH_S
-                )
-                for source in sources
-            ]
-        )
-        unit_ids.append(int(unit_id))
-    return {
-        "subject": subject,
-        "peaks": np.asarray(out),  # (unit, rate, condition)
-        "unit_ids": unit_ids,
-        "events": [len(rows) for rows, _ in windows],
-    }
 
 
 def paired_flashes(trials) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

@@ -13,8 +13,10 @@ center exit), so the task period does not change with the gap.
   flash before, rounded to the 40-ms flash slot (`dmat.FLASH_SLOT_S`); gaps of
   `LONGEST_GROUP` slots or more are one group, at their median gap. The first
   flash of a trial (no flash before) is its own group, the recovered level.
-- Response: the trial mean in 10-ms bins, the peak from 30 to 120 ms after
-  the flash minus the mean from -40 to 0 ms, divided by the mean observed rate
+- Response: the trial mean in 10-ms bins, the window peak from 30 to 120 ms
+  after the flash (`peaks.window_peak`, the mean over ±20 ms around the
+  largest bin; since 2026-11-15, the largest bin before) minus the mean from
+  -40 to 0 ms, divided by the mean observed rate
   of the unit over all valid bins.
 - Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`).
   The sampling unit is the unit; points are the mean over units with a 95%
@@ -51,7 +53,7 @@ import matplotlib.pyplot as plt
 from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import build_unit_counts
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.peaks import LAGS_MS, load_excited_units
+from thesis.ephys.analyses.glm.peaks import LAGS_MS, load_excited_units, window_peak
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     CONCEPT_COLORS,
@@ -69,7 +71,6 @@ MIN_FLASHES = 15
 BOOTSTRAPS = 1000
 CENTERS_S = (LAGS_MS.reshape(-1, 10).mean(-1) + 0.5) / 1000
 BASELINE = (CENTERS_S >= -0.04) & (CENTERS_S < 0)
-PEAK = (CENTERS_S >= 0.03) & (CENTERS_S < 0.12)
 
 
 def recovery(gap, A, c, tau):
@@ -117,7 +118,7 @@ def session_peaks(session: str, units: list[int]) -> tuple[np.ndarray, np.ndarra
         for key in keys:
             rate = counts[np.asarray(windows[key])] / dmat.BINWIDTH_S / scale
             trace = rate.mean(0).reshape(-1, 10).mean(-1)
-            row.append(trace[PEAK].max() - trace[BASELINE].mean())
+            row.append(window_peak(trace, 1000 * CENTERS_S) - trace[BASELINE].mean())
         peaks.append(row)
     return np.asarray([np.median(gaps_of[k]) for k in keys]), np.asarray(peaks)
 
@@ -170,7 +171,16 @@ def tau_interval(gaps, peaks, use) -> tuple[list[float], int]:
 
 def main() -> None:
     excited = load_excited_units()
-    data = {s.split("_")[0]: session_peaks(s, sorted(excited[s])) for s in SESSIONS}
+    # A session of `SESSIONS` with no fit yet has no units (GRB061 on
+    # 2026-11-15); it is skipped and named.
+    skipped = [s for s in SESSIONS if s not in excited]
+    if skipped:
+        print(f"No units yet, skipped: {', '.join(skipped)}")
+    data = {
+        s.split("_")[0]: session_peaks(s, sorted(excited[s]))
+        for s in SESSIONS
+        if s in excited
+    }
     report = {}
     gaps, peaks = data["GRB006"]
     use = gaps > dmat.short_gap_s()  # without the 40-ms group
