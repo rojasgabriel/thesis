@@ -38,6 +38,15 @@ class CameraPulsesTest(unittest.TestCase):
         np.testing.assert_allclose(frames, run)
         self.assertEqual(notes["irregular_places"][0]["frames_placed"], 1)
 
+    def test_first_frame_without_pulse(self):
+        frames = np.arange(100) * 0.0125
+        reference = frames - 0.002 + 0.003 * np.sin(np.arange(100))
+        repaired, notes = align_frame_times(frames[1:], reference)
+        np.testing.assert_allclose(repaired, frames, atol=1e-9)
+        self.assertEqual(notes["frame_without_pulse"], "first")
+        with self.assertRaisesRegex(ValueError, "unambiguous"):
+            align_frame_times(frames[1:], reference + 0.006)
+
     def test_unexplained_excess_pulse_fails(self):
         run = np.arange(100) * 0.0125
         with self.assertRaisesRegex(ValueError, "frame pulses"):

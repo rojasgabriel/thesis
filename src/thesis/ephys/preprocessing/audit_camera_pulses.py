@@ -10,6 +10,11 @@ of cam0 after these repairs, each of which is written to the output:
 - Preview: select a continuous run with exactly the video's frame count and
   agreement within one frame period of the independently Bpod-mapped camera
   times. Search all pauses, including long previews and acquisition restarts.
+- One pulse short: when one saved frame at an end has no pulse, take the end
+  whose alignment gives the smaller median offset to the mapped camera times
+  (1.5-2 ms in every session; the other end gives one frame period more),
+  require at most a quarter period, and place the missing frame one median
+  interval beyond the pulses (GRB061 20261109, GRB068 20261110: first frame).
 - Pulses before the recording: when a gap of `START_GAP_S` or more is in the
   first `START_SEARCH` pulses, the pulses before it are removed (the camera
   runs for a short time before it saves frames; GRB064: 215 pulses in
@@ -20,7 +25,8 @@ of cam0 after these repairs, each of which is written to the output:
   place, where three pulses are missing and one is extra).
 
 The check against the camera times that the video file stores (mapped through
-the Bpod `StreamSync` row) is in the output. This script does not change
+`thesis.ephys.events.bpod_to_clock`) is in the output. Its end can drift by a
+few ms where the video runs past the last Bpod sync pulse (GRB068 20261109). This script does not change
 database events or use AVI presentation timestamps.
 
     uv run python -m thesis.ephys.preprocessing.audit_camera_pulses \
@@ -58,6 +64,30 @@ def align_frame_times(
     if len(falling) == len(reference):
         return falling, {}
     period = float(np.median(np.diff(reference)))
+    intervals = np.diff(falling)
+    regular = intervals.max() < IRREGULAR * np.median(intervals)
+    if len(falling) == len(reference) - 1 and regular:
+        # One saved frame without a pulse at an end (GRB061 20261109, GRB068
+        # 20261110: the first one). The residual shape is the same for both
+        # alignments, so only the median offset (1.5-2 ms in all sessions)
+        # can tell which end it is.
+        offsets = {
+            "first": float(np.median(falling - reference[1:])),
+            "last": float(np.median(falling - reference[:-1])),
+        }
+        end = min(offsets, key=lambda name: abs(offsets[name]))
+        if abs(offsets[end]) > period / 4:
+            raise ValueError(f"No unambiguous end for the missing pulse: {offsets}.")
+        interval = float(np.median(intervals))
+        if end == "first":
+            frames = np.r_[falling[0] - interval, falling]
+        else:
+            frames = np.r_[falling, falling[-1] + interval]
+        return frames, {
+            "frame_without_pulse": end,
+            "median_offset_by_missing_end_s": offsets,
+            "irregular_places": [],
+        }
     boundaries = np.r_[
         0, np.flatnonzero(np.diff(falling) >= START_GAP_S) + 1, len(falling)
     ]
@@ -130,9 +160,9 @@ def main() -> None:
     frame_times_path = args.output.with_name("frame_times.npy")
     if args.output.exists() or arrays_path.exists() or frame_times_path.exists():
         raise FileExistsError(args.output)
-    from labdata.schema import DatasetEvents, DatasetVideo, StreamSync
+    from labdata.schema import DatasetEvents, DatasetVideo
 
-    from thesis.ephys.events import _find_sess_ev_sources
+    from thesis.ephys.events import _find_sess_ev_sources, bpod_to_clock
 
     key = {"subject_name": args.subject, "session_name": args.session}
     source = _find_sess_ev_sources(args.subject, args.session, allow_incomplete=True)[
@@ -153,13 +183,10 @@ def main() -> None:
     # Drop sub-percent-width pulses only when the frame count then matches.
     retained = widths >= np.median(widths) / 100
     removed = np.flatnonzero(~retained)
-    sync = (
-        StreamSync()
-        & key
-        & {"dataset_name": "chipmunk", "stream_name": "bpod", "event_name": "sync"}
-    )
     # Convert only the stored Bpod timestamps for this comparison, never NIDQ.
-    reference = sync.apply(video["frame_times"], force=True, warn=False)
+    reference = bpod_to_clock(args.subject, args.session)(
+        np.asarray(video["frame_times"], dtype=float)
+    )
     if len(reference) != int(video["n_frames"]):
         raise ValueError("Stored camera times do not match the video frame count.")
     frame_times, repairs = align_frame_times(falling[retained], reference)
@@ -191,6 +218,7 @@ def main() -> None:
         "first_frame_association": (
             "Bpod-mapped camera times and recording-run boundaries"
             if "pulses_after_the_recording" in repairs
+            or "frame_without_pulse" in repairs
             else "first retained pulse"
         ),
         "frame_times": str(frame_times_path),
