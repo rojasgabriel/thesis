@@ -9,7 +9,7 @@ another) uses this measure:
 - the peak (`window_peak`) is the mean baseline-corrected rate over the bins
   within `PEAK_HALF_MS` of the largest bin with a center in `PEAK_MS`, found
   in each condition apart (spikes/s). `peaks` still gives the single largest
-  bin for `leak_test.py` and `flash_by_gap.py`.
+  bin for `flash_by_gap.py`.
 
 The same function gives the peak of the observed counts, of the rate of the
 fitted model, and of that rate with some terms set to 0. The units are those
@@ -98,31 +98,58 @@ def excited_units(
 
 
 def window_peak(
-    binned: np.ndarray, centers: np.ndarray, latency_from: np.ndarray | None = None
+    binned: np.ndarray,
+    centers: np.ndarray,
+    latency_from: np.ndarray | None = None,
+    end_ms: float = PEAK_MS[1],
 ) -> np.ndarray:
     """Return the mean over `PEAK_HALF_MS` around the peak bin, along the last axis.
 
     The peak bin is the largest bin of `latency_from` (default: `binned`) with
-    its center in `PEAK_MS`; the mean is over the bins with centers within
-    `PEAK_HALF_MS` of it, clipped to the trace. Give the observed trace as
-    `latency_from` to measure a model trace in the same window.
+    its center from `PEAK_MS[0]` to `end_ms` (default `PEAK_MS[1]`); the mean
+    is over the bins with centers within `PEAK_HALF_MS` of it, clipped to the
+    trace and to `end_ms`. Give the observed trace as `latency_from` to
+    measure a model trace in the same window.
     """
     source = binned if latency_from is None else latency_from
-    window = (centers >= PEAK_MS[0]) & (centers < PEAK_MS[1])
+    # The tolerance (here and below) handles centers such as 1000 * 0.035 =
+    # 34.999...; without it the window lost 1-2 of its 5 bins in
+    # `exit_flash_pairs.py` (until 2026-11-13).
+    before_end = centers < end_ms - 1e-6
+    window = (centers >= PEAK_MS[0] - 1e-6) & before_end
     at = centers[window][np.argmax(source[..., window], axis=-1)]
-    # The tolerance keeps bins exactly PEAK_HALF_MS away: centers such as
-    # 1000 * 0.035 are 34.999..., and without it the window lost 1-2 of its
-    # 5 bins in `exit_flash_pairs.py` (until 2026-11-13).
-    near = np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS + 1e-6
+    near = (
+        np.abs(centers - np.expand_dims(at, -1)) <= PEAK_HALF_MS + 1e-6
+    ) & before_end
     return (binned * near).sum(-1) / near.sum(-1)
+
+
+def window_peaks(trace: np.ndarray, latency: np.ndarray | None = None) -> np.ndarray:
+    """Return the window peak of each condition; trace is (condition, 1-ms bin), spikes/s.
+
+    As `peaks`, with `window_peak` in place of the largest bin. `latency`
+    (same shape, default `trace`) gives the window of each condition: give
+    the observed trace to measure a model trace in the observed window.
+    """
+    binned = trace.reshape(len(trace), -1, PSTH_BIN_MS).mean(-1)
+    source = (
+        binned
+        if latency is None
+        else latency.reshape(binned.shape[0], -1, PSTH_BIN_MS).mean(-1)
+    )
+    centers = LAGS_MS.reshape(-1, PSTH_BIN_MS).mean(-1) + 0.5
+    baseline = binned[
+        0, (centers >= BASELINE_MS[0]) & (centers < BASELINE_MS[1])
+    ].mean()
+    return window_peak(binned, centers, source) - baseline
 
 
 def peaks(trace: np.ndarray) -> np.ndarray:
     """Return the peak of each condition; trace is (condition, 1-ms bin) in spikes/s.
 
-    The largest single bin, as before 2026-11-12 (`leak_test.py` and
-    `flash_by_gap.py` keep it until they are rerun with `window_peak`). The
-    baseline comes from the first condition and is taken from all.
+    The largest single bin, as before 2026-11-12 (`flash_by_gap.py` keeps it
+    until it is rerun with `window_peak`). The baseline comes from the first
+    condition and is taken from all.
     """
     binned = trace.reshape(len(trace), -1, PSTH_BIN_MS).mean(-1)
     centers = LAGS_MS.reshape(-1, PSTH_BIN_MS).mean(-1) + 0.5
