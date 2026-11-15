@@ -35,8 +35,9 @@ exit. There is no head or eye tracking. That is a limitation of the study.
      g_b 1.84). Per unit, with the trial noise included, the flash response
      cannot be told apart from the same gain or from no change (GRB006: g_f
      1.61; GRB064 cannot decide).
-   - **Adaptation reset.** The first flash after the exit is larger than this
-     gain predicts.
+   - **Adaptation reset.** The first flash after the exit is a little larger
+     than this gain predicts (×1.8 at 100–200 ms gaps, 1.03–2.9), and the
+     model misses only a small part of it.
    - **Side.** The flash response differs with the response side
      (flash × side). The direction is opposite in the two mice. Without eye or
      head position, a visual-field shift and a side-specific gain look the

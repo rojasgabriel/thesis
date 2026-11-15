@@ -25,8 +25,9 @@ the same bins, `SEED`) have the same bias. The miss is observed minus model
   exit, placed at the median latency of the "flash" events after the exit,
   and more than the short gap after the last flash.
 - Peak: 10-ms bins, the mean from -40 to 0 ms before the event is the
-  baseline, the peak is the largest bin from 30 to 120 ms (as in
-  `flash_movement.py`). Each unit's values are divided by its mean observed
+  baseline, the peak is `peaks.window_peak` (the mean over ±20 ms around the
+  largest bin from 30 to 120 ms; since 2026-11-15, the largest bin before),
+  as in `flash_movement.py`. Each unit's values are divided by its mean observed
   rate over all valid bins.
 - Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`)
   (the units of `flash_movement.py`). The sampling unit is the unit; the
@@ -99,7 +100,7 @@ def peak(rate: np.ndarray) -> float:
     """Return the peak of (event, 1-ms bin) rates over their own baseline."""
     trace = binned(rate)
     baseline = trace[(CENTERS_S >= -0.04) & (CENTERS_S < 0)].mean()
-    return float(trace[(CENTERS_S >= 0.03) & (CENTERS_S < 0.12)].max() - baseline)
+    return float(peaks.window_peak(trace, 1000 * CENTERS_S) - baseline)
 
 
 def events(trials, prepared) -> tuple[dict, dict]:
@@ -234,7 +235,12 @@ def summary(groups: list[np.ndarray], subjects: list[str]) -> dict:
 
 def main() -> None:
     classes = peaks.load_excited_units()
-    sessions = [session_values(session, classes[session]) for session in SESSIONS]
+    # A session of `SESSIONS` with no fit yet has no units (GRB061 on
+    # 2026-11-15); it is skipped and named.
+    skipped = [s for s in SESSIONS if s not in classes]
+    if skipped:
+        print(f"No units yet, skipped: {', '.join(skipped)}")
+    sessions = [session_values(s, classes[s]) for s in SESSIONS if s in classes]
     subjects = [data["subject"] for data in sessions]
     names = sessions[0]["names"]
     miss = [data["observed"] - data["model"] for data in sessions]

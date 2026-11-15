@@ -15,8 +15,10 @@ left out: the response to the flash before falls into their windows.
 - Trials, alignment and bins: the completed trials of the GLM on its 1-ms
   grid; a window must lie fully inside the valid interval.
 - Measures, per unit and group, from the trial mean in 10-ms bins: the rate
-  before the flash (mean from -40 to 0 ms), the peak above it (largest bin
-  from 30 to 120 ms minus that rate), and the model miss (observed peak minus
+  before the flash (mean from -40 to 0 ms), the peak above it (since
+  2026-11-15 `peaks.window_peak`: the mean over ±20 ms around the largest bin
+  from 30 to 120 ms, minus that rate; before, the largest bin), and the model
+  miss (observed peak minus
   the mean peak of `DRAWS` Poisson draws of the held-out model rate of the
   same bins, which carries the same noise bias). Values are divided by the
   mean observed rate of the unit over all valid bins. Latency: the peak bin of
@@ -29,8 +31,9 @@ left out: the response to the flash before falls into their windows.
 - Group (`--group`): "excited" (default), the flash-excited units of
   `flash_excited_units.json` (`peaks.excited_units`); "flash-suppressed", the units whose
   flash weights are below 0 (`flash_weight_check.json`, weight + 1.96 SE < 0),
-  with the dip (the rate before the flash minus the smallest bin from 30 to
-  120 ms) in place of the peak; outputs with `_flash_suppressed`.
+  with the dip (the rate before the flash minus the mean over ±20 ms around
+  the smallest bin from 30 to 120 ms) in place of the peak; outputs with
+  `_flash_suppressed`.
 - Units: the units of the group,
   pooled over both mice. Intervals: hierarchical bootstrap (mice, then units),
   95%; ratios are of pooled means. The sampling unit is the unit.
@@ -39,11 +42,18 @@ left out: the response to the flash before falls into their windows.
   gap class (50-100 and 100-200 ms); bands are hierarchical bootstrap 95%.
   Under one gain on all activity the curves of a row lie on each other. The
   report also gives, per after-exit group and gap, the growth of the peak over
-  the growth of the rate before it.
+  the growth of the rate before it; the talk figure `exit_flash_beyond_gain`
+  draws it (1 = one gain on all activity), with its hierarchical bootstrap
+  95% interval.
 - Panels: a, flash peak by gap; b, latency by gap; c, the gain test; d, the
-  model miss by gap. No axis limit hides a point.
+  model miss by gap. No axis limit hides a point. A ratio whose in-port peak
+  (or dip) interval includes 0 is not drawn in c or in
+  `exit_flash_beyond_gain` (Gabriel, 2026-11-15: with the window peak the
+  in-port response at 50-100 ms is about 0, and its ratios run to ±150); a
+  note in each figure names it, and its value stays in the JSON.
 
-The script writes `exit_flash_responses.svg` (figures/glm) and
+The script writes `exit_flash_responses.svg`, `exit_flash_relative.svg` and
+`exit_flash_beyond_gain.svg` (figures/glm) and
 `exit_flash_responses.json` (results/glm).
 
     THESIS_CACHE_DIR=figures/cache nice -n 10 uv run python -m \\
@@ -108,13 +118,19 @@ def trace(rate: np.ndarray) -> np.ndarray:
     return rate.mean(0).reshape(-1, 10).mean(-1)
 
 
+def above(traces: np.ndarray, before: np.ndarray, dip: bool) -> np.ndarray:
+    """Return the window peak of 10-ms traces above `before` (with `dip`, the window dip below it)."""
+    centers_ms = 1000 * CENTERS_S
+    if dip:
+        return before + peaks.window_peak(-traces, centers_ms)
+    return peaks.window_peak(traces, centers_ms) - before
+
+
 def before_and_peak(rate: np.ndarray, dip: bool) -> tuple[float, float]:
     """Return the rate before the flash and the peak above it (with `dip`, the dip below it)."""
     values = trace(rate)
     before = values[BASELINE].mean()
-    if dip:
-        return float(before), float(before - values[PEAK].min())
-    return float(before), float(values[PEAK].max() - before)
+    return float(before), float(above(values, before, dip))
 
 
 def events(trials, prepared) -> dict:
@@ -149,9 +165,7 @@ def rows_before_and_peak(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return `before_and_peak` of each row of 10-ms traces, (..., bin)."""
     before = traces[..., BASELINE].mean(-1)
-    if dip:
-        return before, before - traces[..., PEAK].min(-1)
-    return before, traces[..., PEAK].max(-1) - before
+    return before, above(traces, before, dip)
 
 
 def session_values(
@@ -383,6 +397,108 @@ def relative_figure(sessions, boot, keys):
     return figure
 
 
+def drawable(gain: dict) -> tuple[dict, str]:
+    """Return the gain-test entries to draw, and a note naming the others.
+
+    An entry over an in-port response whose interval includes 0 is not drawn.
+    """
+    drawn = {k: g for k, g in gain.items() if not g["in_port_peak_interval_includes_0"]}
+    left = [k for k in gain if k not in drawn]
+    if not left:
+        return drawn, ""
+    names = []
+    for key_text in left:
+        group = next(g for g in GROUPS if g in key_text)
+        index = int(key_text.rstrip(")").split(",")[-1])
+        names.append(f"{group}, {GAP_LABELS[index]} ms")
+    return drawn, "not drawn, in-port\nresponse not above 0:\n" + "\n".join(names)
+
+
+def beyond_gain_figure(gain: dict, dip: bool):
+    """Growth of the flash peak over the growth of the rate before it, by gap (talk).
+
+    1 is one gain on all activity; bars are hierarchical bootstrap 95%.
+    """
+    full = gain
+    gain, note = drawable(gain)
+    figure, axis = plt.subplots(figsize=(4.2, 3.2), layout="constrained")
+    axis.axhline(1, color=REFERENCE_COLOR, lw=0.8, ls="--")
+    # A gap with no drawn ratio gets its note in its own (empty) column;
+    # any other ratio not drawn is named in a corner note.
+    placed = []
+    for index in range(len(GAPS)):
+        keys = [str((g, index)) for g in GROUPS[1:] if str((g, index)) in full]
+        if keys and not any(k in gain for k in keys):
+            placed += keys
+            axis.text(
+                index,
+                0.5,
+                "not drawn:\nin-port\nresponse\nnot above 0",
+                color="0.4",
+                transform=axis.get_xaxis_transform(),
+                ha="center",
+                va="center",
+                fontsize=6,
+            )
+    if any(k not in gain and k not in placed for k in full):
+        axis.text(
+            0.02,
+            0.98,
+            note,
+            color="0.4",
+            transform=axis.transAxes,
+            ha="left",
+            va="top",
+            fontsize=6,
+        )
+    for group in GROUPS[1:]:
+        xs, ys, lo, hi = [], [], [], []
+        for index in range(len(GAPS)):
+            entry = gain.get(str((group, index)))
+            if entry is None:
+                continue
+            value, (low, high) = (
+                entry["beyond_gain"]["ratio"],
+                entry["beyond_gain"]["interval"],
+            )
+            xs.append(index)
+            ys.append(value)
+            lo.append(value - low)
+            hi.append(high - value)
+        axis.errorbar(
+            xs, ys, yerr=[lo, hi], fmt="o-", color=COLORS[group], ms=4, capsize=2, lw=1
+        )
+    for y, group in zip((0.97, 0.89), GROUPS[1:], strict=True):
+        name = group.replace("1st", "first flash").replace("later", "later flashes")
+        axis.text(
+            0.98,
+            y,
+            name.replace("exit", "leaving"),
+            color=COLORS[group],
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+        )
+    axis.text(
+        0.98,
+        0.95,
+        "one gain\non all activity",
+        color=REFERENCE_COLOR,
+        transform=axis.get_yaxis_transform(),
+        ha="right",
+        va="top",
+        fontsize=6,
+    )
+    axis.set_xticks(np.arange(len(GAPS)), GAP_LABELS)
+    axis.set_xlim(-0.4, len(GAPS) - 0.6 + 0.8)
+    axis.set_ylim(bottom=0)
+    axis.set_xlabel("gap from the flash before (ms)")
+    word = "dip" if dip else "peak"
+    axis.set_ylabel(f"growth of the flash {word}\n÷ growth of the rate before it")
+    return figure
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -399,7 +515,14 @@ def main() -> None:
         }
     else:
         units = peaks.load_excited_units()
-    sessions = [session_values(s, sorted(units[s]), dip) for s in SESSIONS]
+    # A session of `SESSIONS` with no fit yet has no units here (GRB061 on
+    # 2026-11-15); it is skipped and named.
+    skipped = [s for s in SESSIONS if s not in units]
+    if skipped:
+        print(f"No units yet, skipped: {', '.join(skipped)}")
+    sessions = [
+        session_values(s, sorted(units[s]), dip) for s in SESSIONS if s in units
+    ]
     keys = [k for k in sessions[0]["values"] if all(k in s["values"] for s in sessions)]
     boot = draws(sessions)
     stats = {"flashes": {s["subject"]: s["flashes"] for s in sessions}, "groups": {}}
@@ -510,11 +633,25 @@ def main() -> None:
                 transform=peak_axis.transAxes,
                 va="top",
             )
-        x_limit = 1.15 * max(g["before"]["interval"][1] for g in gain.values())
-        y_limit = 1.3 * max(g["peak"]["interval"][1] for g in gain.values())  # key room
+        shown, note = drawable(gain)
+        x_limit = 1.15 * max(g["before"]["interval"][1] for g in shown.values())
+        y_limit = 1.3 * max(
+            g["peak"]["interval"][1] for g in shown.values()
+        )  # key room
         limit = max(x_limit, y_limit)
         gain_axis.plot([0, limit], [0, limit], color=REFERENCE_COLOR, lw=0.8, ls="--")
-        for key_text, entry in gain.items():
+        if note:
+            gain_axis.text(
+                0.97,
+                0.86,
+                note,
+                color="0.4",
+                transform=gain_axis.transAxes,
+                ha="right",
+                va="top",
+                fontsize=6,
+            )
+        for key_text, entry in shown.items():
             group = next(g for g in GROUPS if g in key_text)
             index = int(key_text.rstrip(")").split(",")[-1])
             x, y = entry["before"], entry["peak"]
@@ -560,6 +697,11 @@ def main() -> None:
             save_figure(
                 relative_figure(sessions, boot, keys),
                 OUT / f"exit_flash_relative{suffix}",
+            )
+        )
+        print(
+            save_figure(
+                beyond_gain_figure(gain, dip), OUT / f"exit_flash_beyond_gain{suffix}"
             )
         )
     (OUT / f"exit_flash_responses{suffix}.json").write_text(json.dumps(stats, indent=1))
