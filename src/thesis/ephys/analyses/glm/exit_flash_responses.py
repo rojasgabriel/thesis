@@ -46,7 +46,11 @@ left out: the response to the flash before falls into their windows.
   draws it (1 = one gain on all activity), with its hierarchical bootstrap
   95% interval.
 - Panels: a, flash peak by gap; b, latency by gap; c, the gain test; d, the
-  model miss by gap. No axis limit hides a point.
+  model miss by gap. No axis limit hides a point. A ratio whose in-port peak
+  (or dip) interval includes 0 is not drawn in c or in
+  `exit_flash_beyond_gain` (Gabriel, 2026-11-15: with the window peak the
+  in-port response at 50-100 ms is about 0, and its ratios run to ±150); a
+  note in each figure names it, and its value stays in the JSON.
 
 The script writes `exit_flash_responses.svg`, `exit_flash_relative.svg` and
 `exit_flash_beyond_gain.svg` (figures/glm) and
@@ -393,13 +397,60 @@ def relative_figure(sessions, boot, keys):
     return figure
 
 
+def drawable(gain: dict) -> tuple[dict, str]:
+    """Return the gain-test entries to draw, and a note naming the others.
+
+    An entry over an in-port response whose interval includes 0 is not drawn.
+    """
+    drawn = {k: g for k, g in gain.items() if not g["in_port_peak_interval_includes_0"]}
+    left = [k for k in gain if k not in drawn]
+    if not left:
+        return drawn, ""
+    names = []
+    for key_text in left:
+        group = next(g for g in GROUPS if g in key_text)
+        index = int(key_text.rstrip(")").split(",")[-1])
+        names.append(f"{group}, {GAP_LABELS[index]} ms")
+    return drawn, "not drawn, in-port\nresponse not above 0:\n" + "\n".join(names)
+
+
 def beyond_gain_figure(gain: dict, dip: bool):
     """Growth of the flash peak over the growth of the rate before it, by gap (talk).
 
     1 is one gain on all activity; bars are hierarchical bootstrap 95%.
     """
+    full = gain
+    gain, note = drawable(gain)
     figure, axis = plt.subplots(figsize=(4.2, 3.2), layout="constrained")
     axis.axhline(1, color=REFERENCE_COLOR, lw=0.8, ls="--")
+    # A gap with no drawn ratio gets its note in its own (empty) column;
+    # any other ratio not drawn is named in a corner note.
+    placed = []
+    for index in range(len(GAPS)):
+        keys = [str((g, index)) for g in GROUPS[1:] if str((g, index)) in full]
+        if keys and not any(k in gain for k in keys):
+            placed += keys
+            axis.text(
+                index,
+                0.5,
+                "not drawn:\nin-port\nresponse\nnot above 0",
+                color="0.4",
+                transform=axis.get_xaxis_transform(),
+                ha="center",
+                va="center",
+                fontsize=6,
+            )
+    if any(k not in gain and k not in placed for k in full):
+        axis.text(
+            0.02,
+            0.98,
+            note,
+            color="0.4",
+            transform=axis.transAxes,
+            ha="left",
+            va="top",
+            fontsize=6,
+        )
     for group in GROUPS[1:]:
         xs, ys, lo, hi = [], [], [], []
         for index in range(len(GAPS)):
@@ -582,11 +633,25 @@ def main() -> None:
                 transform=peak_axis.transAxes,
                 va="top",
             )
-        x_limit = 1.15 * max(g["before"]["interval"][1] for g in gain.values())
-        y_limit = 1.3 * max(g["peak"]["interval"][1] for g in gain.values())  # key room
+        shown, note = drawable(gain)
+        x_limit = 1.15 * max(g["before"]["interval"][1] for g in shown.values())
+        y_limit = 1.3 * max(
+            g["peak"]["interval"][1] for g in shown.values()
+        )  # key room
         limit = max(x_limit, y_limit)
         gain_axis.plot([0, limit], [0, limit], color=REFERENCE_COLOR, lw=0.8, ls="--")
-        for key_text, entry in gain.items():
+        if note:
+            gain_axis.text(
+                0.97,
+                0.86,
+                note,
+                color="0.4",
+                transform=gain_axis.transAxes,
+                ha="right",
+                va="top",
+                fontsize=6,
+            )
+        for key_text, entry in shown.items():
             group = next(g for g in GROUPS if g in key_text)
             index = int(key_text.rstrip(")").split(",")[-1])
             x, y = entry["before"], entry["peak"]
