@@ -5,7 +5,8 @@ Sessions: the rate-discrimination sessions that have an ephys recording
 or visual + audio sessions, with at least `MIN_RATES` visual rates among the
 used trials (so some are near the boundary). No performance rule (Gabriel,
 2026-10-31: the expert rules and visual-only sessions leave too few GRB006
-sessions). `RECORDED` names the session of each mouse that the neural analyses
+sessions). GRB061 has no ephys session with 6 rates; it uses 4 for now
+(`MIN_RATES_BY_SUBJECT`, Gabriel, 2026-11-14). `RECORDED` names the session of each mouse that the neural analyses
 use (the decoder session).
 
 Trials: visual (flashes only) and multisensory (flashes and clicks at the same
@@ -33,6 +34,7 @@ SUBJECTS = tuple(RECORDED)
 # The one list of the analyzed sessions; the neural analyses import it.
 SESSIONS = tuple(f"{subject}_{name}" for subject, name in RECORDED.items())
 MIN_RATES = 6
+MIN_RATES_BY_SUBJECT = {"GRB061": 4}
 MODALITIES = ("visual", "visual+audio")
 STIM_S = 1.0
 FIELDS = (
@@ -72,10 +74,17 @@ def _bpod_table(subject: str) -> pd.DataFrame:
         .fetch(format="frame")
         .reset_index()
     )
-    table["stim_events"] = table["stim_events"].map(
-        lambda e: [float(t) for t in e] if isinstance(e, list | tuple) else []
-    )
+    table["stim_events"] = table["stim_events"].map(_flash_times)
     return table
+
+
+def _flash_times(events) -> list[float]:
+    """Return the flash times: a flat list, or row 0 of the (2, n) array
+    (row 1 is the clicks, NaN on visual trials)."""
+    if events is None:
+        return []
+    events = np.atleast_2d(np.asarray(events, dtype=float))[0]
+    return events[np.isfinite(events)].tolist()
 
 
 def task_trials(subject: str, recorded: bool = False) -> pd.DataFrame:
@@ -99,7 +108,7 @@ def task_trials(subject: str, recorded: bool = False) -> pd.DataFrame:
         raise ValueError(f"{subject}: a boundary is not {CATEGORY_BOUNDARY_HZ} Hz.")
     by_session = trials.groupby("session_name")
     rates = by_session["stim_rate_vision"].nunique()
-    keep = rates.index[rates >= MIN_RATES]
+    keep = rates.index[rates >= MIN_RATES_BY_SUBJECT.get(subject, MIN_RATES)]
     if recorded:
         keep = [RECORDED[subject]]
     trials = trials[trials["session_name"].isin(keep)].copy()
