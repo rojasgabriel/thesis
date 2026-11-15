@@ -9,6 +9,9 @@ warning/tolerance is retained. No pooled-event fallback is permitted.
 Historical equivalence applies only when every old selected flash lies inside
 an aligned saved task window. Pre-task flashes and flashes in an unsaved final
 trial are intentionally excluded, even in sessions without passive replay.
+A saved trial whose start or last flash is less than events.COVERAGE_MARGIN_S
+before the last recorded probe sample (events.probe_coverage_end_s) is also
+excluded, with a warning: it has no spikes when the probe file stops early.
 
 Validation before using results: verify the Chipmunk task/replay rows, numbered
 Bpod sync values and hardware start pulses for each session with this code.
@@ -34,6 +37,8 @@ there is no dependency through unit selection or StimulusResponse. The general
 fetch_session_events API continues to include task and replay events.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -47,7 +52,11 @@ def fetch_task_stimulus_pulses(subject: str, session: str) -> pd.DataFrame:
     """
     from chipmunk import Chipmunk
 
-    from thesis.ephys.events import fetch_session_events
+    from thesis.ephys.events import (
+        COVERAGE_MARGIN_S,
+        fetch_session_events,
+        probe_coverage_end_s,
+    )
     from thesis.ephys.trials import _replay_trials, _trial_start_indices
 
     trial_numbers = np.asarray(
@@ -74,9 +83,23 @@ def fetch_task_stimulus_pulses(subject: str, session: str) -> pd.DataFrame:
     if not task_indices.size:
         raise ValueError(f"{subject} {session}: no aligned saved task starts")
     bounds = np.r_[starts, np.inf]
+    coverage_end_s = probe_coverage_end_s(subject, session)
     selected = np.zeros(len(pulses), dtype=bool)
+    n_uncovered = 0
     for index in task_indices:
-        selected |= (pulses["timestamp"] >= bounds[index]) & (
+        in_trial = (pulses["timestamp"] >= bounds[index]) & (
             pulses["timestamp"] < bounds[index + 1]
+        )
+        last_s = max(bounds[index], pulses.loc[in_trial, "timestamp"].max())
+        if not last_s + COVERAGE_MARGIN_S <= coverage_end_s:
+            n_uncovered += 1
+            continue
+        selected |= in_trial
+    if n_uncovered:
+        warnings.warn(
+            f"{subject} {session}: dropped {n_uncovered} of {len(task_indices)} "
+            "task trials after the end of the probe recording",
+            RuntimeWarning,
+            stacklevel=2,
         )
     return pulses.loc[selected].copy()
