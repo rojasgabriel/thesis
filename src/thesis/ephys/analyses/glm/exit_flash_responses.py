@@ -468,7 +468,13 @@ def beyond_gain_figure(gain: dict, dip: bool):
         axis.errorbar(
             xs, ys, yerr=[lo, hi], fmt="o-", color=COLORS[group], ms=4, capsize=2, lw=1
         )
-    for y, group in zip((0.97, 0.89), GROUPS[1:], strict=True):
+    # 0 is shown; a negative ratio (a dip that turns into a peak) stays in view.
+    low = min([0.0] + [g["beyond_gain"]["interval"][0] for g in gain.values()])
+    axis.set_ylim(bottom=1.1 * low)
+    bottom, top = axis.get_ylim()
+    # The labels go where the line at 1 is not: at the top unless it is high.
+    rows = (0.97, 0.89) if (1 - bottom) / (top - bottom) < 0.7 else (0.12, 0.04)
+    for y, group in zip(rows, GROUPS[1:], strict=True):
         name = group.replace("1st", "first flash").replace("later", "later flashes")
         axis.text(
             0.98,
@@ -477,7 +483,7 @@ def beyond_gain_figure(gain: dict, dip: bool):
             color=COLORS[group],
             transform=axis.transAxes,
             ha="right",
-            va="top",
+            va="bottom" if y < 0.5 else "top",
             fontsize=7,
         )
     axis.text(
@@ -492,7 +498,6 @@ def beyond_gain_figure(gain: dict, dip: bool):
     )
     axis.set_xticks(np.arange(len(GAPS)), GAP_LABELS)
     axis.set_xlim(-0.4, len(GAPS) - 0.6 + 0.8)
-    axis.set_ylim(bottom=0)
     axis.set_xlabel("gap from the flash before (ms)")
     word = "dip" if dip else "peak"
     axis.set_ylabel(f"growth of the flash {word}\n÷ growth of the rate before it")
@@ -512,6 +517,7 @@ def main() -> None:
         units = {
             s: check[s]["weights"]["units_by_model_class"]["suppressed"]
             for s in SESSIONS
+            if s in check
         }
     else:
         units = peaks.load_excited_units()
@@ -641,16 +647,8 @@ def main() -> None:
         limit = max(x_limit, y_limit)
         gain_axis.plot([0, limit], [0, limit], color=REFERENCE_COLOR, lw=0.8, ls="--")
         if note:
-            gain_axis.text(
-                0.97,
-                0.86,
-                note,
-                color="0.4",
-                transform=gain_axis.transAxes,
-                ha="right",
-                va="top",
-                fontsize=6,
-            )
+            # Above the panel, where no point or bar can be.
+            gain_axis.set_title(note, loc="right", color="0.4", fontsize=6)
         for key_text, entry in shown.items():
             group = next(g for g in GROUPS if g in key_text)
             index = int(key_text.rstrip(")").split(",")[-1])
@@ -666,7 +664,10 @@ def main() -> None:
                 capsize=2,
                 lw=0.8,
             )
-        gain_axis.set(xlim=(0, x_limit), ylim=(0, y_limit))
+        # 0 is shown; a negative ratio stays in view.
+        x_low = min([0.0] + [g["before"]["interval"][0] for g in shown.values()])
+        y_low = min([0.0] + [g["peak"]["interval"][0] for g in shown.values()])
+        gain_axis.set(xlim=(1.1 * x_low, x_limit), ylim=(1.1 * y_low, y_limit))
         gain_axis.set_xlabel("rate before the flash,\nafter exit / in port")
         gain_axis.set_ylabel(f"flash {word}, after exit / in port")
         gain_axis.text(
