@@ -29,7 +29,11 @@ import pandas as pd
 from thesis.ephys.cache import cached
 from thesis.ephys.trials import CATEGORY_BOUNDARY_HZ
 
-RECORDED = {"GRB006": "20240821_121447", "GRB064": "20261008_143359"}
+RECORDED = {
+    "GRB006": "20240821_121447",
+    "GRB064": "20261008_143359",
+    "GRB061": "20261113_133142",
+}
 SUBJECTS = tuple(RECORDED)
 # The one list of the analyzed sessions; the neural analyses import it.
 SESSIONS = tuple(f"{subject}_{name}" for subject, name in RECORDED.items())
