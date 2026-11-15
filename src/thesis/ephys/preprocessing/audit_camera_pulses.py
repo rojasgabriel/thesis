@@ -7,6 +7,9 @@ pulses are accepted only when their count is equal to the decoded frame count
 of cam0 after these repairs, each of which is written to the output:
 
 - Glitch: a pulse with a width below 1% of the median is removed (GRB006).
+- Preview: select a continuous run with exactly the video's frame count and
+  agreement within one frame period of the independently Bpod-mapped camera
+  times. Search all pauses, including long previews and acquisition restarts.
 - Pulses before the recording: when a gap of `START_GAP_S` or more is in the
   first `START_SEARCH` pulses, the pulses before it are removed (the camera
   runs for a short time before it saves frames; GRB064: 215 pulses in
@@ -37,6 +40,49 @@ import numpy as np
 START_GAP_S = 0.5
 START_SEARCH = 2000
 IRREGULAR = 1.5
+
+
+def align_frame_times(
+    falling: np.ndarray, reference: np.ndarray
+) -> tuple[np.ndarray, dict]:
+    """Select a uniquely supported recording run, retaining legacy repairs."""
+    falling = np.asarray(falling, dtype=float)
+    reference = np.asarray(reference, dtype=float)
+    if (
+        reference.ndim != 1
+        or len(reference) < 2
+        or not np.isfinite(reference).all()
+        or np.any(np.diff(reference) <= 0)
+    ):
+        raise ValueError("Expected increasing, finite camera reference times.")
+    if len(falling) == len(reference):
+        return falling, {}
+    period = float(np.median(np.diff(reference)))
+    boundaries = np.r_[
+        0, np.flatnonzero(np.diff(falling) >= START_GAP_S) + 1, len(falling)
+    ]
+    candidates = [
+        (int(start), int(stop))
+        for start, stop in zip(boundaries[:-1], boundaries[1:], strict=True)
+        if stop - start == len(reference)
+        and np.max(abs(falling[start:stop] - reference)) <= period
+    ]
+    if len(candidates) > 1:
+        raise ValueError("Camera reference matches multiple recording runs.")
+    if candidates:
+        start, stop = candidates[0]
+        return falling[start:stop], {
+            "pulses_before_the_recording": start,
+            "pulses_after_the_recording": len(falling) - stop,
+            "irregular_places": [],
+        }
+    frames, repairs = regular_frame_times(falling)
+    if len(frames) != len(reference):
+        raise ValueError(
+            f"{len(frames)} frame pulses after the repairs, {len(reference)} video frames."
+        )
+    # Reference validation gates new run selection; keep historical repairs unchanged.
+    return frames, repairs
 
 
 def regular_frame_times(falling: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -106,14 +152,6 @@ def main() -> None:
     video = (DatasetVideo & key & {"video_name": "cam0"}).fetch1()
     # Drop sub-percent-width pulses only when the frame count then matches.
     retained = widths >= np.median(widths) / 100
-    frame_times, repairs = falling[retained], {}
-    if len(frame_times) != int(video["n_frames"]):
-        frame_times, repairs = regular_frame_times(frame_times)
-    if len(frame_times) != int(video["n_frames"]):
-        raise ValueError(
-            f"{len(frame_times)} frame pulses after the repairs, "
-            f"{int(video['n_frames'])} video frames."
-        )
     removed = np.flatnonzero(~retained)
     sync = (
         StreamSync()
@@ -122,6 +160,9 @@ def main() -> None:
     )
     # Convert only the stored Bpod timestamps for this comparison, never NIDQ.
     reference = sync.apply(video["frame_times"], force=True, warn=False)
+    if len(reference) != int(video["n_frames"]):
+        raise ValueError("Stored camera times do not match the video frame count.")
+    frame_times, repairs = align_frame_times(falling[retained], reference)
     residual = frame_times - reference
     result = {
         **key,
@@ -147,7 +188,11 @@ def main() -> None:
         "last_low_width_s": float(widths[-1]),
         "mapping_accepted": True,
         "frame_edge": "falling",
-        "first_frame_association": "first retained pulse",
+        "first_frame_association": (
+            "Bpod-mapped camera times and recording-run boundaries"
+            if "pulses_after_the_recording" in repairs
+            else "first retained pulse"
+        ),
         "frame_times": str(frame_times_path),
         "falling_minus_stored_camera_s_quantiles": np.quantile(
             residual, [0, 0.01, 0.5, 0.99, 1]
