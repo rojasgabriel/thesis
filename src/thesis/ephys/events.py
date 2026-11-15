@@ -162,6 +162,40 @@ def _sync_clock_onsets(clock: dict) -> np.ndarray:
     return timestamps[values == 1]
 
 
+COVERAGE_MARGIN_S = 1.0
+
+
+def probe_coverage_end_s(subject: str, session: str) -> float:
+    """Return the clock time of the last recorded probe sample of a session.
+
+    A probe file can stop before the clock file (for example after a cable
+    fault). Trials after this time have no spikes, so the trial selections
+    drop every trial whose last event is within `COVERAGE_MARGIN_S` of it.
+    The last paired sync pulse is extrapolated to the end of the probe file
+    (less than one sync interval). With several probes, the earliest end wins.
+    """
+    from labdata.schema import EphysRecording, StreamSync
+
+    key = {"subject_name": subject, "session_name": session}
+    rows = (StreamSync() & key & 'stream_name like "imec%"').fetch("KEY")
+    if not rows:
+        raise ValueError(f"{subject} {session}: no probe StreamSync row")
+    ends = []
+    for row in rows:
+        source, clock = (StreamSync() & row).get_interp_data(warn=False)
+        duration, rate = (
+            EphysRecording * EphysRecording.ProbeSetting
+            & key
+            & {
+                "dataset_name": row["dataset_name"],
+                "probe_num": int(row["stream_name"].removeprefix("imec")),
+            }
+        ).fetch1("recording_duration", "sampling_rate")
+        end_samples = float(duration) * float(rate)
+        ends.append(float(clock[-1]) + (end_samples - float(source[-1])) / float(rate))
+    return min(ends)
+
+
 def bpod_to_clock(subject: str, session: str):
     """Return a function from Chipmunk Bpod time to the session's ephys clock.
 

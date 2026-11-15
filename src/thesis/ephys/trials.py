@@ -6,6 +6,11 @@ trial cut short by Stop adds one unsaved pulse; the Bpod sync event values (cloc
 pulse numbers) skip it.
 `build_trial_table` uses only the task pulses; `build_replay_table` gives the
 replay trials.
+
+Probe coverage: `build_trial_table` drops every trial whose last event is less
+than `events.COVERAGE_MARGIN_S` before the last recorded probe sample
+(`events.probe_coverage_end_s`), and warns with the count. Those trials have no
+spikes; this happens only when the probe file stops before the clock file.
 """
 
 from __future__ import annotations
@@ -244,6 +249,35 @@ def _split_by_windows(windows, times_s, values=None) -> list[list[float]]:
         values[(times_s >= start_s) & (times_s < end_s)].tolist()
         for start_s, end_s in windows
     ]
+
+
+def _drop_uncovered_trials(
+    trial_table: pd.DataFrame, subject: str, session: str
+) -> pd.DataFrame:
+    """Drop the trials whose last event is outside the probe recording."""
+    from thesis.ephys.events import COVERAGE_MARGIN_S, probe_coverage_end_s
+
+    scalar_columns = [
+        "trial_start_s",
+        "center_entry_s",
+        "center_exit_s",
+        "response_port_entry_s",
+    ]
+    last_event_s = trial_table[scalar_columns].astype(float).max(axis=1).to_numpy()
+    for column in ALIGNMENT_EV_COLUMNS:
+        latest = trial_table[column].map(
+            lambda times: max(times) if np.size(times) else np.nan
+        )
+        last_event_s = np.fmax(last_event_s, latest.astype(float).to_numpy())
+    covered = last_event_s + COVERAGE_MARGIN_S <= probe_coverage_end_s(subject, session)
+    if not covered.all():
+        warnings.warn(
+            f"{subject} {session}: dropped {int((~covered).sum())} of "
+            f"{len(covered)} trials after the end of the probe recording",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return trial_table.loc[covered].reset_index(drop=True)
 
 
 @cached
@@ -486,6 +520,7 @@ def build_trial_table(
     trial_table["response_entry_bpod_error_s"] = (
         trial_table["response_port_entry_s"] - predicted_response_s
     )
+    trial_table = _drop_uncovered_trials(trial_table, subject, session)
     return trial_table[
         [
             "trial_num",
