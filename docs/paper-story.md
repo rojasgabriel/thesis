@@ -17,18 +17,19 @@ exit. There is no head or eye tracking. That is a limitation of the study.
 ## What the data show
 
 1. **Observation.** After the exit, flash responses are larger in GRB006:
-   26 of 30 flash-excited units at long gaps (normalized peak +1.71). In
-   GRB064 (20261008) the increase is small: 14 of 22 units, +0.17. At short
+   26 of 30 flash-excited units at long gaps (normalized peak +1.01). In
+   GRB064 (20261008) the increase is small: 14 of 22 units, +0.10. At short
    gaps, most of the increase is a higher rate before the flash.
 2. **Model.** A Poisson GLM with 13 terms (flash history with gap, recovery,
    exit, and side modifiers; task events; video; spike history) predicts
    held-out spikes at 0.55 / 0.47 bits per spike. All terms pass the
    inclusion tests.
 3. **The flash × exit term carries almost none of the increase.** After the
-   leak correction, the held-out log ratio is −0.05 / −0.31 in medians
-   (pooled median −0.16, 95% −0.39 to +0.01; GRB064 p = 0.01, below zero).
-   The held-out test has 80% power at +0.17 / +0.14, so a positive
-   flash-specific effect of that size is unlikely. A smaller one is still possible.
+   leak correction, the held-out log ratio is +0.10 / −0.35 in medians
+   (GRB006 p = 0.15; GRB064 p = 0.01, below zero; pooled median −0.06,
+   95% −0.46 to +0.20). The held-out test has 80% power at +0.15 / +0.14.
+   GRB006 shows no change and GRB064 a decrease. Because the mice differ, the
+   pooled interval does not exclude a positive effect of that size.
 4. **What the increase is instead:**
    - **Gain on all activity.** The rate before the flash goes up (GRB006:
      g_b 1.84). Per unit, with the trial noise included, the flash response
