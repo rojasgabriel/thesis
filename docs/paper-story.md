@@ -32,9 +32,10 @@ exit. There is no head or eye tracking. That is a limitation of the study.
    pooled interval does not exclude a positive effect of that size.
 4. **What the increase is instead:**
    - **Gain on all activity.** The rate before the flash goes up (GRB006:
-     g_b 1.84). Per unit, with the trial noise included, the flash response
-     cannot be told apart from the same gain or from no change (GRB006: g_f
-     1.61; GRB064 cannot decide).
+     g_b 1.84). Per unit, with the trial noise included, the GRB006 flash
+     response cannot be told apart from the same gain or from no change (g_f
+     2.05); in GRB064 it is smaller after the exit than in the port (g_f
+     0.27; g_f − 1 from −1.22 to −0.25).
    - **Adaptation reset.** The first flash after the exit is a little larger
      than this gain predicts (×1.8 at 100–200 ms gaps, 1.03–2.9), and the
      model misses only a small part of it.

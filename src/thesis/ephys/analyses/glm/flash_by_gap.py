@@ -268,7 +268,7 @@ def session_traces(root: Path, unit_set: str) -> dict:
         },
     }
     change = peak[..., 1] - peak[..., 0]  # (excited unit, group, observed or model)
-    stats["matched peak (spikes/s), after exit minus in port, excited units"] = {
+    stats["window peak (spikes/s), after exit minus in port, excited units"] = {
         "units": len(peak),
         **{
             name: {

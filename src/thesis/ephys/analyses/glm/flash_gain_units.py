@@ -266,6 +266,20 @@ def plot(sessions: list[dict]) -> Path:
                 elinewidth=0.5,
                 alpha=0.6,
             )
+            # A unit past the axes is drawn open at the edge; it stays in the
+            # statistics, and the title counts it.
+            beyond = ((gains[:, 1:] < limits[0]) | (gains[:, 1:] > limits[1])).any(1)
+            edge = np.clip(gains[beyond, 1:], *limits)
+            axis.plot(
+                edge[:, 0],
+                edge[:, 1],
+                marker,
+                ls="",
+                ms=4,
+                mfc="white",
+                mec=COLOR,
+                clip_on=False,
+            )
             axis.plot(
                 np.nanmedian(gains[:, 1]),
                 np.nanmedian(gains[:, 2]),
@@ -291,6 +305,11 @@ def plot(sessions: list[dict]) -> Path:
                 f"g_f - 1: median {st['median_g_f_minus_1']:+.2f}"
                 f" [{st['median_g_f_minus_1_95_trials_and_units'][0]:+.2f},"
                 f" {st['median_g_f_minus_1_95_trials_and_units'][1]:+.2f}]"
+                + (
+                    f"\n{int(beyond.sum())} units past the axes (open, at the edge)"
+                    if beyond.any()
+                    else ""
+                )
                 + (f"\n{outside} interval ends outside the axes" if outside else ""),
                 fontsize=7,
             )
@@ -305,13 +324,16 @@ def plot(sessions: list[dict]) -> Path:
                 rotation=45,
                 rotation_mode="anchor",
             )
+            # Outside the panel, right of its line, where no point can be.
             axis.text(
-                limits[1] - 0.1,
-                1.08,
-                "same flash response",
-                ha="right",
+                limits[1] + 0.15,
+                1,
+                "same flash\nresponse",
+                ha="left",
+                va="center",
                 fontsize=6,
                 color="0.4",
+                clip_on=False,
             )
             axis.set_xlabel(
                 "gain of the rate before the flash, g_b\n(after exit over in port)"
