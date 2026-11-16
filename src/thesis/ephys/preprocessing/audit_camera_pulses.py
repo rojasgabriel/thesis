@@ -150,29 +150,35 @@ def regular_frame_times(falling: np.ndarray) -> tuple[np.ndarray, dict]:
     return np.concatenate([*pieces, falling[cursor:]]), notes
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--subject", default="GRB006")
-    parser.add_argument("--session", default="20240821_121447")
-    args = parser.parse_args()
-    arrays_path = args.output.with_suffix(".npz")
-    frame_times_path = args.output.with_name("frame_times.npy")
-    if args.output.exists() or arrays_path.exists() or frame_times_path.exists():
-        raise FileExistsError(args.output)
+def audit_camera_frames(subject: str, session: str) -> tuple[np.ndarray, dict, dict]:
+    """Return validated cam0 falling-edge times, audit notes and source arrays.
+
+    Times are in the session's hardware clock, one per saved video frame.
+    Missing video/sync records or unresolvable pulse counts raise; no raw-edge
+    fallback is used. This reads the database without writing audit files.
+    """
     from labdata.schema import DatasetEvents, DatasetVideo
 
     from thesis.ephys.events import _find_sess_ev_sources, bpod_to_clock
 
-    key = {"subject_name": args.subject, "session_name": args.session}
-    source = _find_sess_ev_sources(args.subject, args.session, allow_incomplete=True)[
-        "frames"
-    ]
+    key = {"subject_name": subject, "session_name": session}
+    sources = _find_sess_ev_sources(subject, session, allow_incomplete=True)
+    if "frames" not in sources:
+        raise ValueError(f"No camera frame events for {subject} {session}.")
+    source = sources["frames"]
     row = (DatasetEvents.Digital & source).fetch1()
     times = np.asarray(row["event_timestamps"], dtype=float)
     values = np.asarray(row["event_values"])
-    if times.shape != values.shape or not np.isin(values, [0, 1]).all():
-        raise ValueError("Expected timestamp-matched binary camera edges.")
+    if (
+        times.ndim != 1
+        or times.size < 4
+        or not np.isfinite(times).all()
+        or times.shape != values.shape
+        or not np.isin(values, [0, 1]).all()
+    ):
+        raise ValueError(
+            "Expected finite, timestamp-matched binary camera edges (at least two pulses)."
+        )
     if np.any(np.diff(times) <= 0) or not np.all(values[1:] != values[:-1]):
         raise ValueError("Camera edges must alternate in increasing time order.")
     if values[0] != 0 or values[-1] != 1:
@@ -184,7 +190,7 @@ def main() -> None:
     retained = widths >= np.median(widths) / 100
     removed = np.flatnonzero(~retained)
     # Convert only the stored Bpod timestamps for this comparison, never NIDQ.
-    reference = bpod_to_clock(args.subject, args.session)(
+    reference = bpod_to_clock(subject, session)(
         np.asarray(video["frame_times"], dtype=float)
     )
     if len(reference) != int(video["n_frames"]):
@@ -221,25 +227,40 @@ def main() -> None:
             or "frame_without_pulse" in repairs
             else "first retained pulse"
         ),
-        "frame_times": str(frame_times_path),
         "falling_minus_stored_camera_s_quantiles": np.quantile(
             residual, [0, 0.01, 0.5, 0.99, 1]
         ).tolist(),
         "largest_adjacent_residual_change_s": float(np.max(abs(np.diff(residual)))),
-        "candidate_arrays": str(arrays_path),
     }
+    return (
+        frame_times,
+        result,
+        {
+            "falling_s": falling,
+            "rising_s": rising,
+            "retained": retained,
+            "stored_camera_neural_s": reference,
+        },
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--subject", default="GRB006")
+    parser.add_argument("--session", default="20240821_121447")
+    args = parser.parse_args()
+    arrays_path = args.output.with_suffix(".npz")
+    frame_times_path = args.output.with_name("frame_times.npy")
+    if args.output.exists() or arrays_path.exists() or frame_times_path.exists():
+        raise FileExistsError(args.output)
+    frame_times, result, arrays = audit_camera_frames(args.subject, args.session)
+    result.update(frame_times=str(frame_times_path), candidate_arrays=str(arrays_path))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as handle:
         json.dump(result, handle, indent=2)
     with arrays_path.open("xb") as handle:
-        np.savez_compressed(
-            handle,
-            allow_pickle=False,
-            falling_s=falling,
-            rising_s=rising,
-            retained=retained,
-            stored_camera_neural_s=reference,
-        )
+        np.savez_compressed(handle, allow_pickle=False, **arrays)
     with frame_times_path.open("xb") as handle:
         np.save(handle, frame_times, allow_pickle=False)
     print(json.dumps(result, indent=2))

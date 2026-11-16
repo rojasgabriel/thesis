@@ -43,7 +43,10 @@ def atomic_output(path: Path):
             temporary.unlink(missing_ok=True)
 
 
-def cached(function):
+def cached(function=None, *, version=None):
+    """Cache a table; an optional version bypasses older results without deleting them."""
+    if function is None:
+        return functools.partial(cached, version=version)
     signature = inspect.signature(function)
 
     @functools.wraps(function)
@@ -54,7 +57,10 @@ def cached(function):
         bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()
         key = "_".join(f"{name}-{value}" for name, value in bound.arguments.items())
-        path = Path(directory) / f"{function.__name__}_{key}.pkl"
+        prefix = (
+            function.__name__ if version is None else f"{function.__name__}_{version}"
+        )
+        path = Path(directory) / f"{prefix}_{key}.pkl"
         if path.exists():
             return pd.read_pickle(path)
         table = function(*args, **kwargs)
