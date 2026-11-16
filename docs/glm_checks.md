@@ -248,6 +248,30 @@ These fits are of the model of 2026-10-29 (run 2026-11-07; GRB064 20261008). The
 
 ![Kernel values against depth, per mouse](../figures/glm/depth_effects.svg)
 
+### Do the mice differ because their sessions have different trial types? (2026-11-15)
+
+- **Why:** the flash response grows after the exit in GRB006 and not in GRB064 (Result 1). The sessions do not have the same trials:
+
+| | GRB006 | GRB064 | GRB061 |
+| --- | --- | --- | --- |
+| GLM trials | 294 | 180 | 81 |
+| Flash rates | 11 (4 to 20 Hz) | 9 (4 to 20 Hz, even) | 4 (4, 6, 18, 20 Hz) |
+| Right choices | 30% | 46% | 56% |
+| Errors | 110 | 64 | 14 |
+| Correct, low / high rates | 81% / 42% | 76% / 59% | 75% / 92% |
+| Wait, first flash to exit (median) | 0.55 s | 0.70 s | 0.47 s |
+| Flashes in port, low / high rates (median) | 5 / 10 | 7 / 12 | 3 / 9 |
+| Pairs at 80+ ms gaps (left / right choice) | 272 (189 / 83) | 144 (67 / 77) | 64 (25 / 39) |
+
+- Pulse width (15 ms) and stimulus duration (1 s) are the same, and no session has sound in the stimulus. The trial table has no brightness and no required-wait setting, so these are not compared.
+- **Measure (`trial_balance.py`, flash-excited units, 30 / 22 / 10):** the observation of Result 1 (the pairs of `flash_movement.py`, window peak, ÷ the unit's mean rate), on subsets of the trials. With all trials it gives **+1.01 / +0.07 / −0.11** at 80+ ms gaps (higher after the exit in 26 of 30 / 14 of 22 / 4 of 10 units). The GRB064 value is +0.10 in Result 1, which divides by a different mean rate.
+- **Within each mouse:** the increase of each unit in one half of the trials against the other half, for choice side, category, outcome, wait time, session half and the outcome of the trial before (Wilcoxon over units, Holm over the six splits). No split changes the increase at 80+ ms gaps in any mouse (all Holm p ≥ 0.10; GRB006 right − left choice +0.21 ± 0.52, long − short wait −0.05 ± 0.14; GRB064 −0.04 ± 0.55 and +0.13 ± 0.20). The smallest raw p is the trial before in GRB064 (larger increase after an unrewarded trial, +0.55 ± 0.23, p = 0.02, Holm 0.10). At the 40 ms gap no split passes Holm either. GRB061 has too few error pairs for the outcome splits.
+- **Matched trials (200 draws):** GRB006 and GRB064 with the same number of trials in each flash rate × choice side cell (156 trials each): **+1.05 / +0.07** (26 of 30 / 14 of 22). Also matched for wait time (79 trials): **+1.20 / +0.10**. All three mice, the four rates they share, category × choice side (55 trials): **+1.03 / −0.11 / −0.10**. Random subsets of the same size give the same values (+1.02 / +0.02 with 156 trials), so neither the matching nor the smaller number of trials changes the result.
+- **Finding:** the trial mix does not make the difference between the mice. With the same rates, sides and wait times, GRB006 keeps its increase of about 1 mean rate and GRB064 and GRB061 stay near 0.
+- **Limit:** the match is on the trial types that the trial table has. Brightness, the view of the LED panel and the place of the probe in V1 can still differ between the mice.
+
+![Trial types per mouse, the splits within each mouse, and the increase on matched trials](../figures/glm/trial_balance.svg)
+
 ## Methods and reproduction
 
 
