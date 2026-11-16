@@ -10,19 +10,23 @@ use (the decoder session).
 
 A session enters `RECORDED` only with good cortical units and expert behavior
 (Gabriel, 2026-11-15): a required wait (`required_wait_time`) of at least
-0.5 s, and actual center-port times (center exit minus center entry, all
-initiated trials) like those of GRB006 and GRB064. GRB050 never learned the
-task and is out. GRB068 20261113 has expert waits (0.58 s required, 0.63 s
-median center-port time) but is out: 46 of its 100 stable units look like
-movement artifacts (in-port rate under 0.1 of the session rate). Its other
-sessions are out too: 20261109 fails the wait rule and has 12 stable units;
-in 20261110 and 20261112 the recording ended before the probe or behavior
-did, and they are not synced (Gabriel, 2026-11-15: keep it clean). GRB064
-stays on 20261008: of its sessions that pass the wait rule, none has clearly
-more clean units or trials (8-12% artifact units in each). GRB061 20261113 fails the wait rule (0.37 s required, 0.48 s
-median against 0.57 s for GRB006) and stays in provisionally, to see how its
-data look until better sessions come (Gabriel, 2026-11-15). It has no ephys
-session with 6 rates; it uses 4 (`MIN_RATES_BY_SUBJECT`).
+0.5 s, actual center-port times (center exit minus center entry, all
+initiated trials) like those of GRB006 and GRB064, and few movement-artifact
+units (`uv run movement-artifacts <subject> <session>`: stable units silent
+in the port, under 0.1 of their recording rate, with a broad spike, fw3m over
+0.25 ms; 0 in GRB006 20240821, GRB064 20261008 and GRB061 20261113).
+
+GRB050 never learned the task and is out. GRB068 20261113 has expert waits
+(0.58 s required, 0.63 s median center-port time) but is out: 45 of its 100
+stable units are movement artifacts. Its other sessions are out too: 20261109
+fails the wait rule and has 12 stable units; in 20261110 and 20261112 the
+recording ended before the probe or behavior did, and they are not synced
+(Gabriel, 2026-11-15: keep it clean). GRB064 stays on 20261008: of its
+sessions that pass the wait rule, none has clearly more clean units or
+trials. GRB061 20261113 fails the wait rule (0.37 s required, 0.48 s median
+against 0.57 s for GRB006) and stays in provisionally, to see how its data
+look until better sessions come (Gabriel, 2026-11-15). It has no ephys session
+with 6 rates; it uses 4 (`MIN_RATES_BY_SUBJECT`).
 
 Trials: visual (flashes only) and multisensory (flashes and clicks at the same
 rate; `stim_events` holds the flash times), in `MODALITIES`; auditory-only
