@@ -74,14 +74,23 @@ class PoissonGLM:
     def fit_dir(self, units: str) -> Path:
         return self.root / f"{units}_fit_me"
 
-    def prepare(self) -> None:
+    def prepare(self, trials: Path | None = None) -> None:
+        """Write the windows, the video features and the design.
+
+        `trials` is a JSON list of trial numbers: only those trials are
+        prepared and fit (use it with another `root`).
+        """
         from thesis.ephys.analyses.glm.video_svd import write_video_features
 
         if self.windows.exists():
             print(f"Reused prepared windows: {self.windows}", flush=True)
         else:
             write_stimulus_windows(
-                self.subject, self.session, self.windows, self.root / "frame_times.npy"
+                self.subject,
+                self.session,
+                self.windows,
+                self.root / "frame_times.npy",
+                json.loads(trials.read_text()) if trials else None,
             )
             print(f"Completed prepared windows: {self.windows}", flush=True)
         if self.video.exists():
@@ -148,6 +157,11 @@ def main() -> None:
             help="Artifact directory. Defaults to results/glm/<subject>_<session>.",
         )
         if name == "prepare":
+            command.add_argument(
+                "--trials",
+                type=Path,
+                help="JSON list of trial numbers: prepare only those trials.",
+            )
             continue
         command.add_argument(
             "--units",
@@ -171,7 +185,7 @@ def main() -> None:
     )
     with _artifact_lock(model.root):
         if args.command == "prepare":
-            model.prepare()
+            model.prepare(args.trials)
             return
         getattr(model, args.command)(args.units, args.workers)
 
