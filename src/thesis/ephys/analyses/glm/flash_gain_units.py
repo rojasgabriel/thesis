@@ -346,7 +346,7 @@ def plot(sessions: list[dict]) -> Path:
 
 def main() -> None:
     excited = peaks.load_excited_units()
-    # A session of `SESSIONS` with no fit yet has no units (GRB061 on
+    # A session of `SESSIONS` with no fit yet has no units (GRB068 on
     # 2026-11-15); it is skipped and named.
     skipped = [s for s in SESSIONS if s not in excited]
     if skipped:

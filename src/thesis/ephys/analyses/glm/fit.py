@@ -2,7 +2,7 @@
 
 Scientific comparison
 ---------------------
-For each session of `flash_kernels.SESSIONS` (GRB006, GRB064 and GRB061), predict V1
+For each session of `flash_kernels.SESSIONS` (GRB006, GRB064 and GRB068), predict V1
 spikes from the regressors of `dmat.py` (design of 2026-10-15, 11 regressors):
 the flash kernels of the two gap classes, the flash × after exit kernel (a flash
 after the center exit), the pre-stimulus column (center entry to first flash),
