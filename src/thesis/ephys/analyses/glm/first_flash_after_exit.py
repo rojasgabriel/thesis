@@ -235,7 +235,7 @@ def summary(groups: list[np.ndarray], subjects: list[str]) -> dict:
 
 def main() -> None:
     classes = peaks.load_excited_units()
-    # A session of `SESSIONS` with no fit yet has no units (GRB068 on
+    # A session of `SESSIONS` with no fit yet has no units (GRB061 on
     # 2026-11-15); it is skipped and named.
     skipped = [s for s in SESSIONS if s not in classes]
     if skipped:

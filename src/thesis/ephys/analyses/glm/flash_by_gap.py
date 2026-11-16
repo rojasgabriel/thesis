@@ -387,7 +387,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
-    # A session of `SESSIONS` with no fit yet has no kernels (GRB068 on
+    # A session of `SESSIONS` with no fit yet has no kernels (GRB061 on
     # 2026-11-15); it is skipped and named.
     fitted = [s for s in SESSIONS if (args.out / s / "flash_kernels.npz").exists()]
     if len(fitted) < len(SESSIONS):

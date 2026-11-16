@@ -12,9 +12,12 @@ A session enters `RECORDED` only with good cortical units and expert behavior
 (Gabriel, 2026-11-15): a required wait (`required_wait_time`) of at least
 0.5 s, and actual center-port times (center exit minus center entry, all
 initiated trials) like those of GRB006 and GRB064. GRB050 never learned the
-task and is out. GRB061 20261113 is out: required wait 0.37 s, median center-port
-time 0.48 s against 0.57 s (GRB006). GRB068 20261113 passes (0.58 s required,
-0.63 s median) but has 4 rates; it uses 4 (`MIN_RATES_BY_SUBJECT`).
+task and is out. GRB068 20261113 has expert waits (0.58 s required, 0.63 s
+median center-port time) but is out: 46 of its 100 stable units look like
+movement artifacts. GRB061 20261113 fails the wait rule (0.37 s required, 0.48 s
+median against 0.57 s for GRB006) and stays in provisionally, to see how its
+data look until better sessions come (Gabriel, 2026-11-15). It has no ephys
+session with 6 rates; it uses 4 (`MIN_RATES_BY_SUBJECT`).
 
 Trials: visual (flashes only) and multisensory (flashes and clicks at the same
 rate; `stim_events` holds the flash times), in `MODALITIES`; auditory-only
@@ -39,13 +42,13 @@ from thesis.ephys.trials import CATEGORY_BOUNDARY_HZ
 RECORDED = {
     "GRB006": "20240821_121447",
     "GRB064": "20261008_143359",
-    "GRB068": "20261113_143230",
+    "GRB061": "20261113_133142",
 }
 SUBJECTS = tuple(RECORDED)
 # The one list of the analyzed sessions; the neural analyses import it.
 SESSIONS = tuple(f"{subject}_{name}" for subject, name in RECORDED.items())
 MIN_RATES = 6
-MIN_RATES_BY_SUBJECT = {"GRB068": 4}
+MIN_RATES_BY_SUBJECT = {"GRB061": 4}
 MODALITIES = ("visual", "visual+audio")
 STIM_S = 1.0
 FIELDS = (

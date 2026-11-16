@@ -521,7 +521,7 @@ def main() -> None:
         }
     else:
         units = peaks.load_excited_units()
-    # A session of `SESSIONS` with no fit yet has no units here (GRB068 on
+    # A session of `SESSIONS` with no fit yet has no units here (GRB061 on
     # 2026-11-15); it is skipped and named.
     skipped = [s for s in SESSIONS if s not in units]
     if skipped:
