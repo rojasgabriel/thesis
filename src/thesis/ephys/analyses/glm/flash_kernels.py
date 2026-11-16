@@ -144,7 +144,8 @@ def main() -> None:
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     for session in SESSIONS:
-        print(session_kernels(args.out / session, args.units))
+        if (args.out / session).exists():  # a root can hold a subset of the sessions
+            print(session_kernels(args.out / session, args.units))
 
 
 if __name__ == "__main__":
