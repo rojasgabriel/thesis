@@ -281,6 +281,30 @@ def _drop_uncovered_trials(
 
 
 @cached
+def trial_settings(subject: str, session: str) -> pd.DataFrame:
+    """Return the task settings of each trial (Chipmunk.TrialParameters).
+
+    One row per trial: `trial_num`, the required center-port wait
+    (`required_wait_s`), the flash brightness (`stim_brightness`), the delay
+    before the stimulus (`pre_stim_delay_s`) and the reward volume
+    (`reward_volume_ul`). A value is NaN where the session has none.
+    """
+    import labdata  # noqa: F401  (registers the chipmunk plugin)
+    from chipmunk import Chipmunk
+
+    names = {
+        "required_wait_time": "required_wait_s",
+        "stim_brightness": "stim_brightness",
+        "pre_stim_delay": "pre_stim_delay_s",
+        "configured_reward_volume": "reward_volume_ul",
+    }
+    rows = (
+        Chipmunk.TrialParameters & {"subject_name": subject, "session_name": session}
+    ).fetch("trial_num", *names, order_by="trial_num", as_dict=True)
+    return pd.DataFrame(rows, columns=["trial_num", *names]).rename(columns=names)
+
+
+@cached
 def build_trial_table(
     subject: str, session: str, *, include_frames: bool = True
 ) -> pd.DataFrame:

@@ -23,11 +23,13 @@ A subset of trials with fewer than `MIN_PAIRS` pairs gives no value.
 1. Audit (`trial_balance.json`, `audit`): trials by rate, choice side and
    outcome; wait time (first flash to center exit); flashes in the port; and,
    for the flash pairs, their number by side and category, the gap of each
-   flash and its time from the first flash. The trial table has no stimulus
-   brightness and no required-wait setting, so these are not compared.
+   flash and its time from the first flash. Task settings
+   (`ephys.trials.trial_settings`): required wait, brightness, reward volume.
 2. Splits within a mouse (`splits`): the increase of each unit in the trials
    of one level against the other level of `SPLITS`. Wilcoxon signed-rank
-   over units, Holm over the splits of a mouse and gap class. If a variable
+   over units, Holm over the splits of a mouse and gap class. "wait time" is
+   the measured wait, "required wait" the setting of the trial (no split in a
+   session with one value). If a variable
    does not change the increase within a mouse, its mix cannot make the
    difference between the mice.
 3. Matched trials (`matched`): trials are drawn so that each mouse has the
@@ -76,6 +78,7 @@ from thesis.ephys.analyses.glm import flash_movement as fm
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.peaks import load_excited_units, load_suppressed_units
+from thesis.ephys.trials import trial_settings
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
@@ -99,6 +102,7 @@ SPLITS = {
     "category": ("category", "low", "high"),
     "outcome": ("outcome", "correct", "error"),
     "wait time": ("wait", "short", "long"),
+    "required wait": ("required", "short", "long"),
     "session half": ("half", "first", "second"),
     "trial before": ("previous", "reward", "no reward"),
 }
@@ -117,7 +121,9 @@ def load(session: str) -> dict:
     """Return the GLM trials, the flash pairs and their counts for the excited units."""
     subject, stamp = session.split("_", 1)
     prepared = dmat._load_windows(OUT / session / "stimulus_windows_me.npz")
-    trials = dmat._load_selected_trials(prepared)
+    trials = dmat._load_selected_trials(prepared).merge(
+        trial_settings(subject, stamp), on="trial_num", how="left", validate="1:1"
+    )
     first = trials["stim_pulse_times_s"].str[0].to_numpy(float)
     rate = trials["visual_stim_rate_hz"].to_numpy(float)
     boundary = trials["category_boundary_hz"].to_numpy(float)
@@ -128,6 +134,16 @@ def load(session: str) -> dict:
         outcome=np.where(trials["rewarded"] == 1, "correct", "error"),
         wait_s=wait,
         wait=np.where(wait < np.median(wait), "short", "long"),
+        # No level in a session with one required wait time.
+        required=np.where(
+            trials["required_wait_s"].nunique() < 2,
+            "",
+            np.where(
+                trials["required_wait_s"] < trials["required_wait_s"].median(),
+                "short",
+                "long",
+            ),
+        ),
         half=np.where(np.arange(len(trials)) < len(trials) / 2, "first", "second"),
         previous=np.select(
             [trials["last_outcome"] == 1, trials["last_outcome"] == -1],
@@ -224,6 +240,14 @@ def audit(d: dict) -> dict:
         },
         rewarded_trial_before=float((t["previous"] == "reward").mean()),
         wait_s_quartiles=np.percentile(t["wait_s"], [25, 50, 75]).tolist(),
+        required_wait_s_quartiles=np.percentile(
+            t["required_wait_s"], [25, 50, 75]
+        ).tolist(),
+        wait_above_required_s_median=float(
+            (t["center_exit_s"] - t["center_entry_s"] - t["required_wait_s"]).median()
+        ),
+        stim_brightness=sorted(float(v) for v in t["stim_brightness"].unique()),
+        reward_volume_ul=sorted(float(v) for v in t["reward_volume_ul"].unique()),
         flashes_in_port_median_by_category={
             c: float(g["flashes_in_port"].median())
             for c, g in t.groupby("category")
