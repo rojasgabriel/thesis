@@ -1159,3 +1159,22 @@ no-effect simulations of `power_test.py --mode held_out`, flash-excited units;
 (p = 0.71 / 0.011; pooled −0.16, −0.39 to 0.01). Leaving out any one GRB064
 unit keeps its median at −0.36 to −0.26 and p between 0.002 and 0.022. The
 conclusions do not change. Old outputs: `results/glm/logs/*_before_held_out_leak_20261109.json`.
+
+## Figure and narrative reconciliation (2026-11-16)
+
+The saved flash comparison, matched-rate leak correction, first-flash checks,
+power, and in-port movement outputs include GRB061 / 20261113_133142 (75 eligible
+units, 10 saved flash-excited). It remains provisional under the existing
+required-wait criterion. The main model overview and most supporting controls
+still cover GRB006 and GRB064. Documentation now states scope per analysis.
+
+The three-mouse held-out corrected log-ratio pooled intervals are −0.43 to +0.23
+at long gaps and −0.62 to +0.05 at short gaps; the earlier two-mouse short-gap
+interval excluded zero. The first-flash flash-minus-no-flash pooled interval
+also now includes zero (−0.06 to +0.45). These supersede the old pooled results
+for the expanded cohort, not the historical two-mouse observations. The stale
+power interpretation based on an upper bound of +0.01 is withdrawn.
+
+No model was refitted, no new term was selected, and no response classification
+was refreshed. [Saved reports and figure provenance](figures/README.md) document
+the evidence used for the reconciliation.

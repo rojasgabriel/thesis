@@ -1,107 +1,95 @@
 # Paper story
 
-Working synthesis as of 2026-10-30, from the frozen GLM of 2026-10-29 on two
-mice (GRB006 / GRB064, one session each). It is not a locked plan or claim.
-Numbers and methods are in [glm.md](glm.md) and [glm_checks.md](glm_checks.md).
+Working synthesis reconciled on 2026-11-16 against the [saved results](figures/README.md).
+The model design is frozen from 2026-10-29. The main flash comparison now includes
+three mice; most mechanistic and decoding controls still cover the original two.
+This is a working scientific interpretation, not a locked claim.
 
 ## Question
 
-How does leaving the center port, from stationary evidence sampling to choice
-execution, change V1 responses to the visual evidence, and how much of that
-change is movement?
+How does leaving the center port, from evidence sampling to choice execution,
+change V1 responses to visual evidence? How much of that change is carried by
+the fitted flash × exit term after accounting for other modeled signals?
 
-"In port" and "after the exit" are task periods, not measured locomotion.
-Choice, side, elapsed time, flash order, and adaptation all change at the
-exit. There is no head or eye tracking. That is a limitation of the study.
+“In port” and “after exit” are task periods, not measured locomotion. Choice,
+side, elapsed time, flash order, and adaptation change around exit. Without eye
+or head tracking, the analyses cannot isolate a causal movement effect.
 
 ## What the data show
 
-1. **Observation.** After the exit, flash responses are larger in GRB006:
-   26 of 30 flash-excited units at long gaps (normalized peak +1.01). In
-   GRB064 (20261008) the increase is small: 14 of 22 units, +0.10. At short
-   gaps, most of the increase is a higher rate before the flash.
-2. **Model.** A Poisson GLM with 13 terms (flash history with gap, recovery,
-   exit, and side modifiers; task events; video; spike history) predicts
-   held-out spikes at 0.55 / 0.47 bits per spike. All terms pass the
-   inclusion tests.
-3. **The flash × exit term carries almost none of the increase.** After the
-   leak correction, the held-out log ratio is +0.10 / −0.35 in medians
-   (GRB006 p = 0.15; GRB064 p = 0.01, below zero; pooled median −0.06,
-   95% −0.46 to +0.20). The held-out test has 80% power at +0.15 / +0.14.
-   GRB006 shows no change and GRB064 a decrease. Because the mice differ, the
-   pooled interval does not exclude a positive effect of that size.
-4. **What the increase is instead:**
-   - **Gain on all activity.** The rate before the flash goes up (GRB006:
-     g_b 1.84). Per unit, with the trial noise included, the GRB006 flash
-     response cannot be told apart from the same gain or from no change (g_f
-     2.05); in GRB064 it is smaller after the exit than in the port (g_f
-     0.27; g_f − 1 from −1.22 to −0.25).
-   - **Adaptation reset.** The first flash after the exit is a little larger
-     than this gain predicts (×1.8 at 100–200 ms gaps, 1.03–2.9), and the
-     model misses only a small part of it.
-   - **Side.** The flash response differs with the response side
-     (flash × side). The direction is opposite in the two mice. Without eye or
-     head position, a visual-field shift and a side-specific gain look the
-     same.
-5. **Body movement does not make the flash response larger.** In the port,
-   more motion energy goes with a smaller flash response (−29% / −28% per
-   SD; 22 of 27 / 17 of 21 units). After the exit, the response does not
-   change with motion energy. This can be movement or a state that goes with
-   it.
-6. **Decoding.**
-   - **Category:** the category signal around the exit is mostly visual.
-     Without the flash terms, the AUC falls by 0.09 / 0.16. The GRB006
-     leftover comes from a known miss of the flash model at high flash rates.
-   - **Choice:** before the exit, a decoder trained on correct trials leans
-     toward the stimulus on error trials (AUC 0.41 / 0.38, p = 0.20 / 0.17),
-     but that measure mixes the rates. At the same flash rate, the activity
-     before the exit goes with the choice in GRB064 (choice probability 0.62,
-     p = 0.03; GRB006 0.57, p = 0.16). The large choice signal appears with
-     the movement.
-7. **Depth.** No movement-related kernel changes with depth.
+1. **The observed change differs across sessions.** At long gaps, mean normalized
+   peak changes are **+1.01 / +0.10 / −0.22** for GRB006 / GRB064 / GRB061, using
+   **30 / 22 / 10** saved flash-excited units. GRB006 has a clear increase; the
+   other sessions do not show the same pattern. GRB061 is provisional: its
+   required wait is 0.37 s, below the session-selection criterion of 0.5 s.
+2. **The model describes overlapping signals.** The saved overview shows 287
+   units from GRB006 and GRB064, with pooled held-out median **0.50 bits/spike**
+   and **D² = 0.075**. All 13 regressor groups pass inclusion tests in those
+   original mice. That overview is not a three-mouse model-validation result.
+3. **There is no established common positive flash × exit contribution.** The
+   corrected held-out long-gap log-ratio medians are **+0.10 / −0.35 / −0.19**,
+   with within-mouse p = **0.152 / 0.0103 / 0.945**. The three-mouse pooled median
+   is **−0.07**, 95% **−0.43 to +0.23**, p = **0.695**. At short gaps the pooled
+   median is **−0.21**, 95% **−0.62 to +0.05**, p = **0.092**. The earlier
+   significant two-mouse short-gap pooled result does not describe this cohort.
+   The ratio excludes nonpositive or otherwise unusable peaks; the short-gap
+   GRB061 estimate retains only four units.
+4. **Sensitivity is uneven.** Held-out long-gap 80% power is reached at planted
+   log ratios of about **+0.15 / +0.14 / +0.42**. The ten-unit GRB061 analysis
+   has much lower power. A nonsignificant effect does not establish no change,
+   and the pooled interval still permits a meaningful positive effect.
+5. **The original two-mouse controls suggest several contributors.** Background
+   gain, adaptation, and response side help explain GRB006 and GRB064. The
+   per-unit gain control cannot distinguish an unchanged flash response from
+   a shared gain in GRB006, while GRB064 shows a smaller flash response after
+   exit. These controls have not established the same explanation in GRB061.
+6. **Movement during the wait is a separate observational comparison.** In-port
+   flash-response slopes are **−29% / −28% / −45% per SD** of motion energy,
+   p = **0.00027 / 0.00010 / 0.084**. The provisional mouse is uncertain, and
+   the older time-in-wait adjustments cover only GRB006 and GRB064. Movement
+   and other state changes remain possible explanations of this association.
+7. **The first-flash miss is heterogeneous too.** The three-mouse pooled
+   flash-minus-no-flash model miss is **+0.25**, 95% **−0.06 to +0.45**,
+   p = **0.109**. The positive two-mouse pooled interval should not be used to
+   describe the current three-mouse figure. Category and choice decoding,
+   side, raw-video, and depth results remain supporting two-mouse controls.
 
 ## Current claim
 
-The larger flash responses after the exit are mostly a state change at the
-exit: a gain on all activity, a reset of adaptation, and a side-dependent
-part. The data do not show a flash-specific effect of how much the body
-moves.
-
-## Competing explanations, updated
-
-- **Additive gain / state change at the exit:** supported. One gain on all
-  activity explains most of the increase.
-- **Flash-specific modulation by movement:** not supported. In the port the
-  relation goes in the other direction.
-- **Visual change with the turn:** possible for the side part only. This
-  needs eye or head position, or retinotopy, which the data do not have.
+V1 flash-aligned responses change around center-port exit, with different
+patterns across the three recorded sessions. The saved fitted-term comparison
+does not establish a shared positive flash × exit effect. It also does not
+establish equivalence or a lack of causal movement modulation. The provisional
+third session and the limited number of mice restrict generalization.
 
 ## Figure arc
 
-1. Task, timing, chronic V1 recording, center port → choice.
-2. Observation: flash responses after the exit vs in port
-   (`figures/glm/flash_observation.svg`).
-3. Encoding model: design, prediction, kernels (`figures/glm/main_figure.svg`).
-4. Comparison: observed, model, and model without flash × exit
-   (`figures/glm/flash_comparison.svg`), with power and the per-unit gain.
-5. What changes at the exit: gain, adaptation reset, flash × side, and
-   in-port movement (`figures/glm/flash_movement_in_port.svg`).
-6. Decoding: category and choice without model terms, choice by outcome.
+1. Task, timing, chronic V1 recording, and the transition from center port to choice.
+2. [Observation](figures/glm/flash_observation.svg): three mice, with PSTHs and
+   nested all-unit/flash-excited group means; no individual-unit scatter points.
+3. [Encoding model](figures/glm/main_figure.svg): the original two-mouse overview.
+4. [Matched comparison](figures/glm/flash_comparison.svg): observed and held-out
+   predictions in three mice, followed by [corrected results](glm.md#correct-for-an-apparent-effect-created-by-fitting)
+   and [power](figures/glm/power_test.svg). The displayed rate peaks themselves
+   are not leak-corrected.
+5. [In-port movement](figures/glm/flash_movement_in_port.svg) and
+   [first-flash model miss](figures/glm/first_flash_after_exit.svg): three mice.
+6. [Supporting controls](glm_checks.md): explicitly identify which still cover
+   only GRB006 and GRB064 before drawing on gain, adaptation, side, or decoding.
 
-The GLM is the main analysis. Model-free tests are support before the GLM.
-
-## Not the spine
-
-Double peaks, PCA/dPCA descriptions, depth, audio-event recovery. These are
-fine as controls or methods.
+The GLM remains the main analysis. Double peaks, population geometry, depth,
+and audio-event recovery are supporting analyses or methods.
 
 ## Next steps
 
-- **New sessions or a third mouse.** The model is frozen, so only new data
-  can test flash × exit, the direction of flash × side, and candidate terms.
-- **Candidate terms for new sessions:** in-port movement × flash, and better
-  summation at high flash rates.
-- **More error trials** to test the choice signal before the exit at a fixed
-  stimulus in both mice.
-- **Brightness protocol** (brightnesschipmunk draft PR #1): rig test and more
-  brightness levels.
+- Add sessions that meet the behavioral criteria, with more than one session
+  per mouse; keep the provisional GRB061 result distinct.
+- Extend model validation and the relevant supporting controls to the third
+  mouse before treating the extension as a full replication.
+- Inspect individual-unit distributions alongside group means before making
+  claims about how broadly a change is shared within a session.
+- Test terms suggested by these data, such as in-port movement × flash and
+  improved high-rate summation, on new sessions rather than selecting them here.
+- Obtain more matched error trials to test choice signals before exit, and use
+  eye/head measurements or an experimental control to separate visual-field
+  changes from state and movement.

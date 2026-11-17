@@ -35,7 +35,7 @@ left out: the response to the flash before falls into their windows.
   the smallest bin from 30 to 120 ms) in place of the peak; outputs with
   `_flash_suppressed`.
 - Units: the units of the group,
-  pooled over both mice. Intervals: hierarchical bootstrap (mice, then units),
+  pooled over eligible mice in each group. Intervals: hierarchical bootstrap (mice, then units),
   95%; ratios are of pooled means. The sampling unit is the unit.
 - Talk figure (`exit_flash_relative`): the pooled flash PSTH of each group
   divided by its own pooled rate before the flash (1 = that rate), one row per

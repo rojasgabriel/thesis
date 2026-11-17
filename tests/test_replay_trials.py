@@ -122,6 +122,8 @@ class TrialTablesTest(unittest.TestCase):
         with (
             patch.dict(sys.modules, modules),
             patch.object(events, "fetch_session_events", return_value=(sess_ev, stim)),
+            # These pulse-mapping fixtures assume the probe covers every trial.
+            patch.object(events, "probe_coverage_end_s", return_value=starts[-1] + 10),
         ):
             task = trials.build_trial_table("offline", "test", include_frames=False)
             replay = trials.build_replay_table("offline", "test")
