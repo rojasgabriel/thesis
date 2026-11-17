@@ -163,7 +163,7 @@ CAPTION_NAMES = {
 DISPLAY_LIMIT = 0.006
 # Fixation level, recovered over true (median unit), with the withdrawal
 # kernel in use on 2026-10-13 and with the ±300 ms kernel (`parameter_recovery
-# with the withdrawal grid, 2026-10-13; docs/glm.md). The design
+# with the withdrawal grid, 2026-10-13`). The design
 # has no withdrawal kernel now, so the test cannot be run again on it.
 WITHDRAWAL_RECOVERY = {"GRB006": (0.76, 0.55), "GRB064": (0.84, 0.73)}
 CAPTION = """\

@@ -26,8 +26,6 @@ counts). All comparisons are paired over units.
 - From the saved fit: is the fixation level of a unit (mean of its fixation
   kernel over `LEVEL_MS`) related to the unique ΔD² of its flash terms
   (Spearman)? A change of the gain of the whole unit predicts no relation.
-  (The other comparisons of 2026-10-11 are in docs/glm_decisions.md and the
-  git history.)
 
 Units are those of `fit.py` (`--units`), and the trials are the trials of the
 GLM. Bins after the response entry are not used. The sampling unit is the

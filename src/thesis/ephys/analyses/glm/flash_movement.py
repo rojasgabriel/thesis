@@ -47,7 +47,7 @@ it is not an independent confidence interval. Displayed group bars are SEM
 across units. These peaks are not leak
 corrected and differ from the earlier matched-rate peak contribution.
 
-Selection: both sessions in flash_kernels.SESSIONS, quality 1/stability 0,
+Selection: all sessions in flash_kernels.SESSIONS, quality 1/stability 0,
 and available main-GLM fits after the existing fit exclusions. Scatters show
 only the mean of all eligible units (open markers) and the mean of the saved
 StimulusResponse excited group (filled markers), with SEM across units on

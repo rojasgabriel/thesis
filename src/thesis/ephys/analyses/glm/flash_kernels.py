@@ -1,6 +1,6 @@
 """Save the flash-kernel response of every unit, for the grouping of units.
 
-The sessions of the two-animal figures (`SESSIONS`) are imported here from
+The shared analyzed-session list (`SESSIONS`) is imported here from
 `behavior.trials`.
 
 No new fit; the kernels are from the final refit of each unit (`fit.py`).
