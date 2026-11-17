@@ -1,6 +1,6 @@
 """Explain how V1 flash responses change at the center exit.
 
-Question: flash peaks are larger after the exit (result 3 of `docs/glm.md`).
+Question: when flash peaks are larger after the exit, what changes?
 How much of that is a gain on all activity (state), how much is the gap from
 the flash before (adaptation), and what is left for the first flash after the
 exit?

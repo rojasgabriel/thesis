@@ -1,7 +1,7 @@
 """Find the flash response that the V1 GLM misses after the center exit.
 
 Question: the model predicts a smaller increase of the flash peak after the
-exit than the one observed (result 3 of `docs/glm.md`). Which flashes does it
+exit than the one observed. Which flashes does it
 miss, and is the missing part a response to the flash or an exit transient
 that is there with no flash?
 

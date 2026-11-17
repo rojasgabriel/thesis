@@ -6,8 +6,6 @@ notebooks/tutorials/DataJointNpxPreprocessing.ipynb
 
 # Generated figures
 figures/
-# Selected documentation snapshots are shared with the code.
-!docs/figures/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

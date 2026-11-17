@@ -41,8 +41,7 @@ triangle: GRB064). The tests are within each mouse.
   agreement has no meaning). The fixation kernel is also given before and
   after `FIXATION_TAIL_MS`: its time axis runs to the longest fixation, and
   only a few trials reach its end.
-- Leak (g to i, `leak_test.py`): a bias of the main comparison (result 3
-  of `docs/glm.md`). A flash kernel summed over the flash train after the
+- Leak (g to i, `leak_test.py`): a bias of the matched-peak comparison. A flash kernel summed over the flash train after the
   exit is close to a level, so the L2 penalty can give part of the rate step
   at the exit to the flash × after exit kernels and make a flash × after exit
   effect from nothing. Spikes are simulated from the final refit of each unit

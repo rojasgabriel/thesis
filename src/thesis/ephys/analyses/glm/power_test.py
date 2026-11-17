@@ -1,7 +1,6 @@
-"""Measure the power of the flash × after exit test of result 3.
+"""Measure the power of the flash × after exit test.
 
-Question: result 3 of `docs/glm.md` finds no consistent flash × after exit
-effect in the flash-excited units. Could the test find an effect of a given
+Question: could the flash × after exit test find an effect of a given
 size with these units, trials and fits, and how often does it find one when
 there is none?
 
