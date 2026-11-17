@@ -69,8 +69,7 @@ class TaskPulsesTest(unittest.TestCase):
             pulses = pd.concat([before, pulses])
         with (
             patch.dict(sys.modules, modules),
-            # These task/replay fixtures assume the probe covers every trial.
-            patch.object(events, "probe_coverage_end_s", return_value=starts[-1] + 10),
+            patch.object(events, "probe_coverage_end_s", return_value=np.inf),
             patch.object(
                 events,
                 "fetch_session_events",
