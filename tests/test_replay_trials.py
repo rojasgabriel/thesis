@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -12,6 +13,7 @@ import pandas as pd
 import scipy.interpolate  # Load extensions before patching sys.modules.
 
 from thesis.ephys import events, trials
+from thesis.ephys.preprocessing import audit_camera_pulses
 
 assert scipy.interpolate.CubicSpline
 
@@ -76,7 +78,15 @@ class TrialTablesTest(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-    def tables(self, starts, numbers, replay_sources=()):
+    def tables(
+        self,
+        starts,
+        numbers,
+        replay_sources=(),
+        *,
+        include_frames=False,
+        frame_times=None,
+    ):
         index = pd.MultiIndex.from_tuples(
             [("offline", "test", "chipmunk", i) for i in range(2)],
             names=["subject_name", "session_name", "dataset_name", "trial_num"],
@@ -121,11 +131,50 @@ class TrialTablesTest(unittest.TestCase):
         stim = pd.DataFrame(dict(timestamp=pulses, width_ms=15.0, first_in_train=True))
         with (
             patch.dict(sys.modules, modules),
-            patch.object(events, "fetch_session_events", return_value=(sess_ev, stim)),
+            patch.object(events, "probe_coverage_end_s", return_value=np.inf),
+            patch.object(
+                events, "fetch_session_events", return_value=(sess_ev, stim)
+            ) as fetch,
+            patch.object(
+                audit_camera_pulses,
+                "audit_camera_frames",
+                return_value=(frame_times, {}, {}),
+                side_effect=ValueError("No validated camera frames")
+                if frame_times is None
+                else None,
+            ) as camera,
         ):
-            task = trials.build_trial_table("offline", "test", include_frames=False)
+            task = trials.build_trial_table(
+                "offline", "test", include_frames=include_frames
+            )
+            fetch.assert_called_once_with(
+                "offline", "test", allow_incomplete=True, include_frames=False
+            )
+            if include_frames:
+                camera.assert_called_once_with("offline", "test")
+            else:
+                camera.assert_not_called()
             replay = trials.build_replay_table("offline", "test")
         return task, replay
+
+    def test_validated_frames_are_trialized_and_old_cache_is_bypassed(self):
+        old_cache = Path(self.cache.name) / (
+            "build_trial_table_subject-offline_session-test_include_frames-True.pkl"
+        )
+        pd.DataFrame({"frame_times_s": [[999.0]]}).to_pickle(old_cache)
+        task, _ = self.tables(
+            [10, 20, 30],
+            [0, 1, 2],
+            [1],
+            include_frames=True,
+            frame_times=np.array([9.9, 10, 19.9, 20, 29.9, 30]),
+        )
+        self.assertEqual(task.frame_times_s.tolist(), [[10, 19.9], [20, 29.9]])
+        self.assertTrue(old_cache.exists())
+
+    def test_frames_requested_but_unvalidated_raises(self):
+        with self.assertRaisesRegex(ValueError, "validated camera"):
+            self.tables([10, 20], [0, 1], include_frames=True)
 
     def test_replay_source_must_exist(self):
         with self.assertRaisesRegex(ValueError, "missing task trials"):

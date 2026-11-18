@@ -304,7 +304,7 @@ def trial_settings(subject: str, session: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["trial_num", *names]).rename(columns=names)
 
 
-@cached
+@cached(version="validated-camera-frames")
 def build_trial_table(
     subject: str, session: str, *, include_frames: bool = True
 ) -> pd.DataFrame:
@@ -318,7 +318,9 @@ def build_trial_table(
 
     Audio columns use measured OBX events when available and synchronized Bpod
     command times otherwise. They are empty when neither source is available.
-    Set `include_frames=False` when screen-frame timestamps are not needed.
+    Frame times are validated cam0 falling-edge times, one per saved video
+    frame, split into trial windows. Missing video/sync records or unresolved
+    camera pulses raise. Set `include_frames=False` to skip camera validation.
     """
     from thesis.ephys.events import fetch_session_events
 
@@ -326,8 +328,12 @@ def build_trial_table(
         subject,
         session,
         allow_incomplete=True,
-        include_frames=include_frames,
+        include_frames=False,
     )
+    if include_frames:
+        from thesis.ephys.preprocessing.audit_camera_pulses import audit_camera_frames
+
+        sess_ev["frames"], _, _ = audit_camera_frames(subject, session)
 
     from chipmunk import Chipmunk
 
@@ -445,7 +451,6 @@ def build_trial_table(
         for port_role in ("left_port", "center_port", "right_port")
         if port_role not in sess_ev
     ]
-    missing_frames = include_frames and "frames" not in sess_ev
     bpod_react_s = trial_table["t_react"].to_numpy(dtype=float)
     predicted_react_s = np.full(n_trials, np.nan)
     bpod_entry_s = np.full(n_trials, np.nan)
@@ -508,20 +513,10 @@ def build_trial_table(
                 bpod_response_s[valid_bpod_response]
             )
 
-    if missing_port_roles or missing_frames:
-        fallback_notes = []
-        if missing_port_roles:
-            fallback_notes.append(
-                f"using Bpod times for {', '.join(missing_port_roles)}"
-            )
-        if missing_frames:
-            fallback_notes.append(
-                "screen-frame times are unavailable because Chipmunk does not "
-                "store them"
-            )
+    if missing_port_roles:
         warnings.warn(
             f"Incomplete hardware events for {subject} {session}: "
-            + "; ".join(fallback_notes),
+            f"using Bpod times for {', '.join(missing_port_roles)}",
             RuntimeWarning,
             stacklevel=2,
         )

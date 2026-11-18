@@ -12,8 +12,7 @@ exit, without and with the sign of the side of the response), the previous
 choice, the session drift, the motion-energy PCs of the video, and the strictly
 past spike history of each unit. All terms are additive in log rate. Each
 window is from `dmat.PRE_S` before to `dmat.POST_S` after the first flash; before
-the center entry no event term is on. `docs/glm.md` gives the terms that were
-tested and left out.
+the center entry no event term is on.
 
 Units: each unit must pass quality criterion set 1 (`unit_criteria_id=1`) and
 stability set 0 (`stability_param_id=0`). No sensory-response filter is

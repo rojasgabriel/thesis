@@ -1,7 +1,6 @@
 """Is the larger flash response after the exit one gain on all activity, per unit?
 
-Question: flash responses are larger after the center exit (result 1 of
-`docs/glm.md`). The pooled gain test (`exit_flash_responses.py`) compares the
+Question: when flash responses grow after center exit, is the change one gain? The pooled gain test (`exit_flash_responses.py`) compares the
 growth of the flash peak with the growth of the rate before the flash over
 the pooled units. For each unit: is its flash response scaled by the same
 gain as its activity before the flash (pure gain), unchanged on a higher

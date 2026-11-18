@@ -69,6 +69,7 @@ class TaskPulsesTest(unittest.TestCase):
             pulses = pd.concat([before, pulses])
         with (
             patch.dict(sys.modules, modules),
+            patch.object(events, "probe_coverage_end_s", return_value=np.inf),
             patch.object(
                 events,
                 "fetch_session_events",

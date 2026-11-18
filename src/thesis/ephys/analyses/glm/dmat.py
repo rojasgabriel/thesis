@@ -192,7 +192,7 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
 FLASH_RECOVERY_TERM = True
 # Flash × side (in the model from 2026-10-29; `candidate_terms.py` passed it in
-# both mice, docs/glm_checks.md): the side of the response (+1 right, -1 left)
+# both original mice): the side of the response (+1 right, -1 left)
 # for a flash after the center exit, 0 in the fixation and for the first flash.
 # After the exit the head turns to that side, so the LED panel above the center
 # port lies in another part of the visual field; this kernel is how the flash
@@ -220,7 +220,7 @@ FLASH_TERMS = (
 # movement signal, which motion energy cannot carry. It replaced one column for
 # the side after the exit (first canonical correlation 0.9 between the two).
 # Candidates that failed or were not taken (time in trial, accumulated
-# evidence, flash × after exit × gap) are in docs/glm_decisions.md and git history.
+# evidence, flash × after exit × gap) are recorded in git history.
 TURN_DIRECTION_TERM = True
 TURN_DIRECTION = "turn_direction"
 TURN_DIRECTION_S = 1.3

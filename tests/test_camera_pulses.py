@@ -1,13 +1,84 @@
 """Recording-run selection must use camera timing, not excess-pulse counts."""
 
+import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
+from test_replay_trials import Relation, schema_module
 
-from thesis.ephys.preprocessing.audit_camera_pulses import align_frame_times
+from thesis.ephys import events
+from thesis.ephys.preprocessing.audit_camera_pulses import (
+    align_frame_times,
+    audit_camera_frames,
+)
 
 
 class CameraPulsesTest(unittest.TestCase):
+    def audit(self, falling, reference, *, n_frames=None):
+        source = dict(
+            subject_name="offline",
+            session_name="test",
+            dataset_name="ephys",
+            stream_name="obx",
+            event_name="io3",
+        )
+        times = np.column_stack([falling, falling + 0.002]).ravel()
+        modules = schema_module(
+            [
+                dict(
+                    **source,
+                    event_timestamps=times,
+                    event_values=np.tile([0, 1], len(falling)),
+                )
+            ]
+        )
+        modules["labdata.schema"].DatasetVideo = Relation(
+            [
+                dict(
+                    subject_name="offline",
+                    session_name="test",
+                    video_name="cam0",
+                    frame_times=reference - 10,
+                    n_frames=len(reference) if n_frames is None else n_frames,
+                ),
+                dict(
+                    subject_name="other",
+                    session_name="test",
+                    video_name="cam0",
+                    frame_times=[],
+                    n_frames=0,
+                ),
+            ]
+        )
+        with (
+            patch.dict(sys.modules, modules),
+            patch.object(
+                events, "_find_sess_ev_sources", return_value={"frames": source}
+            ),
+            patch.object(
+                events, "bpod_to_clock", return_value=lambda times: times + 10
+            ),
+        ):
+            return audit_camera_frames("offline", "test")
+
+    def test_audit_selects_recorded_falling_edges_in_hardware_clock(self):
+        run = 20 + np.arange(100) * 0.0125
+        frames, report, arrays = self.audit(np.r_[run - 10, run], run - 0.002)
+        np.testing.assert_allclose(frames, run)
+        self.assertEqual(report["frame_edge"], "falling")
+        self.assertEqual(report["repairs"]["pulses_before_the_recording"], 100)
+        np.testing.assert_allclose(arrays["stored_camera_neural_s"], run - 0.002)
+
+    def test_audit_rejects_video_count_mismatch(self):
+        run = 20 + np.arange(100) * 0.0125
+        with self.assertRaisesRegex(ValueError, "video frame count"):
+            self.audit(run, run, n_frames=99)
+
+    def test_audit_rejects_empty_camera_edges(self):
+        with self.assertRaisesRegex(ValueError, "camera edges"):
+            self.audit(np.array([]), np.arange(100))
+
     def test_long_preview_and_restart(self):
         preview = np.arange(33000) * 0.0125
         restart = preview[-1] + 2 + np.arange(1200) * 0.0125
