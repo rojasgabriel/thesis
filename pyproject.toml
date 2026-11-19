@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.13.7,<0.14.0"]
+requires = ["uv_build>=0.13.8,<0.14.0"]
 build-backend = "uv_build"
 
 [project]
@@ -44,6 +44,9 @@ psth = "thesis.ephys.tools.psth_app:main"
 stimulus-response = "thesis.ephys.tools.stimulus_response_app:main"
 survey-map = "thesis.ephys.tools.survey_map_app:main"
 unit-stability = "thesis.ephys.tools.unit_stability_app:main"
+
+[dependency-groups]
+check = ["numpy", "pandas", "scipy", "ruff==0.16.4"]
 
 [tool.uv.build-backend]
 module-name = ["thesis", "labdata_plugin"]

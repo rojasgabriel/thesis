@@ -44,13 +44,12 @@ from thesis.ephys.analyses.glm.grid import INPUTS
 from thesis.ephys.analyses.glm.inclusion import decide, minimum_units, regressor_tests
 from thesis.ephys.units import fetch_unit_table
 
-# Earlier runs (other suffixes, other candidates) are in docs/glm_decisions.md.
 # The run of 2026-10-23 (`_flash_recovery`) added `dmat.FLASH_RECOVERY`.
 # The run of 2026-10-29 (`_flash_side`): flash × side (`dmat.FLASH_SIDE`), a
 # flash response that differs with the side of the turn after the exit. It
 # passed and is now in the model.
 # The run of 2026-10-31 (`_trial_rate`): the trial rate, which failed; its
-# code was removed on 2026-11-07 (docs/glm_decisions.md). The model is frozen:
+# code was removed on 2026-11-07. The model is frozen:
 # test the next candidate on new sessions only. Put its `dmat` switch and term
 # name here, and a new suffix.
 ROOT_SUFFIX = ""

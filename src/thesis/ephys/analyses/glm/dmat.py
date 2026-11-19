@@ -192,7 +192,7 @@ FLASH_AFTER_EXIT = "flash_after_exit"
 # at 1.5. Prediction does not choose tau (`tau_grid.py`: 40 to 160 ms equal).
 FLASH_RECOVERY_TERM = True
 # Flash × side (in the model from 2026-10-29; `candidate_terms.py` passed it in
-# both mice, docs/glm_checks.md): the side of the response (+1 right, -1 left)
+# both original mice): the side of the response (+1 right, -1 left)
 # for a flash after the center exit, 0 in the fixation and for the first flash.
 # After the exit the head turns to that side, so the LED panel above the center
 # port lies in another part of the visual field; this kernel is how the flash
@@ -220,7 +220,7 @@ FLASH_TERMS = (
 # movement signal, which motion energy cannot carry. It replaced one column for
 # the side after the exit (first canonical correlation 0.9 between the two).
 # Candidates that failed or were not taken (time in trial, accumulated
-# evidence, flash × after exit × gap) are in docs/glm_decisions.md and git history.
+# evidence, flash × after exit × gap) are recorded in git history.
 TURN_DIRECTION_TERM = True
 TURN_DIRECTION = "turn_direction"
 TURN_DIRECTION_S = 1.3
@@ -360,9 +360,17 @@ def trial_bins(alignments: np.ndarray) -> dict:
 
 
 def write_stimulus_windows(
-    subject: str, session: str, output: Path, frame_times: Path
+    subject: str,
+    session: str,
+    output: Path,
+    frame_times: Path,
+    trial_numbers: list[int] | None = None,
 ) -> None:
-    """Write first-flash windows, the random split, and the camera-frame map."""
+    """Write first-flash windows, the random split, and the camera-frame map.
+
+    `trial_numbers` keeps only those trials (a fit on a matched subset of the
+    trials, `trial_balance.py`); each must be an eligible trial.
+    """
     if output.exists():
         raise FileExistsError(output)
     trials = build_trial_table(subject, session, include_frames=False)
@@ -380,6 +388,12 @@ def write_stimulus_windows(
         raise ValueError(
             f"Resolve event order before selecting trials: {trials.loc[eligible & ~ordered, 'trial_num'].tolist()}"
         )
+    missing_events = int((completed & ~eligible).sum())
+    if trial_numbers is not None:
+        chosen = trials["trial_num"].isin(trial_numbers).to_numpy()
+        if chosen.sum() != len(set(trial_numbers)) or not eligible[chosen].all():
+            raise ValueError("Every trial of the subset must be an eligible trial.")
+        eligible &= chosen
     bins = trial_bins(first[eligible])
     starts, stops = bins["window_start_s"], bins["window_stop_s"]
     summary = dict(
@@ -390,7 +404,8 @@ def write_stimulus_windows(
         post_s=POST_S,
         binwidth_s=BINWIDTH_S,
         eligible_trials=int(eligible.sum()),
-        completed_trials_missing_events=int((completed & ~eligible).sum()),
+        trial_subset=trial_numbers is not None,
+        completed_trials_missing_events=missing_events,
         bins_per_trial=len(bins["relative_bin_centers_s"]),
         grid_source="damn.alignment.construct_timebins",
         actual_window_edges_s=bins["relative_bin_edges_s"][[0, -1]].tolist(),

@@ -1,6 +1,6 @@
 """Save the flash-kernel response of every unit, for the grouping of units.
 
-The sessions of the two-animal figures (`SESSIONS`) are imported here from
+The shared analyzed-session list (`SESSIONS`) is imported here from
 `behavior.trials`.
 
 No new fit; the kernels are from the final refit of each unit (`fit.py`).
@@ -144,7 +144,8 @@ def main() -> None:
     parser.add_argument("--units", type=cli._unit_set, default="all")
     args = parser.parse_args()
     for session in SESSIONS:
-        print(session_kernels(args.out / session, args.units))
+        if (args.out / session).exists():  # a root can hold a subset of the sessions
+            print(session_kernels(args.out / session, args.units))
 
 
 if __name__ == "__main__":

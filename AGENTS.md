@@ -5,7 +5,9 @@ Behavior and electrophysiology analysis code for Churchland Lab thesis work.
 Before writing any code:
 
 - Inspect the current branch, working tree, code, and notebooks first.
-- Treat repository code and docs as technical truth. Use Notion for
+- Keep this repository for code and a minimal README. Put operational
+  procedures, research narratives, results, and decision logs in Notion.
+- Treat repository code as technical truth. Use Notion for
   current priorities and decisions. Notion might not have the most up to date
   information so use conversation context as well to understand goals.
 - Keep domain code under `src/thesis/<domain>/`; do not keep empty domain

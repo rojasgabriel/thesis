@@ -31,8 +31,7 @@ paired: each unit has its real effect and its leak.
   reads it for the excited units of StimulusResponse. The old
   kernel measure (the mean of the kernel difference from `RESPONSE_MS`, Δ log
   rate) stays in the output.
-- Effect in the measure of the main comparison (`flash_movement.py`, result
-  3 of `docs/glm.md`): the same pairs (last in-port and first after-exit flash
+- Effect in the measure of the main comparison (`flash_movement.py`): the same pairs (last in-port and first after-exit flash
   of a trial, both with the same gap class; complete windows on the valid
   grid), 10-ms bins, the in-port -40..0 ms baseline, the window peak
   (`peaks.window_peak`: ±20 ms around the largest bin from 30..120 ms, since
