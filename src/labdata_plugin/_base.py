@@ -1,7 +1,9 @@
 """Shared header of the thesis plugin: the user schema and the labdata tables it uses."""
 
+import sys
 import warnings
 
+import thesis
 from thesis.ephys.preprocessing._database import read_only_database_imports
 
 # Silence the setuptools pkg_resources deprecation notice
@@ -19,6 +21,10 @@ with read_only_database_imports():
         UnitCount,
         dataschema,
     )
+# labdata puts each plugin in sys.modules under its preference name. A plugin
+# named "thesis" would hide this package from later imports such as
+# thesis.plotting, so put the package back.
+sys.modules["thesis"] = thesis
 
 _DATABASE = f"{dataschema.database}_user"
 rojasbowe_schema = dj.Schema(

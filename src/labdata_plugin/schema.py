@@ -7,7 +7,7 @@ depends on. This module binds them to the user schema and creates them on reques
 from ._base import _DATABASE, dataschema, rojasbowe_schema
 from .behavior import Psychometric
 from .events import EventMapping
-from .glm import GLMFit
+from .glm import GLMDesignParam, GLMFit
 from .sessions import ThesisSession
 from .stimulus_response import StimulusResponse, StimulusResponseParam
 from .units import (
@@ -19,6 +19,7 @@ from .units import (
 
 __all__ = [
     "EventMapping",
+    "GLMDesignParam",
     "GLMFit",
     "MovementArtifact",
     "MovementArtifactParam",
@@ -48,6 +49,7 @@ def initialize_schema() -> None:
         StimulusResponseParam,
         MovementArtifactParam,
         ThesisSession,
+        GLMDesignParam,
     ):
         table().insert(table.default_contents, skip_duplicates=True)
 
