@@ -58,17 +58,24 @@ def in_port_ratio(
     return float((n_in / in_port_s) / (spikes.size / recording_s))
 
 
-def is_artifact(ratio, fw3m_ms):
+def is_artifact(ratio, fw3m_ms, max_ratio=MAX_RATIO, min_fw3m_ms=MIN_FW3M_MS):
     """Return True where a unit is silent in the port and has a broad spike."""
-    return (np.asarray(ratio) < MAX_RATIO) & (np.asarray(fw3m_ms) > MIN_FW3M_MS)
+    return (np.asarray(ratio) < max_ratio) & (np.asarray(fw3m_ms) > min_fw3m_ms)
 
 
-def score_session(subject: str, session: str):
+def score_session(
+    subject: str, session: str, unit_criteria_id: int = 1, stability_param_id: int = 0
+):
     """Return one row per stable unit with its ratio, waveform and verdict."""
     from thesis.ephys.trials import build_trial_table
     from thesis.ephys.units import fetch_unit_table
 
-    units = fetch_unit_table(subject, session, unit_criteria_id=1, stability_param_id=0)
+    units = fetch_unit_table(
+        subject,
+        session,
+        unit_criteria_id=unit_criteria_id,
+        stability_param_id=stability_param_id,
+    )
     trials = build_trial_table(subject, session, include_frames=False)
     windows = trials[["center_entry_s", "center_exit_s"]].to_numpy(dtype=float)
     windows = windows[
