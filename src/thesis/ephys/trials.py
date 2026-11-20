@@ -331,9 +331,9 @@ def build_trial_table(
         include_frames=False,
     )
     if include_frames:
-        from thesis.ephys.preprocessing.audit_camera_pulses import audit_camera_frames
+        from thesis.ephys.preprocessing.audit_camera_pulses import align_video_frames
 
-        sess_ev["frames"], _, _ = audit_camera_frames(subject, session)
+        sess_ev["frames"], _, _ = align_video_frames(subject, session)
 
     from chipmunk import Chipmunk
 

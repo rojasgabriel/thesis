@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import os
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -80,7 +81,7 @@ class PoissonGLM:
         `trials` is a JSON list of trial numbers: only those trials are
         prepared and fit (use it with another `root`).
         """
-        from thesis.ephys.analyses.glm.video_svd import write_video_features
+        from thesis.ephys.analyses.glm.video_svd import write_video_svd
 
         if self.windows.exists():
             print(f"Reused prepared windows: {self.windows}", flush=True)
@@ -89,14 +90,13 @@ class PoissonGLM:
                 self.subject,
                 self.session,
                 self.windows,
-                self.root / "frame_times.npy",
                 json.loads(trials.read_text()) if trials else None,
             )
             print(f"Completed prepared windows: {self.windows}", flush=True)
         if self.video.exists():
             print(f"Reused motion-energy features: {self.video}", flush=True)
         else:
-            write_video_features(self.windows, self.video)
+            write_video_svd(self.windows, self.video)
             print(f"Completed motion-energy features: {self.video}", flush=True)
         if _common_design_is_current(self.design):
             print(f"Reused common design: {self.design}", flush=True)
@@ -129,6 +129,8 @@ def _unit_set(value: str) -> str:
 
 
 def main() -> None:
+    # The GLM reads trials and spikes from labdata, never from the pickle cache.
+    os.environ.pop("THESIS_CACHE_DIR", None)
     parser = argparse.ArgumentParser(
         prog="glm",
         description=(

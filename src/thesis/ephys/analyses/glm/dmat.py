@@ -363,7 +363,6 @@ def write_stimulus_windows(
     subject: str,
     session: str,
     output: Path,
-    frame_times: Path,
     trial_numbers: list[int] | None = None,
 ) -> None:
     """Write first-flash windows, the random split, and the camera-frame map.
@@ -437,8 +436,10 @@ def write_stimulus_windows(
             f"Expected one local cam0 video ({' or '.join(VIDEO_VIEWS)}); "
             f"missing: {missing}."
         )
+    from thesis.ephys.preprocessing.audit_camera_pulses import align_video_frames
+
     frames = validate_frame_times(
-        np.load(frame_times, allow_pickle=False), int(video["n_frames"])
+        align_video_frames(subject, session)[0], int(video["n_frames"])
     )
     rows = np.full(len(frames), -1, dtype=int)
     for i, (start, stop) in enumerate(zip(starts, stops, strict=True)):
@@ -480,7 +481,7 @@ def write_stimulus_windows(
         n_frames=len(frames),
         width=info["width"],
         height=info["height"],
-        frame_times_source=str(frame_times.resolve()),
+        frame_times_source="align_video_frames (labdata)",
     )
     with atomic_output(output) as handle:
         np.savez_compressed(

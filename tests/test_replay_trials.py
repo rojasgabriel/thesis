@@ -137,7 +137,7 @@ class TrialTablesTest(unittest.TestCase):
             ) as fetch,
             patch.object(
                 audit_camera_pulses,
-                "audit_camera_frames",
+                "align_video_frames",
                 return_value=(frame_times, {}, {}),
                 side_effect=ValueError("No validated camera frames")
                 if frame_times is None

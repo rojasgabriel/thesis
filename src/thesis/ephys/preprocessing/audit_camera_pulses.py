@@ -150,7 +150,7 @@ def regular_frame_times(falling: np.ndarray) -> tuple[np.ndarray, dict]:
     return np.concatenate([*pieces, falling[cursor:]]), notes
 
 
-def audit_camera_frames(subject: str, session: str) -> tuple[np.ndarray, dict, dict]:
+def align_video_frames(subject: str, session: str) -> tuple[np.ndarray, dict, dict]:
     """Return validated cam0 falling-edge times, audit notes and source arrays.
 
     Times are in the session's hardware clock, one per saved video frame.
@@ -254,7 +254,7 @@ def main() -> None:
     frame_times_path = args.output.with_name("frame_times.npy")
     if args.output.exists() or arrays_path.exists() or frame_times_path.exists():
         raise FileExistsError(args.output)
-    frame_times, result, arrays = audit_camera_frames(args.subject, args.session)
+    frame_times, result, arrays = align_video_frames(args.subject, args.session)
     result.update(frame_times=str(frame_times_path), candidate_arrays=str(arrays_path))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as handle:

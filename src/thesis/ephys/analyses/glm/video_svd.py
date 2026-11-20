@@ -25,7 +25,7 @@ WIDTH = 80
 COMPONENTS = 200
 
 
-def write_video_features(
+def write_video_svd(
     alignment: Path,
     output: Path,
     *,

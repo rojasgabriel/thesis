@@ -27,7 +27,7 @@ from thesis.ephys.analyses.glm import cli, dmat, fit
 from thesis.ephys.units import fetch_unit_table
 
 UNIT_SET = "sample"
-INPUTS = ("stimulus_windows_me.npz", "video_me_features.npz", "frame_times.npy")
+INPUTS = ("stimulus_windows_me.npz", "video_me_features.npz")
 
 
 def score_design(
