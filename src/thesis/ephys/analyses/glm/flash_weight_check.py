@@ -188,6 +188,16 @@ def model_values(root: Path) -> dict:
     return out
 
 
+def model_class(values, se) -> np.ndarray:
+    """Return excited / suppressed / not responsive: the value ± 1.96 SE against 0."""
+    values, se = np.asarray(values), np.asarray(se)
+    return np.where(
+        values - 1.96 * se > 0,
+        "excited",
+        np.where(values + 1.96 * se < 0, "suppressed", "not responsive"),
+    )
+
+
 def auc(values: np.ndarray, positive: np.ndarray) -> float:
     """Return P(value of a positive unit > value of a negative unit), ties half."""
     pos, neg = values[positive], values[~positive]
@@ -215,14 +225,10 @@ def statistics(table: dict, model: dict) -> dict:
             i = rng.integers(0, len(y), len(y))
             if 0 < excited[i].sum() < len(i):
                 boot.append(auc(y[i], excited[i]))
-        model_class = np.where(
-            y - 1.96 * se > 0,
-            "excited",
-            np.where(y + 1.96 * se < 0, "suppressed", "not responsive"),
-        )
+        classes = model_class(y, se)
         cross = {
             f"table {t} / model {m}": int(
-                np.sum((np.asarray(table["class"]) == t) & (model_class == m))
+                np.sum((np.asarray(table["class"]) == t) & (classes == m))
             )
             for t in CLASSES
             for m in CLASSES
@@ -230,7 +236,7 @@ def statistics(table: dict, model: dict) -> dict:
         units_by_class = {
             m: [
                 int(u)
-                for u, c in zip(model["unit_ids"], model_class, strict=True)
+                for u, c in zip(model["unit_ids"], classes, strict=True)
                 if c == m
             ]
             for m in CLASSES
