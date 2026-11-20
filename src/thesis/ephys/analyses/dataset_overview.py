@@ -108,9 +108,13 @@ def counts_around(
     return np.diff(index, axis=1)
 
 
-def session_data(session: str, excited: set[int]) -> dict:
+def session_data(session: str, excited: set[int], root: Path | None = None) -> dict:
+    """Return the trials, units and flash responses of a fit in `root`.
+
+    `root` defaults to the fit of the session in results/glm.
+    """
     subject, stamp = session.split("_", 1)
-    prepared = dmat._load_windows(GLM / session / "stimulus_windows_me.npz")
+    prepared = dmat._load_windows((root or GLM / session) / "stimulus_windows_me.npz")
     trials = dmat._load_selected_trials(prepared)
     units = fetch_unit_table(subject, stamp, 1, 0, include_metrics=False)
     units = units.iloc[analysis_unit_indices(units, "all")].reset_index(drop=True)

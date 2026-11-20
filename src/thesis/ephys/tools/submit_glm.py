@@ -7,7 +7,12 @@ the job polite in the queue so it yields to other people's compute.
 
 Run from the repo root:
     uv run submit-glm                 # sample units, defaults below
-    uv run submit-glm --units all --cpus 24 --mem 64G --walltime 12:00:00
+    uv run submit-glm --units all --cpus 24 --walltime 12:00:00
+    uv run submit-glm --table         # populate GLMFit, all units
+
+`--table` runs `populate-glm`: `GLMFit.populate` with job reservation, so
+several jobs can run at the same time and each session is fit once. The tables
+must exist (`initialize_schema`).
 """
 
 import argparse
@@ -22,19 +27,48 @@ PIPELINE = (
     "uv run glm fit    --units {units} --workers $LABDATA_N_JOBS && "
     "uv run glm unique --units {units} --workers $LABDATA_N_JOBS"
 )
+TABLE = "cd {repository} && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && uv run populate-glm"
+
+
+def populate() -> None:
+    """Populate GLMFit, one session at a time, with job reservation."""
+    parser = argparse.ArgumentParser(description=populate.__doc__)
+    parser.add_argument("--subject", help="Only this subject.")
+    parser.add_argument("--session", help="Only this session.")
+    args = parser.parse_args()
+    from labdata_plugin.schema import GLMFit
+
+    restriction = {
+        name: value
+        for name, value in (
+            ("subject_name", args.subject),
+            ("session_name", args.session),
+        )
+        if value
+    }
+    GLMFit.populate(restriction, reserve_jobs=True, display_progress=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--units", choices=("sample", "all"), default="sample")
     parser.add_argument("--cpus", type=int, default=24)
-    parser.add_argument("--mem", default="64G")
+    # Hodgkin's Slurm reports 250 MB of node memory, so any --mem request fails there.
+    parser.add_argument(
+        "--mem", help="Memory per job, for example 64G; none by default."
+    )
     parser.add_argument("--walltime", default="12:00:00")
+    parser.add_argument("--table", action="store_true", help="Populate GLMFit.")
     args = parser.parse_args()
 
-    command = PIPELINE.format(repository=shlex.quote(str(Path.cwd())), units=args.units)
+    repository = shlex.quote(str(Path.cwd()))
+    command = (
+        TABLE.format(repository=repository)
+        if args.table
+        else PIPELINE.format(repository=repository, units=args.units)
+    )
     job_id = slurm_submit(
-        f"v1_glm_{args.units}",
+        "glm_fit_table" if args.table else f"v1_glm_{args.units}",
         command,
         ncpuspertask=args.cpus,
         memory=args.mem,
