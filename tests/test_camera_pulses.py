@@ -10,7 +10,7 @@ from test_replay_trials import Relation, schema_module
 from thesis.ephys import events
 from thesis.ephys.preprocessing.audit_camera_pulses import (
     align_frame_times,
-    audit_camera_frames,
+    align_video_frames,
 )
 
 
@@ -60,7 +60,7 @@ class CameraPulsesTest(unittest.TestCase):
                 events, "bpod_to_clock", return_value=lambda times: times + 10
             ),
         ):
-            return audit_camera_frames("offline", "test")
+            return align_video_frames("offline", "test")
 
     def test_audit_selects_recorded_falling_edges_in_hardware_clock(self):
         run = 20 + np.arange(100) * 0.0125

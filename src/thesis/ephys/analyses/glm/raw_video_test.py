@@ -36,7 +36,7 @@ from scipy.stats import spearmanr, wilcoxon
 
 from thesis.ephys.analyses.glm import cli, dmat, fit
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
-from thesis.ephys.analyses.glm.video_svd import write_video_features
+from thesis.ephys.analyses.glm.video_svd import write_video_svd
 from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
@@ -62,7 +62,7 @@ def prepare(root: Path) -> Path:
     output.mkdir(exist_ok=True)
     raw = output / "raw_video_features.npz"
     if not raw.exists():
-        write_video_features(model.windows, raw, raw_video=True, components=COMPONENTS)
+        write_video_svd(model.windows, raw, raw_video=True, components=COMPONENTS)
     provenance = {
         "windows": fingerprint(model.windows),
         "source_design": fingerprint(model.design),
