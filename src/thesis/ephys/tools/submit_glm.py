@@ -19,8 +19,6 @@ import argparse
 import shlex
 from pathlib import Path
 
-from labdata.compute.schedulers import slurm_submit
-
 PIPELINE = (
     "cd {repository} && export MPLCONFIGDIR=/tmp/glm_mpl_$SLURM_JOB_ID && "
     "uv run glm prepare && "
@@ -67,6 +65,8 @@ def main() -> None:
         if args.table
         else PIPELINE.format(repository=repository, units=args.units)
     )
+    from labdata.compute.schedulers import slurm_submit
+
     job_id = slurm_submit(
         "glm_fit_table" if args.table else f"v1_glm_{args.units}",
         command,
