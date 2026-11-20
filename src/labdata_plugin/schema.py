@@ -6,9 +6,16 @@ from thesis.ephys.preprocessing._database import read_only_database_imports
 warnings.filterwarnings("ignore", category=UserWarning, module="datajoint.plugin")
 
 import datajoint as dj  # noqa: E402
+import numpy as np  # noqa: E402
 
 with read_only_database_imports():
-    from labdata.schema import EphysRecording, SpikeSorting, UnitCount, dataschema
+    from labdata.schema import (
+        EphysRecording,
+        Session,  # noqa: F401 (named in a table definition)
+        SpikeSorting,
+        UnitCount,
+        dataschema,
+    )
 
 _DATABASE = f"{dataschema.database}_user"
 rojasbowe_schema = dj.Schema(
@@ -531,6 +538,227 @@ class StimulusResponse(dj.Computed):
         self.Unit.insert(unit_response_records)
 
 
+@rojasbowe_schema
+class ThesisSession(dj.Lookup):
+    """The sessions of the thesis tables. GRB061 waits for better data."""
+
+    definition = """
+    -> Session
+    """
+    default_contents = [
+        {"subject_name": "GRB006", "session_name": "20240821_121447"},
+        {"subject_name": "GRB064", "session_name": "20261008_143359"},
+    ]
+
+
+@rojasbowe_schema
+class DatasetSummary(dj.Computed):
+    """Units, trials and flashes of a session (thesis.ephys.analyses.dataset_overview).
+
+    Units: the GLM units. Trials: the GLM trials. In-port and after-exit
+    flashes: at least 80 ms after the flash before, with the whole −50 to
+    150 ms window in its period. Excited and suppressed: GLM units with that
+    StimulusResponse class (first flash; glm.peaks.excited_units), the units
+    the GLM analyses use. Reads results/glm/<session>/ from the working
+    directory.
+    """
+
+    definition = """
+    -> ThesisSession
+    ---
+    glm_trials                             : smallint  # completed trials of the GLM
+    units                                  : smallint  # GLM units (single and multi)
+    in_port_flashes                        : smallint
+    after_exit_flashes                     : smallint
+    excited_units                          : smallint  # StimulusResponse 'excited'
+    suppressed_units                       : smallint  # StimulusResponse 'suppressed'
+    """
+
+    def make(self, key, **_kwargs):
+        from thesis.ephys.analyses import dataset_overview as overview
+        from thesis.ephys.analyses.glm.peaks import excited_units
+
+        data = overview.session_data(
+            f"{key['subject_name']}_{key['session_name']}", set()
+        )
+        units = set(data["ids"].tolist())
+        excited, suppressed = (
+            excited_units(key["subject_name"], key["session_name"], kind) & units
+            for kind in ("excited", "suppressed")
+        )
+        self.insert1(
+            {
+                **key,
+                "glm_trials": len(data["first"]),
+                "units": len(data["ids"]),
+                "in_port_flashes": len(data["still"]),
+                "after_exit_flashes": len(data["moving"]),
+                "excited_units": len(excited),
+                "suppressed_units": len(suppressed),
+            }
+        )
+
+
+@rojasbowe_schema
+class Psychometric(dj.Computed):
+    """Choices of the recorded session (thesis.behavior.psychometric, --recorded).
+
+    Trials: completed, left or right choice, full 1-s train, visual and
+    multisensory pooled. Cumulative-Gaussian fit (fit_psychometric) of the
+    choice on x = rate − 12 Hz:
+    P(right) = γ + (1 − γ − λ) · ½ erfc(−β (x − α) / √2).
+    Bounds: β 0.001–0.5, γ and λ 0–0.5; a value at a bound is not constrained
+    by the data (GRB064 β = 0.5).
+    Accuracy: rewarded fraction of the non-boundary trials.
+    """
+
+    definition = """
+    -> ThesisSession
+    ---
+    choice_trials                          : smallint
+    alpha                                  : float  # bias (Hz from the boundary)
+    beta                                   : float  # sensitivity (1/Hz)
+    gamma                                  : float  # left lapse (P(right) floor)
+    lambda                                 : float  # right offset (1 − P(right) ceiling)
+    accuracy_non_boundary                  : float
+    """
+
+    class Rate(dj.Part):
+        definition = """
+        -> master
+        rate_hz                            : float
+        ---
+        trials                             : smallint
+        right_choices                      : smallint
+        """
+
+    def make(self, key, **_kwargs):
+        from fit_psychometric import fit_psychometric
+
+        from thesis.behavior.trials import RECORDED, task_trials
+        from thesis.ephys.trials import CATEGORY_BOUNDARY_HZ
+
+        if RECORDED.get(key["subject_name"]) != key["session_name"]:
+            raise ValueError(f"{key} is not the recorded session of the mouse.")
+        trials = task_trials(key["subject_name"], recorded=True)
+        rates = trials["rate_hz"].to_numpy()
+        right = trials["right"].to_numpy()
+        fit = fit_psychometric(rates - CATEGORY_BOUNDARY_HZ, right)
+        if fit["fit_params"] is None or not fit["fit"].mle_retvals["converged"]:
+            raise ValueError(f"{key}: the psychometric fit did not converge.")
+        alpha, beta, gamma, lapse = (float(p) for p in fit["fit_params"])
+        self.insert1(
+            {
+                **key,
+                "choice_trials": len(trials),
+                "alpha": alpha,
+                "beta": beta,
+                "gamma": gamma,
+                "lambda": lapse,
+                "accuracy_non_boundary": trials.loc[
+                    rates != CATEGORY_BOUNDARY_HZ, "rewarded"
+                ].mean(),
+            }
+        )
+        self.Rate.insert(
+            {
+                **key,
+                "rate_hz": rate,
+                "trials": int((rates == rate).sum()),
+                "right_choices": int(right[rates == rate].sum()),
+            }
+            for rate in np.unique(rates)
+        )
+
+
+@rojasbowe_schema
+class GlmFitQuality(dj.Imported):
+    """Held-out fit quality of the main GLM (all units, video motion energy).
+
+    Reads results/glm/<session>/all_fit_me/ from the working directory; it
+    does not fit. Per unit: mean over the 10 trial folds of D² and of
+    bits/spike. Excluded units (glm.fit.EXCLUDED_UNITS) are left out; the
+    units and trials are those of DatasetSummary.
+    """
+
+    definition = """
+    -> ThesisSession
+    ---
+    design_md5                             : char(32)  # md5 of common_design_me.json
+    folds                                  : tinyint
+    video_components                       : tinyint
+    median_d2                              : float
+    q25_d2                                 : float
+    q75_d2                                 : float
+    median_bits_per_spike                  : float
+    q25_bits_per_spike                     : float
+    q75_bits_per_spike                     : float
+    """
+
+    class Unit(dj.Part):
+        definition = """
+        -> master
+        -> SpikeSorting.Unit
+        ---
+        d2                                 : float  # cross-validated deviance explained
+        d2_sem                             : float  # SEM over folds
+        bits_per_spike                     : float  # cross-validated
+        alpha                              : float  # L2 penalty of the final model
+        """
+
+    def make(self, key, **_kwargs):
+        import hashlib
+        import json
+        from pathlib import Path
+
+        from thesis.ephys.analyses.glm.fit import load_unit_records
+
+        session = Path("results/glm") / f"{key['subject_name']}_{key['session_name']}"
+        fit = session / "all_fit_me"
+        summary = json.loads((fit / "cross_validation_summary.json").read_text())
+        records = load_unit_records(fit / "checkpoints", "unit_*_final.json")
+        if len(records) != summary["units"]:
+            raise ValueError(
+                f"{fit}: {len(records)} unit records, {summary['units']} units."
+            )
+        d2 = np.array([r["cross_validated_deviance_explained"] for r in records])
+        bits = np.array([r["cross_validated_bits_per_spike"] for r in records])
+        # The sorting of the GLM units (criteria 1, as in fetch_unit_table).
+        sorting = (SpikeSorting & (UnitCount & key & {"unit_criteria_id": 1})).fetch(
+            "KEY"
+        )
+        if len(sorting) != 1:
+            raise ValueError(f"{key}: {len(sorting)} sortings; expected 1.")
+        self.insert1(
+            {
+                **key,
+                "design_md5": hashlib.md5(
+                    (session / "common_design_me.json").read_bytes()
+                ).hexdigest(),
+                "folds": summary["folds"],
+                "video_components": summary["components"],
+                "median_d2": np.median(d2),
+                "q25_d2": np.percentile(d2, 25),
+                "q75_d2": np.percentile(d2, 75),
+                "median_bits_per_spike": np.median(bits),
+                "q25_bits_per_spike": np.percentile(bits, 25),
+                "q75_bits_per_spike": np.percentile(bits, 75),
+            }
+        )
+        self.Unit.insert(
+            {
+                **key,
+                **sorting[0],
+                "unit_id": record["unit_id"],
+                "d2": record["cross_validated_deviance_explained"],
+                "d2_sem": record["cross_validated_deviance_explained_sem"],
+                "bits_per_spike": record["cross_validated_bits_per_spike"],
+                "alpha": record["alpha"],
+            }
+            for record in records
+        )
+
+
 def initialize_schema() -> None:
     """Create plugin tables and seed defaults only for an explicit apply command."""
     was_active = rojasbowe_schema.is_activated()
@@ -541,7 +769,12 @@ def initialize_schema() -> None:
         # activate() returns early for a schema already bound by a reader.
         for table, context in rojasbowe_schema.declare_list:
             rojasbowe_schema._decorate_master(table, context)
-    for table in (EventMapping, UnitStabilityParam, StimulusResponseParam):
+    for table in (
+        EventMapping,
+        UnitStabilityParam,
+        StimulusResponseParam,
+        ThesisSession,
+    ):
         table().insert(table.default_contents, skip_duplicates=True)
 
 

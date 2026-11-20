@@ -180,7 +180,7 @@ def session_data(session: str, excited: set[int]) -> dict:
     after = flash_rate[:, peak].mean(1) * duration
     before = flash_rate[:, base].mean(1) * duration
     visible = (after - before) / np.sqrt(np.maximum(after + before, 1e-9))
-    example = max(candidates, key=lambda i: visible[i])
+    example = max(candidates, key=lambda i: visible[i], default=None)
     return {
         "subject": subject,
         "units": units,
