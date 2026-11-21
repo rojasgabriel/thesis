@@ -16,19 +16,25 @@ def _code_settings() -> str:
 class UnitLayerParam(dj.Lookup):
     """Settings of thesis.ephys.analyses.csd. `make` stops if the code uses other settings.
 
-    A new method is a new commit and a new row.
+    The row also names the one unit set of a session that gets layers (a
+    session has a UnitStability key for each quality criteria). A new method
+    is a new commit and a new row.
     """
 
     definition = """
     layer_param_id                         : tinyint unsigned
     ---
     description                            : varchar(255)
+    unit_criteria_id                       : tinyint unsigned  # quality criteria of the units
+    stability_param_id                     : tinyint unsigned  # UnitStability parameter set
     settings                               : varchar(2000)  # JSON of the csd constants that change the result
     """
     default_contents = [
         {
             "layer_param_id": 0,
             "description": "first-flash step iCSD, vvasp plan atlas, MUA offset (2026-11-20)",
+            "unit_criteria_id": 1,
+            "stability_param_id": 0,
             "settings": _code_settings(),
         }
     ]
@@ -84,9 +90,15 @@ class UnitLayer(dj.Computed):
     def key_source(self):
         from thesis.ephys.analyses.csd import PLAN_SUBJECTS
 
-        return (UnitStability * UnitLayerParam) & [
+        param = UnitLayerParam.proj(
+            criteria="unit_criteria_id", stability="stability_param_id"
+        )
+        keys = (UnitStability * param) & [
             {"subject_name": subject} for subject in PLAN_SUBJECTS
         ]
+        return (
+            keys & "unit_criteria_id = criteria" & "stability_param_id = stability"
+        ).proj()
 
     def make(self, key, **_kwargs):
         from thesis.ephys.analyses import csd
