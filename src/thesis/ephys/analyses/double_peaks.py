@@ -62,7 +62,7 @@ import matplotlib.pyplot as plt
 
 from thesis.ephys.events import fetch_session_events
 from thesis.ephys.task_events import fetch_task_stimulus_pulses
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import fetch_unit_table, sorting_key
 from thesis.plotting import separate_axes
 
 DISCOVERY_SESSIONS = [
@@ -185,8 +185,7 @@ def _collect_session(subject: str, session: str, *, controls: bool = True) -> di
         subject, session, UNIT_CRITERIA_ID, STABILITY_PARAM_ID
     ).reset_index(drop=True)
     response_query = {
-        "subject_name": subject,
-        "session_name": session,
+        **sorting_key(subject, session),
         "unit_criteria_id": UNIT_CRITERIA_ID,
         "stim_response_param_id": STIM_RESPONSE_PARAM_ID,
         "response_type": "excited",

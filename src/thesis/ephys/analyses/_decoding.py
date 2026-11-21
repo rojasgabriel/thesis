@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 
 from thesis.ephys.cache import cached
 from thesis.ephys.trials import build_trial_table
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import fetch_unit_table, sorting_key
 
 
 def load_decoding_data(
@@ -69,8 +69,7 @@ def _units_with_mua(subject: str, session: str, unit_criteria_id: int) -> pd.Dat
     from labdata.schema import SpikeSorting, UnitCount
 
     query = {
-        "subject_name": subject,
-        "session_name": session,
+        **sorting_key(subject, session),
         "unit_criteria_id": unit_criteria_id,
     }
     units = SpikeSorting.Unit & (UnitCount.Unit & query & "passes >= 0")
