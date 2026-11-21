@@ -51,6 +51,10 @@ Landmarks per shank:
 - mua_peak_um: the largest local maximum of the MUA power after common median
   reference, median over `N_MUA_WINDOWS` windows of 1 s.
 
+Figure: one CSD panel per shank (sink blue), the marked sinks, the MUA power
+profile, and, for the mice of the atlas plan, the shifted atlas layer starts
+(dotted lines; layer names between the CSD and the MUA panel, "<6" = below L6).
+
 Exclusions: channels at the ADC limit in more than `MAX_RAIL_FRACTION` of
 the trial windows (stuck or saturated channels) leave the row average; a row
 with no channel left is interpolated in depth. Then trials with any sample at
@@ -123,6 +127,7 @@ ATLAS_LAYER_STARTS_UM = {
 }
 PLAN_SUBJECTS = ("GRB061", "GRB064", "GRB068")
 LAYER_NAMES = ("below L6", "L6", "L5", "L4", "L2/3", "L1", "outside")
+LAYER_LABELS = ("<6", "6", "5", "4", "2/3", "1", "out")  # short names in the figure
 MAX_OFFSET_SPREAD_UM = 150
 
 
@@ -133,7 +138,7 @@ def ap_path(subject: str, session: str) -> Path:
     metas = [
         p
         for p in sorted(root.glob("ephys_g*/ephys_g*_imec0/*.ap.meta"))
-        if not p.name.startswith("._")
+        if not p.name.startswith("._") and "backup" not in str(p)
     ]
     if len(metas) != 1:
         raise ValueError(
@@ -361,6 +366,7 @@ def plot(subject: str, session: str) -> None:
     table.insert(0, "subject", subject)
     table.to_csv(RESULTS / f"{subject}_{session}_landmarks.csv", index=False)
     print(table.to_string(index=False))
+    offset = atlas_offset(table)[0] if subject in PLAN_SUBJECTS else None
 
     t = maps["t_ms"]
     w = (t >= PLOT_MS[0]) & (t <= PLOT_MS[1])
@@ -412,6 +418,26 @@ def plot(subject: str, session: str) -> None:
         side.set_xticks([])
         side.tick_params(left=False)
         side.set_xlabel("mua", fontsize=8)
+        if offset is not None:
+            starts = np.array(ATLAS_LAYER_STARTS_UM[sh]) + offset
+            inside = (starts >= m["z"].min()) & (starts <= m["z"].max())
+            for start in starts[inside]:
+                ax.axhline(start, color="k", ls=":", lw=0.7)
+                side.axhline(start, color="k", ls=":", lw=0.7)
+            bounds = np.clip(np.r_[-np.inf, starts, np.inf], m["z"].min(), m["z"].max())
+            for low, high, name in zip(
+                bounds[:-1], bounds[1:], LAYER_LABELS, strict=True
+            ):
+                if high - low >= 45:  # room for the label
+                    side.text(
+                        -0.17,
+                        (low + high) / 2,
+                        name,
+                        transform=side.get_yaxis_transform(),
+                        fontsize=7,
+                        ha="center",
+                        va="center",
+                    )
         ax.text(-0.2, 1.04, "abcdefgh"[i], transform=ax.transAxes, fontweight="bold")
     axes[0].set_ylabel("depth from probe tip (µm)")
     cbar = fig.colorbar(image, ax=axes, fraction=0.015, pad=0.01)
