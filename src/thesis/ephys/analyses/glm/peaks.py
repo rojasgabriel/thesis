@@ -37,7 +37,7 @@ from thesis.behavior.trials import SESSIONS
 from thesis.ephys.analyses.glm.fit import (
     _write_json_atomic,
 )
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import fetch_unit_table, sorting_key
 
 PSTH_BIN_MS = 10
 BASELINE_MS = (-40, 0)
@@ -76,8 +76,7 @@ def excited_units(
     from labdata_plugin.schema import StimulusResponse
 
     query = {
-        "subject_name": subject,
-        "session_name": session,
+        **sorting_key(subject, session),
         "unit_criteria_id": 1,
         "stim_response_param_id": STIM_RESPONSE_PARAM_ID,
         "response_type": response_type,

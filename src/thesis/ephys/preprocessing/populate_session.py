@@ -35,13 +35,20 @@ def populate_session(subject: str, session: str, apply: bool = False) -> None:
     def existing_count(table, key):
         return len(table & key) if table.database and table().is_declared else 0
 
-    session_key = {"subject_name": subject, "session_name": session}
+    from thesis.ephys.units import sorting_key
+
+    # Populate the sorting that the analyses use (the newest one).
+    session_key = sorting_key(subject, session)
     sortings = (SpikeSorting & session_key).fetch("KEY")
     if len(sortings) != 1:
         raise ValueError(
             f"Expected one spike sorting for {session_key}, found {len(sortings)}"
         )
-    dataset_key = {**session_key, "dataset_name": sortings[0]["dataset_name"]}
+    dataset_key = {
+        "subject_name": subject,
+        "session_name": session,
+        "dataset_name": sortings[0]["dataset_name"],
+    }
     if len(EphysRecording & dataset_key) != 1:
         raise ValueError(f"No ephys recording for {dataset_key}")
     n_units = len(SpikeSorting.Unit & session_key)

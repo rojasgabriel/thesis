@@ -7,6 +7,22 @@ import pandas as pd
 from thesis.ephys.cache import cached
 
 
+def sorting_key(subject: str, session: str) -> dict:
+    """Return the session key with the parameter set of the sorting to analyze.
+
+    A session can have more than one sorting. Use the newest one (the highest
+    `parameter_set_num`); for example, GRB068 20261118 set 2 leaves out the 6
+    stuck ADC channels that made junk clusters in set 1.
+    """
+    from labdata.schema import SpikeSorting
+
+    key = {"subject_name": subject, "session_name": session}
+    sets = (SpikeSorting & key).fetch("parameter_set_num")
+    if not len(sets):
+        raise ValueError(f"No spike sorting for {subject} {session}")
+    return {**key, "parameter_set_num": int(max(sets))}
+
+
 @cached
 def fetch_unit_table(
     subject: str,
@@ -28,10 +44,7 @@ def fetch_unit_table(
     """
     from labdata.schema import SpikeSorting, UnitCount, UnitMetrics
 
-    session_query = {
-        "subject_name": subject,
-        "session_name": session,
-    }
+    session_query = sorting_key(subject, session)
     quality_query = {
         **session_query,
         "unit_criteria_id": unit_criteria_id,
