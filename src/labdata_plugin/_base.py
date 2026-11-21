@@ -44,6 +44,7 @@ with read_only_database_imports():
         Session,
         SpikeSorting,
         UnitCount,
+        UnitMetrics,
         dataschema,
     )
 _restore_thesis()
@@ -59,6 +60,7 @@ __all__ = [
     "Session",
     "SpikeSorting",
     "UnitCount",
+    "UnitMetrics",
     "dataschema",
     "dj",
     "np",

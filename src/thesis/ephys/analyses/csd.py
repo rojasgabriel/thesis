@@ -57,12 +57,15 @@ with no channel left is interpolated in depth. Then trials with any sample at
 the ADC limit on a remaining channel. Both counts are in the output.
 Sampling unit: the trial (for the bootstrap), and the shank (for the
 landmarks). A shank covers about 720 um and does not reach the pia, so the
-CSD alone gives landmarks, not layer limits; the `layers` step adds them.
+CSD alone gives landmarks, not layer limits; the unit layers below add them.
 
-Unit layers (`layers` step): the planned probe track of GRB061, GRB064 and
-GRB068 is one vvasp plan (`<mouse>_chronic_NP2.json`: tip AP -1946, ML -1866,
-DV -3440 um; elevation 131, azimuth -20, spin 0 deg; 3636.8 um along the
-axis; allen_mouse_25um with the plan's bregma, rotation and scaling). The
+Unit layers (table `UnitLayer` of `labdata_plugin`, `populate` step; its
+`make` runs `measure` and `landmarks` from the raw data, on the stable units
+of its `UnitStability` key): the planned probe track of GRB061, GRB064 and
+GRB068 is one vvasp plan (`<mouse>_chronic_NP2.json`: entry AP -4188, ML
+-2682 um, as in their `ProbeInsertion` rows; tip AP -1946, ML -1866, DV
+-3440 um; elevation 131, azimuth -20, spin 0 deg; 3636.8 um along the axis;
+allen_mouse_25um with the plan's bregma, rotation and scaling). The
 probe is about 41 deg from vertical, so depth on the probe is not cortical
 depth. `ATLAS_LAYER_STARTS_UM` is the Allen VISp layer at each shank centre
 along that track, computed once with the vvasp transforms (5 um steps; the
@@ -70,15 +73,17 @@ computed entry point agrees with the plan). The real track differs from the
 plan, mostly in depth: the offset is the median over shanks of (MUA peak -
 atlas mid layer 5), and the atlas starts are shifted by it. A spread of the
 per-shank values above `MAX_OFFSET_SPREAD_UM` makes the layers uncertain;
-the step then warns. Check the offset against the sinks in the figure (b' at
-the shifted L3/4 start, d' at the shifted L5 start) before using the layers.
+the `reliable` column is then 0. Check the offset against the sinks in the
+figure (b' at the shifted L3/4 start, d' at the shifted L5 start) before using
+the layers. `settings()` lists the constants that change the result; the
+table stops when they differ from its `UnitLayerParam` row.
 "below L6" is under VISp6b: white matter or hippocampus in this plan. vvasp
 shank k is taken as SpikeGLX shank k: the measured MUA peaks rise from shank
 0 to 3 as the atlas mid layer 5 does (GRB061, GRB064).
 
     uv run python -m thesis.ephys.analyses.csd measure GRB064 20261008_143359
     uv run python -m thesis.ephys.analyses.csd plot GRB064 20261008_143359
-    uv run python -m thesis.ephys.analyses.csd layers GRB064 20261008_143359
+    uv run python -m thesis.ephys.analyses.csd populate GRB064 20261008_143359
 """
 
 from __future__ import annotations
@@ -424,46 +429,60 @@ def atlas_offset(table: pd.DataFrame) -> tuple[float, float]:
     return float(np.nanmedian(diff)), float(np.nanmax(diff) - np.nanmin(diff))
 
 
-def layers(subject: str, session: str) -> pd.DataFrame:
-    """Write the atlas layer of each stable quality-1 unit."""
-    import thesis.ephys  # noqa: F401  (import before labdata plugins on Hodgkin)
-    from thesis.ephys.units import fetch_unit_table
+def unit_layers(shank, depth, offset: float) -> list[str]:
+    """Return the atlas layer of each unit from its shank and depth (um from tip)."""
+    return [
+        LAYER_NAMES[
+            np.searchsorted(
+                np.array(ATLAS_LAYER_STARTS_UM[int(k)]) + offset, z, "right"
+            )
+        ]
+        for k, z in zip(shank, depth, strict=True)
+    ]
 
-    if subject not in PLAN_SUBJECTS:
-        raise ValueError(f"{subject}: no atlas layer table for its probe plan")
-    table = pd.read_csv(RESULTS / f"{subject}_{session}_landmarks.csv")
-    offset, spread = atlas_offset(table)
-    units = fetch_unit_table(subject, session, unit_criteria_id=1, stability_param_id=0)
-    starts = {k: np.array(v) + offset for k, v in ATLAS_LAYER_STARTS_UM.items()}
-    units = units[["unit_id", "shank", "depth"]].assign(
-        subject=subject,
-        session=session,
-        layer=[
-            LAYER_NAMES[np.searchsorted(starts[int(k)], z, side="right")]
-            for k, z in zip(units["shank"], units["depth"])
-        ],
-        offset_um=offset,
-        offset_spread_um=spread,
-    )
-    out = RESULTS / f"{subject}_{session}_unit_layers.csv"
-    units.to_csv(out, index=False)
-    print(f"{subject} {session}: offset {offset:+.0f} um (spread {spread:.0f} um)")
-    print(units["layer"].value_counts().reindex(LAYER_NAMES, fill_value=0).to_string())
-    if spread > MAX_OFFSET_SPREAD_UM:
-        print(
-            f"WARNING: offset spread > {MAX_OFFSET_SPREAD_UM} um, layers are uncertain"
-        )
-    print(f"wrote {out}")
-    return units
+
+def settings() -> dict:
+    """Return the constants that change the result (stored in UnitLayerParam)."""
+    return {
+        "pre_post_ms": [PRE_MS, POST_MS],
+        "baseline_ms": list(BASELINE_MS),
+        "lowpass_hz": LOWPASS_HZ,
+        "step": STEP,
+        "sigma": SIGMA,
+        "radius_um": RADIUS_UM,
+        "smooth_um": SMOOTH_UM,
+        "sink_window_ms": list(SINK_WINDOW_MS),
+        "edge_um": EDGE_UM,
+        "n_boot": N_BOOT,
+        "n_mua_windows": N_MUA_WINDOWS,
+        "max_rail_fraction": MAX_RAIL_FRACTION,
+        "mua_band_hz": list(MUA_BAND_HZ),
+        "atlas_layer_starts_um": {
+            str(k): list(v) for k, v in ATLAS_LAYER_STARTS_UM.items()
+        },
+        "max_offset_spread_um": MAX_OFFSET_SPREAD_UM,
+    }
+
+
+def populate(subject: str, session: str) -> None:
+    """Populate the UnitLayer table for one session and print the layer counts."""
+    import thesis.ephys  # noqa: F401  (import before labdata plugins on Hodgkin)
+    from labdata_plugin.schema import UnitLayer
+
+    key = {"subject_name": subject, "session_name": session}
+    UnitLayer.populate(key, display_progress=True)
+    print((UnitLayer & key).fetch(format="frame").to_string())
+    layers = pd.Series((UnitLayer.Unit & key).fetch("layer"), dtype=object)
+    print(layers.value_counts().reindex(LAYER_NAMES, fill_value=0).to_string())
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("step", choices=["measure", "plot", "layers"])
+    parser.add_argument("step", choices=["measure", "plot", "populate"])
     parser.add_argument("subject")
     parser.add_argument("session")
     args = parser.parse_args()
-    {"measure": measure, "plot": plot, "layers": layers}[args.step](
+    {"measure": measure, "plot": plot, "populate": populate}[args.step](
         args.subject, args.session
     )
 
