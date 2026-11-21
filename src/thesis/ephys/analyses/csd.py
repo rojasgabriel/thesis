@@ -52,7 +52,7 @@ Landmarks per shank:
   reference, median over `N_MUA_WINDOWS` windows of 1 s.
 
 Figure: one CSD panel per shank (sink blue), the marked sinks, the MUA power
-profile, and, for the mice of the atlas plan, the shifted atlas layer starts
+profile, and, for a session in an epoch (see below), the shifted atlas layer starts
 (dotted lines; layer names between the CSD and the MUA panel, "<6" = below L6).
 
 Exclusions: channels at the ADC limit in more than `MAX_RAIL_FRACTION` of
@@ -74,13 +74,26 @@ probe is about 41 deg from vertical, so depth on the probe is not cortical
 depth. `ATLAS_LAYER_STARTS_UM` is the Allen VISp layer at each shank centre
 along that track, computed once with the vvasp transforms (5 um steps; the
 computed entry point agrees with the plan). The real track differs from the
-plan, mostly in depth: the offset is the median over shanks of (MUA peak -
-atlas mid layer 5), and the atlas starts are shifted by it. A spread of the
-per-shank values above `MAX_OFFSET_SPREAD_UM` makes the layers uncertain;
-the `reliable` column is then 0. Check the offset against the sinks in the
-figure (b' at the shifted L3/4 start, d' at the shifted L5 start) before using
-the layers. `settings()` lists the constants that change the result; the
-table stops when they differ from its `UnitLayerParam` row.
+plan, mostly in depth, so the atlas starts are shifted by an offset. Two
+anchors give it. MUA anchor: median over shanks of (MUA peak - atlas mid
+layer 5). Sink anchor: median over shanks of (early sink - atlas mid layer
+4); an early sink is a marked sink that peaks before `EARLY_SINK_MS`. The
+first flash sink is in layer 4 (Niell & Stryker 2008; Rimehaug et al. 2023,
+eLife 12:RP87169); in these recordings it peaks at 29-35 ms and the deeper
+sinks peak from 38 ms, and the limit of 36 ms was set from that.
+The offset of one session is not stable: the MUA profile can have two peaks
+near each other, and the sinks stay at the same depth while the MUA anchor
+changes by 90 um between sessions. So the sessions between two probe
+movements (an epoch, `EPOCHS`) share one offset: each anchor is the median
+over the reference sessions, and the offset is the mean of the two anchors.
+Their difference shows the uncertainty (GRB064: 69 um, which changes the
+layer of many units; report the layers of a mouse as a range). Sessions
+outside an epoch get no layers: GRB068 (its sessions do not agree) and
+GRB061 after 2026-11-13 (the probe moved; the channel map does not cover
+layer 4). The `reliable` column is 0 when the offset of the session alone
+is more than `MAX_SESSION_DEVIATION_UM` from the offset of its epoch.
+`settings()` lists the constants that change the result; the table stops
+when they differ from its `UnitLayerParam` row.
 "below L6" is under VISp6b: white matter or hippocampus in this plan. vvasp
 shank k is taken as SpikeGLX shank k: the measured MUA peaks rise from shank
 0 to 3 as the atlas mid layer 5 does (GRB061, GRB064).
@@ -88,6 +101,11 @@ shank k is taken as SpikeGLX shank k: the measured MUA peaks rise from shank
     uv run python -m thesis.ephys.analyses.csd measure GRB064 20261008_143359
     uv run python -m thesis.ephys.analyses.csd plot GRB064 20261008_143359
     uv run python -m thesis.ephys.analyses.csd populate GRB064 20261008_143359
+    uv run python -m thesis.ephys.analyses.csd offset GRB064
+
+`offset` calculates the offset of each epoch of a mouse from the `measure`
+files of its reference sessions. For a new epoch, add the sessions to
+`EPOCHS`, run `offset`, and put the printed values in `EPOCHS`.
 """
 
 from __future__ import annotations
@@ -125,10 +143,33 @@ ATLAS_LAYER_STARTS_UM = {
     2: (2740, 2960, 3190, 3320, 3540, 3655),
     3: (2840, 3090, 3285, 3395, 3615, 3705),
 }
-PLAN_SUBJECTS = ("GRB061", "GRB064", "GRB068")
 LAYER_NAMES = ("below L6", "L6", "L5", "L4", "L2/3", "L1", "outside")
 LAYER_LABELS = ("<6", "6", "5", "4", "2/3", "1", "out")  # short names in the figure
-MAX_OFFSET_SPREAD_UM = 150
+EARLY_SINK_MS = 36
+MAX_SESSION_DEVIATION_UM = 100  # about the thickness of layer 4 on the track
+# Sessions between two probe movements: (reference sessions, offset um, MUA
+# anchor - sink anchor um). The `offset` step calculates the two values.
+EPOCHS = {
+    "GRB064": [
+        (
+            (
+                "20260916_132939",
+                "20261007_141927",
+                "20261008_143359",
+                "20261014_144539",
+                "20261016_154217",
+                "20261020_151815",
+                "20261022_152846",
+                "20261028_155047",
+            ),
+            12,
+            69,
+        )
+    ],
+    "GRB061": [
+        (("20261110_124944", "20261112_110950", "20261113_133142"), 485, -8),
+    ],
+}
 
 
 def ap_path(subject: str, session: str) -> Path:
@@ -366,7 +407,8 @@ def plot(subject: str, session: str) -> None:
     table.insert(0, "subject", subject)
     table.to_csv(RESULTS / f"{subject}_{session}_landmarks.csv", index=False)
     print(table.to_string(index=False))
-    offset = atlas_offset(table)[0] if subject in PLAN_SUBJECTS else None
+    epoch = epoch_offset(subject, session)
+    offset = None if epoch is None else epoch[0]
 
     t = maps["t_ms"]
     w = (t >= PLOT_MS[0]) & (t <= PLOT_MS[1])
@@ -399,10 +441,7 @@ def plot(subject: str, session: str) -> None:
         ax.axvline(0, color="k", ls="--", lw=0.8)
         for edge in (m["z"].min() - 10, m["z"].max() - EDGE_UM + 7.5):
             ax.axhspan(edge, edge + EDGE_UM + 2.5, color="0.85", alpha=0.8, lw=0)
-        if (
-            row["sink_hi_um"] - row["sink_lo_um"] <= SMOOTH_UM
-            and row["sink_peak_ms"] >= SINK_WINDOW_MS[0]
-        ):
+        if marked(row):
             ax.plot(
                 [SINK_WINDOW_MS[0], SINK_WINDOW_MS[1]],
                 [row["sink_um"]] * 2,
@@ -448,11 +487,50 @@ def plot(subject: str, session: str) -> None:
     print(f"wrote {out}")
 
 
-def atlas_offset(table: pd.DataFrame) -> tuple[float, float]:
-    """Return the median and the spread of (MUA peak - atlas mid layer 5)."""
-    mid5 = np.array([np.mean(ATLAS_LAYER_STARTS_UM[k][1:3]) for k in table["shank"]])
-    diff = table["mua_peak_um"].to_numpy() - mid5
-    return float(np.nanmedian(diff)), float(np.nanmax(diff) - np.nanmin(diff))
+def marked(table):
+    """True where the sink is a landmark: narrow interval, peak in the window."""
+    return (table["sink_hi_um"] - table["sink_lo_um"] <= SMOOTH_UM) & (
+        table["sink_peak_ms"] >= SINK_WINDOW_MS[0]
+    )
+
+
+def anchors(table: pd.DataFrame) -> tuple[float, float]:
+    """Return the offsets of a session from its MUA peaks and its early sinks."""
+    starts = np.array([ATLAS_LAYER_STARTS_UM[k] for k in table["shank"]])
+    mua = table["mua_peak_um"] - starts[:, 1:3].mean(1)
+    early = marked(table) & (table["sink_peak_ms"] < EARLY_SINK_MS)
+    sink = (table["sink_um"] - starts[:, 2:4].mean(1))[early]
+    return float(mua.median()), float(sink.median())
+
+
+def pooled_offset(tables: list[pd.DataFrame]) -> tuple[float, float]:
+    """Return the offset of the sessions and (MUA anchor - sink anchor).
+
+    Each anchor is the median over the sessions; the offset is the mean of
+    the anchors that exist. NaN where an anchor is missing.
+    """
+    both = pd.DataFrame([anchors(t) for t in tables]).median()
+    return float(both.mean()), float(both[0] - both[1])
+
+
+def epoch_offset(subject: str, session: str) -> tuple[float, float] | None:
+    """Return the stored offset and anchor difference of the epoch of a session."""
+    for sessions, offset, difference in EPOCHS.get(subject, ()):
+        if sessions[0] <= session <= sessions[-1]:
+            return offset, difference
+    return None
+
+
+def offset(subject: str, session: str | None = None) -> None:
+    """Print the offset of each epoch of a mouse, calculated and stored."""
+    for sessions, *stored in EPOCHS[subject]:
+        tables = [landmarks(RESULTS / f"{subject}_{s}.npz")[0] for s in sessions]
+        for s, table in zip(sessions, tables, strict=True):
+            print(s, "MUA anchor %.1f, sink anchor %.1f" % anchors(table))
+        print(
+            "calculated: offset %.1f, MUA - sink %.1f;" % pooled_offset(tables), end=" "
+        )
+        print(f"stored: {stored}")
 
 
 def unit_layers(shank, depth, offset: float) -> list[str]:
@@ -486,7 +564,12 @@ def settings() -> dict:
         "atlas_layer_starts_um": {
             str(k): list(v) for k, v in ATLAS_LAYER_STARTS_UM.items()
         },
-        "max_offset_spread_um": MAX_OFFSET_SPREAD_UM,
+        "early_sink_ms": EARLY_SINK_MS,
+        "max_session_deviation_um": MAX_SESSION_DEVIATION_UM,
+        "epochs": {
+            k: [list(map(list, e[:1])) + list(e[1:]) for e in v]
+            for k, v in EPOCHS.items()
+        },
     }
 
 
@@ -504,13 +587,12 @@ def populate(subject: str, session: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("step", choices=["measure", "plot", "populate"])
+    steps = {"measure": measure, "plot": plot, "populate": populate, "offset": offset}
+    parser.add_argument("step", choices=list(steps))
     parser.add_argument("subject")
-    parser.add_argument("session")
+    parser.add_argument("session", nargs="?")
     args = parser.parse_args()
-    {"measure": measure, "plot": plot, "populate": populate}[args.step](
-        args.subject, args.session
-    )
+    steps[args.step](args.subject, args.session)
 
 
 if __name__ == "__main__":

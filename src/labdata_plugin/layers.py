@@ -32,7 +32,7 @@ class UnitLayerParam(dj.Lookup):
     default_contents = [
         {
             "layer_param_id": 0,
-            "description": "first-flash step iCSD, vvasp plan atlas, MUA offset (2026-11-20)",
+            "description": "first-flash step iCSD, vvasp plan atlas, epoch offset from MUA peak and early sink (2026-11-21)",
             "unit_criteria_id": 1,
             "stability_param_id": 0,
             "settings": _code_settings(),
@@ -45,18 +45,21 @@ class UnitLayer(dj.Computed):
     """Atlas layer of the stable units of a session (thesis.ephys.analyses.csd).
 
     The layers are the Allen VISp layers on the planned probe track, shifted
-    by the offset of the measured MUA peaks. Only GRB061, GRB064 and GRB068
-    share the plan of the stored atlas layers. Use the layers only where
-    `reliable` is 1.
+    by the offset of the epoch of the session (the sessions between two
+    probe movements; MUA peaks and early sinks of its reference sessions).
+    Only sessions in an epoch get layers. Use the layers only where
+    `reliable` is 1, and mind `anchor_difference_um`: it is the uncertainty
+    of the offset.
     """
 
     definition = """
     -> UnitStability
     -> UnitLayerParam
     ---
-    offset_um                              : float              # median over shanks of (MUA peak - atlas mid layer 5)
-    offset_spread_um                       : float              # range of the per-shank values
-    reliable                               : tinyint            # spread within the max_offset_spread_um setting
+    offset_um                              : float              # offset of the epoch: shift of the atlas layer starts
+    anchor_difference_um = NULL            : float              # epoch MUA anchor - epoch early sink anchor
+    session_offset_um = NULL               : float              # the same offset from this session alone
+    reliable                               : tinyint            # session offset within max_session_deviation_um of the epoch offset
     n_trials                               : smallint unsigned  # first flashes used
     n_rail                                 : smallint unsigned  # first flashes left out at the ADC limit
     """
@@ -88,13 +91,16 @@ class UnitLayer(dj.Computed):
 
     @property
     def key_source(self):
-        from thesis.ephys.analyses.csd import PLAN_SUBJECTS
+        from thesis.ephys.analyses.csd import EPOCHS
 
         param = UnitLayerParam.proj(
             criteria="unit_criteria_id", stability="stability_param_id"
         )
         keys = (UnitStability * param) & [
-            {"subject_name": subject} for subject in PLAN_SUBJECTS
+            f"subject_name = '{subject}' and "
+            f"session_name between '{sessions[0]}' and '{sessions[-1]}'"
+            for subject, epochs in EPOCHS.items()
+            for sessions, *_ in epochs
         ]
         return (
             keys & "unit_criteria_id = criteria" & "stability_param_id = stability"
@@ -112,11 +118,10 @@ class UnitLayer(dj.Computed):
         if key["probe_num"] != 0:
             raise ValueError(f"Only probe 0 (imec0) is handled: {key}")
 
+        offset, difference = csd.epoch_offset(key["subject_name"], key["session_name"])
         path = csd.measure(key["subject_name"], key["session_name"])
         shanks, _ = csd.landmarks(path)
-        offset, spread = csd.atlas_offset(shanks)
-        if not np.isfinite(offset):
-            raise ValueError(f"No MUA peak on any shank for {key}")
+        own = csd.pooled_offset([shanks])[0]
         stable = (UnitStability.Unit & key & "passes = 1").proj()
         units = (UnitMetrics & stable).fetch("unit_id", "shank", "depth", as_dict=True)
         missing = [
@@ -135,8 +140,11 @@ class UnitLayer(dj.Computed):
             {
                 **key,
                 "offset_um": offset,
-                "offset_spread_um": spread,
-                "reliable": int(spread <= stored["max_offset_spread_um"]),
+                "anchor_difference_um": value(difference),
+                "session_offset_um": value(own),
+                "reliable": int(
+                    abs(own - offset) <= stored["max_session_deviation_um"]
+                ),
                 "n_trials": int(shanks["n_trials"].iloc[0]),
                 "n_rail": int(shanks["n_rail"].iloc[0]),
             }
