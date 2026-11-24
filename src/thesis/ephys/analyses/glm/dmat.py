@@ -290,7 +290,7 @@ class StretchedCosineBasis(BasisFunction):
     """
 
     def __init__(
-        self, n_funcs: int, post_s: float, binwidth_s: float, stretch_s: float
+        self, n_funcs: int, post_s: float, binwidth_s: float | None, stretch_s: float
     ):
         self.n_funcs = n_funcs
         self.stretch_s = stretch_s
@@ -490,16 +490,17 @@ def write_stimulus_windows(
     print(json.dumps(summary, indent=2))
 
 
-def task_temporal_bases() -> dict[str, BasisFunction]:
-    """Return the temporal basis used for each sensory or task regressor."""
+def task_temporal_bases(*, defer: bool = False) -> dict[str, BasisFunction]:
+    """Return task bases, optionally leaving construction to the master matrix."""
     # Most flashes are 40 ms apart. Linear spacing keeps resolution across the
     # short response window instead of spending log-spaced bases below 10 ms.
-    flash = RaisedCosineBasis(FLASH_BASES, 0, FLASH_WINDOW_S + BINWIDTH_S, BINWIDTH_S)
+    binwidth_s = None if defer else BINWIDTH_S
+    flash = RaisedCosineBasis(FLASH_BASES, 0, FLASH_WINDOW_S + BINWIDTH_S, binwidth_s)
     withdrawal = RaisedCosineBasis(
         WITHDRAWAL_BASES,
         WITHDRAWAL_PRE_S + BINWIDTH_S * (WITHDRAWAL_PRE_S > 0),
         WITHDRAWAL_WINDOW_S + BINWIDTH_S,
-        BINWIDTH_S,
+        binwidth_s,
     )
     bases = {
         FLASH_COMMON: flash,
@@ -510,11 +511,11 @@ def task_temporal_bases() -> dict[str, BasisFunction]:
         FLASH_SIDE: flash,
         "hold": (
             StretchedCosineBasis(
-                HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S, HOLD_LOG_STRETCH_S
+                HOLD_BASES, HOLD_WINDOW_S + BINWIDTH_S, binwidth_s, HOLD_LOG_STRETCH_S
             )
             if HOLD_LOG_STRETCH_S
             else RaisedCosineBasis(
-                HOLD_BASES, 0, HOLD_WINDOW_S + BINWIDTH_S, BINWIDTH_S
+                HOLD_BASES, 0, HOLD_WINDOW_S + BINWIDTH_S, binwidth_s
             )
         ),
         "withdrawal": withdrawal,
@@ -710,7 +711,7 @@ def session_drift_columns(trial_times: np.ndarray) -> np.ndarray:
 
 def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[dict]]:
     """Build the sensory and task columns: DAMN event kernels and the port state."""
-    bases = task_temporal_bases()
+    bases = task_temporal_bases(defer=True)
     holds = trials["center_exit_s"].to_numpy(dtype=float) - np.asarray(alignments)
     flashes = flash_events(trials)
     gap_class = flash_gap_class(trials)
@@ -782,22 +783,22 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             "one withdrawal per completed trial",
         ),
     ]
+    specifications = [spec for spec in specifications if spec[0] in bases]
     design = DesignMatrix(alignments, PRE_S, POST_S, BINWIDTH_S)
-    manifest = []
-    for name, times, values, group, coding in specifications:
-        if name not in bases:
-            continue
-        basis = bases[name]
+    for name, times, values, group, _ in specifications:
         design.add_regressor(
             EventRegressor(
                 name,
                 times,
-                BINWIDTH_S,
                 event_values=values,
-                basis_objects=[basis],
+                basis_objects=[bases[name]],
                 tags=group.split(),
             )
         )
+    design.build_matrix()
+    manifest = []
+    for name, times, _, group, coding in specifications:
+        basis = design.select(name=name).basis_functions[0]
         manifest.append(
             {
                 "name": name,
@@ -811,7 +812,6 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
                 "coding": coding,
             }
         )
-    design.build_matrix()
     centers, _, _ = construct_timebins(PRE_S, POST_S, BINWIDTH_S)
     times = np.asarray(alignments, dtype=float)[:, None] + centers
     before_exit = times < trials["center_exit_s"].to_numpy(dtype=float)[:, None]
@@ -823,7 +823,8 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
             # No step goes with the kernel. In a trial with a hold longer than
             # the window, the kernel keeps its last value up to the center exit.
             beyond = (times - np.asarray(alignments)[:, None]) > HOLD_WINDOW_S
-            values[beyond.ravel(), columns] = bases["hold"].basis[-1]
+            hold_basis = design.select(name="hold").basis_functions[0]
+            values[beyond.ravel(), columns] = hold_basis.basis[-1]
             values[:, columns] *= before_exit.ravel()[:, None]
             item["trials_longer_than_window"] = int(np.sum(holds > HOLD_WINDOW_S))
         cursor += item["columns"]
@@ -942,9 +943,10 @@ def build_task_design(alignments: np.ndarray, trials) -> tuple[np.ndarray, list[
     return np.column_stack((values, in_port.ravel())), manifest
 
 
-def spike_history_basis() -> RaisedCosineBasis:
+def spike_history_basis(*, defer: bool = False) -> RaisedCosineBasis:
     """Return 10 log-spaced functions at strictly past lags 1 through 100 ms."""
-    return RaisedCosineBasis(HISTORY_COLUMNS, 0, 0.1, BINWIDTH_S, log_scale=True)
+    binwidth_s = None if defer else BINWIDTH_S
+    return RaisedCosineBasis(HISTORY_COLUMNS, 0, 0.1, binwidth_s, log_scale=True)
 
 
 def build_unit_history(alignments: np.ndarray, spike_times: np.ndarray) -> np.ndarray:
@@ -958,8 +960,7 @@ def build_unit_history(alignments: np.ndarray, spike_times: np.ndarray) -> np.nd
         EventRegressor(
             "self_history",
             np.asarray(spike_times, dtype=float) + BINWIDTH_S,
-            BINWIDTH_S,
-            basis_objects=[spike_history_basis()],
+            basis_objects=[spike_history_basis(defer=True)],
             tags="history",
         )
     )

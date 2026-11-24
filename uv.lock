@@ -468,7 +468,7 @@ wheels = [
 [[package]]
 name = "damn"
 version = "0.0.0"
-source = { git = "https://github.com/mdmelin/damn?rev=9140eb18a21d74196c16d2b19b6034d3b9ba4449#9140eb18a21d74196c16d2b19b6034d3b9ba4449" }
+source = { git = "https://github.com/mdmelin/damn?rev=21955f681def86f401967d00429c16df3118d188#21955f681def86f401967d00429c16df3118d188" }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
@@ -2541,7 +2541,7 @@ check = [
 
 [package.metadata]
 requires-dist = [
-    { name = "damn", git = "https://github.com/mdmelin/damn?rev=9140eb18a21d74196c16d2b19b6034d3b9ba4449" },
+    { name = "damn", git = "https://github.com/mdmelin/damn?rev=21955f681def86f401967d00429c16df3118d188" },
     { name = "datajoint", specifier = ">=0.14.8,<0.15" },
     { name = "diptest", specifier = ">=0.12.0" },
     { name = "dpca", git = "https://github.com/machenslab/dPCA?subdirectory=python&rev=1def5b15854638811a25257dc0b68074ab5a1be0" },
