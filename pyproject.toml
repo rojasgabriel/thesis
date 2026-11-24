@@ -49,7 +49,7 @@ survey-imro = "thesis.ephys.tools.survey_imro:main"
 unit-stability = "thesis.ephys.tools.unit_stability_app:main"
 
 [dependency-groups]
-check = ["numpy", "pandas", "scipy", "ruff==0.16.4"]
+check = ["numpy", "pandas", "scipy", "ruff==0.17.6"]
 
 [tool.uv.build-backend]
 module-name = ["thesis", "labdata_plugin"]
