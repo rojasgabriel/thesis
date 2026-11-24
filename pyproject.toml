@@ -69,7 +69,7 @@ constraint-dependencies = [
 ]
 
 [tool.uv.sources]
-damn = { git = "https://github.com/mdmelin/damn", rev = "9140eb18a21d74196c16d2b19b6034d3b9ba4449" }
+damn = { git = "https://github.com/mdmelin/damn", rev = "21955f681def86f401967d00429c16df3118d188" }
 spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
 dpca = { git = "https://github.com/machenslab/dPCA", subdirectory = "python", rev = "1def5b15854638811a25257dc0b68074ab5a1be0" }
 matlab-dpca = { git = "https://github.com/rojasgabriel/matlab_dpca_in_python", rev = "8055ce10ff8d185bd7beb1d4563a4e2ecd3e92a8" }
