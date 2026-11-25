@@ -28,12 +28,15 @@ full test with the final-refit leak is in `model_trust.py` (panels g to i).
 Writes `figures/glm/flash_exit_effect.svg` and `results/glm/flash_exit_effect.json`.
 
     THESIS_CACHE_DIR=figures/cache uv run python -m \\
-        thesis.ephys.analyses.glm.flash_exit_effect
+        thesis.ephys.analyses.glm.flash_exit_effect [SUBJECT ...]
+
+With no subject it uses every session of `leak_test.SESSIONS`.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -54,6 +57,10 @@ SEED = 0
 
 def main() -> None:
     values = leak_test.comparison_values(OUT)
+    if len(sys.argv) > 1:  # only the named subjects, in that order
+        values = {subject: values[subject] for subject in sys.argv[1:]}
+    n = len(values)
+    pooled_label = "both mice" if n == 2 else "all mice"
     rng = np.random.default_rng(SEED)
     effects, report = {}, {}
     with plt.rc_context(FIGURE_STYLE):
@@ -102,17 +109,17 @@ def main() -> None:
         pooled = leak_test.hierarchical_interval(list(effects.values()))
         m, (lo, hi) = pooled["median"], pooled["interval_95"]
         ax.errorbar(
-            2, m, yerr=[[m - lo], [hi - m]], fmt="o", color="black", ms=8, capsize=4
+            n, m, yerr=[[m - lo], [hi - m]], fmt="o", color="black", ms=8, capsize=4
         )
         ax.text(
-            2.18,
+            n + 0.18,
             m,
             f"pooled ×{np.exp(m):.2f}\n[×{np.exp(lo):.2f}, ×{np.exp(hi):.2f}]"
             f"\np = {pooled['p_bootstrap']:.2g}",
             va="center",
             fontsize=8,
         )
-        report["both mice"] = dict(
+        report[pooled_label] = dict(
             median_ratio=float(np.exp(m)),
             interval_95=[float(np.exp(lo)), float(np.exp(hi))],
             p_bootstrap=float(pooled["p_bootstrap"]),
@@ -120,8 +127,8 @@ def main() -> None:
         ax.axhline(0, color="0.5", ls="--", lw=0.9)
         ticks = np.log([0.25, 0.5, 1, 2, 4])
         ax.set_yticks(ticks, ["×0.25", "×0.5", "×1", "×2", "×4"])
-        ax.set_xticks([0, 1, 2], [*values, "both mice"])
-        ax.set_xlim(-0.5, 2.9)
+        ax.set_xticks(range(n + 1), [*values, pooled_label])
+        ax.set_xlim(-0.5, n + 0.9)
         ax.set_ylim(-LIMIT * 1.03, LIMIT * 1.03)
         outside = sum(int(np.sum(np.abs(r) > LIMIT)) for r in effects.values())
         report["outside_display_limit"] = outside

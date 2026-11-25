@@ -177,10 +177,13 @@ class GLMFit(dj.Computed):
                 )
         if (param["unit_criteria_id"], param["stability_param_id"]) != (1, 0):
             raise ValueError("glm.fit selects units with criteria 1 and stability 0.")
-        # The sorting of the GLM units (criteria 1, as in fetch_unit_table).
-        sorting = (SpikeSorting & (UnitCount & key & {"unit_criteria_id": 1})).fetch(
-            "KEY"
-        )
+        # The sorting of the GLM units (criteria 1, the sorting of fetch_unit_table).
+        from thesis.ephys.units import sorting_key
+
+        chosen = sorting_key(key["subject_name"], key["session_name"])
+        sorting = (
+            SpikeSorting & chosen & (UnitCount & key & {"unit_criteria_id": 1})
+        ).fetch("KEY")
         if len(sorting) != 1:
             raise ValueError(f"{key}: {len(sorting)} sortings; expected 1.")
         return param, sorting[0], _clean_commit()

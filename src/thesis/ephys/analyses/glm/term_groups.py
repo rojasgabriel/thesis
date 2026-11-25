@@ -325,13 +325,17 @@ def session_groups(root: Path, unit_set: str = "all") -> dict:
     }
 
 
-def _plot_groups(axis, sessions: list[dict]) -> None:
+def _plot_groups(
+    axis, sessions: list[dict], log: bool = True, labels: bool = True
+) -> None:
+    floor = FLOOR if log else -np.inf
+
     def draw(y, groups, color, face):
         stats = hierarchical_interval(groups)
-        low, high = np.maximum(stats["interval_95"], FLOOR)
+        low, high = np.maximum(stats["interval_95"], floor)
         axis.plot([low, high], [y, y], color=color, linewidth=1.0)
         axis.scatter(
-            max(stats["median"], FLOOR),
+            max(stats["median"], floor),
             y,
             s=22,
             zorder=3,
@@ -347,6 +351,8 @@ def _plot_groups(axis, sessions: list[dict]) -> None:
             draw(y + offset, [s["rows"][row][key] for s in sessions], color, face)
         need = sum(s["rows"][row]["tests"]["units_that_need_it"] for s in sessions)
         total = sum(s["units"] for s in sessions)
+        if not labels:
+            continue
         axis.text(
             1.03,
             y,
@@ -357,6 +363,13 @@ def _plot_groups(axis, sessions: list[dict]) -> None:
             transform=axis.get_yaxis_transform(),
         )
     draw(len(ROWS), [s["full"] for s in sessions], "black", "black")
+    axis.set_yticks(range(len(ROWS) + 1), [*reversed(ROWS), "full model"])
+    for tick, row in zip(axis.get_yticklabels(), reversed(ROWS), strict=False):
+        tick.set_color(COLORS[row])
+    if not log:
+        axis.axvline(0, color="0.6", lw=0.6)
+        axis.set_xlabel("held-out bits per spike")
+        return
     axis.text(
         1.03,
         len(ROWS) + 0.5,
@@ -366,9 +379,6 @@ def _plot_groups(axis, sessions: list[dict]) -> None:
     )
     axis.set_xscale("log")
     axis.set_xlim(FLOOR, 3)
-    axis.set_yticks(range(len(ROWS) + 1), [*reversed(ROWS), "full model"])
-    for tick, row in zip(axis.get_yticklabels(), reversed(ROWS), strict=False):
-        tick.set_color(COLORS[row])
     axis.set_xlabel("held-out bits per spike\n(filled: unique; open: maximal)")
 
 
@@ -377,12 +387,44 @@ def main() -> None:
     parser.add_argument("--fit", action="store_true", help="fit the groups first")
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument(
+        "--scales",
+        action="store_true",
+        help="the groups on a linear and a log axis, side by side (term_groups_scales)",
+    )
+    parser.add_argument("--mice", nargs="*", default=None, help="only these mice")
     args = parser.parse_args()
     if args.fit:
         for name in SESSIONS:
             fit_groups(OUT / name, args.units, args.workers)
-    sessions = [session_groups(OUT / name, args.units) for name in SESSIONS]
-    terms = [session_population(OUT / name, args.units) for name in SESSIONS]
+    names = [n for n in SESSIONS if not args.mice or n.split("_")[0] in args.mice]
+    sessions = [session_groups(OUT / name, args.units) for name in names]
+    if args.scales:
+        with plt.rc_context(FIGURE_STYLE):
+            figure, (linear, log) = plt.subplots(
+                1, 2, figsize=(6.4, 3.4), layout="constrained", sharey=True
+            )
+            _plot_groups(linear, sessions, log=False, labels=False)
+            _plot_groups(log, sessions)
+            label_panels((linear, log), x=-0.08)
+            print(save_figure(figure, OUT / "term_groups_scales"))
+            # The same for each term, not grouped.
+            terms = [session_population(OUT / name, args.units) for name in names]
+            order = sorted(
+                terms[0]["tests"],
+                key=lambda name: np.median(
+                    [item["groups"][name][UNIQUE_BITS] for item in terms[0]["records"]]
+                ),
+            )
+            figure, (linear, log) = plt.subplots(
+                1, 2, figsize=(7.0, 4.6), layout="constrained", sharey=True
+            )
+            _plot_unique(linear, terms, order, log=False, labels=False)
+            _plot_unique(log, terms, order)
+            label_panels((linear, log), x=-0.08)
+            print(save_figure(figure, OUT / "term_scales"))
+        return
+    terms = [session_population(OUT / name, args.units) for name in names]
     order = sorted(
         terms[0]["tests"],
         key=lambda name: np.median(

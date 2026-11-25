@@ -28,6 +28,14 @@ against 0.57 s for GRB006) and stays in provisionally, to see how its data
 look until better sessions come (Gabriel, 2026-11-15). It has no ephys session
 with 6 rates; it uses 4 (`MIN_RATES_BY_SUBJECT`).
 
+Behavior-only mice (`PRE_IMPLANT`): GRB061 and GRB068 have no neural data in
+the analyses yet, but they learned the same task. Their sessions are the expert
+sessions before the implant: discrimination sessions before their first ephys
+recording, with a median required wait (`required_wait_time`) of at least
+`EXPERT_WAIT_S` and at least `MIN_RATES` rates (Gabriel, 2026-11-23: show their
+expert sessions in the behavior figures). `BEHAVIOR_SUBJECTS` lists all mice of
+the behavior figures.
+
 Trials: visual (flashes only) and multisensory (flashes and clicks at the same
 rate; `stim_events` holds the flash times), in `MODALITIES`; auditory-only
 trials are left out. The column `modality` says which. Completed (no early withdrawal) with a left or right choice, with a full
@@ -54,6 +62,9 @@ RECORDED = {
     "GRB061": "20261113_133142",
 }
 SUBJECTS = tuple(RECORDED)
+PRE_IMPLANT = ("GRB061", "GRB068")
+BEHAVIOR_SUBJECTS = ("GRB006", "GRB064", *PRE_IMPLANT)
+EXPERT_WAIT_S = 0.5
 # The one list of the analyzed sessions; the neural analyses import it.
 SESSIONS = tuple(f"{subject}_{name}" for subject, name in RECORDED.items())
 MIN_RATES = 6
@@ -98,7 +109,16 @@ def _bpod_table(subject: str) -> pd.DataFrame:
         .reset_index()
     )
     table["stim_events"] = table["stim_events"].map(_flash_times)
-    return table
+    # A left join: old sessions have no required wait, and a projection with
+    # it would drop them.
+    waits = (
+        Chipmunk.trial_query(subject_name=subject)
+        .proj("required_wait_time")
+        .fetch(format="frame")
+        .reset_index()
+    )
+    keys = ["subject_name", "session_name", "trial_num"]
+    return table.merge(waits[[*keys, "required_wait_time"]], on=keys, how="left")
 
 
 def _flash_times(events) -> list[float]:
@@ -124,14 +144,22 @@ def task_trials(subject: str, recorded: bool = False) -> pd.DataFrame:
         & (table["stim_duration"] >= STIM_S - 1e-6)
         & (table["stim_events"].map(len) > 0)
     )
-    used &= table["session_name"].isin(_ephys_sessions(subject)["session_name"])
+    ephys = _ephys_sessions(subject)["session_name"]
+    if subject in PRE_IMPLANT and not recorded:
+        # Expert sessions before the implant (see the module docstring).
+        used &= table["session_name"] < ephys.min()
+        waits = table[used].groupby("session_name")["required_wait_time"].median()
+        used &= table["session_name"].isin(waits.index[waits >= EXPERT_WAIT_S])
+    else:
+        used &= table["session_name"].isin(ephys)
     used &= table["setting_modalities"].astype(str).isin(MODALITIES)
     trials = table[used].copy()
     if not np.allclose(trials["category_boundary"], CATEGORY_BOUNDARY_HZ):
         raise ValueError(f"{subject}: a boundary is not {CATEGORY_BOUNDARY_HZ} Hz.")
     by_session = trials.groupby("session_name")
     rates = by_session["stim_rate_vision"].nunique()
-    keep = rates.index[rates >= MIN_RATES_BY_SUBJECT.get(subject, MIN_RATES)]
+    least = MIN_RATES if subject in PRE_IMPLANT and not recorded else None
+    keep = rates.index[rates >= (least or MIN_RATES_BY_SUBJECT.get(subject, MIN_RATES))]
     if recorded:
         keep = [RECORDED[subject]]
     trials = trials[trials["session_name"].isin(keep)].copy()

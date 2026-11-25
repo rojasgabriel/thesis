@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.13.8,<0.14.0"]
+requires = ["uv_build>=0.13.9,<0.14.0"]
 build-backend = "uv_build"
 
 [project]
@@ -41,7 +41,9 @@ insert_audio_events = "thesis.ephys.preprocessing.insert_audio_events:main"
 insert-stream-sync = "thesis.ephys.preprocessing.insert_streamsync:main"
 populate-unit-counts = "thesis.ephys.preprocessing.populate_unit_counts:main"
 populate-session = "thesis.ephys.preprocessing.populate_session:main"
+unit-match-extract = "thesis.ephys.preprocessing.unit_match:main"
 movement-artifacts = "thesis.ephys.preprocessing.movement_artifacts:main"
+dlc-pose = "thesis.ephys.preprocessing.dlc_pose:main"
 double-peak-candidates = "thesis.ephys.analyses.double_peak_candidates:main"
 psth = "thesis.ephys.tools.psth_app:main"
 stimulus-response = "thesis.ephys.tools.stimulus_response_app:main"
@@ -50,7 +52,7 @@ survey-imro = "thesis.ephys.tools.survey_imro:main"
 unit-stability = "thesis.ephys.tools.unit_stability_app:main"
 
 [dependency-groups]
-check = ["numpy", "pandas", "scipy", "ruff==0.16.4"]
+check = ["numpy", "pandas", "scipy", "ruff==0.17.6"]
 
 [tool.uv.build-backend]
 module-name = ["thesis", "labdata_plugin"]
@@ -70,7 +72,7 @@ constraint-dependencies = [
 ]
 
 [tool.uv.sources]
-damn = { git = "https://github.com/mdmelin/damn", rev = "9140eb18a21d74196c16d2b19b6034d3b9ba4449" }
+damn = { git = "https://github.com/mdmelin/damn", rev = "21955f681def86f401967d00429c16df3118d188" }
 spks = { git = "https://github.com/spkware/spks", rev = "451691a558650c80696a6871377f33986f3abb2f" }
 dpca = { git = "https://github.com/machenslab/dPCA", subdirectory = "python", rev = "1def5b15854638811a25257dc0b68074ab5a1be0" }
 matlab-dpca = { git = "https://github.com/rojasgabriel/matlab_dpca_in_python", rev = "8055ce10ff8d185bd7beb1d4563a4e2ecd3e92a8" }

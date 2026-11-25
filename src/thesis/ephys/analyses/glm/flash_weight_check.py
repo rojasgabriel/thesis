@@ -57,7 +57,7 @@ from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import load_unit_records
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.results import fitted_kernels, flash_kernel_at
-from thesis.ephys.units import fetch_unit_table
+from thesis.ephys.units import fetch_unit_table, sorting_key
 from thesis.plotting import (
     BOOTSTRAPS,
     CONCEPT_COLORS,
@@ -94,8 +94,7 @@ def table_values(subject: str, session: str, unit_ids: list[int]) -> dict:
     assert (param["baseline_start"], param["baseline_end"]) == BASELINE_S
     assert (param["response_start"], param["response_end"]) == RESPONSE_S
     key = {
-        "subject_name": subject,
-        "session_name": session,
+        **sorting_key(subject, session),
         "unit_criteria_id": 1,
         "stim_response_param_id": PARAM_ID,
     }
