@@ -8,6 +8,7 @@ from ._base import _DATABASE, dataschema, rojasbowe_schema
 from .behavior import Psychometric
 from .events import EventMapping
 from .glm import GLMDesignParam, GLMFit
+from .layers import UnitLayer, UnitLayerParam
 from .sessions import ThesisSession
 from .stimulus_response import StimulusResponse, StimulusResponseParam
 from .units import (
@@ -27,6 +28,8 @@ __all__ = [
     "StimulusResponse",
     "StimulusResponseParam",
     "ThesisSession",
+    "UnitLayer",
+    "UnitLayerParam",
     "UnitStability",
     "UnitStabilityParam",
     "initialize_schema",
@@ -50,6 +53,7 @@ def initialize_schema() -> None:
         MovementArtifactParam,
         ThesisSession,
         GLMDesignParam,
+        UnitLayerParam,
     ):
         table().insert(table.default_contents, skip_duplicates=True)
 
