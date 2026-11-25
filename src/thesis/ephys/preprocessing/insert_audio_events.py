@@ -14,7 +14,6 @@ three possible sounds that are presented in the Chipmunk task.
 - Gabriel Rojas Bowe, 9/1/26
 """
 
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -168,72 +167,3 @@ def insert_audio_events(
         print("Inserted obx:io1")
     else:
         print("Dry run; add --apply to insert")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Recover XA1 audio events and insert them as obx:io1 events"
-    )
-    parser.add_argument("subject", nargs="?")
-    parser.add_argument("session", nargs="?")
-    parser.add_argument("dataset", nargs="?")
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=DEFAULT_THRESHOLD,
-        help="10 ms peak-to-peak amplitude threshold (default: %(default)s)",
-    )
-    parser.add_argument("--apply", action="store_true")
-    args = parser.parse_args()
-    if args.threshold <= 0:
-        parser.error("--threshold must be positive")
-    supplied = (args.subject, args.session, args.dataset)
-    if any(supplied) and not all(supplied):
-        parser.error("provide subject, session, and dataset together, or none")
-    _self_check()
-    if args.subject is not None:
-        assert args.session is not None and args.dataset is not None
-        dataset_keys = [
-            {
-                "subject_name": args.subject,
-                "session_name": args.session,
-                "dataset_name": args.dataset,
-            }
-        ]
-    else:
-        from labdata.schema import Dataset, DatasetEvents, File
-
-        key_fields = ("subject_name", "session_name", "dataset_name")
-        candidates = {
-            tuple(row[field] for field in key_fields)
-            for row in (
-                File() * Dataset.DataFiles() & 'file_path LIKE "%.obx.bin"'
-            ).fetch(*key_fields, as_dict=True)
-        }
-        existing = {
-            tuple(row[field] for field in key_fields)
-            for row in (
-                DatasetEvents.Digital() & {"stream_name": "obx", "event_name": "io1"}
-            ).fetch(*key_fields, as_dict=True)
-        }
-        dataset_keys = [
-            dict(zip(key_fields, key)) for key in sorted(candidates - existing)
-        ]
-        print(f"Found {len(dataset_keys)} OBX datasets missing obx:io1")
-
-    failures = []
-    for dataset_key in dataset_keys:
-        print("\n", dataset_key)
-        try:
-            insert_audio_events(dataset_key, args.apply, args.threshold)
-        except Exception as error:
-            if len(dataset_keys) == 1:
-                raise
-            failures.append(dataset_key)
-            print(f"Skipped: {error}")
-    if failures:
-        parser.exit(1, f"Skipped {len(failures)} datasets\n")
-
-
-if __name__ == "__main__":
-    main()

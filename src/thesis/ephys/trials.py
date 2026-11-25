@@ -488,7 +488,7 @@ def build_trial_table(
         if len(bpod_sync) != 1:
             raise ValueError(
                 f"Missing Bpod StreamSync for {subject} {session}; "
-                "run uv run insert-stream-sync for its ephys dataset"
+                "run uv run preprocess-session"
             )
         to_clock = bpod_to_clock(subject, session)
 
