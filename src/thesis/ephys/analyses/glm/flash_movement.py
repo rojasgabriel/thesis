@@ -576,7 +576,7 @@ def peak_scatter(axis, sessions, field, gap=None):
         # Fixed corner labels keep mouse names clear of the point cloud.
         axis.plot(
             0.66,
-            0.16 - index * 0.08,
+            0.24 - index * 0.08,
             marker,
             color=OBSERVED_COLOR,
             mfc="none",
@@ -586,7 +586,7 @@ def peak_scatter(axis, sessions, field, gap=None):
         )
         axis.text(
             0.71,
-            0.16 - index * 0.08,
+            0.24 - index * 0.08,
             data["subject"],
             transform=axis.transAxes,
             va="center",
@@ -594,7 +594,7 @@ def peak_scatter(axis, sessions, field, gap=None):
         )
     axis.text(
         0.66,
-        0.25,
+        0.33,
         "open: all units\nfilled: flash-excited",
         transform=axis.transAxes,
         va="bottom",
@@ -666,21 +666,22 @@ def write_figure(figure, name):
 def plot(sessions):
     with plt.rc_context(FIGURE_STYLE):
         # One column per gap class: the PSTH of each mouse above the scatter.
-        figure = plt.figure(figsize=(7.6, 6.4), layout="constrained")
-        grid = figure.add_gridspec(2, 4, height_ratios=(1.0, 1.9))
+        n = len(sessions)
+        figure = plt.figure(figsize=(3.8 * n, 6.4), layout="constrained")
+        grid = figure.add_gridspec(2, 2 * n, height_ratios=(1.0, 1.9))
         panels, psths, scatters = [], [], []
         for gap, label in enumerate(GAP_LABELS):
             for mouse, data in enumerate(sessions):
                 # One rate scale for both mice and both gaps.
                 axis = figure.add_subplot(
-                    grid[0, 2 * gap + mouse], sharey=psths[0] if psths else None
+                    grid[0, n * gap + mouse], sharey=psths[0] if psths else None
                 )
                 psth_panel(axis, data, gap, labels=mouse == 0)
                 if mouse:
                     axis.set_ylabel("")
                 psths.append(axis)
                 panels.append(axis)
-            axis = figure.add_subplot(grid[1, 2 * gap : 2 * gap + 2])
+            axis = figure.add_subplot(grid[1, n * gap : n * gap + n])
             peak_scatter(axis, sessions, "observed", gap)
             axis.text(
                 0.98, 1.03, label, transform=axis.transAxes, ha="right", va="bottom"
@@ -701,22 +702,27 @@ def plot(sessions):
             zip(GAP_LABELS, ("80ms", "40ms"), strict=True)
         ):
             figure, axes = plt.subplots(
-                1, 3, figsize=(9.0, 3.4), layout="constrained", width_ratios=(1, 1, 1.3)
+                1,
+                n + 1,
+                figsize=(3.0 * n + 3.0, 3.4),
+                layout="constrained",
+                width_ratios=(1,) * n + (1.3,),
             )
             for mouse, data in enumerate(sessions):
                 psth_panel(axes[mouse], data, gap, labels=mouse == 0)
                 axes[mouse].set_ylim(rate_limits)
-            axes[1].set_ylabel("")
-            peak_scatter(axes[2], sessions, "observed", gap)
-            axes[2].text(
-                0.98, 1.03, label, transform=axes[2].transAxes, ha="right", va="bottom"
+            for axis in axes[1:n]:
+                axis.set_ylabel("")
+            peak_scatter(axes[n], sessions, "observed", gap)
+            axes[n].text(
+                0.98, 1.03, label, transform=axes[n].transAxes, ha="right", va="bottom"
             )
-            axes[2].set(
+            axes[n].set(
                 xlabel="stationary peak / mean observed rate",
                 ylabel="movement peak / mean observed rate",
                 xlim=scatter_limits,
             )
-            match_scatter_limits(axes[2:])
+            match_scatter_limits(axes[n:])
             label_panels(axes, x=-0.12, y=1.08)
             write_figure(figure, f"flash_observation_{name}")
 

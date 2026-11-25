@@ -243,7 +243,7 @@ def main() -> None:
     for s in sessions:
         print(s["subject"], f"bins at the rate limit: {s['limited_fraction']:.5f}")
     groups = [fixation_groups(OUT / name) for name in SESSIONS]
-    rows = {"all units": [None, None]}
+    rows = {"all units": [None] * len(sessions)}
     for group in FIXATION_GROUPS:
         rows[f"{group} units"] = [
             np.array([g.get(u) == group for u in s["ids"]])
@@ -254,8 +254,8 @@ def main() -> None:
         # first flash and the center exit.
         figure, axes = plt.subplots(
             len(rows),
-            4,
-            figsize=(11.0, 2.5 * len(rows) + 0.4),
+            2 * len(sessions),
+            figsize=(5.5 * len(sessions), 2.5 * len(rows) + 0.4),
             sharex="col",
             sharey=True,
             layout="constrained",
@@ -307,7 +307,13 @@ def main() -> None:
                 transform=axes[0, 1].transAxes,
             )
         label_panels(
-            [axes[r, c] for r in range(len(rows)) for c in (0, 2)], x=-0.3, y=1.1
+            [
+                axes[r, c]
+                for r in range(len(rows))
+                for c in range(0, 2 * len(sessions), 2)
+            ],
+            x=-0.3,
+            y=1.1,
         )
         print(save_figure(figure, OUT / "fixation_model"))
 

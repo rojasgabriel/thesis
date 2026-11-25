@@ -38,7 +38,7 @@ FIXATION_COLORS = {
     "fixation-excited": "#B8860B",
 }
 # A mouse is never a color: it is a marker shape and a black label.
-MOUSE_MARKERS = {"GRB006": "o", "GRB064": "^"}
+MOUSE_MARKERS = {"GRB006": "o", "GRB064": "^", "GRB061": "s"}
 _OTHER_MARKERS = "sDv"
 
 # Use with `plt.rc_context(FIGURE_STYLE)`.
@@ -163,7 +163,7 @@ def pooled_points(
     """Draw the units of all mice pooled, with the medians of the mice and of all.
 
     Units are small light dots. The median of each mouse is a small open
-    marker in the shape of the mouse (`mouse_marker`) with its name in black.
+    marker in the shape of the mouse (`mouse_marker`), with no name.
     The pooled median is a large dot with the hierarchical-bootstrap 95%
     interval of each median as error bars.
     """
@@ -176,8 +176,6 @@ def pooled_points(
         lw=0,
         zorder=2,
     )
-    # The label of the higher median goes up and the lower one down.
-    rank = np.argsort(np.argsort([np.median(y) for y in ys]))
     for k, (x, y, subject) in enumerate(zip(xs, ys, subjects, strict=True)):
         mx, my = np.median(x), np.median(y)
         axis.scatter(
@@ -189,16 +187,6 @@ def pooled_points(
             edgecolor=color,
             lw=1,
             zorder=3,
-        )
-        # One line for each mouse, so that close medians keep legible names.
-        axis.annotate(
-            subject,
-            (mx, my),
-            xytext=(12, 9 if rank[k] == len(ys) - 1 else -13),
-            textcoords="offset points",
-            color=OBSERVED_COLOR,
-            fontsize=5.5,
-            arrowprops={"arrowstyle": "-", "color": "0.4", "lw": 0.4},
         )
     axis.text(
         0.03,
@@ -255,7 +243,7 @@ def pooled_strip(
     """Draw one column of pooled units, the median of each mouse, and the pooled median.
 
     The median of each mouse is an open marker in the shape of the mouse
-    (`mouse_marker`) with its name in black. Returns the statistics of
+    (`mouse_marker`), with no name. Returns the statistics of
     `hierarchical_interval`.
     """
     rng = np.random.default_rng(seed)
@@ -271,12 +259,7 @@ def pooled_strip(
     )
     stats = hierarchical_interval(groups, seed)
     medians = stats["median_of_each_mouse"]
-    # The label of the higher median goes up and the lower one down, so that
-    # close medians keep legible names.
-    rank = np.argsort(np.argsort(medians))
-    for index, (median, subject, place) in enumerate(
-        zip(medians, subjects, rank, strict=True)
-    ):
+    for index, (median, subject) in enumerate(zip(medians, subjects, strict=True)):
         axis.scatter(
             position + 0.25,
             median,
@@ -286,15 +269,6 @@ def pooled_strip(
             edgecolor=color,
             lw=1,
             zorder=3,
-        )
-        axis.annotate(
-            subject,
-            (position + 0.25, median),
-            xytext=(8, 7 if place == len(medians) - 1 else -9),
-            textcoords="offset points",
-            color=OBSERVED_COLOR,
-            fontsize=5.5,
-            arrowprops={"arrowstyle": "-", "color": "0.4", "lw": 0.4},
         )
     low, high = stats["interval_95"]
     axis.errorbar(

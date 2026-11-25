@@ -34,8 +34,10 @@ left out: the response to the flash before falls into their windows.
   with the dip (the rate before the flash minus the mean over ±20 ms around
   the smallest bin from 30 to 120 ms) in place of the peak; outputs with
   `_flash_suppressed`.
-- Units: the units of the group,
-  pooled over eligible mice in each group. Intervals: hierarchical bootstrap (mice, then units),
+- Units: the units of the group, pooled over the mice that have flashes of
+  that group (GRB061 has no first after-exit flash after a 100-200 ms gap); a
+  ratio of two groups uses only the mice that have both, and a group needs at
+  least `MIN_MICE` mice. Each bootstrap draws only from the mice it pools. Intervals: hierarchical bootstrap (mice, then units),
   95%; ratios are of pooled means. The sampling unit is the unit.
 - Talk figure (`exit_flash_relative`): the pooled flash PSTH of each group
   divided by its own pooled rate before the flash (1 = that rate), one row per
@@ -107,6 +109,7 @@ FIRST = "first of trial"
 DRAWS = 30
 SEED = 6
 BOOTSTRAPS = 2000
+MIN_MICE = 2  # a group or ratio of fewer mice is not pooled
 MIN_FLASHES = 12
 CENTERS_S = (LAGS_MS.reshape(-1, 10).mean(-1) + 0.5) / 1000
 BASELINE = (CENTERS_S >= -0.04) & (CENTERS_S < 0)
@@ -307,29 +310,43 @@ def draws(sessions: list[dict], seed: int = 0) -> list[list[np.ndarray]]:
     return out
 
 
-def pooled(sessions, key, name, picks=None) -> float:
-    """Return the mean over the pooled units (or one bootstrap draw) of a measure."""
+def having(sessions, *keys) -> set[int]:
+    """Return the indices of the mice that have flashes of every group in `keys`."""
+    return {m for m, s in enumerate(sessions) if all(k in s["values"] for k in keys)}
+
+
+def unit_rows(sessions, key, name, picks=None, mice=None) -> list[np.ndarray]:
+    """Return the per-unit values of a measure, of all units or one draw.
+
+    Only the mice in `mice` (default: the mice with flashes of `key`) count;
+    a draw with none of them gives an empty list.
+    """
+    mice = having(sessions, key) if mice is None else mice
     if picks is None:
-        return float(np.concatenate([s["values"][key][name] for s in sessions]).mean())
-    return float(
-        np.concatenate([sessions[m]["values"][key][name][i] for m, i in picks]).mean()
-    )
+        return [sessions[m]["values"][key][name] for m in sorted(mice)]
+    return [sessions[m]["values"][key][name][i] for m, i in picks if m in mice]
+
+
+def pooled(sessions, key, name, picks=None, mice=None) -> float:
+    """Return the mean over the pooled units (or one bootstrap draw) of a measure."""
+    rows = unit_rows(sessions, key, name, picks, mice)
+    return float(np.concatenate(rows).mean()) if rows else np.nan
 
 
 def interval(sessions, function, boot) -> list[float]:
-    """Return the 95% bootstrap interval of a function of a draw."""
-    return np.percentile([function(picks) for picks in boot], [2.5, 97.5]).tolist()
+    """Return the 95% bootstrap interval of a function of a draw.
+
+    A draw with none of the mice of the measure gives NaN and is left out.
+    """
+    return np.nanpercentile([function(picks) for picks in boot], [2.5, 97.5]).tolist()
 
 
 def latency(sessions, key, dip: bool, picks=None) -> float:
     """Return the peak time (ms) of the pooled mean trace (with `dip`, of its lowest bin)."""
-    if picks is None:
-        traces = np.concatenate([s["values"][key]["trace"] for s in sessions])
-    else:
-        traces = np.concatenate(
-            [sessions[m]["values"][key]["trace"][i] for m, i in picks]
-        )
-    mean = traces.mean(0)
+    rows = unit_rows(sessions, key, "trace", picks)
+    if not rows:
+        return np.nan
+    mean = np.concatenate(rows).mean(0)
     if dip:
         return float(1000 * CENTERS_S[np.argmin(np.where(PEAK, mean, np.inf))])
     return float(1000 * CENTERS_S[np.argmax(np.where(PEAK, mean, -np.inf))])
@@ -337,17 +354,14 @@ def latency(sessions, key, dip: bool, picks=None) -> float:
 
 def relative_curve(sessions, key, picks=None) -> np.ndarray:
     """Pooled mean trace over the pooled mean rate before the flash (1 = baseline)."""
-    if picks is None:
-        traces = np.concatenate([s["values"][key]["trace"] for s in sessions])
-    else:
-        traces = np.concatenate(
-            [sessions[m]["values"][key]["trace"][i] for m, i in picks]
-        )
-    mean = traces.mean(0)
+    rows = unit_rows(sessions, key, "trace", picks)
+    if not rows:
+        return np.full(len(CENTERS_S), np.nan)
+    mean = np.concatenate(rows).mean(0)
     return mean / mean[BASELINE].mean()
 
 
-def relative_figure(sessions, boot, keys):
+def relative_figure(sessions, keys):
     """Flash PSTHs, each divided by its own rate before the flash (talk).
 
     Under one gain on all activity the curves of a row lie on each other.
@@ -367,9 +381,13 @@ def relative_figure(sessions, boot, keys):
     for axis, index in zip(axes[:, 0], rows, strict=True):
         for group in GROUPS:
             key = (group, index)
-            curve = relative_curve(sessions, key)
-            band = np.percentile(
-                [relative_curve(sessions, key, picks) for picks in boot], [2.5, 97.5], 0
+            # Pooled and bootstrapped over the mice that have this group.
+            sub = [sessions[m] for m in sorted(having(sessions, key))]
+            curve = relative_curve(sub, key)
+            band = np.nanpercentile(
+                [relative_curve(sub, key, picks) for picks in draws(sub)],
+                [2.5, 97.5],
+                0,
             )
             x = 1000 * CENTERS_S
             axis.fill_between(x, *band, color=COLORS[group], alpha=0.15, lw=0)
@@ -529,21 +547,27 @@ def main() -> None:
     sessions = [
         session_values(s, sorted(units[s]), dip) for s in SESSIONS if s in units
     ]
-    keys = [k for k in sessions[0]["values"] if all(k in s["values"] for s in sessions)]
-    boot = draws(sessions)
+    # Every group that some mouse has; each measure pools the mice that have it.
+    keys = list(dict.fromkeys(k for s in sessions for k in s["values"]))
     stats = {"flashes": {s["subject"]: s["flashes"] for s in sessions}, "groups": {}}
     for key in keys:
-        entry = {}
+        # The bootstrap of a group draws only from the mice that have it.
+        sub = [sessions[m] for m in sorted(having(sessions, key))]
+        if len(sub) < MIN_MICE:
+            continue
+        sub_boot = draws(sub)
+        entry = {"mice": [s["subject"] for s in sub]}
         for name in ("before", "peak", "miss"):
-            entry[name] = pooled(sessions, key, name)
+            entry[name] = pooled(sub, key, name)
             entry[f"{name}_interval"] = interval(
-                sessions, lambda p, k=key, n=name: pooled(sessions, k, n, p), boot
+                sub, lambda p, k=key, n=name, sub=sub: pooled(sub, k, n, p), sub_boot
             )
-        entry["latency_ms"] = latency(sessions, key, dip)
+        entry["latency_ms"] = latency(sub, key, dip)
         entry["latency_interval_ms"] = interval(
-            sessions, lambda p, k=key: latency(sessions, k, dip, p), boot
+            sub, lambda p, k=key, sub=sub: latency(sub, k, dip, p), sub_boot
         )
         stats["groups"][str(key)] = entry
+    keys = [k for k in keys if str(k) in stats["groups"]]
     gain = {}
     for group in GROUPS[1:]:
         for index in range(len(GAPS)):
@@ -551,15 +575,20 @@ def main() -> None:
             if key not in keys or port not in keys:
                 continue
 
-            def ratio(picks, name, key=key, port=port):
-                return pooled(sessions, key, name, picks) / pooled(
-                    sessions, port, name, picks
-                )
+            # Both groups from the same mice, so the ratio stays paired; the
+            # bootstrap draws only from those mice.
+            sub = [sessions[m] for m in sorted(having(sessions, key, port))]
+            boot = draws(sub)
+
+            def ratio(picks, name, key=key, port=port, sub=sub):
+                return pooled(sub, key, name, picks) / pooled(sub, port, name, picks)
 
             gain[str(key)] = {
+                "mice": [s["subject"] for s in sub],
+            } | {
                 name: {
                     "ratio": ratio(None, name),
-                    "interval": interval(sessions, lambda p, n=name: ratio(p, n), boot),
+                    "interval": interval(sub, lambda p, n=name: ratio(p, n), boot),
                 }
                 for name in ("before", "peak")
             }
@@ -574,7 +603,7 @@ def main() -> None:
             # How much more the response grew than the rate before it; 1 = one gain.
             gain[str(key)]["beyond_gain"] = {
                 "ratio": beyond(None),
-                "interval": interval(sessions, beyond, boot),
+                "interval": interval(sub, beyond, boot),
             }
     stats["gain_test"] = gain
     gap_x = np.arange(len(GAPS))
@@ -640,9 +669,12 @@ def main() -> None:
                 va="top",
             )
         shown, note = drawable(gain)
-        x_limit = 1.15 * max(g["before"]["interval"][1] for g in shown.values())
+        # With no drawable ratio the panel keeps fixed axes and the note.
+        x_limit = 1.15 * max(
+            [1.7] + [g["before"]["interval"][1] for g in shown.values()]
+        )
         y_limit = 1.3 * max(
-            g["peak"]["interval"][1] for g in shown.values()
+            [1.5] + [g["peak"]["interval"][1] for g in shown.values()]
         )  # key room
         limit = max(x_limit, y_limit)
         gain_axis.plot([0, limit], [0, limit], color=REFERENCE_COLOR, lw=0.8, ls="--")
@@ -696,7 +728,7 @@ def main() -> None:
         print(save_figure(figure, OUT / f"exit_flash_responses{suffix}"))
         print(
             save_figure(
-                relative_figure(sessions, boot, keys),
+                relative_figure(sessions, keys),
                 OUT / f"exit_flash_relative{suffix}",
             )
         )

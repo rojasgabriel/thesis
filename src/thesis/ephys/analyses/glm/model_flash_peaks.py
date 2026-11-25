@@ -334,7 +334,14 @@ def plot_peaks(rows, summary, name="model_without_terms"):
 
 def plot_traces(data):
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(2, 3, figsize=(10, 5.2), sharex=True, sharey="row")
+        fig, ax = plt.subplots(
+            len(data),
+            3,
+            figsize=(10, 2.6 * len(data)),
+            sharex=True,
+            sharey="row",
+            squeeze=False,
+        )
         for m, d in enumerate(data):
             for j, k in enumerate(FLASHES):
                 a = ax[m, j]
@@ -354,7 +361,7 @@ def plot_traces(data):
                     a.set_title(k, fontsize=9, color=PERIOD_COLORS[period])
                 if j == 0:
                     a.set_ylabel(f"{d['subject']}\nrate ÷ mean rate")
-                if m == 1:
+                if m == len(data) - 1:
                     a.set_xlabel("time from flash (ms)")
                 a.text(
                     0.98,

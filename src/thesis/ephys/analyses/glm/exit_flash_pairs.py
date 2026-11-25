@@ -182,9 +182,9 @@ def peaks(d, events=None):
 def plot_examples(data, report):
     """Four example units: paired raster axes (same trials, same order) and a PSTH."""
     with plt.rc_context(FIGURE_STYLE):
-        fig = plt.figure(figsize=(11, 5.0))
+        fig = plt.figure(figsize=(5.5 * len(data), 5.0))
         gs = fig.add_gridspec(
-            3, 4, height_ratios=(1, 1, 1.05), hspace=0.12, wspace=0.35
+            3, 2 * len(data), height_ratios=(1, 1, 1.05), hspace=0.12, wspace=0.35
         )
         col, tops = 0, []
         for d in data:
@@ -258,13 +258,30 @@ def plot_examples(data, report):
 def plot_population(data, report, name="exit_flash_population", tag=""):
     """Mean PSTH of the flash-excited units of each mouse, and the paired peak scatter."""
     with plt.rc_context(FIGURE_STYLE):
+        n = len(data)
         fig, ax = plt.subplots(
-            1, 3, figsize=(12, 4.2), gridspec_kw={"width_ratios": (1, 1, 1.15)}
+            1,
+            n + 1,
+            figsize=(4 * n + 4, 4.2),
+            gridspec_kw={"width_ratios": (1,) * n + (1.15,)},
         )
         allp = {"in port": [], "after exit": []}
         for j, d in enumerate(data):
             a = ax[j]
+            if len(d["exc"]) < 2:
+                # A mouse with fewer than 2 units in this subset has no mean
+                # and SEM to draw; its units stay in the scatter.
+                a.text(
+                    0.5,
+                    0.5,
+                    "fewer than 2 units",
+                    transform=a.transAxes,
+                    ha="center",
+                    fontsize=7,
+                )
             for k, c in (("in port", PORT), ("after exit", EXIT)):
+                if len(d["exc"]) < 2:
+                    break
                 tr = np.array(
                     [
                         rates(d["spikes"][u], d["ev"][k][0])
@@ -299,6 +316,9 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
             p = peaks(d)
             for k in allp:
                 allp[k].append(p[k])
+            if len(p["in port"]) == 0:
+                report[d["subject"] + "_all" + tag] = dict(units=0)
+                continue
             w = wilcoxon(p["after exit"], p["in port"])
             report[d["subject"] + "_all" + tag] = dict(
                 units=len(p["in port"]),
@@ -308,9 +328,10 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                 p=float(w.pvalue),
                 flashes={k: int(len(d["ev"][k][0])) for k in d["ev"]},
             )
-        ax[1].sharey(ax[0])
+        for a in ax[1:n]:
+            a.sharey(ax[0])
         ax[0].autoscale()
-        a = ax[2]
+        a = ax[n]
         x, y = np.concatenate(allp["in port"]), np.concatenate(allp["after exit"])
         lo, hi = SCATTER_LIMIT
         out = (x > hi) | (y > hi) | (x < lo) | (y < lo)
@@ -394,7 +415,9 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
 def plot_by_gap(data, report):
     """Median peak (IQR over units) by gap class, last in port against first after exit."""
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(1, 2, figsize=(9, 3.4), sharey=True)
+        fig, ax = plt.subplots(
+            1, len(data), figsize=(4.5 * len(data), 3.4), sharey=True
+        )
         for j, d in enumerate(data):
             a = ax[j]
             rows = []
@@ -413,6 +436,7 @@ def plot_by_gap(data, report):
                     p=float(w.pvalue),
                 )
             xs = np.arange(len(GAPS))
+            last = {k: np.median(rows[-1][k]) for k in ("in port", "after exit")}
             for k, c, dx in (("in port", PORT, -0.08), ("after exit", EXIT, 0.08)):
                 med = np.array([np.median(r[k]) for r in rows])
                 q = np.array([np.percentile(r[k], [25, 75]) for r in rows])
@@ -425,8 +449,14 @@ def plot_by_gap(data, report):
                     ms=5,
                     capsize=2,
                 )
+                # The higher line gets its label above, the lower one below.
                 a.text(
-                    xs[-1] + 0.15, med[-1], NAMES[k], color=c, va="center", fontsize=7
+                    xs[-1] + 0.15,
+                    med[-1],
+                    NAMES[k],
+                    color=c,
+                    va="bottom" if last[k] >= max(last.values()) else "top",
+                    fontsize=7,
                 )
             a.axhline(0, color="0.6", ls=":", lw=0.8)
             a.set_xticks(xs, [f"{g}" for g in GAPS[:-1]] + [f"{GAPS[-1]}+"])
