@@ -393,6 +393,17 @@ def write_stimulus_windows(
         if chosen.sum() != len(set(trial_numbers)) or not eligible[chosen].all():
             raise ValueError("Every trial of the subset must be an eligible trial.")
         eligible &= chosen
+    # Leave out a trial whose window starts before the window of the kept
+    # trial before it ends (a fast trial; GRB068 20261123 trial 97), so that
+    # no bin is in two windows.
+    overlapping = np.zeros(len(eligible), dtype=bool)
+    previous_stop = -np.inf
+    for row in np.flatnonzero(eligible):
+        if first[row] - PRE_S < previous_stop:
+            overlapping[row] = True
+        else:
+            previous_stop = first[row] + POST_S
+    eligible &= ~overlapping
     bins = trial_bins(first[eligible])
     starts, stops = bins["window_start_s"], bins["window_stop_s"]
     summary = dict(
@@ -405,6 +416,9 @@ def write_stimulus_windows(
         eligible_trials=int(eligible.sum()),
         trial_subset=trial_numbers is not None,
         completed_trials_missing_events=missing_events,
+        overlapping_trials_excluded=[
+            int(n) for n in trials["trial_num"].to_numpy()[overlapping]
+        ],
         bins_per_trial=len(bins["relative_bin_centers_s"]),
         grid_source="damn.alignment.construct_timebins",
         actual_window_edges_s=bins["relative_bin_edges_s"][[0, -1]].tolist(),

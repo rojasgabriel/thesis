@@ -25,7 +25,9 @@ withdrawal. Each trial must have a measured first flash and finite
 center-entry, center-exit, and response-entry times. Each window is aligned to
 the first measured flash. It covers `dmat.PRE_S` (0.5 s) before to
 `dmat.POST_S` (2.1 s) after it in 1-ms bins. Bins after response entry are
-excluded.
+excluded. A trial whose window starts before the window of the trial before
+ends is left out, so no bin is counted twice (GRB068 20261123: trial 97, 2.57 s
+after trial 96; no other session has one).
 
 Baseline: the null model is a constant rate. This rate is the mean count in the
 fit rows. In model selection, the fit rows are the training rows. In a
