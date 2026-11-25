@@ -30,6 +30,7 @@ dependencies = [
     "dpca",
     "matlab-dpca",
     "fit-psychometric",
+    "dynamax>=1.0.3",
 ]
 
 [project.scripts]
