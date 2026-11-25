@@ -54,6 +54,7 @@ The script writes `figures/glm/flash_gain_units.svg` and
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -298,10 +299,10 @@ def plot(sessions: list[dict]) -> Path:
             st = s["stats"]
             axis.set_title(
                 f"{s['subject']}: {st['units']} flash-excited units\n"
-                f"g_f - g_b: median {st['median_g_f_minus_g_b']:+.2f}"
+                f"$g_f - g_b$: median {st['median_g_f_minus_g_b']:+.2f}"
                 f" [{st['median_g_f_minus_g_b_95_trials_and_units'][0]:+.2f},"
                 f" {st['median_g_f_minus_g_b_95_trials_and_units'][1]:+.2f}]\n"
-                f"g_f - 1: median {st['median_g_f_minus_1']:+.2f}"
+                f"$g_f - 1$: median {st['median_g_f_minus_1']:+.2f}"
                 f" [{st['median_g_f_minus_1_95_trials_and_units'][0]:+.2f},"
                 f" {st['median_g_f_minus_1_95_trials_and_units'][1]:+.2f}]"
                 + (
@@ -335,9 +336,9 @@ def plot(sessions: list[dict]) -> Path:
                 clip_on=False,
             )
             axis.set_xlabel(
-                "gain of the rate before the flash, g_b\n(after exit over in port)"
+                "gain of the rate before the flash, $g_b$\n(after exit over in port)"
             )
-        axes[0, 0].set_ylabel("gain of the flash response, g_f")
+        axes[0, 0].set_ylabel("gain of the flash response, $g_f$")
         figure.tight_layout()
         label_panels(axes.ravel())
         return save_figure(figure, OUT / "flash_gain_units")
@@ -350,7 +351,12 @@ def main() -> None:
     skipped = [s for s in SESSIONS if s not in excited]
     if skipped:
         print(f"No units yet, skipped: {', '.join(skipped)}")
-    sessions = [session_gains(s, sorted(excited[s])) for s in SESSIONS if s in excited]
+    subjects = sys.argv[1:]  # only the named mice; none: all
+    sessions = [
+        session_gains(s, sorted(excited[s]))
+        for s in SESSIONS
+        if s in excited and (not subjects or s.split("_")[0] in subjects)
+    ]
     (OUT / "flash_gain_units.json").write_text(json.dumps(sessions, indent=1))
     print(
         json.dumps(

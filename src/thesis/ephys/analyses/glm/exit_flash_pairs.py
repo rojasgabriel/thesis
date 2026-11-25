@@ -36,6 +36,12 @@ after the exit, so every unit has a value in both periods (paired).
   the edge as open triangles and stay in the statistics; the report lists
   them.
 
+- `--first`: the first flash of the trial (in the port, no flash before it,
+  so no adaptation) in place of the last in-port flash, against the same
+  first flash after the exit, in the same trials; only the population figure,
+  `exit_flash_population_first.svg` (Gabriel, 2026-11-23). The baseline is
+  the rate before the first flash (the pre-stimulus delay).
+
 - Fixation-suppressed units (`exit_flash_population_fixation_suppressed.svg`):
   the population figure for the flash-excited units whose fixation level is
   below 0 by more than 2 fold SDs (`hold_effect.fixation_suppressed`).
@@ -51,6 +57,7 @@ Writes `figures/glm/exit_flash_examples.svg`, `exit_flash_population.svg`,
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -91,6 +98,7 @@ GAPS = (40, 80, 120, 160, 200)
 SCATTER_LIMIT = (-1.0, 4.0)
 PORT, EXIT = PERIOD_COLORS["in port"], PERIOD_COLORS["after exit"]
 NAMES = {"in port": "last in port", "after exit": "first after exit"}
+PORT_LABEL_MS = 55  # where the in-port label sits under its line
 
 
 def mean_rate(spikes, first_flashes):
@@ -118,11 +126,14 @@ def session(sess, excited_ids):
     ev = {"in port": ([], []), "after exit": ([], [])}
     rank = []  # in-port flashes >= 80 ms after the flash before, to pick examples
     first = []
-    for times, en, ex, rp in zip(
+    first_paired = []  # the first flash of each trial with a pair
+    side = []  # the response side of each paired trial (1 right, -1 left)
+    for times, en, ex, rp, response in zip(
         trials["stim_pulse_times_s"],
         trials["center_entry_s"].to_numpy(float),
         trials["center_exit_s"].to_numpy(float),
         trials["response_port_entry_s"].to_numpy(float),
+        trials["response"].to_numpy(int),
         strict=True,
     ):
         t = np.asarray(times, float)
@@ -137,6 +148,9 @@ def session(sess, excited_ids):
             ev["in port"][1].append(gap[i])
             ev["after exit"][0].append(t[o])
             ev["after exit"][1].append(gap[o])
+            side.append(response)
+            if inside[0]:
+                first_paired.append((t[0], t[o]))
         for g in GAPS:
             cls = (gap >= g) & np.isfinite(gap) if g == GAPS[-1] else gap == g
             if (inside & cls).any() and (outside & cls).any():
@@ -159,6 +173,8 @@ def session(sess, excited_ids):
         mean_rate=rate,
         exc=exc,
         rank=np.asarray(rank),
+        first_paired=np.asarray(first_paired).reshape(-1, 2),
+        side=np.asarray(side),
         byg={g: {k: np.asarray(v) for k, v in d.items()} for g, d in byg.items()},
     )
 
@@ -282,7 +298,7 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                         t = int(np.argmax(m))
                         xy, va = (1000 * CENTERS[t] + 6, m[t]), "center"
                     else:
-                        t = int(np.argmin(np.abs(1000 * CENTERS - 55)))
+                        t = int(np.argmin(np.abs(1000 * CENTERS - PORT_LABEL_MS)))
                         xy, va = (1000 * CENTERS[t], m[t] - se[t] - 0.1), "top"
                     a.text(*xy, NAMES[k], color=c, va=va, fontsize=7)
             a.axvline(0, color="0.6", ls="--", lw=0.7)
@@ -446,10 +462,127 @@ def plot_by_gap(data, report):
         return save_figure(fig, OUT / "exit_flash_by_gap")
 
 
+# Turn side: Okabe-Ito colors that no other concept of the deck uses.
+SIDES = {-1: ("left turn", "#56B4E9"), 1: ("right turn", "#E69F00")}
+
+
+def plot_side(data, report):
+    """First flash after the exit, split by the side of the turn (`--side`).
+
+    Per mouse, the mean rate of the flash-excited units around the first
+    flash after the exit for left and right turns; and per unit, the window
+    peak above the rate before the flash (each side its own baseline) for
+    right against left turns. Wilcoxon over units in each mouse. The left V1
+    is recorded, so the panel is in the right visual field: after a left turn
+    it is more lateral for the right eye (contralateral), after a right turn
+    more to the front (binocular field); no eye or head tracking.
+    """
+    with plt.rc_context(FIGURE_STYLE):
+        fig, ax = plt.subplots(1, len(data) + 1, figsize=(4.0 * (len(data) + 1), 3.8))
+        lim = [0.0, 0.0]
+        for j, d in enumerate(data):
+            a = ax[j]
+            times = d["ev"]["after exit"][0]
+            peaks_ = {}
+            for side, (name, color) in SIDES.items():
+                ev = times[d["side"] == side]
+                tr = np.array(
+                    [
+                        rates(d["spikes"][u], ev) / max(d["mean_rate"][u], 1e-9)
+                        for u in d["exc"]
+                    ]
+                )
+                m, se = tr.mean(0), tr.std(0, ddof=1) / np.sqrt(len(tr))
+                a.plot(1000 * CENTERS, m, color=color)
+                a.fill_between(
+                    1000 * CENTERS, m - se, m + se, color=color, alpha=0.2, lw=0
+                )
+                peaks_[side] = np.array(
+                    [window_peak(t, 1000 * CENTERS) - t[BASE].mean() for t in tr]
+                )
+                if j == 0:
+                    k = int(np.argmax(m))
+                    a.text(
+                        1000 * CENTERS[k] + 6,
+                        m[k] + (0.15 if side == 1 else -0.15),
+                        name,
+                        color=color,
+                        fontsize=8,
+                        va="center",
+                    )
+                report.setdefault(d["subject"] + "_side", {})[name] = {
+                    "trials": int(len(ev))
+                }
+            a.axvline(0, color="0.6", ls="--", lw=0.7)
+            a.set_xlabel("time from the first flash after the exit (ms)")
+            a.text(
+                0,
+                1.02,
+                f"{d['subject']}: {len(d['exc'])} units",
+                transform=a.transAxes,
+                va="bottom",
+            )
+            if j == 0:
+                a.set_ylabel("rate ÷ mean rate")
+            x, y = peaks_[-1], peaks_[1]
+            mk = mouse_marker(d["subject"], j)
+            ax[-1].scatter(x, y, marker=mk, s=22, color="0.3", alpha=POINT_ALPHA, lw=0)
+            median_marker(ax[-1], np.median(x), np.median(y), mk, "black")
+            lim = [min(lim[0], x.min(), y.min()), max(lim[1], x.max(), y.max())]
+            w = wilcoxon(y - x)
+            report[d["subject"] + "_side"].update(
+                units=int(len(x)),
+                right_larger=int(np.sum(y > x)),
+                median_left=float(np.median(x)),
+                median_right=float(np.median(y)),
+                p=float(w.pvalue),
+            )
+        for a in ax[1:-1]:
+            a.sharey(ax[0])
+        ax[0].autoscale()
+        s = ax[-1]
+        pad = 0.05 * (lim[1] - lim[0])
+        lo, hi = lim[0] - pad, lim[1] + pad
+        s.plot([lo, hi], [lo, hi], color="0.6", ls="--", lw=0.8)
+        s.set(xlim=(lo, hi), ylim=(lo, hi), aspect="equal")
+        s.set_xlabel("peak, left turn (÷ mean rate)", color=SIDES[-1][1])
+        s.set_ylabel("peak, right turn (÷ mean rate)", color=SIDES[1][1])
+        label_panels(ax, x=-0.18, y=1.04)
+        fig.tight_layout()
+        return save_figure(fig, OUT / "exit_flash_side_psth")
+
+
 def main() -> None:
     excited = load_excited_units()
     data = [session(s, set(excited[s])) for s in SESSIONS]
     report = {}
+    if "--side" in sys.argv:
+        mice = [m for m in sys.argv[1:] if not m.startswith("--")] or [
+            "GRB006",
+            "GRB064",
+        ]
+        data = [d for d in data if d["subject"] in mice]
+        print(plot_side(data, report))
+        (OUT / "exit_flash_pairs_side.json").write_text(json.dumps(report, indent=1))
+        print(json.dumps(report, indent=1))
+        return
+    if "--first" in sys.argv:
+        global PORT_LABEL_MS
+        NAMES["in port"] = "first in port"
+        PORT_LABEL_MS = 105  # the first-flash curve rises until 70 ms
+        # The two-mouse layout of the population figure; mice as arguments.
+        mice = [m for m in sys.argv[1:] if m != "--first"] or ["GRB006", "GRB064"]
+        data = [d for d in data if d["subject"] in mice]
+        for d in data:
+            pairs = d["first_paired"]
+            d["ev"] = {
+                "in port": (pairs[:, 0], np.full(len(pairs), np.nan)),
+                "after exit": (pairs[:, 1], np.full(len(pairs), np.nan)),
+            }
+        print(plot_population(data, report, "exit_flash_population_first", "_first"))
+        (OUT / "exit_flash_pairs_first.json").write_text(json.dumps(report, indent=1))
+        print(json.dumps(report, indent=1))
+        return
     for plot in (plot_examples, plot_population, plot_by_gap):
         print(plot(data, report))
     # The fixation-suppressed flash-excited units only (Anne, 2026-11-12).

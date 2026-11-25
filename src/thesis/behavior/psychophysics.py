@@ -56,6 +56,7 @@ import matplotlib.pyplot as plt
 
 from thesis.behavior import psychometric
 from thesis.behavior.trials import (
+    BEHAVIOR_SUBJECTS,
     SUBJECTS,
     hierarchical_samples,
     session_columns,
@@ -66,6 +67,7 @@ from thesis.plotting import (
     OBSERVED_COLOR,
     REFERENCE_COLOR,
     label_panels,
+    mouse_marker,
     save_figure,
 )
 
@@ -162,7 +164,7 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
             kernel, timing, history = axes
         else:
             # With the psychometric curves: a 2 x 2 figure (for one slide).
-            figure, axes = plt.subplots(2, 2, figsize=(9.0, 5.4), layout="constrained")
+            figure, axes = plt.subplots(2, 2, figsize=(7.2, 6.6), layout="constrained")
             psychometric.draw(axes[0, 0], choices)
             kernel, timing, history = axes[0, 1], axes[1, 0], axes[1, 1]
             axes = axes.ravel()
@@ -170,9 +172,10 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
         history.axhline(0, color=REFERENCE_COLOR, lw=0.6)
         bins = np.linspace(0.4, 1.2, 33)
         for row, data in enumerate(report):
-            marker = "o"  # the mouse is the line style only
-            line = ("-", "--")[row % 2]
-            shift = 12 * (row - 0.5)  # drawing only, so the bars do not overlap
+            marker = mouse_marker(data["subject"], row)
+            line = psychometric.LINES.get(data["subject"], "-")
+            # Drawing only, so the bars do not overlap.
+            shift = 10 * (row - (len(report) - 1) / 2)
             x = np.asarray(data["kernel_bin_centers_ms"]) + shift
             w = np.asarray(data["kernel_weights"])
             ci = np.asarray(data["kernel_weights_95"]).T
@@ -216,7 +219,7 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
             )
             h = np.asarray(data["history_weights"])[1:]
             hci = np.asarray(data["history_weights_95"]).T[:, 1:]
-            hx = np.arange(2) + 0.12 * (row - 0.5)
+            hx = np.arange(2) + 0.1 * (row - (len(report) - 1) / 2)
             bars = history.errorbar(
                 hx,
                 h,
@@ -282,6 +285,8 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
         history.set(
             xlim=(-0.5, 1.5), ylabel="weight on repeating\nthe previous side (log-odds)"
         )
+        for axis in axes:
+            axis.set_box_aspect(1)  # square panels
         label_panels(axes)
         return save_figure(figure, OUT / name)
 
@@ -291,9 +296,11 @@ def main() -> None:
     parser.add_argument(
         "--recorded", action="store_true", help="the recorded session only"
     )
+    parser.add_argument("subjects", nargs="*", help="the mice (default: all)")
     args = parser.parse_args()
     name = "psychophysics_recorded" if args.recorded else "psychophysics"
-    report = [mouse_psychophysics(subject, args.recorded) for subject in SUBJECTS]
+    subjects = args.subjects or (SUBJECTS if args.recorded else BEHAVIOR_SUBJECTS)
+    report = [mouse_psychophysics(subject, args.recorded) for subject in subjects]
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{name}.json").write_text(json.dumps(report, indent=1))
     # The recorded sessions get one figure with their psychometric curves.
