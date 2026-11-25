@@ -18,7 +18,9 @@ of cam0 after these repairs, each of which is written to the output:
 - Pulses before the recording: when a gap of `START_GAP_S` or more is in the
   first `START_SEARCH` pulses, the pulses before it are removed (the camera
   runs for a short time before it saves frames; GRB064: 215 pulses in
-  20260916, 1302 pulses in 20261008).
+  20260916, 1302 pulses in 20261008). After this, one saved frame without a
+  pulse is repaired as above (GRB064 20260921: the camera ran 983 pulses,
+  restarted after 1.3 s, and cam0 saved one frame more than the pulses).
 - Irregular pulses: where two regular pulses are more than `IRREGULAR` frame
   intervals apart or closer than the inverse, the pulses between the regular
   ones on each side are replaced with evenly spaced times (GRB064 has one such
@@ -107,6 +109,15 @@ def align_frame_times(
             "irregular_places": [],
         }
     frames, repairs = regular_frame_times(falling)
+    if (
+        repairs["pulses_before_the_recording"]
+        and not repairs["irregular_places"]
+        and len(frames) >= 2
+        and len(frames) == len(reference) - 1
+    ):
+        # A restart and then one saved frame without a pulse (GRB064 20260921).
+        frames, end_repairs = align_frame_times(frames, reference)
+        repairs = {**repairs, **end_repairs}
     if len(frames) != len(reference):
         raise ValueError(
             f"{len(frames)} frame pulses after the repairs, {len(reference)} video frames."
