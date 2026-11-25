@@ -38,9 +38,10 @@ Steps, in order:
 7. Camera frames: a read-only check that the camera pulses align to the
    saved frames (`audit_camera_pulses.align_video_frames`).
 
-Not done here: GLM prepare and fits (`GLMFit` runs prepare itself, and a
-session enters `ThesisSession` only when Gabriel chooses), and unit layers and
-pose tracking (not on main yet).
+`GLMFit` runs its own preparation for sessions selected in `ThesisSession`.
+Pose tracking (`dlc-pose`) is a separate GPU job for analyses that need a
+configured DeepLabCut model. Unit matching uses multiple sessions and unit
+layer annotation is an analysis-specific step.
 """
 
 import argparse

@@ -593,19 +593,23 @@ def inclusion_tests(records: list[dict]) -> dict[str, dict]:
     )
 
 
-def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
+def _plot_unique(
+    axis, sessions: list[dict], order: list[str], log: bool = True, labels: bool = True
+) -> None:
     """Unique (filled) and maximal (open) bits per spike of each regressor, units pooled.
 
     The marker is the pooled median with its hierarchical-bootstrap 95%
-    interval (mice, then units).
+    interval (mice, then units). With `log` False, a linear axis with no
+    floor; with `labels` False, no unit fractions at the right.
     """
+    floor = FLOOR if log else -np.inf
 
     def draw(y, groups, color, face):
         stats = hierarchical_interval(groups)
-        low, high = np.maximum(stats["interval_95"], FLOOR)
+        low, high = np.maximum(stats["interval_95"], floor)
         axis.plot([low, high], [y, y], color=color, linewidth=1.0)
         axis.scatter(
-            max(stats["median"], FLOOR),
+            max(stats["median"], floor),
             y,
             s=22,
             zorder=3,
@@ -635,6 +639,8 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
         )
         failed = sum(not s["tests"][name]["passes_both_tests"] for s in sessions)
         mark = "" if not failed else (" n.s." if failed == len(sessions) else "†")
+        if not labels:
+            continue
         axis.text(
             1.03,
             position,
@@ -650,6 +656,16 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
         "black",
         "black",
     )
+    axis.set_yticks(
+        range(len(order) + 1),
+        [*(REGRESSORS[name][0] for name in order), "full model"],
+    )
+    for tick, name in zip(axis.get_yticklabels(), order, strict=False):
+        tick.set_color(REGRESSORS[name][1])
+    if not log:
+        axis.axvline(0, color="0.6", lw=0.6)
+        axis.set_xlabel("held-out bits per spike")
+        return
     axis.text(
         1.03,
         len(order) + 0.5,
@@ -659,12 +675,6 @@ def _plot_unique(axis, sessions: list[dict], order: list[str]) -> None:
     )
     axis.set_xscale("log")
     axis.set_xlim(FLOOR, 3)
-    axis.set_yticks(
-        range(len(order) + 1),
-        [*(REGRESSORS[name][0] for name in order), "full model"],
-    )
-    for tick, name in zip(axis.get_yticklabels(), order, strict=False):
-        tick.set_color(REGRESSORS[name][1])
     axis.set_xlabel("held-out bits per spike\n(filled: unique; open: maximal)")
 
 
