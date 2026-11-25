@@ -12,8 +12,6 @@ Matched pulse intervals must agree after clock-rate scaling, within 2 ms plus
 or extra middle pulses; it does not repair ambiguous pulse sequences.
 """
 
-import argparse
-
 import numpy as np
 
 from thesis.ephys.preprocessing._database import (
@@ -126,8 +124,8 @@ def _self_check() -> None:
         )
 
 
-def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
-    """Find, validate, and optionally insert mappings for one ephys dataset."""
+def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> int:
+    """Find, validate, and optionally insert mappings; return the validated count."""
     with read_only_database_imports():
         from labdata.schema import (
             DatasetEvents,
@@ -246,12 +244,12 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
 
     if not candidates:
         print("No mappings to insert")
-        return
+        return 0
     for row, count, _ in candidates:
         print(f"Validated {count} pulses: {row}")
     if not apply:
         print("Dry run; add --apply to insert")
-        return
+        return len(candidates)
 
     initialize_tables(StreamSync)
     with dj.conn().transaction:
@@ -262,27 +260,4 @@ def insert_streamsync(dataset_key: dict[str, str], apply: bool) -> None:
             )
             assert len(source) == len(clock) == expected_count
     print(f"Inserted {len(candidates)} StreamSync mapping(s)")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Insert validated StreamSync mappings for a sorted ephys dataset"
-    )
-    parser.add_argument("subject")
-    parser.add_argument("session")
-    parser.add_argument("dataset")
-    parser.add_argument("--apply", action="store_true")
-    args = parser.parse_args()
-
-    _self_check()
-    dataset_key = {
-        "subject_name": args.subject,
-        "session_name": args.session,
-        "dataset_name": args.dataset,
-    }
-    print(dataset_key)
-    insert_streamsync(dataset_key, args.apply)
-
-
-if __name__ == "__main__":
-    main()
+    return len(candidates)
