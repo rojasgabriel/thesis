@@ -65,6 +65,7 @@ The script writes `figures/glm/exit_flash_side.svg` and
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -431,7 +432,12 @@ def plot(sessions: list[dict]) -> Path:
 
 def main() -> None:
     excited = peaks.load_excited_units()
-    sessions = [session_stats(s, sorted(excited[s])) for s in SESSIONS]
+    mice = sys.argv[1:]  # only these mice; none: all
+    sessions = [
+        session_stats(s, sorted(excited[s]))
+        for s in SESSIONS
+        if not mice or s.split("_")[0] in mice
+    ]
     (OUT / "exit_flash_side.json").write_text(json.dumps(sessions, indent=1))
     print(
         json.dumps(

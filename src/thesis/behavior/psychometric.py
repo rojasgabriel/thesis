@@ -43,18 +43,25 @@ from scipy.optimize import minimize
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.behavior.trials import SUBJECTS, hierarchical_samples, task_trials
+from thesis.behavior.trials import (
+    BEHAVIOR_SUBJECTS,
+    SUBJECTS,
+    hierarchical_samples,
+    task_trials,
+)
 from thesis.ephys.trials import stimulus_strength
 from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
+    mouse_marker,
     save_figure,
 )
 
 OUT = Path("results/behavior")
 N_BOOTSTRAPS = 1000
-LINES = ("-", "--")  # the mice, in `SUBJECTS` order
+# Each mouse: a line style and its marker (`plotting.mouse_marker`).
+LINES = {"GRB006": "-", "GRB064": "--", "GRB061": ":", "GRB068": "-."}
 
 
 def logistic_fit(rates: np.ndarray, right: np.ndarray) -> tuple[float, float]:
@@ -105,16 +112,17 @@ def draw(axis, report: list[dict]) -> None:
     axis.axhline(0.5, color=REFERENCE_COLOR, lw=0.5)
     grid = np.linspace(3, 21, 200)
     for row, data in enumerate(report):
-        line = LINES[row]
+        line = LINES.get(data["subject"], "-")
+        marker = mouse_marker(data["subject"], row)
         rates = np.asarray(data["rates_hz"])
         p = np.asarray(data["p_right"])
         interval = np.asarray(data["p_right_95"]).T
         # A small shift per mouse so the points do not overlap (drawing only).
         bars = axis.errorbar(
-            stimulus_strength(rates) + 0.05 * (row - 0.5),
+            stimulus_strength(rates) + 0.04 * (row - (len(report) - 1) / 2),
             p,
             yerr=[p - interval[0], interval[1] - p],
-            fmt="o",
+            fmt=marker,
             color=OBSERVED_COLOR,
             mfc="white",
             ms=4,
@@ -130,7 +138,7 @@ def draw(axis, report: list[dict]) -> None:
             lw=1.2,
             ls=line,
         )
-        y = 1.13 - 0.07 * row  # the key, above the axes (the data fill the axes)
+        y = 1.06 + 0.07 * (len(report) - 1 - row)  # the key, above the axes
         axis.plot(
             [0.02, 0.09],
             [y, y],
@@ -165,11 +173,13 @@ def main() -> None:
     parser.add_argument(
         "--recorded", action="store_true", help="the recorded session only"
     )
+    parser.add_argument("subjects", nargs="*", help="the mice (default: all)")
     args = parser.parse_args()
     name = "psychometric_recorded" if args.recorded else "psychometric"
-    report = [mouse_behavior(subject, args.recorded) for subject in SUBJECTS]
+    subjects = args.subjects or (SUBJECTS if args.recorded else BEHAVIOR_SUBJECTS)
+    report = [mouse_behavior(subject, args.recorded) for subject in subjects]
     with plt.rc_context(FIGURE_STYLE):
-        figure, axis = plt.subplots(figsize=(3.6, 3.0), layout="constrained")
+        figure, axis = plt.subplots(figsize=(3.6, 3.4), layout="constrained")
         draw(axis, report)
         print(save_figure(figure, OUT / name))
     OUT.mkdir(parents=True, exist_ok=True)
