@@ -2,6 +2,7 @@
 
     uv run preprocess-session GRB068 20261123_161832          # dry run: status only
     uv run preprocess-session GRB068 20261123_161832 --apply  # run missing steps
+    uv run preprocess-session GRB068 20261123_161832 --apply --sbatch  # as a Slurm job
 
 Run it on Hodgkin after the rig uploads (`labdata put ... -r ephys` from
 Jupiter, behavior `labdata put` from the rig) are done. Each step checks what
@@ -22,9 +23,12 @@ Steps, in order:
    validation prints a warning and the run continues.
 4. Sort: when the session has no spike sorting and no spks compute task,
    submit `labdata run spks` (Slurm, default partition `normal`) with the
-   extra arguments of the subject in `SORT_ARGS`. The run stops there; rerun
-   it after the sort finishes. A task that exists without a sorting (running
-   or failed) is reported, never resubmitted.
+   extra arguments of the subject in `SORT_ARGS`, and submit the rest of this
+   command as a Slurm job that starts after the sort job
+   (`--dependency=afterok`). labdata pipes the sort output to its log, so
+   `afterok` also fires after a failed sort; the follow-up job then finds the
+   task without a sorting and stops. A task that exists without a sorting
+   (running or failed) is reported, never resubmitted.
 5. Clock sync: validated `StreamSync` mappings for every probe and Bpod
    (`insert_streamsync`).
 6. Unit tables for the newest sorting: `UnitMetrics`, `UnitCount` for each
@@ -40,6 +44,7 @@ pose tracking (not on main yet).
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -94,8 +99,55 @@ def _remote_files(files) -> list[str]:
     return list(files.check_if_files_local()[1]) if len(files) else []
 
 
+def _slurm_job_ids(output: str) -> list[str]:
+    """Return the Slurm job ids in labdata's colored "... to slurm [<id>]" lines."""
+    return re.findall(r"to slurm \[(\d+)\]", re.sub(r"\x1b\[[\d;]*m", "", output))
+
+
 def _step(name: str, status: str) -> None:
     print(f"[{name}] {status}", flush=True)
+
+
+def submit_job(
+    subject: str,
+    session: str,
+    audio: bool = False,
+    threshold: float = DEFAULT_THRESHOLD,
+    after: int | None = None,
+) -> int:
+    """Submit `--apply` for one session as a Slurm job (partition normal)."""
+    import os
+    import shlex
+
+    from labdata.compute.schedulers import LABDATA_LOG_FOLDER, slurm_submit
+
+    exports = " ".join(
+        f"export {name}={shlex.quote(os.environ[name])} &&"
+        for name in ("LABDATA_PATH", "PYTHONPATH")
+        if name in os.environ
+    )
+    args = [subject, session, "--apply", "--audio-threshold", str(threshold)]
+    if audio:
+        args.append("--audio")
+    command = (
+        f"{exports} cd {shlex.quote(str(Path(__file__).resolve().parents[4]))} && "
+        f"{shlex.quote(sys.executable)} -m thesis.ephys.preprocessing.preprocess_session "
+        + " ".join(shlex.quote(arg) for arg in args)
+    )
+    job_id = slurm_submit(
+        f"preprocess_{subject}_{session}",
+        command,
+        ncpuspertask=4,
+        partition="normal",
+        walltime="12:00:00",
+        sbatch_append=(
+            f"--dependency=afterok:{after} --kill-on-invalid-dep=yes" if after else ""
+        ),
+    )
+    if job_id is None:
+        raise RuntimeError("Slurm did not accept the preprocess job")
+    print(f"Submitted Slurm job {job_id}; log in {LABDATA_LOG_FOLDER}", flush=True)
+    return int(job_id)
 
 
 def preprocess_session(
@@ -213,8 +265,17 @@ def preprocess_session(
         if not apply:
             _step("sort", f"to submit: {' '.join(command[1:])}")
             return
-        subprocess.run(command, check=True)
-        _step("sort", "submitted; rerun this command after the sort finishes")
+        output = subprocess.run(
+            command, check=True, stdout=subprocess.PIPE, text=True
+        ).stdout
+        print(output, end="")
+        slurm_ids = _slurm_job_ids(output)
+        if len(slurm_ids) != 1:
+            _step("sort", "submitted; rerun this command after the sort finishes")
+            return
+        slurm_id = slurm_ids[0]
+        submit_job(subject, session, audio, threshold, after=int(slurm_id))
+        _step("sort", f"submitted as Slurm job {slurm_id}; the rest runs after it")
         return
     from thesis.ephys.units import sorting_key
 
@@ -347,6 +408,9 @@ def main() -> None:
         help="Run the missing steps (writes, submits the sort)",
     )
     parser.add_argument(
+        "--sbatch", action="store_true", help="With --apply: run as a Slurm job"
+    )
+    parser.add_argument(
         "--audio", action="store_true", help="Also recover obx:io1 audio events"
     )
     parser.add_argument(
@@ -358,8 +422,14 @@ def main() -> None:
     args = parser.parse_args()
     if args.audio_threshold <= 0:
         parser.error("--audio-threshold must be positive")
+    if args.sbatch:
+        if not args.apply:
+            parser.error("--sbatch needs --apply")
+        submit_job(args.subject, args.session, args.audio, args.audio_threshold)
+        return
     _audio_self_check()
     _sync_self_check()
+    assert _slurm_job_ids("to slurm [\x1b[33m8250\x1b[0m]\n") == ["8250"]
     try:
         preprocess_session(
             args.subject, args.session, args.apply, args.audio, args.audio_threshold
