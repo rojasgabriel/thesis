@@ -46,11 +46,9 @@ a. GRB064 only (GRB061 tracks are short and less reliable; its values are in
 b. Mean flash response (baseline-corrected, ÷ mean rate, all sessions pooled
    per unit; standard error over units) in the port, after a left turn and
    after a right turn (units with 20 or more paired trials of each side).
-   In both mice the probe is in left V1 (aimed at the upper field and the
-   binocular zone by coordinates only; no retinotopy), which sees the right
-   visual field; the LED panel is above the center port, so after a left turn
-   it lies to the right of the head (contralateral), after a right turn to
-   the left (ipsilateral).
+   The probe is in left V1, which sees the right visual field; the LED panel
+   is above the center port, so after a left turn it lies to the right of the
+   head (contralateral), after a right turn to the left (ipsilateral).
 c. Timing: centre of mass (ms) of the baseline-corrected response from 30 to
    120 ms (its positive part for flash-excited units, its negative part for
    flash-suppressed units), after exit − in port in the same trials, for each
