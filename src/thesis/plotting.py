@@ -38,7 +38,7 @@ FIXATION_COLORS = {
     "fixation-excited": "#B8860B",
 }
 # A mouse is never a color: it is a marker shape and a black label.
-MOUSE_MARKERS = {"GRB006": "o", "GRB064": "^"}
+MOUSE_MARKERS = {"GRB006": "o", "GRB064": "^", "GRB061": "v", "GRB068": "s"}
 _OTHER_MARKERS = "sDv"
 
 # Use with `plt.rc_context(FIGURE_STYLE)`.
@@ -310,6 +310,146 @@ def pooled_strip(
         capsize=2,
         zorder=4,
     )
+    return stats
+
+
+def mouse_curves(axis, x, curves, color) -> np.ndarray:
+    """Draw a curve of each mouse (thin) and their mean with its SEM (thick).
+
+    `curves` is (mice, points): one curve for each mouse, such as the mean
+    PSTH of its units. The thick line is the mean of the mice and the band is
+    the SEM over the mice (Gabriel, 2026-11-26: one panel for all mice).
+    Returns the mean.
+    """
+    curves = np.asarray(curves, dtype=float)
+    for curve in curves:
+        axis.plot(x, curve, color=color, lw=0.8, alpha=0.45)
+    mean = np.nanmean(curves, axis=0)
+    if len(curves) > 1:
+        sem = np.nanstd(curves, axis=0, ddof=1) / np.sqrt(len(curves))
+        axis.fill_between(x, mean - sem, mean + sem, color=color, alpha=0.2, lw=0)
+    axis.plot(x, mean, color=color, lw=2.4)
+    return mean
+
+
+def mouse_lines(axis, x, lines, subjects, color=OBSERVED_COLOR) -> np.ndarray:
+    """Draw a gray line for each mouse and the mean of the mice in `color`.
+
+    For a fitted line of each mouse (psychometric curve, psychophysical
+    kernel). The marker of the mouse (`mouse_marker`) is at the end of its
+    line. Returns the mean.
+    """
+    lines = np.asarray(lines, dtype=float)
+    for index, (line, subject) in enumerate(zip(lines, subjects, strict=True)):
+        axis.plot(x, line, color="0.55", lw=1)
+        axis.plot(
+            x[-1],
+            line[-1],
+            mouse_marker(subject, index),
+            ms=5,
+            color="white",
+            mec="0.3",
+            mew=1,
+            clip_on=False,
+            zorder=5,
+        )
+    mean = np.nanmean(lines, axis=0)
+    axis.plot(x, mean, color=color, lw=2.4)
+    return mean
+
+
+def mouse_points(axis, x, values, subjects, color, hollow: bool = False) -> None:
+    """Draw one value of each mouse at `x` and the mean ± SEM of the mice.
+
+    For one estimate per mouse (a decoder AUC, a weight). `values` is
+    (mice, positions) and `x` the positions. Each mouse is a small open
+    marker in its shape (`mouse_marker`); the mean of the mice is a large
+    marker (white inside with `hollow`) with the SEM over the mice.
+    """
+    x = np.atleast_1d(np.asarray(x, dtype=float))
+    values = np.asarray(values, dtype=float).reshape(len(subjects), -1)
+    for index, (row, subject) in enumerate(zip(values, subjects, strict=True)):
+        axis.plot(
+            x,
+            row,
+            mouse_marker(subject, index),
+            ms=3.5,
+            color="white",
+            mec=color,
+            mew=0.8,
+            alpha=0.7,
+            ls="none",
+            zorder=3,
+        )
+    mean = np.nanmean(values, axis=0)
+    sem = (
+        np.nanstd(values, axis=0, ddof=1) / np.sqrt(len(values))
+        if len(values) > 1
+        else np.zeros_like(mean)
+    )
+    axis.errorbar(
+        x,
+        mean,
+        yerr=sem,
+        fmt="o",
+        ms=6.5,
+        color=color,
+        mfc="white" if hollow else color,
+        capsize=2.5,
+        ls="none",
+        zorder=4,
+    )
+
+
+def mouse_strip(
+    axis, groups, subjects, color="0.5", limits=None, seed: int = 0
+) -> dict:
+    """Draw the units of each mouse in its column, then the pooled median.
+
+    The panel at the side of a scatter of units (Gabriel, 2026-11-26): the
+    scatter shows the units and this strip shows the mice. Each column has
+    the values of one mouse and its median as an open marker in the shape of
+    the mouse; the last column is the pooled median with the
+    hierarchical-bootstrap 95% interval. `limits` is a display limit: values
+    past it are drawn at the edge and stay in the statistics. Returns the
+    statistics of `hierarchical_interval`.
+    """
+    rng = np.random.default_rng(seed)
+    groups = [np.asarray(values, dtype=float) for values in groups]
+    for index, (values, subject) in enumerate(zip(groups, subjects, strict=True)):
+        shown = values if limits is None else np.clip(values, *limits)
+        axis.scatter(
+            index + rng.uniform(-0.15, 0.15, len(values)),
+            shown,
+            s=8,
+            color=color,
+            alpha=0.4,
+            lw=0,
+            zorder=2,
+        )
+        median_marker(
+            axis, index, np.median(values), mouse_marker(subject, index), "black", 7
+        )
+    stats = hierarchical_interval(groups, seed)
+    low, high = stats["interval_95"]
+    axis.errorbar(
+        len(groups),
+        stats["median"],
+        yerr=[[stats["median"] - low], [high - stats["median"]]],
+        fmt="o",
+        ms=6,
+        color="black",
+        elinewidth=1.4,
+        capsize=3,
+        zorder=4,
+    )
+    axis.set_xticks(
+        range(len(groups) + 1),
+        [*subjects, f"{len(groups)} mice"],
+        rotation=45,
+        ha="right",
+    )
+    axis.set_xlim(-0.6, len(groups) + 0.6)
     return stats
 
 

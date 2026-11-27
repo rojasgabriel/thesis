@@ -53,7 +53,7 @@ import json
 
 import matplotlib
 import numpy as np
-from scipy.stats import sem, wilcoxon
+from scipy.stats import wilcoxon
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -74,7 +74,8 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     hierarchical_interval,
     label_panels,
-    pooled_strip,
+    mouse_curves,
+    mouse_marker,
     save_figure,
 )
 
@@ -86,8 +87,8 @@ NO_FLASH_S = 0.25
 RANKS = ("in port", "1st after exit", "2nd after exit", "3rd+ after exit")
 CONTROLS = ("flash", "no flash")
 MISS_COLOR = "0.25"
-# Distance between strip columns, so that the mouse labels clear the next column.
-SPACING = 1.8
+# Display limit of the miss axes (/ mean rate); see `column`.
+LIMIT = 2.5
 CENTERS_S = (LAGS_MS.reshape(-1, 10).mean(-1) + 0.5) / 1000
 
 
@@ -233,6 +234,51 @@ def summary(groups: list[np.ndarray], subjects: list[str]) -> dict:
     }
 
 
+def column(axis, x: float, groups: list[np.ndarray], subjects: list[str]) -> int:
+    """Draw one column: the units, the median of each mouse, the pooled median.
+
+    Units of all mice are gray points. The open markers at the right are the
+    medians of the mice (the shape is the mouse); the black point is the
+    pooled median with its hierarchical-bootstrap 95% interval. Values past
+    `LIMIT` are drawn at the edge and stay in the statistics; returns their
+    number.
+    """
+    rng = np.random.default_rng(SEED)
+    values = np.concatenate(groups)
+    axis.scatter(
+        x - 0.18 + rng.uniform(-0.12, 0.12, len(values)),
+        np.clip(values, -LIMIT, LIMIT),
+        s=6,
+        color=MISS_COLOR,
+        alpha=0.3,
+        lw=0,
+    )
+    for index, (group, subject) in enumerate(zip(groups, subjects, strict=True)):
+        axis.plot(
+            x + 0.08 + 0.07 * index,
+            np.median(group),
+            mouse_marker(subject, index),
+            ms=4.5,
+            color="white",
+            mec="0.3",
+            mew=0.9,
+            zorder=4,
+        )
+    pooled = hierarchical_interval(groups)
+    low, high = pooled["interval_95"]
+    axis.errorbar(
+        x + 0.42,
+        pooled["median"],
+        yerr=[[pooled["median"] - low], [high - pooled["median"]]],
+        fmt="o",
+        ms=5,
+        color="black",
+        capsize=2.5,
+        zorder=5,
+    )
+    return int(np.sum(np.abs(values) > LIMIT))
+
+
 def main() -> None:
     classes = peaks.load_excited_units()
     # A session of `SESSIONS` with no fit yet has no units (GRB061 on
@@ -264,27 +310,19 @@ def main() -> None:
         [m[:, flash] - m[:, quiet] for m in miss], subjects
     )
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.4, 2.8), layout="constrained")
+        figure = plt.figure(figsize=(7.6, 2.8), layout="constrained")
         rank_axis, flash_axis, quiet_axis, control_axis = figure.subplots(
             1, 4, width_ratios=(1.5, 1, 1, 0.9)
         )
+        hidden = 0
         for position, name in enumerate(RANKS):
-            pooled_strip(
-                rank_axis,
-                SPACING * position,
-                [m[:, names.index(name)] for m in miss],
-                subjects,
-                MISS_COLOR,
+            hidden += column(
+                rank_axis, position, [m[:, names.index(name)] for m in miss], subjects
             )
-        rank_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
-        rank_axis.set_xticks(
-            SPACING * np.arange(len(RANKS)), ["in port", "1st", "2nd", "3rd+"]
-        )
-        rank_axis.set_xlim(-0.5, SPACING * (len(RANKS) - 1) + 1.1)
+        rank_axis.set_xticks(range(len(RANKS)), ["in port", "1st", "2nd", "3rd+"])
         rank_axis.set_xlabel("long-gap flash (rank after exit)")
         rank_axis.set_ylabel("observed minus model + noise\npeak (/ mean rate)")
         times = 1000 * CENTERS_S
-        pooled = np.concatenate([d["traces"] for d in sessions])
         for axis, index, title in (
             (flash_axis, 0, "first flash after exit"),
             (quiet_axis, 1, "no flash (same time)"),
@@ -293,12 +331,13 @@ def main() -> None:
                 (0, OBSERVED_COLOR, "observed"),
                 (1, MODEL_COLOR, "model"),
             ):
-                values = pooled[:, index, source]
-                mean, error = values.mean(0), sem(values, axis=0)
-                axis.fill_between(
-                    times, mean - error, mean + error, color=color, alpha=0.15, lw=0
+                # A thin line for each mouse (the mean of its units).
+                mouse_curves(
+                    axis,
+                    times,
+                    [d["traces"][:, index, source].mean(0) for d in sessions],
+                    color,
                 )
-                axis.plot(times, mean, color=color, lw=1.2)
                 if index == 1:  # one key, in the empty top of the no-flash axis
                     axis.text(
                         0.97,
@@ -317,22 +356,24 @@ def main() -> None:
         flash_axis.set_ylabel("rate (/ mean rate)")
         quiet_axis.sharey(flash_axis)
         for position, index in enumerate((flash, quiet)):
-            pooled_strip(
-                control_axis,
-                SPACING * position,
-                [m[:, index] for m in miss],
-                subjects,
-                MISS_COLOR,
+            hidden += column(
+                control_axis, position, [m[:, index] for m in miss], subjects
             )
-        control_axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
-        control_axis.set_xticks([0, SPACING], ["flash", "no flash"])
-        control_axis.set_xlim(-0.5, SPACING + 1.1)
+        control_axis.set_xticks([0, 1], ["flash", "no flash"])
         control_axis.set_ylabel("observed minus model + noise\npeak (/ mean rate)")
-        # Name the mice only at the last column, where the labels have room.
         for axis in (rank_axis, control_axis):
-            names_drawn = [text for text in axis.texts if text.get_text() in subjects]
-            for text in names_drawn[: -len(subjects)]:
-                text.remove()
+            axis.axhline(0, color=REFERENCE_COLOR, lw=0.8)
+            axis.set_ylim(-LIMIT * 1.05, LIMIT * 1.05)
+        stats["units_past_display_limit"] = hidden
+        if hidden:
+            rank_axis.text(
+                0.02,
+                0.02,
+                f"{hidden} values past the axis, at the edge",
+                transform=rank_axis.transAxes,
+                fontsize=6,
+                color="0.4",
+            )
         label_panels([rank_axis, flash_axis, control_axis], x=-0.3, y=1.08)
         print(save_figure(figure, OUTPUT / "first_flash_after_exit"))
     (OUTPUT / "first_flash_after_exit.json").write_text(json.dumps(stats, indent=1))

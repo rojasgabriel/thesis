@@ -234,7 +234,7 @@ def plot_flash_raster(sessions: list[dict]) -> Path:
         figure, axes = plt.subplots(
             2,
             len(sessions),
-            figsize=(7.0, 5.2),
+            figsize=(3.5 * len(sessions), 5.2),
             sharex=True,
             gridspec_kw={"height_ratios": (2, 1)},
         )
@@ -307,7 +307,7 @@ def plot_first_flash(sessions: list[dict]) -> Path:
         figure, axes = plt.subplots(
             2,
             len(sessions),
-            figsize=(7.0, 5.2),
+            figsize=(3.5 * len(sessions), 5.2),
             sharex=True,
             gridspec_kw={"height_ratios": (2, 1)},
         )
@@ -379,15 +379,17 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
     exit_edges = np.arange(EXIT_WINDOW_S[0], EXIT_WINDOW_S[1] + 1e-9, POPULATION_BIN_S)
     first_centers = (first_edges[:-1] + first_edges[1:]) / 2
     sort = (first_centers >= SORT_WINDOW_S[0]) & (first_centers < SORT_WINDOW_S[1])
-    heights = [len(d["ids"]) for d in sessions]
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            len(sessions),
+        # A column for each mouse (a landscape figure for slides): the first
+        # flash on top and the center exit below, the same unit order.
+        figure, grid = plt.subplots(
             2,
-            figsize=(6.8, 6.4),
-            gridspec_kw={"height_ratios": heights},
-            sharex="col",
+            len(sessions),
+            figsize=(2.5 * len(sessions) + 1.0, 5.4),
+            sharex="row",
+            squeeze=False,
         )
+        axes = grid.T  # axes[mouse, alignment]
         for row, data in enumerate(sessions):
             mean = np.maximum(data["mean_rate"], 1e-9)[:, None]
             near_first = np.array(
@@ -433,8 +435,9 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
             )
             for axis in axes[row]:
                 axis.axvline(0, color="0.2", linewidth=0.6)
-            axes[row, 0].set_ylabel(f"{data['subject']}: {n} units")
-            axes[row, 1].set_yticks([])
+            axes[row, 0].set_title(f"{data['subject']}: {n} units", fontsize=8)
+            axes[row, 0].set_xlabel("time from the first flash (s)")
+            axes[row, 1].set_xlabel("time from the center exit (s)")
             report[data["subject"]] = {
                 "units": n,
                 "fraction_lower_150_500_ms": float(
@@ -447,11 +450,12 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
                     )
                 ),
             }
-        axes[-1, 0].set_xlabel("time from the first flash (s)")
-        axes[-1, 1].set_xlabel("time from the center exit (s)")
-        bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.02)
+        for axis in axes[0]:
+            axis.set_ylabel("units")
+        figure.tight_layout()
+        bar = figure.colorbar(image, ax=grid, shrink=0.5, pad=0.02)
         bar.set_label("(rate − pre-flash rate) ÷ mean rate")
-        label_panels(axes[:, 0], x=-0.2, y=1.02)
+        label_panels(grid[:, 0], x=-0.3, y=1.02)
         return save_figure(figure, OUT / "dataset_population"), report
 
 
@@ -459,15 +463,12 @@ def plot_flash_population(
     sessions: list[dict], key: str, events: str, name: str, xlabel: str
 ) -> tuple[Path, dict]:
     report = {}
-    heights = [len(d["ids"]) for d in sessions]
     with plt.rc_context(FIGURE_STYLE):
+        # A column for each mouse (a landscape figure for slides).
         figure, axes = plt.subplots(
-            len(sessions),
-            1,
-            figsize=(3.6, 6.4),
-            gridspec_kw={"height_ratios": heights},
-            sharex=True,
+            1, len(sessions), figsize=(2.5 * len(sessions) + 1.0, 3.0), squeeze=False
         )
+        axes = axes[0]
         for axis, data in zip(axes, sessions, strict=True):
             response = data[key]
             order = np.argsort(response[:, data["peak"]].mean(1))
@@ -481,7 +482,8 @@ def plot_flash_population(
                 "RdBu_r",
             )
             axis.axvline(0, color="0.2", linewidth=0.6)
-            axis.set_ylabel(f"{data['subject']}: {n} units")
+            axis.set_title(f"{data['subject']}: {n} units", fontsize=8)
+            axis.set_xlabel(xlabel)
             report[data["subject"]] = {
                 "units": n,
                 "flashes": int(len(data[events])),
@@ -489,10 +491,10 @@ def plot_flash_population(
                     np.sum(np.abs(response) > FLASH_LIMIT)
                 ),
             }
-        axes[-1].set_xlabel(xlabel)
-        bar = figure.colorbar(image, ax=axes, shrink=0.5, pad=0.04)
+        axes[0].set_ylabel("units")
+        figure.tight_layout()
+        bar = figure.colorbar(image, ax=axes, shrink=0.8, pad=0.02)
         bar.set_label("(rate − pre-flash rate) ÷ mean rate")
-        label_panels(axes, x=-0.35, y=1.02)
         return save_figure(figure, OUT / name), report
 
 

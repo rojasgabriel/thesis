@@ -32,7 +32,10 @@ trial change the choice.
   weight is a tendency to repeat the previous side.
 - Error bars: 95% hierarchical bootstrap (sessions, then trials;
   `N_BOOTSTRAPS`); with one session, over trials.
-- Each mouse is a line style (GRB006 solid, GRB064 dashed), one marker.
+- Figure: a gray line for each mouse (its marker at the end of the line) and
+  the black mean of the mice.
+- A train longer than 1 s (it repeats each second; 7 early sessions of
+  GRB068) enters the kernel with the flashes of its first second.
 
 Writes `figures/behavior/psychophysics.svg` and `results/behavior/psychophysics.json`
 (`psychophysics_recorded.*` with `--recorded`).
@@ -67,6 +70,7 @@ from thesis.plotting import (
     OBSERVED_COLOR,
     REFERENCE_COLOR,
     label_panels,
+    mouse_lines,
     mouse_marker,
     save_figure,
 )
@@ -76,6 +80,7 @@ SLOT_S = 0.04
 SLOTS = 25
 KERNEL_BINS = 6  # bins of 4 slots over slots 1-24
 N_BOOTSTRAPS = 1000
+HISTORY_LIMIT = 3.0  # display limit of the history weights (log-odds)
 HISTORY_NAMES = ("rate (per Hz)", "repeat after\nreward", "repeat after\nno reward")
 
 
@@ -84,9 +89,11 @@ def slot_counts(trials) -> np.ndarray:
     counts = np.zeros((len(trials), KERNEL_BINS))
     for row, flashes in enumerate(trials["flashes_s"]):
         slots = np.round(flashes / SLOT_S).astype(int)
-        if slots.max() >= SLOTS or np.abs(flashes / SLOT_S - slots).max() > 0.25:
+        if np.abs(flashes / SLOT_S - slots).max() > 0.25:
             raise ValueError("A flash is off the 40-ms slot grid.")
-        slots = slots[slots > 0]
+        # A train that repeats after 1 s (7 early sessions of GRB068, about
+        # 31 s long) counts with its first second: every second is the same.
+        slots = slots[(slots > 0) & (slots < SLOTS)]
         np.add.at(counts[row], (slots - 1) // 4, 1)
     return counts
 
@@ -171,95 +178,89 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
         kernel.axhline(0, color=REFERENCE_COLOR, lw=0.6)
         history.axhline(0, color=REFERENCE_COLOR, lw=0.6)
         bins = np.linspace(0.4, 1.2, 33)
+        subjects = [data["subject"] for data in report]
+        # A gray line for each mouse and the black mean of the mice
+        # (Gabriel, 2026-11-26); the marker of a mouse is at the end of its line.
+        mouse_lines(
+            kernel,
+            np.asarray(report[0]["kernel_bin_centers_ms"]),
+            [data["kernel_weights"] for data in report],
+            subjects,
+        )
+        densities = []
         for row, data in enumerate(report):
             marker = mouse_marker(data["subject"], row)
-            line = psychometric.LINES.get(data["subject"], "-")
-            # Drawing only, so the bars do not overlap.
-            shift = 10 * (row - (len(report) - 1) / 2)
-            x = np.asarray(data["kernel_bin_centers_ms"]) + shift
-            w = np.asarray(data["kernel_weights"])
-            ci = np.asarray(data["kernel_weights_95"]).T
-            kernel.errorbar(
-                x,
-                w,
-                yerr=[w - ci[0], ci[1] - w],
-                fmt=marker,
-                ls=line,
-                color=OBSERVED_COLOR,
-                mfc="white",
-                ms=4,
-                capsize=2,
-                lw=1,
-            )
             kernel.axvline(
-                1000 * data["median_exit_s"], color=REFERENCE_COLOR, ls=line, lw=0.8
+                1000 * data["median_exit_s"], color=REFERENCE_COLOR, ls="--", lw=0.8
             )
-            kernel.text(
-                1000 * data["median_exit_s"] - 6,
-                0.03,
-                f"exit, {data['subject']}",
-                color=REFERENCE_COLOR,
-                fontsize=6.5,
-                rotation=90,
-                ha="right",
-                va="bottom",
-                transform=kernel.get_xaxis_transform(),
+            density, _ = np.histogram(
+                data["exit_after_first_flash_s"], bins=bins, density=True
             )
-            timing.hist(
-                data["exit_after_first_flash_s"],
-                bins=bins,
-                density=True,
-                histtype="step",
-                color=OBSERVED_COLOR,
-                ls=line,
-                lw=1.1,
-            )
-            timing.axvline(
-                data["median_go_cue_s"], color=REFERENCE_COLOR, ls=line, lw=0.8
-            )
+            densities.append(density)
+            timing.stairs(density, bins, color="0.55", lw=0.9)
             h = np.asarray(data["history_weights"])[1:]
             hci = np.asarray(data["history_weights_95"]).T[:, 1:]
-            hx = np.arange(2) + 0.1 * (row - (len(report) - 1) / 2)
-            bars = history.errorbar(
+            hx = np.arange(2) + 0.12 * (row - (len(report) - 1) / 2)
+            history.errorbar(
                 hx,
                 h,
                 yerr=[h - hci[0], hci[1] - h],
                 fmt=marker,
                 ls="none",
-                color=OBSERVED_COLOR,
+                color="0.45",
                 mfc="white",
                 ms=4,
                 capsize=2,
                 lw=1,
             )
-            bars[2][0].set_linestyle(line)  # the mouse is the line style of the bar
-            # The mouse's name next to a sample of its marker and line.
+            # The key: the marker of each mouse and its name, once per figure
+            # (with the psychometric panel, its key has the mice).
+            if choices is not None:
+                continue
             y = 0.95 - 0.09 * row
             kernel.plot(
-                [0.03, 0.11],
-                [y, y],
-                color=OBSERVED_COLOR,
-                ls=line,
-                lw=1.1,
-                transform=kernel.transAxes,
-            )
-            kernel.plot(
-                0.07,
+                0.06,
                 y,
                 marker,
-                color=OBSERVED_COLOR,
+                color="0.3",
                 mfc="white",
                 ms=4,
                 transform=kernel.transAxes,
             )
             kernel.text(
-                0.13,
+                0.11,
                 y,
                 data["subject"],
                 va="center",
                 fontsize=7,
                 transform=kernel.transAxes,
             )
+        kernel.text(
+            1000 * min(d["median_exit_s"] for d in report) - 6,
+            0.03,
+            "median exit of each mouse",
+            color=REFERENCE_COLOR,
+            fontsize=6.5,
+            rotation=90,
+            ha="right",
+            va="bottom",
+            transform=kernel.get_xaxis_transform(),
+        )
+        timing.stairs(np.mean(densities, axis=0), bins, color=OBSERVED_COLOR, lw=1.8)
+        timing.axvline(
+            np.mean([d["median_go_cue_s"] for d in report]),
+            color=REFERENCE_COLOR,
+            ls="--",
+            lw=0.8,
+        )
+        mean_history = np.mean([d["history_weights"] for d in report], axis=0)[1:]
+        history.hlines(
+            mean_history,
+            np.arange(2) - 0.3,
+            np.arange(2) + 0.3,
+            color=OBSERVED_COLOR,
+            lw=2.4,
+        )
         kernel.set(
             xlabel="time of the flash from the first flash (ms)",
             ylabel="weight on a right choice\n(log-odds per flash)",
@@ -285,6 +286,20 @@ def plot(report: list[dict], name: str, choices: list[dict] | None = None) -> Pa
         history.set(
             xlim=(-0.5, 1.5), ylabel="weight on repeating\nthe previous side (log-odds)"
         )
+        # Display limit: an interval of a mouse with few such trials can be
+        # very wide; it is cut at the axis and the json has the full interval.
+        low, high = history.get_ylim()
+        if low < -HISTORY_LIMIT or high > HISTORY_LIMIT:
+            history.set_ylim(max(low, -HISTORY_LIMIT), min(high, HISTORY_LIMIT))
+            history.text(
+                0.98,
+                0.02,
+                "an interval goes past the axis",
+                transform=history.transAxes,
+                ha="right",
+                fontsize=6,
+                color="0.4",
+            )
         for axis in axes:
             axis.set_box_aspect(1)  # square panels
         label_panels(axes)

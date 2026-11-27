@@ -89,6 +89,7 @@ from thesis.plotting import (
     MODEL_COLOR,
     OBSERVED_COLOR,
     label_panels,
+    mouse_curves,
     mouse_marker,
     save_figure,
 )
@@ -576,7 +577,7 @@ def peak_scatter(axis, sessions, field, gap=None):
         # Fixed corner labels keep mouse names clear of the point cloud.
         axis.plot(
             0.66,
-            0.16 - index * 0.08,
+            0.30 - index * 0.07,
             marker,
             color=OBSERVED_COLOR,
             mfc="none",
@@ -586,7 +587,7 @@ def peak_scatter(axis, sessions, field, gap=None):
         )
         axis.text(
             0.71,
-            0.16 - index * 0.08,
+            0.30 - index * 0.07,
             data["subject"],
             transform=axis.transAxes,
             va="center",
@@ -594,7 +595,7 @@ def peak_scatter(axis, sessions, field, gap=None):
         )
     axis.text(
         0.66,
-        0.25,
+        0.36,
         "open: all units\nfilled: flash-excited",
         transform=axis.transAxes,
         va="bottom",
@@ -619,22 +620,20 @@ def match_scatter_limits(axes):
         axis.plot(limits, limits, color="0.65", linestyle="--", linewidth=0.7, zorder=0)
 
 
-def psth_panel(axis, data, gap, labels):
-    """Mean rate of the group units around the flashes of one gap class."""
-    unit_means = data["traces"][data["responsive"], gap]
+def psth_panel(axis, sessions, gap, labels):
+    """Mean rate around the flashes of one gap class: each mouse and their mean.
+
+    A thin line is the mean over the group units of one mouse; the thick line
+    is the mean of the mice with its SEM (`plotting.mouse_curves`).
+    """
     for period, (name, color) in enumerate(
         zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
     ):
-        mean = unit_means[:, period].mean(0)
-        spread = stats.sem(unit_means[:, period], axis=0)
-        axis.plot(1000 * data["centers"], mean, color=color)
-        axis.fill_between(
-            1000 * data["centers"],
-            mean - spread,
-            mean + spread,
-            color=color,
-            alpha=0.15,
-            linewidth=0,
+        mouse_curves(
+            axis,
+            1000 * sessions[0]["centers"],
+            [d["traces"][d["responsive"], gap][:, period].mean(0) for d in sessions],
+            color,
         )
         if labels:
             axis.text(
@@ -649,8 +648,8 @@ def psth_panel(axis, data, gap, labels):
     if GAPS_MS[gap] == 40:  # the flash before is inside the window
         axis.axvline(-40, color="0.7", linestyle="--", linewidth=0.7)
     axis.set_title(
-        f"{data['subject']}\n{int(data['responsive'].sum())} units, "
-        f"{data['trials'][gap]} pairs"
+        f"{sum(int(d['responsive'].sum()) for d in sessions)} units, "
+        f"{len(sessions)} mice, {sum(d['trials'][gap] for d in sessions)} pairs"
     )
     axis.set(
         xlim=(LAGS_MS[0] - 5, LAGS_MS[-1] + 1),
@@ -665,22 +664,15 @@ def write_figure(figure, name):
 
 def plot(sessions):
     with plt.rc_context(FIGURE_STYLE):
-        # One column per gap class: the PSTH of each mouse above the scatter.
-        figure = plt.figure(figsize=(7.6, 6.4), layout="constrained")
-        grid = figure.add_gridspec(2, 4, height_ratios=(1.0, 1.9))
-        panels, psths, scatters = [], [], []
+        # One column per gap class: the PSTH of the mice above the scatter.
+        figure, axes = plt.subplots(
+            2, 2, figsize=(7.6, 6.4), layout="constrained", height_ratios=(1.0, 1.9)
+        )
+        axes[0, 1].sharey(axes[0, 0])
+        psths, scatters = list(axes[0]), list(axes[1])
         for gap, label in enumerate(GAP_LABELS):
-            for mouse, data in enumerate(sessions):
-                # One rate scale for both mice and both gaps.
-                axis = figure.add_subplot(
-                    grid[0, 2 * gap + mouse], sharey=psths[0] if psths else None
-                )
-                psth_panel(axis, data, gap, labels=mouse == 0)
-                if mouse:
-                    axis.set_ylabel("")
-                psths.append(axis)
-                panels.append(axis)
-            axis = figure.add_subplot(grid[1, 2 * gap : 2 * gap + 2])
+            psth_panel(axes[0, gap], sessions, gap, labels=gap == 0)
+            axis = axes[1, gap]
             peak_scatter(axis, sessions, "observed", gap)
             axis.text(
                 0.98, 1.03, label, transform=axis.transAxes, ha="right", va="bottom"
@@ -689,10 +681,8 @@ def plot(sessions):
                 xlabel="stationary peak / mean observed rate",
                 ylabel="movement peak / mean observed rate",
             )
-            scatters.append(axis)
-            panels.append(axis)
         match_scatter_limits(scatters)
-        label_panels(panels, x=-0.12, y=1.08)
+        label_panels(axes.T.ravel(), x=-0.12, y=1.08)
         write_figure(figure, "flash_observation")
 
         # One slide per gap class, with the same size and limits.
@@ -701,22 +691,20 @@ def plot(sessions):
             zip(GAP_LABELS, ("80ms", "40ms"), strict=True)
         ):
             figure, axes = plt.subplots(
-                1, 3, figsize=(9.0, 3.4), layout="constrained", width_ratios=(1, 1, 1.3)
+                1, 2, figsize=(7.2, 3.4), layout="constrained", width_ratios=(1, 1.3)
             )
-            for mouse, data in enumerate(sessions):
-                psth_panel(axes[mouse], data, gap, labels=mouse == 0)
-                axes[mouse].set_ylim(rate_limits)
-            axes[1].set_ylabel("")
-            peak_scatter(axes[2], sessions, "observed", gap)
-            axes[2].text(
-                0.98, 1.03, label, transform=axes[2].transAxes, ha="right", va="bottom"
+            psth_panel(axes[0], sessions, gap, labels=True)
+            axes[0].set_ylim(rate_limits)
+            peak_scatter(axes[1], sessions, "observed", gap)
+            axes[1].text(
+                0.98, 1.03, label, transform=axes[1].transAxes, ha="right", va="bottom"
             )
-            axes[2].set(
+            axes[1].set(
                 xlabel="stationary peak / mean observed rate",
                 ylabel="movement peak / mean observed rate",
                 xlim=scatter_limits,
             )
-            match_scatter_limits(axes[2:])
+            match_scatter_limits(axes[1:])
             label_panels(axes, x=-0.12, y=1.08)
             write_figure(figure, f"flash_observation_{name}")
 

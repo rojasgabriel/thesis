@@ -60,11 +60,11 @@ def main() -> None:
     if len(sys.argv) > 1:  # only the named subjects, in that order
         values = {subject: values[subject] for subject in sys.argv[1:]}
     n = len(values)
-    pooled_label = "both mice" if n == 2 else "all mice"
+    pooled_label = f"{n} mice"
     rng = np.random.default_rng(SEED)
     effects, report = {}, {}
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(figsize=(6.2, 3.6))
+        fig, ax = plt.subplots(figsize=(1.6 + 1.1 * n, 3.6))
         for j, (subject, d) in enumerate(values.items()):
             keep = d["excited"]
             r = (
@@ -89,16 +89,9 @@ def main() -> None:
                 mouse_marker(subject, j),
                 color="white",
                 mec="black",
-                ms=11,
-                mew=2,
+                ms=9,
+                mew=1.6,
                 zorder=5,
-            )
-            ax.text(
-                j + 0.22,
-                med,
-                f"median ×{np.exp(med):.2f}\np = {p:.2g}, {len(r)} units",
-                va="center",
-                fontsize=8,
             )
             report[subject] = dict(
                 units=len(r),

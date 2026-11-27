@@ -57,6 +57,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     REFERENCE_COLOR,
     label_panels,
+    mouse_curves,
     save_figure,
 )
 
@@ -158,91 +159,84 @@ def session_course(session: str, units_kind: str) -> dict:
     return out
 
 
+def draw_courses(axis, parts: list[dict]) -> None:
+    """Draw the accuracy of each decoder over time for all mice on one axis.
+
+    A thin line for each mouse and the mean ± SEM of the mice
+    (`plotting.mouse_curves`); the gray band holds the shuffle intervals of
+    all mice and decoders.
+    """
+    centers = np.asarray(parts[0]["centers_s"])
+    nulls = np.stack(
+        [
+            np.asarray(part[label]["shuffle_2.5_50_97.5"])
+            for part in parts
+            for label in COLORS
+        ]
+    )
+    axis.fill_between(
+        centers, nulls[:, :, 0].min(0), nulls[:, :, 2].max(0), color="0.88", linewidth=0
+    )
+    for label, color in COLORS.items():
+        mouse_curves(axis, centers, [part[label]["accuracy"] for part in parts], color)
+    axis.axhline(0.5, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
+    axis.axvline(0, color="0.4", linewidth=0.6)
+    axis.set_ylim(*ACCURACY_LIMITS)
+
+
 def plot(results: list[dict], name: str) -> Path:
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            len(results),
-            2,
-            figsize=(9.0, 2.7 * len(results)),
-            sharey=True,
-            squeeze=False,
+        figure, axes = plt.subplots(1, 2, figsize=(9.0, 3.2), sharey=True)
+        for axis, (alignment, xlabel) in zip(
+            axes,
+            (
+                ("first_flash", "time from the first flash (s)"),
+                ("exit", "time from the center exit (s)"),
+            ),
+            strict=True,
+        ):
+            draw_courses(axis, [data[alignment] for data in results])
+            axis.set_xlabel(xlabel)
+        exits = [data["median_exit_after_first_flash_s"] for data in results]
+        for exit_s in exits:
+            axes[0].axvline(
+                exit_s, color=CONCEPT_COLORS["task"], linestyle="--", linewidth=0.8
+            )
+        axes[0].text(
+            max(exits) + 0.02,
+            0.26,  # below the lowest band edge (0.295)
+            "median exit of each mouse",
+            color=CONCEPT_COLORS["task"],
+            fontsize=7,
         )
-        for row, data in enumerate(results):
-            for column, (alignment, xlabel) in enumerate(
-                (
-                    ("first_flash", "time from the first flash (s)"),
-                    ("exit", "time from the center exit (s)"),
-                )
-            ):
-                axis = axes[row, column]
-                part = data[alignment]
-                centers = np.asarray(part["centers_s"])
-                nulls = np.stack(
-                    [np.asarray(part[label]["shuffle_2.5_50_97.5"]) for label in COLORS]
-                )
-                axis.fill_between(
-                    centers,
-                    nulls[:, :, 0].min(0),
-                    nulls[:, :, 2].max(0),
-                    color="0.88",
-                    linewidth=0,
-                )
-                for label, color in COLORS.items():
-                    mean = np.asarray(part[label]["accuracy"])
-                    sem = np.asarray(part[label]["sem_across_folds"])
-                    low, high = mean - sem, mean + sem
-                    axis.fill_between(
-                        centers, low, high, color=color, alpha=0.25, linewidth=0
-                    )
-                    axis.plot(
-                        centers, part[label]["accuracy"], color=color, linewidth=1.6
-                    )
-                axis.axhline(0.5, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
-                axis.axvline(0, color="0.4", linewidth=0.6)
-                if alignment == "first_flash":
-                    axis.axvline(
-                        data["median_exit_after_first_flash_s"],
-                        color=CONCEPT_COLORS["task"],
-                        linestyle="--",
-                        linewidth=0.8,
-                    )
-                axis.set_ylim(*ACCURACY_LIMITS)
-                axis.set_xlabel(xlabel)
-                if column == 0:
-                    axis.set_ylabel(f"{data['subject']}\nheld-out accuracy")
-            axes[row, 1].text(
+        axes[0].set_ylabel("held-out accuracy")
+        axes[0].text(
+            0,
+            1.02,
+            f"{len(results)} mice (thin: each mouse; thick: mean ± SEM of the mice)",
+            transform=axes[0].transAxes,
+            va="bottom",
+            fontsize=7.5,
+        )
+        for label, y in (("category", 0.96), ("choice", 0.86)):
+            axes[1].text(
                 0.02,
-                0.96,
-                "category",
-                color=COLORS["category"],
-                transform=axes[row, 1].transAxes,
+                y,
+                label,
+                color=COLORS[label],
+                transform=axes[1].transAxes,
                 va="top",
             )
-            axes[row, 1].text(
-                0.02,
-                0.86,
-                "choice",
-                color=COLORS["choice"],
-                transform=axes[row, 1].transAxes,
-                va="top",
-            )
-            axes[row, 1].text(
-                0.98,
-                0.005,
-                "shuffle",
-                color="0.5",
-                transform=axes[row, 1].transAxes,
-                ha="right",
-                va="bottom",
-            )
-            axes[row, 0].text(
-                data["median_exit_after_first_flash_s"] + 0.02,
-                0.26,  # below the lowest band edge (0.295)
-                "median exit",
-                color=CONCEPT_COLORS["task"],
-                fontsize=7,
-            )
-        label_panels(axes.ravel(), x=-0.2, y=1.03)
+        axes[1].text(
+            0.98,
+            0.005,
+            "shuffle",
+            color="0.5",
+            transform=axes[1].transAxes,
+            ha="right",
+            va="bottom",
+        )
+        label_panels(axes, x=-0.2, y=1.03)
         figure.tight_layout()
         return save_figure(figure, OUT / name)
 

@@ -94,7 +94,10 @@ from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     REFERENCE_COLOR,
+    hierarchical_interval,
     label_panels,
+    mouse_curves,
+    mouse_strip,
     save_figure,
 )
 
@@ -269,92 +272,63 @@ def summary(values: np.ndarray, rng) -> dict:
 
 
 def plot(sessions: list[dict]) -> Path:
+    """Left: the flash-aligned rate in each movement quintile, a thin line for
+    each mouse (mean of its units) and the mean ± SEM of the mice. Right: the
+    percent change per SD of each unit, by mouse, and the pooled median."""
     centers = np.arange(*WINDOW_MS, BIN_MS) + BIN_MS / 2
-    edges = np.linspace(-PERCENT_LIMIT, PERCENT_LIMIT, 31)
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            len(sessions),
-            2,
-            figsize=(9.0, 2.7 * len(sessions)),
-            gridspec_kw={"width_ratios": (1.3, 1)},
-            squeeze=False,
+        figure, (ax, strip) = plt.subplots(
+            1, 2, figsize=(8.4, 3.4), gridspec_kw={"width_ratios": (1.5, 1)}
         )
-        for row, s in enumerate(sessions):
-            ax = axes[row, 0]
-            psth = s["psth"]  # (unit, quintile, bin)
-            for g in range(QUINTILES):
-                mean = psth[:, g].mean(0)
-                sem = psth[:, g].std(0, ddof=1) / np.sqrt(len(psth))
-                ax.fill_between(
-                    centers, mean - sem, mean + sem, color=SHADES[g], alpha=0.25, lw=0
-                )
-                ax.plot(centers, mean, color=SHADES[g], lw=1.6)
-            ax.axvline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
+        # Only the two end groups: five groups of four mice hide each other.
+        for g in (0, QUINTILES - 1):
+            # psth: (unit, quintile, bin)
+            mouse_curves(
+                ax, centers, [s["psth"][:, g].mean(0) for s in sessions], SHADES[g]
+            )
+        ax.axvline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
+        for y, label, shade in (
+            (0.95, "most movement", SHADES[-1]),
+            (0.86, "stillest", SHADES[0]),
+        ):
             ax.text(
                 0.98,
-                0.95,
-                "most movement",
-                color=SHADES[-1],
+                y,
+                label,
+                color=shade,
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
                 fontsize=7,
             )
-            ax.text(
-                0.98,
-                0.86,
-                "stillest",
-                color=SHADES[0],
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
+        ax.set_xlim(WINDOW_MS)
+        ax.set_xlabel("time from flash (ms), in port")
+        ax.set_ylabel("rate / unit's mean observed rate")
+        ax.set_title(
+            f"{sum(len(s['psth']) for s in sessions)} flash-excited units, {len(sessions)} mice"
+            " (thin: each mouse; thick: mean ± SEM of the mice)",
+            fontsize=7.5,
+            loc="left",
+        )
+        groups = [s["percent"][np.isfinite(s["percent"])] for s in sessions]
+        outside = int(sum(np.sum(np.abs(g) > PERCENT_LIMIT) for g in groups))
+        mouse_strip(
+            strip,
+            groups,
+            [s["subject"] for s in sessions],
+            color=VISUAL,
+            limits=(-PERCENT_LIMIT, PERCENT_LIMIT),
+        )
+        strip.axhline(0, color=REFERENCE_COLOR, lw=0.8)
+        strip.set_ylabel("change of the flash response\nper 1 SD of motion energy (%)")
+        if outside:
+            strip.set_title(
+                f"{outside} units beyond ±{PERCENT_LIMIT}%, drawn at the edge",
                 fontsize=7,
-            )
-            ax.set_xlim(WINDOW_MS)
-            ax.set_xlabel("time from flash (ms), in port")
-            ax.set_ylabel("rate / unit's mean observed rate\n(mean ± SEM over units)")
-            ax.set_title(
-                f"{s['subject']}: {len(psth)} flash-excited units, {s['flashes']} flashes",
-                fontsize=8,
                 loc="left",
             )
-            ax = axes[row, 1]
-            finite = s["percent"][np.isfinite(s["percent"])]
-            outside = int(np.sum(np.abs(finite) > PERCENT_LIMIT))
-            ax.hist(
-                np.clip(finite, -PERCENT_LIMIT, PERCENT_LIMIT),
-                bins=edges,
-                color=VISUAL,
-                alpha=0.6,
-            )
-            ax.axvline(0, color=REFERENCE_COLOR, lw=0.8)
-            st = s["stats"]["flash response"]
-            ax.axvline(st["median_percent_per_sd"], color=VISUAL, ls="--", lw=1.6)
-            ax.text(
-                0.97,
-                0.97,
-                f"median {st['median_percent_per_sd']:+.0f}% per SD\n"
-                f"95%: {st['median_95'][0]:+.0f} to {st['median_95'][1]:+.0f}\n"
-                f"Wilcoxon p = {st['wilcoxon_p']:.2g}"
-                + (
-                    f"\n{outside} beyond ±{PERCENT_LIMIT}% (end bins)"
-                    if outside
-                    else ""
-                ),
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color=VISUAL,
-            )
-            ax.set_xlabel("change of the flash response\nper 1 SD of motion energy (%)")
-            ax.set_ylabel("units")
-        for col in range(2):
-            lows, highs = zip(*(a.get_ylim() for a in axes[:, col]), strict=True)
-            for a in axes[:, col]:
-                a.set_ylim(0 if col else min(lows), max(highs) * (1.25 if col else 1))
         figure.tight_layout()
-        label_panels(axes.ravel())
+        label_panels([ax, strip])
         return save_figure(figure, OUT / "flash_movement_in_port")
 
 
@@ -442,6 +416,9 @@ def main() -> None:
                 session, sorted(excited[session]), s
             )
         sessions.append(s)
+    report["pooled"] = hierarchical_interval(
+        [s["percent"][np.isfinite(s["percent"])] for s in sessions]
+    )
     (OUT / "flash_movement_in_port.json").write_text(json.dumps(report, indent=1))
     print(
         json.dumps(

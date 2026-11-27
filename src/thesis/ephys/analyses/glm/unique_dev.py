@@ -107,9 +107,12 @@ def add_bits_per_spike(records: list[dict], checkpoints: Path) -> list[dict]:
         # A fold with D² of about 0 gives 0/0; its factor is the median of the
         # other folds of the unit (the factor is about the same in each fold).
         good = np.abs(d2) > 1e-6
-        if not good.any():
-            raise ValueError(f"Unit {record['unit_id']}: D² is 0 in every fold.")
-        factor = np.full(len(tests), np.median(bits[good] / d2[good]))
+        # A unit whose best penalty leaves only a constant rate has a D² of 0
+        # in every fold (GRB061 20261124, unit 605, about 100 spikes): its
+        # gains are 0 bits per spike.
+        factor = np.full(
+            len(tests), np.median(bits[good] / d2[good]) if good.any() else 0.0
+        )
         factor[good] = bits[good] / d2[good]
         record["complete_bits_per_spike"] = float(np.mean(bits))
         for group in record["groups"].values():

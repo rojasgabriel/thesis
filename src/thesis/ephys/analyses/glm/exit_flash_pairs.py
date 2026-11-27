@@ -84,7 +84,9 @@ from thesis.plotting import (
     POINT_ALPHA,
     label_panels,
     median_marker,
+    mouse_curves,
     mouse_marker,
+    mouse_strip,
     save_figure,
 )
 
@@ -208,7 +210,8 @@ def plot_examples(data, report):
             r = np.array([counts(d["spikes"][u], d["rank"]).mean(0) for u in cand])
             after, before = r[:, PEAK].sum(1), r[:, BASE].mean(1) * PEAK.sum()
             vis = (after - before) / np.sqrt(np.maximum(after + before, 1e-9))
-            top = [cand[i] for i in np.argsort(vis)[::-1][:2]]
+            # Four columns in all: two units per mouse with 2 mice, one with 4.
+            top = [cand[i] for i in np.argsort(vis)[::-1][: max(1, 4 // len(data))]]
             report[d["subject"] + "_examples"] = [int(d["ids"][u]) for u in top]
             n = len(d["ev"]["in port"][0])
             for u in top:
@@ -272,15 +275,17 @@ def plot_examples(data, report):
 
 
 def plot_population(data, report, name="exit_flash_population", tag=""):
-    """Mean PSTH of the flash-excited units of each mouse, and the paired peak scatter."""
+    """Mean PSTH of the flash-excited units (mice and their mean), the paired peak
+    scatter of the units, and the peak increase of each mouse."""
     with plt.rc_context(FIGURE_STYLE):
         fig, ax = plt.subplots(
-            1, 3, figsize=(12, 4.2), gridspec_kw={"width_ratios": (1, 1, 1.15)}
+            1, 3, figsize=(12, 4.2), gridspec_kw={"width_ratios": (1, 1.05, 0.55)}
         )
+        a = ax[0]
         allp = {"in port": [], "after exit": []}
-        for j, d in enumerate(data):
-            a = ax[j]
-            for k, c in (("in port", PORT), ("after exit", EXIT)):
+        curves = {"in port": [], "after exit": []}
+        for d in data:
+            for k in curves:
                 tr = np.array(
                     [
                         rates(d["spikes"][u], d["ev"][k][0])
@@ -288,30 +293,7 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                         for u in d["exc"]
                     ]
                 )
-                m, se = tr.mean(0), tr.std(0, ddof=1) / np.sqrt(len(tr))
-                a.plot(1000 * CENTERS, m, color=c)
-                a.fill_between(1000 * CENTERS, m - se, m + se, color=c, alpha=0.2, lw=0)
-                if j == 0:
-                    # One legend per figure, next to its line: the after-exit
-                    # label right of its peak, the in-port label under its line.
-                    if k == "after exit":
-                        t = int(np.argmax(m))
-                        xy, va = (1000 * CENTERS[t] + 6, m[t]), "center"
-                    else:
-                        t = int(np.argmin(np.abs(1000 * CENTERS - PORT_LABEL_MS)))
-                        xy, va = (1000 * CENTERS[t], m[t] - se[t] - 0.1), "top"
-                    a.text(*xy, NAMES[k], color=c, va=va, fontsize=7)
-            a.axvline(0, color="0.6", ls="--", lw=0.7)
-            a.set_xlabel("time from flash (ms)")
-            a.text(
-                0,
-                1.02,
-                d["subject"],
-                transform=a.transAxes,
-                va="bottom",
-            )
-            if j == 0:
-                a.set_ylabel("rate ÷ mean rate")
+                curves[k].append(tr.mean(0))
             p = peaks(d)
             for k in allp:
                 allp[k].append(p[k])
@@ -324,41 +306,49 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                 p=float(w.pvalue),
                 flashes={k: int(len(d["ev"][k][0])) for k in d["ev"]},
             )
-        ax[1].sharey(ax[0])
-        ax[0].autoscale()
-        a = ax[2]
+        for k, c in (("in port", PORT), ("after exit", EXIT)):
+            m = mouse_curves(a, 1000 * CENTERS, curves[k], c)
+            # One legend per figure, next to its line: the after-exit label
+            # right of its peak, the in-port label under its line.
+            if k == "after exit":
+                t = int(np.argmax(m))
+                xy, va = (1000 * CENTERS[t] + 6, m[t] + 0.12), "bottom"
+            else:
+                t = int(np.argmin(np.abs(1000 * CENTERS - PORT_LABEL_MS)))
+                xy, va = (1000 * CENTERS[t], np.min(curves[k]) - 0.05), "top"
+            a.text(*xy, NAMES[k], color=c, va=va, fontsize=7)
+        a.axvline(0, color="0.6", ls="--", lw=0.7)
+        a.set_xlabel("time from flash (ms)")
+        a.set_ylabel("rate ÷ mean rate")
+        units = sum(len(d["exc"]) for d in data)
+        a.text(
+            0,
+            1.02,
+            f"{units} units, {len(data)} mice (thin: each mouse; thick: mean ± SEM of the mice)",
+            transform=a.transAxes,
+            va="bottom",
+            fontsize=7.5,
+        )
+        a = ax[1]
         x, y = np.concatenate(allp["in port"]), np.concatenate(allp["after exit"])
         lo, hi = SCATTER_LIMIT
         out = (x > hi) | (y > hi) | (x < lo) | (y < lo)
         group = np.concatenate([d["group"][d["exc"]] for d in data])
-        marker = np.concatenate(
-            [
-                [mouse_marker(d["subject"], j)] * len(d["exc"])
-                for j, d in enumerate(data)
-            ]
-        )
         for fixation in FIXATION_GROUPS:
             color = FIXATION_COLORS[fixation]
-            for mk in np.unique(marker):
-                k = (group == fixation) & (marker == mk)
-                a.scatter(
-                    x[k & ~out],
-                    y[k & ~out],
-                    s=22,
-                    marker=mk,
-                    color=color,
-                    alpha=POINT_ALPHA,
-                    lw=0,
-                )
-                a.scatter(
-                    np.clip(x[k & out], lo, hi),
-                    np.clip(y[k & out], lo, hi),
-                    s=34,
-                    marker="^",
-                    facecolor="white",
-                    edgecolor=color,
-                    lw=0.9,
-                )
+            k = group == fixation
+            a.scatter(
+                x[k & ~out], y[k & ~out], s=22, color=color, alpha=POINT_ALPHA, lw=0
+            )
+            a.scatter(
+                np.clip(x[k & out], lo, hi),
+                np.clip(y[k & out], lo, hi),
+                s=34,
+                marker="^",
+                facecolor="white",
+                edgecolor=color,
+                lw=0.9,
+            )
         shown = [f for f in FIXATION_GROUPS if (group == f).any()]
         for k, fixation in enumerate(shown):
             a.text(
@@ -380,18 +370,6 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
         a.set_xlim(lo - 0.2, hi + 0.3)
         a.set_ylim(lo - 0.2, hi + 0.3)
         a.set_aspect("equal")
-        for j, d in enumerate(data):
-            mouse_group = d["group"][d["exc"]]
-            for fixation in FIXATION_GROUPS:
-                k = mouse_group == fixation
-                if k.any():
-                    median_marker(
-                        a,
-                        np.median(allp["in port"][j][k]),
-                        np.median(allp["after exit"][j][k]),
-                        mouse_marker(d["subject"], j),
-                        FIXATION_COLORS[fixation],
-                    )
         a.set_xlabel("peak in port (÷ mean rate)")
         a.set_ylabel("peak after exit (÷ mean rate)")
         a.text(
@@ -402,17 +380,37 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
             va="bottom",
             fontsize=7.5,
         )
+        # The mice: the peak increase of the units of each mouse and its median.
+        a = ax[2]
+        increase = [e - i for e, i in zip(allp["after exit"], allp["in port"])]
+        strip_limit = (-2.0, 4.0)
+        stats = mouse_strip(
+            a, increase, [d["subject"] for d in data], limits=strip_limit
+        )
+        report["pooled_increase" + tag] = dict(
+            stats,
+            display_limit=list(strip_limit),
+            units_past=int(
+                sum(
+                    np.sum((v < strip_limit[0]) | (v > strip_limit[1]))
+                    for v in increase
+                )
+            ),
+        )
+        a.axhline(0, color="0.6", ls="--", lw=0.8)
+        a.set_ylabel("peak after exit − in port (÷ mean rate)")
         label_panels(ax, x=-0.18, y=1.04)
         fig.tight_layout()
         return save_figure(fig, OUT / name)
 
 
 def plot_by_gap(data, report):
-    """Median peak (IQR over units) by gap class, last in port against first after exit."""
+    """Median peak over units by gap class, last in port against first after exit:
+    a thin line for each mouse and the mean ± SEM of the mice."""
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(1, 2, figsize=(9, 3.4), sharey=True)
-        for j, d in enumerate(data):
-            a = ax[j]
+        fig, a = plt.subplots(figsize=(5.2, 3.6))
+        medians = {"in port": [], "after exit": []}
+        for d in data:
             rows = []
             for g in GAPS:
                 p = peaks(d, d["byg"][g])
@@ -428,36 +426,26 @@ def plot_by_gap(data, report):
                     median_after_exit=float(np.median(p["after exit"])),
                     p=float(w.pvalue),
                 )
-            xs = np.arange(len(GAPS))
-            for k, c, dx in (("in port", PORT, -0.08), ("after exit", EXIT, 0.08)):
-                med = np.array([np.median(r[k]) for r in rows])
-                q = np.array([np.percentile(r[k], [25, 75]) for r in rows])
-                a.errorbar(
-                    xs + dx,
-                    med,
-                    yerr=[med - q[:, 0], q[:, 1] - med],
-                    fmt=mouse_marker(d["subject"], j) + "-",
-                    color=c,
-                    ms=5,
-                    capsize=2,
-                )
-                a.text(
-                    xs[-1] + 0.15, med[-1], NAMES[k], color=c, va="center", fontsize=7
-                )
-            a.axhline(0, color="0.6", ls=":", lw=0.8)
-            a.set_xticks(xs, [f"{g}" for g in GAPS[:-1]] + [f"{GAPS[-1]}+"])
-            a.set_xlim(-0.4, len(GAPS) - 0.1)
-            a.set_xlabel("gap from the flash before (ms)")
-            a.text(
-                0,
-                1.02,
-                f"{d['subject']}: {len(d['exc'])} flash-excited units (median, IQR)",
-                transform=a.transAxes,
-                va="bottom",
-            )
-            if j == 0:
-                a.set_ylabel("flash peak ÷ mean rate")
-        label_panels(ax, x=-0.15, y=1.04)
+            for k in medians:
+                medians[k].append([np.median(r[k]) for r in rows])
+        xs = np.arange(len(GAPS))
+        for k, c in (("in port", PORT), ("after exit", EXIT)):
+            m = mouse_curves(a, xs, medians[k], c)
+            a.text(xs[-1] + 0.15, m[-1], NAMES[k], color=c, va="center", fontsize=7)
+        a.axhline(0, color="0.6", ls=":", lw=0.8)
+        a.set_xticks(xs, [f"{g}" for g in GAPS[:-1]] + [f"{GAPS[-1]}+"])
+        a.set_xlim(-0.3, len(GAPS) + 0.2)
+        a.set_xlabel("gap from the flash before (ms)")
+        a.set_ylabel("flash peak ÷ mean rate")
+        a.text(
+            0,
+            1.02,
+            f"{sum(len(d['exc']) for d in data)} flash-excited units, {len(data)} mice"
+            " (thin: median of each mouse; thick: mean ± SEM of the mice)",
+            transform=a.transAxes,
+            va="bottom",
+            fontsize=7,
+        )
         fig.tight_layout()
         return save_figure(fig, OUT / "exit_flash_by_gap")
 

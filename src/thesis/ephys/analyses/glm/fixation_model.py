@@ -71,6 +71,7 @@ from thesis.plotting import (
     MODEL_COLOR,
     OBSERVED_COLOR,
     label_panels,
+    mouse_curves,
     save_figure,
 )
 
@@ -243,55 +244,46 @@ def main() -> None:
     for s in sessions:
         print(s["subject"], f"bins at the rate limit: {s['limited_fraction']:.5f}")
     groups = [fixation_groups(OUT / name) for name in SESSIONS]
-    rows = {"all units": [None, None]}
+    rows = {"all units": [None] * len(sessions)}
     for group in FIXATION_GROUPS:
         rows[f"{group} units"] = [
             np.array([g.get(u) == group for u in s["ids"]])
             for s, g in zip(sessions, groups, strict=True)
         ]
     with plt.rc_context(FIGURE_STYLE):
-        # Rows: all units, then each fixation group. Columns: per mouse, the
-        # first flash and the center exit.
+        # Rows: all units, then each fixation group. Columns: the first flash
+        # and the center exit. In each panel: a thin line for each mouse (the
+        # mean of its units) and the mean ± SEM of the mice.
         figure, axes = plt.subplots(
             len(rows),
-            4,
-            figsize=(11.0, 2.5 * len(rows) + 0.4),
+            2,
+            figsize=(6.4, 2.5 * len(rows) + 0.4),
             sharex="col",
             sharey=True,
             layout="constrained",
         )
         for row, (group, keeps) in enumerate(rows.items()):
-            for m, (session, keep) in enumerate(zip(sessions, keeps, strict=True)):
-                for offset, (name, (xlabel, limits, _)) in enumerate(
-                    ALIGNMENTS.items()
-                ):
-                    axis = axes[row, 2 * m + offset]
-                    centers = session["centers"][name]
-                    for version, color in VERSIONS.items():
+            units = 0
+            for column, (name, (xlabel, limits, _)) in enumerate(ALIGNMENTS.items()):
+                axis = axes[row, column]
+                for version, color in VERSIONS.items():
+                    curves = []
+                    for session, keep in zip(sessions, keeps, strict=True):
                         values = session["population"][version][name]
                         values = values if keep is None else values[keep]
-                        mean = values.mean(0)
-                        sem = values.std(0, ddof=1) / np.sqrt(len(values))
-                        axis.fill_between(
-                            centers,
-                            mean - sem,
-                            mean + sem,
-                            color=color,
-                            alpha=0.2,
-                            lw=0,
-                        )
-                        axis.plot(centers, mean, color=color, lw=1.2)
-                    axis.axvline(0, color="0.6", ls="--", lw=0.8)
-                    axis.set_xlim(*limits)
-                    axis.set_xticks([0, 200, 400])
-                    if row == len(rows) - 1:
-                        axis.set_xlabel(xlabel)
-                    if offset == 0:
-                        axis.set_title(
-                            f"{session['subject']}, {group}",
-                            fontsize=8,
-                            loc="left",
-                        )
+                        if len(values):
+                            curves.append(values.mean(0))
+                        if column == 0 and version == "observed":
+                            units += len(values)
+                    mouse_curves(axis, sessions[0]["centers"][name], curves, color)
+                axis.axvline(0, color="0.6", ls="--", lw=0.8)
+                axis.set_xlim(*limits)
+                axis.set_xticks([0, 200, 400])
+                if row == len(rows) - 1:
+                    axis.set_xlabel(xlabel)
+            axes[row, 0].set_title(
+                f"{group}: {units} units, {len(sessions)} mice", fontsize=8, loc="left"
+            )
             axes[row, 0].set_ylabel("rate ÷ mean rate")
         axes[0, 0].set_ylim(bottom=0)
         # Direct labels at the right end of the first exit panel.
@@ -306,9 +298,7 @@ def main() -> None:
                 fontsize=8,
                 transform=axes[0, 1].transAxes,
             )
-        label_panels(
-            [axes[r, c] for r in range(len(rows)) for c in (0, 2)], x=-0.3, y=1.1
-        )
+        label_panels(axes[:, 0], x=-0.3, y=1.1)
         print(save_figure(figure, OUT / "fixation_model"))
 
 

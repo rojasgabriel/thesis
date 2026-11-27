@@ -78,8 +78,9 @@ from thesis.plotting import (
     OBSERVED_COLOR,
     PERIOD_COLORS,
     POINT_ALPHA,
+    hierarchical_interval,
     label_panels,
-    median_marker,
+    mouse_curves,
     mouse_marker,
     save_figure,
 )
@@ -243,40 +244,37 @@ def peak(unit, version, flash):
 def plot_peaks(rows, summary, name="model_without_terms"):
     """One row of the four versions per unit group; rows: [(label, data)].
 
-    Each unit is a light point; the open marker is the median of each mouse.
+    Scatters: each unit is a light point (the units of all mice). Last panel:
+    the median increase of each mouse in each version (gray line, the marker
+    of the mouse) and the pooled median with its hierarchical-bootstrap 95%
+    interval (black).
     """
     lo, hi = SCATTER_LIMIT
     with plt.rc_context(FIGURE_STYLE):
         fig, axes = plt.subplots(
             len(rows),
-            4,
-            figsize=(10, 2.6 * len(rows) + 0.5),
-            sharex=True,
-            sharey=True,
+            5,
+            figsize=(12.5, 2.6 * len(rows) + 0.5),
             squeeze=False,
             layout="constrained",
         )
         for row, (label, data) in enumerate(rows):
-            for a, version in zip(axes[row], VERSIONS, strict=True):
+            increases = []  # [version][mouse] -> increase of each unit
+            for a, version in zip(axes[row], VERSIONS, strict=False):
                 color = OBSERVED_COLOR if version == "observed" else MODEL_COLOR
-                for m, d in enumerate(data):
+                increases.append([])
+                for d in data:
                     s = d["subject"]
                     x = np.array([peak(u, version, "last in port") for u in d["units"]])
                     y = np.array(
                         [peak(u, version, "first after exit") for u in d["units"]]
                     )
+                    increases[-1].append(y - x)
                     if not len(x):
                         continue
-                    marker = mouse_marker(s, m)
                     out = (x < lo) | (x > hi) | (y < lo) | (y > hi)
                     a.scatter(
-                        x[~out],
-                        y[~out],
-                        s=14,
-                        marker=marker,
-                        color=color,
-                        alpha=POINT_ALPHA,
-                        lw=0,
+                        x[~out], y[~out], s=14, color=color, alpha=POINT_ALPHA, lw=0
                     )
                     a.scatter(
                         np.clip(x[out], lo, hi),
@@ -287,7 +285,6 @@ def plot_peaks(rows, summary, name="model_without_terms"):
                         edgecolor=color,
                         lw=0.8,
                     )
-                    median_marker(a, np.median(x), np.median(y), marker, color, 7)
                     summary.setdefault(label, {}).setdefault(version, {})[s] = dict(
                         units=len(x),
                         median_in_port=float(np.median(x)),
@@ -314,6 +311,10 @@ def plot_peaks(rows, summary, name="model_without_terms"):
                     )
                 if row == len(rows) - 1:
                     a.set_xlabel("peak, last in port")
+                a.plot(SCATTER_LIMIT, SCATTER_LIMIT, color="0.6", ls="--", lw=0.8)
+                a.set_xlim(lo - 0.2, hi + 0.3)
+                a.set_ylim(lo - 0.2, hi + 0.3)
+                a.set_aspect("equal")
             axes[row, 0].text(
                 0,
                 1.01,
@@ -323,67 +324,85 @@ def plot_peaks(rows, summary, name="model_without_terms"):
                 fontsize=8,
             ).set_in_layout(False)
             axes[row, 0].set_ylabel("peak, first after exit\n(÷ mean rate)")
-        for a in axes.ravel():
-            a.plot(SCATTER_LIMIT, SCATTER_LIMIT, color="0.6", ls="--", lw=0.8)
-            a.set_xlim(lo - 0.2, hi + 0.3)
-            a.set_ylim(lo - 0.2, hi + 0.3)
-            a.set_aspect("equal")
+            # The mice: the median increase of each mouse in each version.
+            a = axes[row, 4]
+            xs = np.arange(len(VERSIONS))
+            for m, d in enumerate(data):
+                if not len(increases[0][m]):
+                    continue
+                a.plot(
+                    xs,
+                    [np.median(v[m]) for v in increases],
+                    "-" + mouse_marker(d["subject"], m),
+                    color="0.55",
+                    mfc="white",
+                    mec="0.3",
+                    ms=5,
+                    lw=1,
+                )
+            pooled = {}
+            for x, version, v in zip(xs, VERSIONS, increases, strict=True):
+                stats = hierarchical_interval([g for g in v if len(g)])
+                pooled[version] = stats
+                low, high = stats["interval_95"]
+                a.errorbar(
+                    x,
+                    stats["median"],
+                    yerr=[[stats["median"] - low], [high - stats["median"]]],
+                    fmt="o",
+                    ms=6,
+                    color="black",
+                    capsize=3,
+                    zorder=4,
+                )
+            summary.setdefault(label, {})["pooled_increase"] = pooled
+            a.axhline(0, color="0.6", ls="--", lw=0.8)
+            a.set_xticks(xs, VERSIONS, rotation=40, ha="right", fontsize=6.5)
+            a.set_xlim(-0.5, len(VERSIONS) - 0.5)
+            a.set_ylabel("median increase in peak\n(÷ mean rate)")
         label_panels(axes[:, 0], x=-0.3, y=1.1)
         return save_figure(fig, OUT / name)
 
 
 def plot_traces(data):
+    """Observed and model rate around each kind of flash: a thin line for
+    each mouse (mean of its units) and the mean ± SEM of the mice."""
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(2, 3, figsize=(10, 5.2), sharex=True, sharey="row")
-        for m, d in enumerate(data):
-            for j, k in enumerate(FLASHES):
-                a = ax[m, j]
-                for version, col in (
-                    ("observed", OBSERVED_COLOR),
-                    ("full model", MODEL_COLOR),
-                ):
-                    tr = np.array([binned(u[version][k]) for u in d["units"]])
-                    mu, se = tr.mean(0), tr.std(0, ddof=1) / np.sqrt(len(tr))
-                    a.plot(CENTERS + BIN / 2, mu, color=col, lw=1.5)
-                    a.fill_between(
-                        CENTERS + BIN / 2, mu - se, mu + se, color=col, alpha=0.15, lw=0
-                    )
-                a.axvline(0, color="0.6", ls="--", lw=0.7)
-                if m == 0:
-                    period = "after exit" if k == "first after exit" else "in port"
-                    a.set_title(k, fontsize=9, color=PERIOD_COLORS[period])
-                if j == 0:
-                    a.set_ylabel(f"{d['subject']}\nrate ÷ mean rate")
-                if m == 1:
-                    a.set_xlabel("time from flash (ms)")
-                a.text(
-                    0.98,
-                    0.95,
-                    f"{d['n'][k]} flashes",
-                    transform=a.transAxes,
-                    ha="right",
-                    va="top",
-                    fontsize=7,
-                )
-        ax[0, 0].text(
+        fig, ax = plt.subplots(1, 3, figsize=(10, 3.2), sharex=True, sharey=True)
+        for a, k in zip(ax, FLASHES, strict=True):
+            for version, col in (
+                ("observed", OBSERVED_COLOR),
+                ("full model", MODEL_COLOR),
+            ):
+                curves = [
+                    np.mean([binned(u[version][k]) for u in d["units"]], axis=0)
+                    for d in data
+                ]
+                mouse_curves(a, CENTERS + BIN / 2, curves, col)
+            a.axvline(0, color="0.6", ls="--", lw=0.7)
+            period = "after exit" if k == "first after exit" else "in port"
+            a.set_title(k, fontsize=9, color=PERIOD_COLORS[period])
+            a.set_xlabel("time from flash (ms)")
+        ax[0].set_ylabel("rate ÷ mean rate")
+        ax[0].text(
             0.03,
             0.95,
             "observed",
             color=OBSERVED_COLOR,
-            transform=ax[0, 0].transAxes,
+            transform=ax[0].transAxes,
             va="top",
             fontsize=8,
         )
-        ax[0, 0].text(
+        ax[0].text(
             0.03,
             0.85,
             "model",
             color=MODEL_COLOR,
-            transform=ax[0, 0].transAxes,
+            transform=ax[0].transAxes,
             va="top",
             fontsize=8,
         )
-        label_panels(ax.ravel(), x=-0.15, y=1.08)
+        label_panels(ax, x=-0.15, y=1.08)
         fig.tight_layout()
         return save_figure(fig, OUT / "model_first_flash")
 

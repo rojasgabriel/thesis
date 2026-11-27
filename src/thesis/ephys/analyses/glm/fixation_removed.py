@@ -25,8 +25,9 @@ else of the model is used, so the flash responses are the observed ones.
   there the fixation kernel overlaps the first-flash response, and dividing
   it out inflates that response (in GRB006 about 2.5 times), so the result is
   not reliable. The mean rate of a corrected unit is over its shown bins.
-- PSTH: the mean over units of the rate over the unit's mean rate, ± SEM over
-  units. The sampling unit is the unit.
+- PSTH: the mean over the units of a mouse of the rate over the unit's mean
+  rate (thin line), and the mean ± SEM over the mice (thick line,
+  `plotting.mouse_curves`).
 
 - Example (`fixation_removed_example.svg`): the example neuron of each mouse
   of `dataset_overview.py` and ten of its trials (spread over the session),
@@ -64,6 +65,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     label_panels,
+    mouse_curves,
     save_figure,
 )
 
@@ -188,8 +190,11 @@ def example_figure() -> Path:
     )
     columns = list(FITS)
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(7.6, 6.4), layout="constrained")
-        grid = figure.add_gridspec(2, 1)
+        # Landscape for a slide: two mice in each row.
+        wide = -(-len(SESSIONS) // 2)
+        figure = plt.figure(figsize=(7.6 * wide, 6.4), layout="constrained")
+        outer = figure.add_gridspec(2, wide)
+        grid = [outer[divmod(i, wide)] for i in range(len(SESSIONS))]
         panels = []
         for row, session in enumerate(SESSIONS):
             subject = session.split("_")[0]
@@ -246,7 +251,7 @@ def example_figure() -> Path:
                     )
                 axis.set_yticks([])
                 axis.tick_params(labelbottom=False)
-                if row == 0:
+                if row < wide:
                     axis.set_title(name, fontsize=8)
                 if col == 0:
                     axis.set_ylabel(
@@ -307,18 +312,15 @@ def main() -> None:
             for name, v in logs.items()
         }
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            len(data),
-            len(FITS) + 1,
-            figsize=(8.8, 3.0 * len(data)),
-            layout="constrained",
-            squeeze=False,
-            gridspec_kw={"width_ratios": (*[1] * len(FITS), 1.1)},
-        )
+        # Landscape for a slide: a column per mouse, a row per version, and one
+        # panel with the mean of each mouse and of the mice at the right.
+        figure = plt.figure(figsize=(2.9 * len(data) + 3.6, 5.2), layout="constrained")
+        grid = figure.add_gridspec(len(FITS), len(data) + 1)
+        heat = np.empty((len(FITS), len(data)), dtype=object)
         image = None
-        for row, (subject, (logs, order)) in enumerate(data.items()):
-            for col, name in enumerate(FITS):
-                axis = axes[row, col]
+        for col, (subject, (logs, order)) in enumerate(data.items()):
+            for row, name in enumerate(FITS):
+                axis = heat[row, col] = figure.add_subplot(grid[row, col])
                 image = axis.imshow(
                     logs[name][order],
                     aspect="auto",
@@ -330,45 +332,41 @@ def main() -> None:
                 )
                 axis.axvline(0, color=OBSERVED_COLOR, lw=0.6)
                 if row == 0:
-                    axis.set_title(name, fontsize=8)
+                    axis.set_title(f"{subject}: {len(order)} units", fontsize=8)
+                    axis.tick_params(labelbottom=False)
+                else:
+                    axis.set_xlabel("time from the first flash (s)")
                 if col == 0:
-                    axis.set_ylabel(f"{subject}: {len(order)} neurons")
-                axis.set_xlabel("time from the first flash (s)")
-            axis = axes[row, -1]
-            for index, name in enumerate(FITS):
-                ratio = 2 ** logs[name]
-                mean = np.nanmean(ratio, 0)
-                sem = np.nanstd(ratio, 0, ddof=1) / np.sqrt(len(ratio))
-                axis.plot(centers, mean, color=COLORS[name], lw=1.4)
-                axis.fill_between(
-                    centers,
-                    mean - sem,
-                    mean + sem,
-                    color=COLORS[name],
-                    alpha=0.15,
-                    lw=0,
-                )
-                if row == 0:
-                    axis.text(
-                        0.98,
-                        0.97 - 0.08 * index,
-                        name,
-                        color=COLORS[name],
-                        transform=axis.transAxes,
-                        ha="right",
-                        va="top",
-                        fontsize=7,
-                    )
-            axis.axhline(1, color="0.6", lw=0.6)
-            axis.axvline(0, color=OBSERVED_COLOR, lw=0.6)
-            axis.set_xlabel("time from the first flash (s)")
-            axis.set_ylabel("rate ÷ own mean rate")
+                    axis.set_ylabel(f"{name}\nunits")
+        axis = figure.add_subplot(grid[:, -1])
+        for index, name in enumerate(FITS):
+            mouse_curves(
+                axis,
+                centers,
+                [np.nanmean(2 ** logs[name], 0) for logs, _ in data.values()],
+                COLORS[name],
+            )
+            axis.text(
+                0.98,
+                0.97 - 0.05 * index,
+                name,
+                color=COLORS[name],
+                transform=axis.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+            )
+        axis.axhline(1, color="0.6", lw=0.6)
+        axis.axvline(0, color=OBSERVED_COLOR, lw=0.6)
+        axis.set_xlabel("time from the first flash (s)")
+        axis.set_ylabel("rate ÷ own mean rate")
         figure.colorbar(
             image,
-            ax=axes[:, : len(FITS)].ravel().tolist(),
+            ax=heat.ravel().tolist(),
             shrink=0.6,
             label="log2 rate ÷ own mean rate",
         )
+        axes = np.asarray([*heat.ravel(), axis])
         label_panels(axes.ravel())
         print(save_figure(figure, OUT / "fixation_removed"))
     print(example_figure())

@@ -36,9 +36,12 @@ def main() -> None:
     spec = cr.CONDITIONS["category"]
     sessions = [cr.session_responses(s, spec) for s in cr.SESSIONS]
     with plt.rc_context(cr.FIGURE_STYLE):
-        fig = plt.figure(figsize=(13.0, 6.4), layout="constrained")
-        grid = fig.add_gridspec(2, EXAMPLES + 1, width_ratios=(*[1] * EXAMPLES, 0.95))
-        letters, image = [], None
+        rows = len(sessions)
+        fig = plt.figure(figsize=(13.0, 3.2 * rows), layout="constrained")
+        grid = fig.add_gridspec(
+            rows, EXAMPLES + 1, width_ratios=(*[1] * EXAMPLES, 0.95)
+        )
+        letters = []
         for row, d in enumerate(sessions):
             active = np.flatnonzero(np.nanmean(d["rates"], (1, 2)) >= cr.MIN_RATE_HZ)
             top = active[np.argsort(-np.abs(d["dprime"][active]))][:EXAMPLES]
@@ -57,14 +60,16 @@ def main() -> None:
                 d["example"] = int(unit)
                 cr.draw_example(raster, rate, d, spec)
                 letters.append(raster)
-            heat = fig.add_subplot(grid[row, EXAMPLES])
-            image = cr.draw_population(heat, d, spec)
-            letters.append(heat)
-        fig.colorbar(
-            image,
-            ax=letters[EXAMPLES :: EXAMPLES + 1],
-            label="fast − slow (/ mean rate)",
+        # The units of all mice in one heatmap (unit-level plots pool the mice).
+        pooled = dict(
+            sessions[0],
+            preference=np.concatenate([d["preference"] for d in sessions]),
+            subject=f"{rows} mice",
         )
+        heat = fig.add_subplot(grid[:, EXAMPLES])
+        image = cr.draw_population(heat, pooled, spec)
+        letters.append(heat)
+        fig.colorbar(image, ax=heat, label="fast − slow (/ mean rate)")
         label_panels(letters)
         print(save_figure(fig, cr.OUT / "category_examples"))
 

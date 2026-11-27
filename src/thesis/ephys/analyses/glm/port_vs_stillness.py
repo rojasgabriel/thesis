@@ -28,8 +28,11 @@ units; completed trials; windows aligned to the first flash). The sampling unit
 is the unit.
 
 The script writes the rates to `port_vs_stillness.npz` and these statistics to
-`port_vs_stillness.json`; it makes no figure. `design_optimization.py` draws
-the rate against motion energy with `plot_rates`.
+`port_vs_stillness.json`. With `--figure` it computes nothing and draws
+`figures/glm/port_vs_stillness.svg` from the saved rates of the sessions of
+`flash_kernels.SESSIONS`: rate against motion-energy group in the center port
+and at the side port, the median over the units of a mouse (thin line) and
+the mean ± SEM over the mice (thick line, `plotting.mouse_curves`).
 
 - Paired test: each unit's rate in the center port against its rate at the
   side port, in the group with the least motion energy (two-sided Wilcoxon
@@ -61,15 +64,15 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr, wilcoxon
 
 from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
+from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import (
-    CONCEPT_COLORS,
-)
+from thesis.plotting import CONCEPT_COLORS, FIGURE_STYLE, mouse_curves, save_figure
 
 STATES = ("in center port", "moving to side port", "at side port")
 STATE_COLORS = (CONCEPT_COLORS["task"], CONCEPT_COLORS["motion energy"], "0.35")
@@ -261,8 +264,43 @@ def plot_rates(
     axis.set_ylabel("normalized firing rate")
 
 
+def pooled_figure(out: Path, states=(0, 2)) -> Path:
+    """Draw rate against motion-energy group, all mice in one panel."""
+    data = [dict(np.load(out / s / "port_vs_stillness.npz")) for s in SESSIONS]
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axis = plt.subplots(figsize=(4.0, 3.2), layout="constrained")
+        for index in states:
+            curves = [
+                np.where(
+                    d["frames"][index] >= MIN_FRAMES,
+                    np.nanmedian(d["rate"][:, index], axis=0),
+                    np.nan,
+                )
+                for d in data
+            ]
+            mean = mouse_curves(axis, np.arange(GROUPS), curves, STATE_COLORS[index])
+            axis.text(
+                GROUPS - 0.9,
+                mean[-1],
+                STATES[index],
+                color=STATE_COLORS[index],
+                va="center",
+                clip_on=False,
+            )
+        centers = (np.arange(GROUPS) + 0.5) * 100 / GROUPS
+        axis.set_xticks(range(GROUPS), [f"{center:.0f}" for center in centers])
+        axis.set_xlim(-0.3, GROUPS - 0.8)
+        axis.set_ylim(bottom=0)
+        axis.set_xlabel("motion energy of the frame (percentile)")
+        axis.set_ylabel("normalized firing rate")
+        return save_figure(figure, out / "port_vs_stillness")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--figure", action="store_true", help="draw the saved rates of all mice"
+    )
     parser.add_argument(
         "--root",
         type=Path,
@@ -270,6 +308,9 @@ def main() -> None:
         help="Session artifact directory with the prepared windows and video.",
     )
     args = parser.parse_args()
+    if args.figure:
+        print(pooled_figure(args.root.parent))
+        return
     frames = frame_table(args.root)
     units = fetch_unit_table(
         frames["metadata"]["subject_name"],

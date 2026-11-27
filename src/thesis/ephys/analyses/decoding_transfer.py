@@ -71,8 +71,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
-    label_panels,
-    mouse_marker,
+    mouse_points,
     save_figure,
 )
 
@@ -183,54 +182,53 @@ def session_transfer(session: str, units_kind: str, components: int | None) -> d
 
 
 def plot(results: list[dict], name: str) -> Path:
+    """One panel for all mice: small open markers, the AUC of each mouse (its
+    shape); large markers, the mean ± SEM of the mice."""
     labels = ["still → still", "still → moving", "moving → moving", "moving → still"]
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1, len(results), figsize=(3.4 * len(results), 3.2), sharey=True
-        )
-        # Category decoding: the flash color; each panel is one mouse.
+        figure, axis = plt.subplots(figsize=(4.2, 3.4))
+        # Category decoding: the flash color.
         color = CONCEPT_COLORS["visual"]
-        for index, (axis, data) in enumerate(zip(axes, results, strict=True)):
-            x = np.arange(len(labels))
-            mean = np.asarray(data["auc_mean"])
-            low, high = np.asarray(data["auc_95"]).T
-            null_low, null_high = np.asarray(data["shuffle_auc_95"]).T
-            for xi, lo, hi in zip(x, null_low, null_high, strict=True):
-                axis.fill_between(
-                    [xi - 0.3, xi + 0.3], lo, hi, color="0.85", linewidth=0
-                )
-            axis.errorbar(
-                x,
-                mean,
-                yerr=[mean - low, high - mean],
-                fmt=mouse_marker(data["subject"], index),
-                color=color,
-                capsize=3,
-                ms=6,
+        x = np.arange(len(labels))
+        nulls = np.array([data["shuffle_auc_95"] for data in results])  # mouse, x, 2
+        for xi in x:
+            axis.fill_between(
+                [xi - 0.3, xi + 0.3],
+                nulls[:, xi, 0].min(),
+                nulls[:, xi, 1].max(),
+                color="0.85",
+                linewidth=0,
             )
-            axis.axhline(0.5, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
-            axis.axvline(1.5, color="0.8", linewidth=0.6)
-            axis.set_xticks(x, labels, rotation=30, ha="right")
-            axis.set_ylim(*AUC_LIMITS)
-            axis.text(
-                0.02,
-                0.97,
-                data["subject"],
-                color=OBSERVED_COLOR,
-                transform=axis.transAxes,
-                va="top",
-            )
-            axis.text(
-                0.98,
-                0.01,
-                "shuffle",
-                color="0.5",
-                transform=axis.transAxes,
-                ha="right",
-                va="bottom",
-            )
-        axes[0].set_ylabel("category AUC (train → test)")
-        label_panels(axes, x=-0.18, y=1.03)
+        mouse_points(
+            axis,
+            x,
+            [data["auc_mean"] for data in results],
+            [data["subject"] for data in results],
+            color,
+        )
+        axis.axhline(0.5, color=REFERENCE_COLOR, linestyle=":", linewidth=0.8)
+        axis.axvline(1.5, color="0.8", linewidth=0.6)
+        axis.set_xticks(x, labels, rotation=30, ha="right")
+        axis.set_ylim(*AUC_LIMITS)
+        axis.text(
+            0.02,
+            1.02,
+            f"{len(results)} mice (small: each mouse; large: mean ± SEM of the mice)",
+            color=OBSERVED_COLOR,
+            transform=axis.transAxes,
+            va="bottom",
+            fontsize=7,
+        )
+        axis.text(
+            0.98,
+            0.01,
+            "shuffle",
+            color="0.5",
+            transform=axis.transAxes,
+            ha="right",
+            va="bottom",
+        )
+        axis.set_ylabel("category AUC (train → test)")
         figure.tight_layout()
         return save_figure(figure, OUT / name)
 

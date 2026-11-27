@@ -60,8 +60,7 @@ from thesis.plotting import (
     FIXATION_COLORS,
     POINT_ALPHA,
     label_panels,
-    median_marker,
-    mouse_marker,
+    mouse_strip,
     save_figure,
 )
 
@@ -102,13 +101,22 @@ def main() -> None:
             )
         )
     with plt.rc_context(FIGURE_STYLE):
-        fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.6), layout="constrained")
-        for ax, (kind, (measure, limit)) in zip(axes, PANELS.items(), strict=True):
+        fig, all_axes = plt.subplots(
+            1,
+            4,
+            figsize=(12.6, 4.6),
+            layout="constrained",
+            gridspec_kw={"width_ratios": (1, 0.5, 1, 0.5)},
+        )
+        axes, strips = all_axes[::2], all_axes[1::2]
+        for ax, strip, (kind, (measure, limit)) in zip(
+            axes, strips, PANELS.items(), strict=True
+        ):
             lo, hi = limit
+            change = []  # after exit minus in port, the units of each mouse
             for m, (subject, d, group) in enumerate(sessions):
                 cond = list(d["conditions"])
                 i, j = cond.index(PORT), cond.index(EXIT)
-                marker = mouse_marker(subject, m)
                 keep = np.isin(d["unit_ids"], flash[kind][SESSIONS[m]])
                 x, y = d[measure][:, i], d[measure][:, j]
                 sx, sy = d[f"{measure}_sd"][:, i], d[f"{measure}_sd"][:, j]
@@ -121,7 +129,7 @@ def main() -> None:
                         y[k & ~out],
                         xerr=sx[k & ~out],
                         yerr=sy[k & ~out],
-                        fmt=marker,
+                        fmt="o",
                         ms=3.5,
                         color=color,
                         ecolor=color,
@@ -138,10 +146,7 @@ def main() -> None:
                         edgecolor=color,
                         lw=0.8,
                     )
-                    if k.any():
-                        median_marker(
-                            ax, np.median(x[k]), np.median(y[k]), marker, color
-                        )
+                change.append(y[keep] - x[keep])
                 report.setdefault(subject, {})[kind] = {
                     "measure": measure,
                     **summary(x[keep], y[keep]),
@@ -161,6 +166,12 @@ def main() -> None:
                         )
                     ],
                 }
+            # The mice: the change of the units of each mouse and its median.
+            report[f"pooled_change_{kind}"] = mouse_strip(
+                strip, change, [s for s, _, _ in sessions]
+            )
+            strip.axhline(0, color="0.6", ls="--", lw=0.8)
+            strip.set_ylabel(f"kernel {measure}, after exit − in port (Δ log rate)")
             ax.plot(limit, limit, color="0.6", ls="--", lw=0.8)
             ax.axhline(0, color="0.85", lw=0.6, zorder=0)
             ax.axvline(0, color="0.85", lw=0.6, zorder=0)
@@ -190,7 +201,7 @@ def main() -> None:
                     va="top",
                     fontsize=7,
                 )
-        label_panels(axes, x=-0.2, y=1.02)
+        label_panels(all_axes, x=-0.2, y=1.02)
         print(save_figure(fig, OUT / "exit_kernel_units"))
     (OUT / "exit_kernel_units.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
