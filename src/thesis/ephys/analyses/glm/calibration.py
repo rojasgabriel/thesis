@@ -128,8 +128,6 @@ def main() -> None:
                 axis.fill_between(
                     centers, *data["interval"].T, color=color, alpha=0.2, lw=0
                 )
-                for mouse in data["mouse"]:  # a thin line for each mouse
-                    axis.plot(centers, mouse, color=color, lw=0.8, alpha=0.45)
             axis.plot(centers, data["median"], color=color, lw=1.6 if row == 0 else 1.0)
             axis.text(
                 0.97,

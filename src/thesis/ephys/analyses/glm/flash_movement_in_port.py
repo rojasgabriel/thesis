@@ -96,9 +96,9 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     hierarchical_interval,
     label_panels,
-    mouse_curves,
-    mouse_strip,
     save_figure,
+    unit_curves,
+    unit_strip,
 )
 
 OUT = Path("results/glm")
@@ -272,9 +272,9 @@ def summary(values: np.ndarray, rng) -> dict:
 
 
 def plot(sessions: list[dict]) -> Path:
-    """Left: the flash-aligned rate in each movement quintile, a thin line for
-    each mouse (mean of its units) and the mean ± SEM of the mice. Right: the
-    percent change per SD of each unit, by mouse, and the pooled median."""
+    """Left: the flash-aligned rate in the stillest and the most-movement
+    quintile, mean ± SEM over the units of all mice pooled. Right: the percent
+    change per SD of each unit and the pooled median."""
     centers = np.arange(*WINDOW_MS, BIN_MS) + BIN_MS / 2
     with plt.rc_context(FIGURE_STYLE):
         figure, (ax, strip) = plt.subplots(
@@ -283,9 +283,7 @@ def plot(sessions: list[dict]) -> Path:
         # Only the two end groups: five groups of four mice hide each other.
         for g in (0, QUINTILES - 1):
             # psth: (unit, quintile, bin)
-            mouse_curves(
-                ax, centers, [s["psth"][:, g].mean(0) for s in sessions], SHADES[g]
-            )
+            unit_curves(ax, centers, [s["psth"][:, g] for s in sessions], SHADES[g])
         ax.axvline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
         for y, label, shade in (
             (0.95, "most movement", SHADES[-1]),
@@ -306,19 +304,17 @@ def plot(sessions: list[dict]) -> Path:
         ax.set_ylabel("rate / unit's mean observed rate")
         ax.set_title(
             f"{sum(len(s['psth']) for s in sessions)} flash-excited units, {len(sessions)} mice"
-            " (thin: each mouse; thick: mean ± SEM of the mice)",
+            " (mean ± SEM over units)",
             fontsize=7.5,
             loc="left",
         )
         groups = [s["percent"][np.isfinite(s["percent"])] for s in sessions]
         outside = int(sum(np.sum(np.abs(g) > PERCENT_LIMIT) for g in groups))
-        mouse_strip(
-            strip,
-            groups,
-            [s["subject"] for s in sessions],
-            color=VISUAL,
-            limits=(-PERCENT_LIMIT, PERCENT_LIMIT),
+        unit_strip(
+            strip, 0, groups, color=VISUAL, limits=(-PERCENT_LIMIT, PERCENT_LIMIT)
         )
+        strip.set_xticks([0], [f"{sum(len(g) for g in groups)} units"])
+        strip.set_xlim(-0.6, 0.6)
         strip.axhline(0, color=REFERENCE_COLOR, lw=0.8)
         strip.set_ylabel("change of the flash response\nper 1 SD of motion energy (%)")
         if outside:

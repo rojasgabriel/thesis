@@ -41,7 +41,7 @@ computes nothing and draws panel a for the sessions of
 `behavior.trials.SESSIONS` from their saved JSON files, in
 `figures/exit_without_stimulus/exit_without_stimulus.svg`: the mean over the
 units of a mouse (thin line) and the mean ± SEM over the mice (thick line,
-`plotting.mouse_curves`).
+`plotting.unit_curves`, the units of all mice pooled).
 
     uv run python -m thesis.ephys.analyses.exit_without_stimulus
 """
@@ -127,7 +127,7 @@ def _paired(first: np.ndarray, second: np.ndarray) -> dict:
 def pooled_figure(out: Path) -> Path:
     """Draw the rate around the exit, all recorded mice in one panel."""
     from thesis.behavior.trials import SESSIONS
-    from thesis.plotting import mouse_curves
+    from thesis.plotting import unit_curves
 
     saved = [
         json.loads((out / s / "exit_without_stimulus.json").read_text())
@@ -136,10 +136,10 @@ def pooled_figure(out: Path) -> Path:
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(4.4, 3.2), layout="constrained")
         for index, name in enumerate(COLORS):
-            mouse_curves(
+            unit_curves(
                 axis,
                 saved[0]["time_from_exit_ms"],
-                [s[name]["mean_normalized_rate"] for s in saved],
+                [s[name]["normalized_rate_by_unit"] for s in saved],
                 COLORS[name],
             )
             axis.text(

@@ -313,6 +313,55 @@ def pooled_strip(
     return stats
 
 
+def unit_curves(axis, x, groups, color) -> np.ndarray:
+    """Draw the mean ± SEM over the units of all mice pooled (Gabriel, 2026-11-27).
+
+    `groups` holds one (units, points) array for each mouse; the units of all
+    mice are pooled. Returns the mean.
+    """
+    units = np.vstack([np.asarray(g, dtype=float) for g in groups])
+    mean = np.nanmean(units, axis=0)
+    sem = np.nanstd(units, axis=0, ddof=1) / np.sqrt(np.sum(np.isfinite(units), 0))
+    axis.fill_between(x, mean - sem, mean + sem, color=color, alpha=0.2, lw=0)
+    axis.plot(x, mean, color=color, lw=2.4)
+    return mean
+
+
+def unit_strip(axis, position, groups, color="0.5", limits=None, seed: int = 0) -> dict:
+    """Draw the units of all mice in one column and the pooled median.
+
+    The median has the hierarchical-bootstrap 95% interval (mice, then units).
+    `limits` is a display limit: values past it are drawn at the edge and stay
+    in the statistics. Returns the statistics of `hierarchical_interval`.
+    """
+    rng = np.random.default_rng(seed)
+    values = np.concatenate([np.asarray(g, dtype=float) for g in groups])
+    shown = values if limits is None else np.clip(values, *limits)
+    axis.scatter(
+        position + rng.uniform(-0.15, 0.15, len(values)),
+        shown,
+        s=8,
+        color=color,
+        alpha=0.4,
+        lw=0,
+        zorder=2,
+    )
+    stats = hierarchical_interval(groups, seed)
+    low, high = stats["interval_95"]
+    axis.errorbar(
+        position,
+        stats["median"],
+        yerr=[[stats["median"] - low], [high - stats["median"]]],
+        fmt="o",
+        ms=6,
+        color="black",
+        elinewidth=1.4,
+        capsize=3,
+        zorder=4,
+    )
+    return stats
+
+
 def mouse_curves(axis, x, curves, color) -> np.ndarray:
     """Draw a curve of each mouse (thin) and their mean with its SEM (thick).
 

@@ -20,9 +20,9 @@ movement terms of the GLM explain? Exploratory; no new fit.
   direction (all units): held-out bits per spike lost when that term is
   shuffled (`unique_dev.py`).
 
-Sampling unit: the unit. Each dot is a unit; the mouse is the marker shape and
-the color is the fixation group; open markers: the median of each mouse and
-group. c and d use a
+Sampling unit: the unit. Each dot is a unit of the pooled mice; the color is
+the fixation group; the large point is the pooled median with its
+hierarchical-bootstrap 95% interval. c and d use a
 symmetric log axis, linear within ±0.01 bits/spike. Statistics, each mouse
 alone: Kruskal-Wallis over the three groups (groups with fewer than 3 units
 are left out of the test).
@@ -58,8 +58,6 @@ from thesis.plotting import (
     POINT_ALPHA,
     hierarchical_interval,
     label_panels,
-    median_marker,
-    mouse_marker,
     save_figure,
 )
 
@@ -144,9 +142,8 @@ def main() -> None:
                     if len(tested) >= 2
                     else None,
                 }
-            # Each group: the units of all mice, the median of each mouse (its
-            # marker, at the right), and the pooled median with its
-            # hierarchical-bootstrap 95% interval.
+            # Each group: the units of all mice pooled and the pooled median
+            # with its hierarchical-bootstrap 95% interval (Gabriel, 2026-11-27).
             for g, name in enumerate(FIXATION_GROUPS):
                 color = FIXATION_COLORS[name]
                 groups = [mouse[g] for mouse in by_mouse]
@@ -159,16 +156,6 @@ def main() -> None:
                     alpha=POINT_ALPHA,
                     lw=0,
                 )
-                for m, (v, d) in enumerate(zip(groups, data, strict=True)):
-                    if len(v):
-                        median_marker(
-                            axis,
-                            g + 0.24 + 0.07 * m,
-                            np.median(v),
-                            mouse_marker(d["subject"], m),
-                            "black",
-                            5,
-                        )
                 stats = hierarchical_interval([v for v in groups if len(v)])
                 low, high = stats["interval_95"]
                 axis.errorbar(
@@ -189,7 +176,7 @@ def main() -> None:
                 # Most gains are near 0 and a few are large: linear within ±0.01.
                 axis.set_yscale("symlog", linthresh=0.01)
             axis.set_xticks(range(3), SHORT)
-            axis.set_xlim(-0.5, 2.7)
+            axis.set_xlim(-0.5, 2.5)
             axis.set_xlabel("fixation effect")
             axis.set_ylabel(ylabel)
         label_panels(axes, x=-0.25, y=1.04)

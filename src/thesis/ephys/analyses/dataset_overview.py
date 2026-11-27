@@ -20,9 +20,14 @@ on the same scales.
   flash of a trial), in the port (still, blue) and between the center exit and
   the response-port entry (moving, orange), with the whole window
   (`FLASH_WINDOW_S`) inside its period; below, the rate in 10-ms bins,
-  mean ± SEM over flashes.
-- Population (`dataset_population.svg`): every unit around the first flash
-  and around the center exit, 10-ms bins, as (rate − the unit's rate in the
+  mean ± SEM over flashes. The example is the one above, unless its peak
+  rate (largest 10-ms bin in `PEAK_WINDOW_S`) after the exit is not higher
+  than in the port; then it is the most visible unit (same measure) whose
+  peak after the exit is at least `RASTER_MIN_RATIO` times that in the port
+  (GRB061 since 2026-11-27). It illustrates the effect; the population
+  figure of the next analysis shows all units.
+- Population (`dataset_population.svg`): every unit of all mice in one map,
+  around the first flash and around the center exit, 10-ms bins, as (rate − the unit's rate in the
   40 ms before the first flash, in trials with that window in the port) over
   the unit's mean rate; the same baseline for the exit panel; units sorted by
   their mean from 150 to 500 ms after the first flash.
@@ -86,6 +91,7 @@ VISUAL = CONCEPT_COLORS["visual"]
 STILL, MOVING = PERIOD_COLORS["in port"], PERIOD_COLORS["after exit"]
 LONG_GAP_S = 0.08
 MIN_EXAMPLE_RATE_HZ = 3.0
+RASTER_MIN_RATIO = 1.2
 MEAN_WINDOW_S = (-0.5, 1.5)
 FIRST_FLASH_WINDOW_S = (-0.3, 0.6)
 EXIT_WINDOW_S = (-0.4, 0.6)
@@ -185,6 +191,21 @@ def session_data(session: str, excited: set[int], root: Path | None = None) -> d
     before = flash_rate[:, base].mean(1) * duration
     visible = (after - before) / np.sqrt(np.maximum(after + before, 1e-9))
     example = max(candidates, key=lambda i: visible[i], default=None)
+
+    def peak_rate(events):
+        rate = np.array(
+            [counts_around(s, events, flash_edges).mean(0) / 0.01 for s in spikes]
+        )
+        return rate[:, peak].max(1)
+
+    ratio = peak_rate(moving) / np.maximum(peak_rate(still), 1e-9)
+    raster_example = example
+    if example is not None and ratio[example] <= 1:
+        raster_example = max(
+            (i for i in candidates if ratio[i] >= RASTER_MIN_RATIO),
+            key=lambda i: visible[i],
+            default=example,
+        )
     return {
         "subject": subject,
         "units": units,
@@ -203,6 +224,7 @@ def session_data(session: str, excited: set[int], root: Path | None = None) -> d
         "first_response": first_response,
         "peak": peak,
         "example": example,
+        "raster_example": raster_example,
     }
 
 
@@ -239,7 +261,7 @@ def plot_flash_raster(sessions: list[dict]) -> Path:
             gridspec_kw={"height_ratios": (2, 1)},
         )
         for column, data in enumerate(sessions):
-            spikes = data["spikes"][data["example"]]
+            spikes = data["spikes"][data["raster_example"]]
             raster, psth = axes[0, column], axes[1, column]
             offset = 0
             for events, color in ((data["still"], STILL), (data["moving"], MOVING)):
@@ -379,83 +401,81 @@ def plot_population(sessions: list[dict]) -> tuple[Path, dict]:
     exit_edges = np.arange(EXIT_WINDOW_S[0], EXIT_WINDOW_S[1] + 1e-9, POPULATION_BIN_S)
     first_centers = (first_edges[:-1] + first_edges[1:]) / 2
     sort = (first_centers >= SORT_WINDOW_S[0]) & (first_centers < SORT_WINDOW_S[1])
-    with plt.rc_context(FIGURE_STYLE):
-        # A column for each mouse (a landscape figure for slides): the first
-        # flash on top and the center exit below, the same unit order.
-        figure, grid = plt.subplots(
-            2,
-            len(sessions),
-            figsize=(2.5 * len(sessions) + 1.0, 5.4),
-            sharex="row",
-            squeeze=False,
+    firsts, exits_all = [], []
+    for data in sessions:
+        mean = np.maximum(data["mean_rate"], 1e-9)[:, None]
+        near_first = np.array(
+            [
+                counts_around(s, data["first"], first_edges).mean(0) / POPULATION_BIN_S
+                for s in data["spikes"]
+            ]
         )
-        axes = grid.T  # axes[mouse, alignment]
-        for row, data in enumerate(sessions):
-            mean = np.maximum(data["mean_rate"], 1e-9)[:, None]
-            near_first = np.array(
-                [
-                    counts_around(s, data["first"], first_edges).mean(0)
-                    / POPULATION_BIN_S
-                    for s in data["spikes"]
-                ]
-            )
-            exits = data["exit"][np.isfinite(data["exit"])]
-            near_exit = np.array(
-                [
-                    counts_around(s, exits, exit_edges).mean(0) / POPULATION_BIN_S
-                    for s in data["spikes"]
-                ]
-            )
-            pre = np.array(
-                [
-                    counts_around(
-                        s, data["first_in_port"], np.array(BASELINE_WINDOW_S)
-                    )[:, 0].mean()
-                    / (BASELINE_WINDOW_S[1] - BASELINE_WINDOW_S[0])
-                    for s in data["spikes"]
-                ]
-            )[:, None]
-            change_first = (near_first - pre) / mean
-            change_exit = (near_exit - pre) / mean
-            order = np.argsort(change_first[:, sort].mean(1))
-            n = len(order)
-            image = _heat(
-                axes[row, 0],
-                change_first[order],
-                (*FIRST_FLASH_WINDOW_S, n, 0),
-                POPULATION_LIMIT,
-                "RdBu_r",
-            )
-            _heat(
-                axes[row, 1],
-                change_exit[order],
-                (*EXIT_WINDOW_S, n, 0),
-                POPULATION_LIMIT,
-                "RdBu_r",
-            )
-            for axis in axes[row]:
-                axis.axvline(0, color="0.2", linewidth=0.6)
-            axes[row, 0].set_title(f"{data['subject']}: {n} units", fontsize=8)
-            axes[row, 0].set_xlabel("time from the first flash (s)")
-            axes[row, 1].set_xlabel("time from the center exit (s)")
-            report[data["subject"]] = {
-                "units": n,
-                "fraction_lower_150_500_ms": float(
-                    np.mean(change_first[:, sort].mean(1) < 0)
-                ),
-                "values_past_the_color_limit": int(
-                    np.sum(
-                        np.abs(np.r_[change_first.ravel(), change_exit.ravel()])
-                        > POPULATION_LIMIT
-                    )
-                ),
-            }
-        for axis in axes[0]:
-            axis.set_ylabel("units")
+        exits = data["exit"][np.isfinite(data["exit"])]
+        near_exit = np.array(
+            [
+                counts_around(s, exits, exit_edges).mean(0) / POPULATION_BIN_S
+                for s in data["spikes"]
+            ]
+        )
+        pre = np.array(
+            [
+                counts_around(s, data["first_in_port"], np.array(BASELINE_WINDOW_S))[
+                    :, 0
+                ].mean()
+                / (BASELINE_WINDOW_S[1] - BASELINE_WINDOW_S[0])
+                for s in data["spikes"]
+            ]
+        )[:, None]
+        change_first = (near_first - pre) / mean
+        change_exit = (near_exit - pre) / mean
+        firsts.append(change_first)
+        exits_all.append(change_exit)
+        report[data["subject"]] = {
+            "units": len(change_first),
+            "fraction_lower_150_500_ms": float(
+                np.mean(change_first[:, sort].mean(1) < 0)
+            ),
+            "values_past_the_color_limit": int(
+                np.sum(
+                    np.abs(np.r_[change_first.ravel(), change_exit.ravel()])
+                    > POPULATION_LIMIT
+                )
+            ),
+        }
+    # The units of all mice in one map, sorted by the wait after the first flash.
+    change_first, change_exit = np.vstack(firsts), np.vstack(exits_all)
+    order = np.argsort(change_first[:, sort].mean(1))
+    n = len(order)
+    report["pooled"] = {
+        "units": n,
+        "mice": len(sessions),
+        "fraction_lower_150_500_ms": float(np.mean(change_first[:, sort].mean(1) < 0)),
+    }
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axes = plt.subplots(1, 2, figsize=(7.6, 4.6), sharey=True)
+        image = _heat(
+            axes[0],
+            change_first[order],
+            (*FIRST_FLASH_WINDOW_S, n, 0),
+            POPULATION_LIMIT,
+            "RdBu_r",
+        )
+        _heat(
+            axes[1],
+            change_exit[order],
+            (*EXIT_WINDOW_S, n, 0),
+            POPULATION_LIMIT,
+            "RdBu_r",
+        )
+        for axis in axes:
+            axis.axvline(0, color="0.2", linewidth=0.6)
+        axes[0].set_xlabel("time from the first flash (s)")
+        axes[1].set_xlabel("time from the center exit (s)")
+        axes[0].set_ylabel(f"units ({n} units, {len(sessions)} mice)")
         figure.tight_layout()
-        bar = figure.colorbar(image, ax=grid, shrink=0.5, pad=0.02)
+        bar = figure.colorbar(image, ax=axes, shrink=0.6, pad=0.02)
         bar.set_label("(rate − pre-flash rate) ÷ mean rate")
-        label_panels(grid[:, 0], x=-0.3, y=1.02)
+        label_panels(axes, x=-0.12, y=1.02)
         return save_figure(figure, OUT / "dataset_population"), report
 
 
@@ -513,6 +533,7 @@ def main() -> None:
         d["subject"]: {
             "example_unit_id": int(d["ids"][d["example"]]),
             "example_mean_rate_hz": float(d["mean_rate"][d["example"]]),
+            "flash_raster_unit_id": int(d["ids"][d["raster_example"]]),
             "still_flashes": int(len(d["still"])),
             "moving_flashes": int(len(d["moving"])),
         }

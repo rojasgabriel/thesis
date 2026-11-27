@@ -29,9 +29,10 @@ after the exit, so every unit has a value in both periods (paired).
   largest (after - before) / sqrt(after + before) over the in-port flashes at
   least 80 ms after the flash before (as `dataset_overview.py`). The rasters
   show the same trials in the same order on both axes.
-- Scatter: marker = mouse, color = the direction of the fixation modulation
-  (`hold_effect.fixation_groups`, `plotting.FIXATION_COLORS`). Light points:
-  units; open markers: the median of each mouse and fixation group.
+- Population figure: the units of all mice pooled (Gabriel, 2026-11-27):
+  PSTH mean ± SEM over units; scatter of units in one color; the increase of
+  all units with the pooled median and its hierarchical-bootstrap 95%
+  interval (mice, then units). By gap: the pooled median and its interval.
 - Display limit of the scatter (`SCATTER_LIMIT`): points past it are drawn at
   the edge as open triangles and stay in the statistics; the report lists
   them.
@@ -71,7 +72,6 @@ from thesis.ephys.analyses.glm import dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.analyses.glm.hold_effect import (
-    FIXATION_GROUPS,
     fixation_groups,
     fixation_suppressed,
 )
@@ -79,15 +79,16 @@ from thesis.ephys.analyses.glm.peaks import load_excited_units, window_peak
 from thesis.ephys.units import fetch_unit_table
 from thesis.plotting import (
     FIGURE_STYLE,
-    FIXATION_COLORS,
+    OBSERVED_COLOR,
     PERIOD_COLORS,
     POINT_ALPHA,
+    hierarchical_interval,
     label_panels,
     median_marker,
-    mouse_curves,
     mouse_marker,
-    mouse_strip,
     save_figure,
+    unit_curves,
+    unit_strip,
 )
 
 OUT = Path("results/glm")
@@ -293,7 +294,7 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                         for u in d["exc"]
                     ]
                 )
-                curves[k].append(tr.mean(0))
+                curves[k].append(tr)
             p = peaks(d)
             for k in allp:
                 allp[k].append(p[k])
@@ -307,7 +308,7 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                 flashes={k: int(len(d["ev"][k][0])) for k in d["ev"]},
             )
         for k, c in (("in port", PORT), ("after exit", EXIT)):
-            m = mouse_curves(a, 1000 * CENTERS, curves[k], c)
+            m = unit_curves(a, 1000 * CENTERS, curves[k], c)
             # One legend per figure, next to its line: the after-exit label
             # right of its peak, the in-port label under its line.
             if k == "after exit":
@@ -315,7 +316,7 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
                 xy, va = (1000 * CENTERS[t] + 6, m[t] + 0.12), "bottom"
             else:
                 t = int(np.argmin(np.abs(1000 * CENTERS - PORT_LABEL_MS)))
-                xy, va = (1000 * CENTERS[t], np.min(curves[k]) - 0.05), "top"
+                xy, va = (1000 * CENTERS[t], np.min(m) - 0.05), "top"
             a.text(*xy, NAMES[k], color=c, va=va, fontsize=7)
         a.axvline(0, color="0.6", ls="--", lw=0.7)
         a.set_xlabel("time from flash (ms)")
@@ -324,7 +325,7 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
         a.text(
             0,
             1.02,
-            f"{units} units, {len(data)} mice (thin: each mouse; thick: mean ± SEM of the mice)",
+            f"{units} units, {len(data)} mice (mean ± SEM over units)",
             transform=a.transAxes,
             va="bottom",
             fontsize=7.5,
@@ -333,34 +334,17 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
         x, y = np.concatenate(allp["in port"]), np.concatenate(allp["after exit"])
         lo, hi = SCATTER_LIMIT
         out = (x > hi) | (y > hi) | (x < lo) | (y < lo)
-        group = np.concatenate([d["group"][d["exc"]] for d in data])
-        for fixation in FIXATION_GROUPS:
-            color = FIXATION_COLORS[fixation]
-            k = group == fixation
-            a.scatter(
-                x[k & ~out], y[k & ~out], s=22, color=color, alpha=POINT_ALPHA, lw=0
-            )
-            a.scatter(
-                np.clip(x[k & out], lo, hi),
-                np.clip(y[k & out], lo, hi),
-                s=34,
-                marker="^",
-                facecolor="white",
-                edgecolor=color,
-                lw=0.9,
-            )
-        shown = [f for f in FIXATION_GROUPS if (group == f).any()]
-        for k, fixation in enumerate(shown):
-            a.text(
-                0.66,
-                0.42 - 0.055 * k,
-                fixation,
-                color=FIXATION_COLORS[fixation],
-                transform=a.transAxes,
-                ha="left",
-                va="top",
-                fontsize=7,
-            )
+        color = OBSERVED_COLOR
+        a.scatter(x[~out], y[~out], s=22, color=color, alpha=POINT_ALPHA, lw=0)
+        a.scatter(
+            np.clip(x[out], lo, hi),
+            np.clip(y[out], lo, hi),
+            s=34,
+            marker="^",
+            facecolor="white",
+            edgecolor=color,
+            lw=0.9,
+        )
         report["display_limit" + tag] = dict(
             limit=list(SCATTER_LIMIT),
             units_past=int(out.sum()),
@@ -380,13 +364,13 @@ def plot_population(data, report, name="exit_flash_population", tag=""):
             va="bottom",
             fontsize=7.5,
         )
-        # The mice: the peak increase of the units of each mouse and its median.
+        # The peak increase of all units and the pooled median.
         a = ax[2]
         increase = [e - i for e, i in zip(allp["after exit"], allp["in port"])]
         strip_limit = (-2.0, 4.0)
-        stats = mouse_strip(
-            a, increase, [d["subject"] for d in data], limits=strip_limit
-        )
+        stats = unit_strip(a, 0, increase, limits=strip_limit)
+        a.set_xticks([0], [f"{units} units"])
+        a.set_xlim(-0.6, 0.6)
         report["pooled_increase" + tag] = dict(
             stats,
             display_limit=list(strip_limit),
@@ -427,11 +411,19 @@ def plot_by_gap(data, report):
                     p=float(w.pvalue),
                 )
             for k in medians:
-                medians[k].append([np.median(r[k]) for r in rows])
+                medians[k].append([r[k] for r in rows])
         xs = np.arange(len(GAPS))
         for k, c in (("in port", PORT), ("after exit", EXIT)):
-            m = mouse_curves(a, xs, medians[k], c)
+            st = [
+                hierarchical_interval([mouse[g] for mouse in medians[k]])
+                for g in range(len(GAPS))
+            ]
+            m = np.array([v["median"] for v in st])
+            lo_hi = np.array([v["interval_95"] for v in st])
+            a.fill_between(xs, lo_hi[:, 0], lo_hi[:, 1], color=c, alpha=0.2, lw=0)
+            a.plot(xs, m, color=c, lw=2.4, marker="o", ms=4)
             a.text(xs[-1] + 0.15, m[-1], NAMES[k], color=c, va="center", fontsize=7)
+            report.setdefault("pooled_by_gap", {})[k] = st
         a.axhline(0, color="0.6", ls=":", lw=0.8)
         a.set_xticks(xs, [f"{g}" for g in GAPS[:-1]] + [f"{GAPS[-1]}+"])
         a.set_xlim(-0.3, len(GAPS) + 0.2)
@@ -441,7 +433,7 @@ def plot_by_gap(data, report):
             0,
             1.02,
             f"{sum(len(d['exc']) for d in data)} flash-excited units, {len(data)} mice"
-            " (thin: median of each mouse; thick: mean ± SEM of the mice)",
+            " (pooled median, 95% hierarchical interval)",
             transform=a.transAxes,
             va="bottom",
             fontsize=7,

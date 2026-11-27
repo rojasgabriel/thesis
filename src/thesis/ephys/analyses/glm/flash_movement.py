@@ -48,11 +48,11 @@ across units. These peaks are not leak
 corrected and differ from the earlier matched-rate peak contribution.
 
 Selection: all sessions in flash_kernels.SESSIONS, quality 1/stability 0,
-and available main-GLM fits after the existing fit exclusions. Scatters show
-only the mean of all eligible units (open markers) and the mean of the saved
-StimulusResponse excited group (filled markers), with SEM across units on
-both axes. The mouse is the marker shape (`mouse_marker`); the color is the
-source (observed black, model wine). PSTHs and the existing report
+and available main-GLM fits after the existing fit exclusions. The units of all mice
+are pooled (Gabriel, 2026-11-27). Scatters show the excited units as light
+points, the mean of all eligible units (open marker) and the mean of the
+saved StimulusResponse excited group (filled marker), with SEM across units
+on both axes; the color is the source (observed black, model wine). PSTHs and the existing report
 summaries use only that excited group. The same units enter every rate column. The
 sampling unit is the neural unit; tests are paired within mouse. Trial
 selection differs from standardized model-kernel conditions. All finite
@@ -89,9 +89,8 @@ from thesis.plotting import (
     MODEL_COLOR,
     OBSERVED_COLOR,
     label_panels,
-    mouse_curves,
-    mouse_marker,
     save_figure,
+    unit_curves,
 )
 from thesis.plotting import PERIOD_COLORS as PERIOD_COLOR_OF
 
@@ -550,53 +549,40 @@ def comparison_summary(values):
 
 
 def peak_scatter(axis, sessions, field, gap=None):
+    """Peaks of the flash-excited units of all mice pooled (Gabriel, 2026-11-27).
+
+    Light points: the flash-excited units. Markers: the mean ± SEM over all
+    units (open) and over the flash-excited units (filled).
+    """
     extents = []
     color = OBSERVED_COLOR if field == "observed" else MODEL_COLOR
-    for index, data in enumerate(sessions):
-        marker = mouse_marker(data["subject"], index)
-        values = data[field]
-        if gap is not None:
-            values = values[:, gap]
-        responsive = np.asarray(data["responsive"], dtype=bool)
-        for selected, filled in ((values, False), (values[responsive], True)):
-            mean = selected.mean(0)
-            spread = stats.sem(selected, axis=0)
-            axis.errorbar(
-                *mean,
-                xerr=spread[0],
-                yerr=spread[1],
-                fmt=marker,
-                markerfacecolor=color if filled else "none",
-                color=color,
-                ms=7,
-                capsize=2,
-                alpha=0.8,
-                zorder=3 + int(filled),
-            )
-            extents.extend((mean, mean - spread, mean + spread))
-        # Fixed corner labels keep mouse names clear of the point cloud.
-        axis.plot(
-            0.66,
-            0.30 - index * 0.07,
-            marker,
-            color=OBSERVED_COLOR,
-            mfc="none",
-            transform=axis.transAxes,
-            clip_on=False,
-            ms=4,
+    values = np.concatenate(
+        [d[field] if gap is None else d[field][:, gap] for d in sessions]
+    )
+    responsive = np.concatenate(
+        [np.asarray(d["responsive"], dtype=bool) for d in sessions]
+    )
+    axis.scatter(*values[responsive].T, s=8, color=color, alpha=0.3, lw=0, zorder=2)
+    extents.extend(values[responsive])
+    for selected, filled in ((values, False), (values[responsive], True)):
+        mean = selected.mean(0)
+        spread = stats.sem(selected, axis=0)
+        axis.errorbar(
+            *mean,
+            xerr=spread[0],
+            yerr=spread[1],
+            fmt="o",
+            markerfacecolor=color if filled else "white",
+            color=color,
+            ms=7,
+            capsize=2,
+            zorder=3 + int(filled),
         )
-        axis.text(
-            0.71,
-            0.30 - index * 0.07,
-            data["subject"],
-            transform=axis.transAxes,
-            va="center",
-            color=OBSERVED_COLOR,
-        )
+        extents.extend((mean, mean - spread, mean + spread))
     axis.text(
-        0.66,
-        0.36,
-        "open: all units\nfilled: flash-excited",
+        0.62,
+        0.2,
+        f"open: all {len(values)} units\nfilled: {int(responsive.sum())} flash-excited\npoints: flash-excited units",
         transform=axis.transAxes,
         va="bottom",
         fontsize=5.5,
@@ -623,16 +609,16 @@ def match_scatter_limits(axes):
 def psth_panel(axis, sessions, gap, labels):
     """Mean rate around the flashes of one gap class: each mouse and their mean.
 
-    A thin line is the mean over the group units of one mouse; the thick line
-    is the mean of the mice with its SEM (`plotting.mouse_curves`).
+    The mean ± SEM over the flash-excited units of all mice pooled
+    (`plotting.unit_curves`).
     """
     for period, (name, color) in enumerate(
         zip(("stationary", "movement"), PERIOD_COLORS, strict=True)
     ):
-        mouse_curves(
+        unit_curves(
             axis,
             1000 * sessions[0]["centers"],
-            [d["traces"][d["responsive"], gap][:, period].mean(0) for d in sessions],
+            [d["traces"][d["responsive"], gap][:, period] for d in sessions],
             color,
         )
         if labels:

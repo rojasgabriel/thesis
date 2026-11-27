@@ -27,9 +27,8 @@ model misses stays in (the first flash after the exit is the main one,
   exit (bins after the first flash only), `hold_effect.FLASH_WINDOW_MS` and
   `EXIT_WINDOW_MS`; all bins before the response-port entry.
 - PSTH: `BIN_MS` bins, mean over trials in spikes/s. Population: each unit
-  divided by its observed mean rate over all valid bins, then the mean over
-  the units of a mouse (thin line) and the mean ± SEM over the mice (thick
-  line, `plotting.mouse_curves`). The sampling unit of the band is the mouse.
+  divided by its observed mean rate over all valid bins, then the mean ± SEM
+  over the units of all mice pooled (`plotting.unit_curves`).
 
 Writes `figures/glm/fixation_without_flash.svg`; no new fit.
 
@@ -58,8 +57,8 @@ from thesis.plotting import (
     MODEL_COLOR,
     OBSERVED_COLOR,
     label_panels,
-    mouse_curves,
     save_figure,
+    unit_curves,
 )
 
 OUT = Path("results/glm")
@@ -204,11 +203,11 @@ def main() -> None:
                 axis = axes[2 * index + offset]
                 centers = sessions[0]["centers"][name]
                 for version, color in VERSIONS.items():
-                    if unit is None:  # thin: mean of a mouse; thick: mean of mice
-                        mouse_curves(
+                    if unit is None:  # mean ± SEM over the pooled units
+                        unit_curves(
                             axis,
                             centers,
-                            [s["population"][version][name].mean(0) for s in sessions],
+                            [s["population"][version][name] for s in sessions],
                             color,
                         )
                     else:

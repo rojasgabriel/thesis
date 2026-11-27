@@ -80,9 +80,8 @@ from thesis.plotting import (
     POINT_ALPHA,
     hierarchical_interval,
     label_panels,
-    mouse_curves,
-    mouse_marker,
     save_figure,
+    unit_curves,
 )
 
 OUT = Path("results/glm")
@@ -245,9 +244,8 @@ def plot_peaks(rows, summary, name="model_without_terms"):
     """One row of the four versions per unit group; rows: [(label, data)].
 
     Scatters: each unit is a light point (the units of all mice). Last panel:
-    the median increase of each mouse in each version (gray line, the marker
-    of the mouse) and the pooled median with its hierarchical-bootstrap 95%
-    interval (black).
+    the pooled median increase in each version with its hierarchical-bootstrap
+    95% interval (black).
     """
     lo, hi = SCATTER_LIMIT
     with plt.rc_context(FIGURE_STYLE):
@@ -324,22 +322,9 @@ def plot_peaks(rows, summary, name="model_without_terms"):
                 fontsize=8,
             ).set_in_layout(False)
             axes[row, 0].set_ylabel("peak, first after exit\n(÷ mean rate)")
-            # The mice: the median increase of each mouse in each version.
+            # The pooled median increase of the units in each version.
             a = axes[row, 4]
             xs = np.arange(len(VERSIONS))
-            for m, d in enumerate(data):
-                if not len(increases[0][m]):
-                    continue
-                a.plot(
-                    xs,
-                    [np.median(v[m]) for v in increases],
-                    "-" + mouse_marker(d["subject"], m),
-                    color="0.55",
-                    mfc="white",
-                    mec="0.3",
-                    ms=5,
-                    lw=1,
-                )
             pooled = {}
             for x, version, v in zip(xs, VERSIONS, increases, strict=True):
                 stats = hierarchical_interval([g for g in v if len(g)])
@@ -365,8 +350,8 @@ def plot_peaks(rows, summary, name="model_without_terms"):
 
 
 def plot_traces(data):
-    """Observed and model rate around each kind of flash: a thin line for
-    each mouse (mean of its units) and the mean ± SEM of the mice."""
+    """Observed and model rate around each kind of flash: mean ± SEM over the
+    units of all mice pooled."""
     with plt.rc_context(FIGURE_STYLE):
         fig, ax = plt.subplots(1, 3, figsize=(10, 3.2), sharex=True, sharey=True)
         for a, k in zip(ax, FLASHES, strict=True):
@@ -375,10 +360,10 @@ def plot_traces(data):
                 ("full model", MODEL_COLOR),
             ):
                 curves = [
-                    np.mean([binned(u[version][k]) for u in d["units"]], axis=0)
+                    np.asarray([binned(u[version][k]) for u in d["units"]])
                     for d in data
                 ]
-                mouse_curves(a, CENTERS + BIN / 2, curves, col)
+                unit_curves(a, CENTERS + BIN / 2, curves, col)
             a.axvline(0, color="0.6", ls="--", lw=0.7)
             period = "after exit" if k == "first after exit" else "in port"
             a.set_title(k, fontsize=9, color=PERIOD_COLORS[period])

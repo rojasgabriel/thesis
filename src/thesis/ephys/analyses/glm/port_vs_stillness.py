@@ -31,8 +31,8 @@ The script writes the rates to `port_vs_stillness.npz` and these statistics to
 `port_vs_stillness.json`. With `--figure` it computes nothing and draws
 `figures/glm/port_vs_stillness.svg` from the saved rates of the sessions of
 `flash_kernels.SESSIONS`: rate against motion-energy group in the center port
-and at the side port, the median over the units of a mouse (thin line) and
-the mean ± SEM over the mice (thick line, `plotting.mouse_curves`).
+and at the side port, the median over the units of all mice pooled with
+its hierarchical-bootstrap 95% interval (mice, then units).
 
 - Paired test: each unit's rate in the center port against its rate at the
   side port, in the group with the least motion energy (two-sided Wilcoxon
@@ -72,7 +72,12 @@ from thesis.ephys.analyses.glm import cli, dmat
 from thesis.ephys.analyses.glm.fit import analysis_unit_indices
 from thesis.ephys.analyses.glm.flash_kernels import SESSIONS
 from thesis.ephys.units import fetch_unit_table
-from thesis.plotting import CONCEPT_COLORS, FIGURE_STYLE, mouse_curves, save_figure
+from thesis.plotting import (
+    CONCEPT_COLORS,
+    FIGURE_STYLE,
+    hierarchical_interval,
+    save_figure,
+)
 
 STATES = ("in center port", "moving to side port", "at side port")
 STATE_COLORS = (CONCEPT_COLORS["task"], CONCEPT_COLORS["motion energy"], "0.35")
@@ -270,15 +275,23 @@ def pooled_figure(out: Path, states=(0, 2)) -> Path:
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(4.0, 3.2), layout="constrained")
         for index in states:
-            curves = [
-                np.where(
-                    d["frames"][index] >= MIN_FRAMES,
-                    np.nanmedian(d["rate"][:, index], axis=0),
-                    np.nan,
+            # The units of all mice pooled: the median and its hierarchical
+            # 95% interval in each motion group (Gabriel, 2026-11-27).
+            stats = [
+                hierarchical_interval(
+                    [
+                        d["rate"][:, index, g][np.isfinite(d["rate"][:, index, g])]
+                        for d in data
+                        if d["frames"][index][g] >= MIN_FRAMES
+                    ]
                 )
-                for d in data
+                for g in range(GROUPS)
             ]
-            mean = mouse_curves(axis, np.arange(GROUPS), curves, STATE_COLORS[index])
+            mean = np.array([s["median"] for s in stats])
+            band = np.array([s["interval_95"] for s in stats])
+            color = STATE_COLORS[index]
+            axis.fill_between(np.arange(GROUPS), *band.T, color=color, alpha=0.2, lw=0)
+            axis.plot(np.arange(GROUPS), mean, color=color, lw=2.4)
             axis.text(
                 GROUPS - 0.9,
                 mean[-1],

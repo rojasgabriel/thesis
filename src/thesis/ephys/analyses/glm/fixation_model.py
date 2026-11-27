@@ -37,7 +37,7 @@ divided out (Anne asked for observed against the model prediction).
   `EXIT_WINDOW_MS`; all bins before the response-port entry.
 - PSTH: `BIN_MS` bins, mean over trials in spikes/s. Population: each unit
   divided by its observed mean rate over all valid bins, then mean ± SEM over
-  units, each mouse alone. The sampling unit is the unit.
+  the units of all mice pooled. The sampling unit is the unit.
 
 Writes `figures/glm/fixation_model.svg`; no new fit.
 
@@ -71,8 +71,8 @@ from thesis.plotting import (
     MODEL_COLOR,
     OBSERVED_COLOR,
     label_panels,
-    mouse_curves,
     save_figure,
+    unit_curves,
 )
 
 OUT = Path("results/glm")
@@ -251,44 +251,44 @@ def main() -> None:
             for s, g in zip(sessions, groups, strict=True)
         ]
     with plt.rc_context(FIGURE_STYLE):
-        # Rows: all units, then each fixation group. Columns: the first flash
-        # and the center exit. In each panel: a thin line for each mouse (the
-        # mean of its units) and the mean ± SEM of the mice.
+        # Columns: all units, then each fixation group. Rows: the first flash
+        # and the center exit (landscape for a slide). In each panel: the mean ± SEM over the
+        # units of all mice pooled (Gabriel, 2026-11-27).
         figure, axes = plt.subplots(
-            len(rows),
             2,
-            figsize=(6.4, 2.5 * len(rows) + 0.4),
-            sharex="col",
+            len(rows),
+            figsize=(3.0 * len(rows) + 0.6, 5.2),
+            sharex="row",
             sharey=True,
             layout="constrained",
         )
         for row, (group, keeps) in enumerate(rows.items()):
             units = 0
             for column, (name, (xlabel, limits, _)) in enumerate(ALIGNMENTS.items()):
-                axis = axes[row, column]
+                axis = axes[column, row]
                 for version, color in VERSIONS.items():
                     curves = []
                     for session, keep in zip(sessions, keeps, strict=True):
                         values = session["population"][version][name]
                         values = values if keep is None else values[keep]
                         if len(values):
-                            curves.append(values.mean(0))
+                            curves.append(values)
                         if column == 0 and version == "observed":
                             units += len(values)
-                    mouse_curves(axis, sessions[0]["centers"][name], curves, color)
+                    unit_curves(axis, sessions[0]["centers"][name], curves, color)
                 axis.axvline(0, color="0.6", ls="--", lw=0.8)
                 axis.set_xlim(*limits)
                 axis.set_xticks([0, 200, 400])
-                if row == len(rows) - 1:
-                    axis.set_xlabel(xlabel)
-            axes[row, 0].set_title(
-                f"{group}: {units} units, {len(sessions)} mice", fontsize=8, loc="left"
+                axis.set_xlabel(xlabel)
+            axes[0, row].set_title(
+                f"{group}\n{units} units, {len(sessions)} mice", fontsize=8, loc="left"
             )
-            axes[row, 0].set_ylabel("rate ÷ mean rate")
+        for axis in axes[:, 0]:
+            axis.set_ylabel("rate ÷ mean rate")
         axes[0, 0].set_ylim(bottom=0)
         # Direct labels at the right end of the first exit panel.
         for y, (label, color) in zip((0.16, 0.04), VERSIONS.items(), strict=True):
-            axes[0, 1].text(
+            axes[1, 0].text(
                 0.97,
                 y,
                 label,
@@ -296,9 +296,9 @@ def main() -> None:
                 ha="right",
                 va="bottom",
                 fontsize=8,
-                transform=axes[0, 1].transAxes,
+                transform=axes[1, 0].transAxes,
             )
-        label_panels(axes[:, 0], x=-0.3, y=1.1)
+        label_panels(axes[0, :], x=-0.2, y=1.15)
         print(save_figure(figure, OUT / "fixation_model"))
 
 

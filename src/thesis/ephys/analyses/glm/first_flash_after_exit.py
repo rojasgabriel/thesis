@@ -74,9 +74,8 @@ from thesis.plotting import (
     REFERENCE_COLOR,
     hierarchical_interval,
     label_panels,
-    mouse_curves,
-    mouse_marker,
     save_figure,
+    unit_curves,
 )
 
 OUTPUT = flash_movement.OUTPUT
@@ -237,9 +236,8 @@ def summary(groups: list[np.ndarray], subjects: list[str]) -> dict:
 def column(axis, x: float, groups: list[np.ndarray], subjects: list[str]) -> int:
     """Draw one column: the units, the median of each mouse, the pooled median.
 
-    Units of all mice are gray points. The open markers at the right are the
-    medians of the mice (the shape is the mouse); the black point is the
-    pooled median with its hierarchical-bootstrap 95% interval. Values past
+    Units of all mice are gray points (pooled, Gabriel 2026-11-27); the black
+    point is the pooled median with its hierarchical-bootstrap 95% interval. Values past
     `LIMIT` are drawn at the edge and stay in the statistics; returns their
     number.
     """
@@ -253,21 +251,10 @@ def column(axis, x: float, groups: list[np.ndarray], subjects: list[str]) -> int
         alpha=0.3,
         lw=0,
     )
-    for index, (group, subject) in enumerate(zip(groups, subjects, strict=True)):
-        axis.plot(
-            x + 0.08 + 0.07 * index,
-            np.median(group),
-            mouse_marker(subject, index),
-            ms=4.5,
-            color="white",
-            mec="0.3",
-            mew=0.9,
-            zorder=4,
-        )
     pooled = hierarchical_interval(groups)
     low, high = pooled["interval_95"]
     axis.errorbar(
-        x + 0.42,
+        x + 0.2,
         pooled["median"],
         yerr=[[pooled["median"] - low], [high - pooled["median"]]],
         fmt="o",
@@ -331,11 +318,11 @@ def main() -> None:
                 (0, OBSERVED_COLOR, "observed"),
                 (1, MODEL_COLOR, "model"),
             ):
-                # A thin line for each mouse (the mean of its units).
-                mouse_curves(
+                # Mean ± SEM over the units of all mice pooled.
+                unit_curves(
                     axis,
                     times,
-                    [d["traces"][:, index, source].mean(0) for d in sessions],
+                    [d["traces"][:, index, source] for d in sessions],
                     color,
                 )
                 if index == 1:  # one key, in the empty top of the no-flash axis

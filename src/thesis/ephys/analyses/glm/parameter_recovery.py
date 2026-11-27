@@ -73,8 +73,8 @@ from thesis.ephys.units import unit_spikes
 from thesis.plotting import (
     FIGURE_STYLE,
     MODEL_COLOR,
+    hierarchical_interval,
     label_panels,
-    mouse_points,
     save_figure,
 )
 
@@ -201,9 +201,8 @@ def _unit(job: dict) -> dict:
 
 
 def recovery_figure(out: Path) -> Path:
-    """Draw the recovery of each regressor: one value per mouse, mean ± SEM of mice."""
+    """Draw the recovery of each regressor: pooled median of units, 95% interval."""
     saved = [dict(np.load(out / s / "parameter_recovery.npz")) for s in SESSIONS]
-    subjects = [s.split("_")[0] for s in SESSIONS]
     names = saved[0]["regressors"].tolist()
     with plt.rc_context(FIGURE_STYLE):
         figure, axes = plt.subplots(1, 2, figsize=(9.0, 3.4), layout="constrained")
@@ -216,15 +215,25 @@ def recovery_figure(out: Path) -> Path:
             ),
             strict=True,
         ):
-            # A unit with no value (no spikes in a simulation) is left out.
-            values = [
-                [
-                    np.nanmedian(d[key][:, d["regressors"].tolist().index(n)])
-                    for n in names
+            # A unit with no value (no spikes in a simulation) is left out. The
+            # units of all mice are pooled: median and hierarchical interval.
+            for k, n in enumerate(names):
+                groups = [
+                    v[np.isfinite(v)]
+                    for v in (
+                        d[key][:, d["regressors"].tolist().index(n)] for d in saved
+                    )
                 ]
-                for d in saved
-            ]
-            mouse_points(axis, range(len(names)), values, subjects, MODEL_COLOR)
+                stats = hierarchical_interval(groups)
+                low, high = stats["interval_95"]
+                axis.errorbar(
+                    k,
+                    stats["median"],
+                    yerr=[[stats["median"] - low], [high - stats["median"]]],
+                    fmt="o",
+                    color=MODEL_COLOR,
+                    capsize=2,
+                )
             axis.axhline(1, color="0.5", ls="--", lw=0.8)
             axis.set_ylim(0, 1.3)
             axis.set_xticks(
@@ -233,7 +242,10 @@ def recovery_figure(out: Path) -> Path:
                 rotation=45,
                 ha="right",
             )
-            axis.set_ylabel(label + "\n(median of units)")
+            axis.set_ylabel(
+                label
+                + f"\n(median of {sum(len(d[key]) for d in saved)} units, {len(saved)} mice)"
+            )
         label_panels(axes)
         return save_figure(figure, out / "parameter_recovery")
 

@@ -20,10 +20,10 @@ center exit), so the task period does not change with the gap.
   of the unit over all valid bins.
 - Units: the flash-excited units of `flash_excited_units.json`
   (`peaks.excited_units`), every session of `flash_kernels.SESSIONS`. The
-  figure has a thin line for each mouse (the mean of its units) and the mean
-  of the mice with its 95% interval (1.96 SEM over the mice).
-- Fit: response = A (1 - c exp(-gap / tau)) to the mean of the mice, weighted
-  by the SEM over the mice, with c free (`C_MAX` only keeps the fit finite).
+  units of all mice are pooled (Gabriel, 2026-11-27): the mean over units
+  with its 95% interval (1.96 SEM over units).
+- Fit: response = A (1 - c exp(-gap / tau)) to the mean over the pooled
+  units, weighted by the SEM over units, with c free (`C_MAX` only keeps the fit finite).
   With c > 1 the curve is 0 at the delay tau ln c and rises after it. The fit
   is without the 40-ms group (the response to the flash before falls into its
   baseline and peak windows). The first flash of a trial enters with a gap of
@@ -158,21 +158,21 @@ def tau_interval(gaps, groups, use) -> tuple[list[float], int]:
     """Return the 95% hierarchical bootstrap interval of tau and the failed fits.
 
     `groups` has the peaks of each mouse (unit, group). Each draw resamples the
-    mice, then the units of each drawn mouse, and fits the means of the drawn
-    mice. A draw with no fit (no convergence, or the same mouse in every
+    mice, then the units of each drawn mouse, and fits the mean of all drawn
+    units. A draw with no fit (no convergence, or the same mouse in every
     place, so no SEM) is left out; the count is reported.
     """
     rng = np.random.default_rng(0)
     taus = []
     for _ in range(BOOTSTRAPS):
-        means = np.asarray(
+        drawn = np.vstack(
             [
-                groups[m][rng.integers(0, len(groups[m]), len(groups[m]))].mean(0)
+                groups[m][rng.integers(0, len(groups[m]), len(groups[m]))]
                 for m in rng.integers(0, len(groups), len(groups))
             ]
         )
         try:
-            taus.append(fit(gaps, means, use)[2])
+            taus.append(fit(gaps, drawn, use)[2])
         except (RuntimeError, ValueError):
             continue
     return np.percentile(taus, [2.5, 97.5]).tolist(), BOOTSTRAPS - len(taus)
@@ -185,12 +185,12 @@ def main() -> None:
     if len({len(g) for g, _ in data.values()}) != 1:
         raise ValueError("The mice do not have the same gap groups.")
     gaps = np.mean([g for g, _ in data.values()], 0)
-    means = np.asarray([p.mean(0) for p in groups])  # (mice, gap groups)
+    units = np.vstack(groups)  # (units of all mice, gap groups)
     use = gaps > dmat.short_gap_s()  # without the 40-ms group
-    A, c, tau = fit(gaps, means, use)
+    A, c, tau = fit(gaps, units, use)
     interval, failed = tau_interval(gaps, groups, use)
     report = {
-        "mice": {
+        "pooled": {
             "A": A,
             "c": c,
             "tau_s": tau,
@@ -198,7 +198,8 @@ def main() -> None:
             "tau_bootstrap_fits_failed": failed,
             "delay_s": delay(c, tau),
             "mean_gap_s": gaps.tolist(),
-            "mean_peak": means.mean(0).tolist(),
+            "mean_peak": units.mean(0).tolist(),
+            "units": len(units),
         }
     }
     for subject, (g, p) in data.items():
@@ -217,13 +218,10 @@ def main() -> None:
     color = CONCEPT_COLORS["visual"]
     first = gaps >= FIRST_GAP_S
     x = np.where(first, 650, 1000 * gaps)
-    mean = means.mean(0)
-    half = 1.96 * means.std(0, ddof=1) / np.sqrt(len(means))
+    mean = units.mean(0)
+    half = 1.96 * units.std(0, ddof=1) / np.sqrt(len(units))
     with plt.rc_context(FIGURE_STYLE):
         figure, axis = plt.subplots(figsize=(4.2, 3.0), layout="constrained")
-        for row in means:  # a thin line for each mouse
-            axis.plot(x[~first], row[~first], color=color, lw=0.8, alpha=0.45)
-            axis.plot(x[first], row[first], "s", color=color, ms=3, alpha=0.45)
         for xi, mi, ei, is_first, used in zip(x, mean, half, first, use, strict=True):
             axis.errorbar(
                 [xi],
@@ -266,8 +264,8 @@ def main() -> None:
         axis.set_ylim(bottom=min(0, (mean - half).min() * 1.1))
         print(save_figure(figure, OUT / "flash_recovery"))
     (OUT / "flash_recovery.json").write_text(json.dumps(report, indent=1))
-    print(json.dumps(report["mice"], indent=1))
-    print({s: r.get("own_tau_s") for s, r in report.items() if s != "mice"})
+    print(json.dumps(report["pooled"], indent=1))
+    print({s: r.get("own_tau_s") for s, r in report.items() if s != "pooled"})
 
 
 if __name__ == "__main__":
