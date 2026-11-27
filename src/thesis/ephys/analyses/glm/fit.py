@@ -2,8 +2,8 @@
 
 Scientific comparison
 ---------------------
-For each session of `flash_kernels.SESSIONS` (GRB006, GRB064 and GRB061), predict V1
-spikes from the regressors of `dmat.py` (design of 2026-10-15, 11 regressors):
+For each session of `flash_kernels.SESSIONS` (GRB006, GRB064, GRB061 and
+GRB068), predict V1 spikes from the regressors of `dmat.py` (design of 2026-10-15, 11 regressors):
 the flash kernels of the two gap classes, the flash × after exit kernel (a flash
 after the center exit), the pre-stimulus column (center entry to first flash),
 the fixation kernel (first flash to center exit, to 0.7 s, then held), the
@@ -25,7 +25,9 @@ withdrawal. Each trial must have a measured first flash and finite
 center-entry, center-exit, and response-entry times. Each window is aligned to
 the first measured flash. It covers `dmat.PRE_S` (0.5 s) before to
 `dmat.POST_S` (2.1 s) after it in 1-ms bins. Bins after response entry are
-excluded.
+excluded. A trial whose window starts before the window of the trial before
+ends is left out, so no bin is counted twice (GRB068 20261123: trial 97, 2.57 s
+after trial 96; no other session has one).
 
 Baseline: the null model is a constant rate. This rate is the mean count in the
 fit rows. In model selection, the fit rows are the training rows. In a
@@ -82,6 +84,9 @@ EXCLUDED_UNITS = {
     },
     ("GRB064", "20261008_143359"): {
         453: "no spikes in the validation trials",
+    },
+    ("GRB068", "20261123_161832"): {
+        141: "no spikes in the test trials of one fold",
     },
 }
 

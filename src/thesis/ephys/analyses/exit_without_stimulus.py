@@ -36,7 +36,12 @@ model. The comparison is paired over units.
   number of those units is in the output.
 
 The script writes `exit_without_stimulus.svg` and `exit_without_stimulus.json`
-in `figures/exit_without_stimulus/<subject>_<session>/`.
+in `figures/exit_without_stimulus/<subject>_<session>/`. With `--pooled` it
+computes nothing and draws panel a for the sessions of
+`behavior.trials.SESSIONS` from their saved JSON files, in
+`figures/exit_without_stimulus/exit_without_stimulus.svg`: the mean over the
+units of a mouse (thin line) and the mean ± SEM over the mice (thick line,
+`plotting.unit_curves`, the units of all mice pooled).
 
     uv run python -m thesis.ephys.analyses.exit_without_stimulus
 """
@@ -119,14 +124,53 @@ def _paired(first: np.ndarray, second: np.ndarray) -> dict:
     }
 
 
+def pooled_figure(out: Path) -> Path:
+    """Draw the rate around the exit, all recorded mice in one panel."""
+    from thesis.behavior.trials import SESSIONS
+    from thesis.plotting import unit_curves
+
+    saved = [
+        json.loads((out / s / "exit_without_stimulus.json").read_text())
+        for s in SESSIONS
+    ]
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axis = plt.subplots(figsize=(4.4, 3.2), layout="constrained")
+        for index, name in enumerate(COLORS):
+            unit_curves(
+                axis,
+                saved[0]["time_from_exit_ms"],
+                [s[name]["normalized_rate_by_unit"] for s in saved],
+                COLORS[name],
+            )
+            axis.text(
+                0.02,
+                0.98 - 0.16 * index,
+                LABELS[name],
+                color=COLORS[name],
+                transform=axis.transAxes,
+                va="top",
+            )
+        axis.axvline(0, color=REFERENCE_COLOR, linewidth=0.8)
+        axis.set_ylim(bottom=0)
+        axis.set_xlabel("time from center exit (ms)")
+        axis.set_ylabel("normalized firing rate")
+        return save_figure(figure, out / "exit_without_stimulus")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--pooled", action="store_true", help="draw the saved sessions of all mice"
+    )
     parser.add_argument("--subject", default="GRB064")
     parser.add_argument("--session", default="20260916_132939")
     parser.add_argument(
         "--out", type=Path, default=Path("figures/exit_without_stimulus")
     )
     args = parser.parse_args()
+    if args.pooled:
+        print(pooled_figure(args.out))
+        return
     trials = build_trial_table(args.subject, args.session, include_frames=False)
     units = fetch_unit_table(
         args.subject,

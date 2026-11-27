@@ -73,10 +73,10 @@ from thesis.ephys.analyses.decoding_time_course import SESSIONS
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
-    MOUSE_MARKERS,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
     label_panels,
+    mouse_curves,
     save_figure,
 )
 
@@ -316,113 +316,77 @@ def session_course(session: str) -> dict:
 
 
 def plot(results: list[dict]) -> Path:
+    """Top: decoder trained on correct trials, scored on held-out correct and on
+    error trials. Bottom: the choice AUC at the same flash rate. A thin line for
+    each mouse and the mean ± SEM of the mice; the gray band holds the shuffle
+    intervals of all mice."""
+    x = 1000 * np.asarray(results[0]["centers_s"])
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            2,
-            len(results),
-            figsize=(4.4 * len(results), 6.4),
-            sharey="row",
-            sharex=True,
-            squeeze=False,
+        figure, (top, bottom) = plt.subplots(2, 1, figsize=(4.6, 6.4), sharex=True)
+        for axis, key, curves in (
+            (top, "chance", (("correct", OBSERVED_COLOR), ("error", ERROR_COLOR))),
+            (bottom, "matched_chance", (("matched", OBSERVED_COLOR),)),
+        ):
+            chance = np.array([result[key] for result in results])  # mouse, bin, 2
+            axis.fill_between(
+                x, chance[:, :, 0].min(0), chance[:, :, 1].max(0), color="0.85", lw=0
+            )
+            for name, color in curves:
+                mouse_curves(axis, x, [result[name] for result in results], color)
+            axis.axhline(0.5, color=REFERENCE_COLOR, ls=":", lw=0.8)
+            axis.axvline(0, color=REFERENCE_COLOR, lw=0.8)
+            axis.axvspan(*(1000 * np.asarray(PRE_EXIT_S)), color="0.93", lw=0, zorder=0)
+        top.text(
+            1000 * np.mean(PRE_EXIT_S),
+            0.9,
+            "tested window",
+            ha="center",
+            fontsize=6,
+            color="0.5",
         )
-        for axis, result in zip(axes[0], results, strict=True):
-            x = 1000 * np.asarray(result["centers_s"])
-            chance = np.asarray(result["chance"])
-            axis.fill_between(x, chance[:, 0], chance[:, 1], color="0.85", lw=0)
-            for name, color in (("correct", OBSERVED_COLOR), ("error", ERROR_COLOR)):
-                mean = np.asarray(result[name])
-                sem = np.asarray(result[f"{name}_sem"])
-                axis.fill_between(
-                    x, mean - sem, mean + sem, color=color, alpha=0.25, lw=0
-                )
-                axis.plot(
-                    x,
-                    mean,
-                    color=color,
-                    lw=1.4,
-                    marker=MOUSE_MARKERS.get(result["subject"]),
-                    ms=3,
-                )
-            axis.axhline(0.5, color=REFERENCE_COLOR, ls=":", lw=0.8)
-            axis.axvline(0, color=REFERENCE_COLOR, lw=0.8)
-            axis.axvspan(*(1000 * np.asarray(PRE_EXIT_S)), color="0.93", lw=0, zorder=0)
-            axis.text(
-                1000 * np.mean(PRE_EXIT_S),
-                0.9,
-                "tested window",
-                ha="center",
-                fontsize=6,
-                color="0.5",
-            )
-            axis.set_ylim(AUC_LIMITS)
-            errors = result["error_trials"]
-            axis.set_title(
-                f"{result['subject']}: {result['units']} units, "
-                f"{errors['right'] + errors['left']} error trials\n"
-                f"500-100 ms before exit: error AUC {result['pre_exit']['error_auc']:.2f}"
-                f" (p = {result['pre_exit']['error_auc_permutation_p']:.2g})",
-                fontsize=8,
-            )
-        for axis, result in zip(axes[1], results, strict=True):
-            x = 1000 * np.asarray(result["centers_s"])
-            chance = np.asarray(result["matched_chance"])
-            axis.fill_between(x, chance[:, 0], chance[:, 1], color="0.85", lw=0)
-            axis.plot(
-                x,
-                result["matched"],
-                color=OBSERVED_COLOR,
-                lw=1.4,
-                marker=MOUSE_MARKERS.get(result["subject"]),
-                ms=3,
-            )
-            axis.axhline(0.5, color=REFERENCE_COLOR, ls=":", lw=0.8)
-            axis.axvline(0, color=REFERENCE_COLOR, lw=0.8)
-            axis.axvspan(*(1000 * np.asarray(PRE_EXIT_S)), color="0.93", lw=0, zorder=0)
-            axis.set_xlabel("time from center exit (ms)")
-            test = result["pre_exit"]
-            axis.set_title(
-                f"same flash rate, correct vs error: {len(test['matched_rates'])} rates\n"
-                f"500-100 ms before exit: AUC {test['matched_auc']:.2f}"
-                f" (p = {test['matched_permutation_p']:.2g})",
-                fontsize=8,
-            )
-        axes[1, 0].set_ylabel("AUC for the choice\nat the same flash rate")
-        axes[1, 0].text(
+        top.set_ylim(AUC_LIMITS)
+        top.set_title(
+            f"{len(results)} mice (thin: each mouse; thick: mean ± SEM of the mice)",
+            fontsize=7.5,
+            loc="left",
+        )
+        bottom.set_xlabel("time from center exit (ms)")
+        bottom.set_ylabel("AUC for the choice\nat the same flash rate")
+        bottom.text(
             0.03,
             0.97,
             "above 0.5: follows the choice\nat a fixed stimulus",
             color=OBSERVED_COLOR,
-            transform=axes[1, 0].transAxes,
+            transform=bottom.transAxes,
             va="top",
             fontsize=7,
         )
-        first = axes[0, 0]
-        first.set_ylabel("AUC for the choice\n(decoder trained on correct trials)")
+        top.set_ylabel("AUC for the choice\n(decoder trained on correct trials)")
         for y, text, color in (
             (0.97, "held-out correct trials", OBSERVED_COLOR),
             (0.89, "error trials", ERROR_COLOR),
             (0.12, "below 0.5 on error trials:\nfollows the stimulus", ERROR_COLOR),
         ):
-            first.text(
+            top.text(
                 0.03,
                 y,
                 text,
                 color=color,
-                transform=first.transAxes,
+                transform=top.transAxes,
                 va="top",
                 fontsize=7,
             )
-        axes[0, -1].text(
+        top.text(
             0.97,
             0.03,
             "shuffle",
             color="0.55",
-            transform=axes[0, -1].transAxes,
+            transform=top.transAxes,
             ha="right",
             fontsize=7,
         )
         figure.tight_layout()
-        label_panels(axes.ravel())
+        label_panels([top, bottom])
         return save_figure(figure, OUT / "choice_by_outcome")
 
 

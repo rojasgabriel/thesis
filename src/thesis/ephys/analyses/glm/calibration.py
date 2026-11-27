@@ -128,8 +128,6 @@ def main() -> None:
                 axis.fill_between(
                     centers, *data["interval"].T, color=color, alpha=0.2, lw=0
                 )
-                for mouse, style in zip(data["mouse"], (":", "--"), strict=True):
-                    axis.plot(centers, mouse, color=color, lw=0.8, ls=style)
             axis.plot(centers, data["median"], color=color, lw=1.6 if row == 0 else 1.0)
             axis.text(
                 0.97,
@@ -140,16 +138,6 @@ def main() -> None:
                 va="top",
                 ha="right",
             )
-        axis.text(
-            0.97,
-            0.97 - 0.09 * len(results),
-            f"dotted {subjects[0]}, dashed {subjects[1]}",
-            color=MODEL_COLOR,
-            transform=axis.transAxes,
-            va="top",
-            ha="right",
-            fontsize=6,
-        )
         axis.set_xlabel("predicted rate (percentile of held-out bins)")
         axis.set_ylabel("observed / predicted count")
         axis.set_xlim(0, 100)

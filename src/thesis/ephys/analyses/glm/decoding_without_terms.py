@@ -131,8 +131,7 @@ from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     OBSERVED_COLOR,
-    label_panels,
-    mouse_marker,
+    mouse_points,
     save_figure,
 )
 
@@ -397,69 +396,70 @@ def summary(
 
 
 def plot(reports: list[dict], target: str, name: str) -> Path:
-    offsets = (np.arange(len(ALL_VERSIONS)) - (len(ALL_VERSIONS) - 1) / 2) * 0.13
+    """One panel for all mice: small open markers, the AUC of each mouse (its
+    shape); large markers, the mean ± SEM of the mice."""
+    offsets = (np.arange(len(ALL_VERSIONS)) - (len(ALL_VERSIONS) - 1) / 2) * 0.15
+    subjects = [report["subject"] for report in reports]
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
-            1, len(reports), figsize=(3.4 * len(reports), 3.2), sharey=True
+        figure, axis = plt.subplots(figsize=(5.2, 3.4))
+        for p, period in enumerate(PERIODS):
+            for v, version in enumerate(ALL_VERSIONS):
+                x = p + offsets[v]
+                # The band holds the shuffle intervals of all mice.
+                bands = np.array(
+                    [r[period][version]["shuffle_auc_95"] for r in reports]
+                )
+                axis.fill_between(
+                    [x - 0.06, x + 0.06],
+                    bands[:, 0].min(),
+                    bands[:, 1].max(),
+                    color="0.85",
+                    linewidth=0,
+                )
+                mouse_points(
+                    axis,
+                    x,
+                    [[r[period][version]["auc_mean"]] for r in reports],
+                    subjects,
+                    COLORS[version],
+                    hollow=version in OPEN_MARKERS,
+                )
+        axis.axhline(0.5, color="0.6", linestyle=":", linewidth=0.8)
+        axis.set_xticks(range(len(PERIODS)), PERIODS)
+        axis.set_xlim(-0.5, len(PERIODS) - 0.5)
+        axis.set_ylim(*AUC_LIMITS)
+        # Above the plot: an AUC near 1 reaches the top of the axes.
+        axis.text(
+            0.02,
+            1.02,
+            f"{len(reports)} mice (small: each mouse; large: mean ± SEM of the mice)",
+            color=OBSERVED_COLOR,
+            transform=axis.transAxes,
+            va="bottom",
+            fontsize=7.5,
         )
-        for index, (axis, report) in enumerate(zip(axes, reports, strict=True)):
-            for p, period in enumerate(PERIODS):
-                for v, version in enumerate(ALL_VERSIONS):
-                    values = report[period][version]
-                    x = p + offsets[v]
-                    low, high = values["shuffle_auc_95"]
-                    axis.fill_between(
-                        [x - 0.055, x + 0.055], low, high, color="0.85", linewidth=0
-                    )
-                    mean = values["auc_mean"]
-                    sem = values["auc_sem_across_folds"]
-                    axis.errorbar(
-                        x,
-                        mean,
-                        yerr=sem,
-                        fmt=mouse_marker(report["subject"], index),
-                        color=COLORS[version],
-                        mfc="white" if version in OPEN_MARKERS else COLORS[version],
-                        capsize=2.5,
-                        ms=5.5,
-                    )
-            axis.axhline(0.5, color="0.6", linestyle=":", linewidth=0.8)
-            axis.set_xticks(range(len(PERIODS)), PERIODS)
-            axis.set_xlim(-0.5, len(PERIODS) - 0.5)
-            axis.set_ylim(*AUC_LIMITS)
-            # Above the plot: an AUC near 1 reaches the top of the axes.
-            axis.text(
-                0.02,
-                1.02,
-                f"{report['subject']}: {report['units']} units"
-                f" ({report['units_with_multi_units']} with multi-units)",
-                color=OBSERVED_COLOR,
-                transform=axis.transAxes,
-                va="bottom",
-            )
-            axis.text(
-                0.98,
-                0.01,
-                "shuffle",
-                color="0.5",
-                transform=axis.transAxes,
-                ha="right",
-                va="bottom",
-            )
+        axis.text(
+            0.98,
+            0.01,
+            "shuffle",
+            color="0.5",
+            transform=axis.transAxes,
+            ha="right",
+            va="bottom",
+        )
         # Below the lowest shuffle band edge of the in-port group (0.33).
         for v, version in enumerate(ALL_VERSIONS):
-            axes[0].text(
+            axis.text(
                 0.02,
                 0.27 - 0.045 * v,
                 version + (" (open)" if version == MOVEMENT_SIDE else ""),
                 color=COLORS[version],
-                transform=axes[0].transAxes,
+                transform=axis.transAxes,
                 ha="left",
                 va="bottom",
                 fontsize=7,
             )
-        axes[0].set_ylabel(f"{target} AUC (held out)")
-        label_panels(axes, x=-0.18, y=1.03)
+        axis.set_ylabel(f"{target} AUC (held out)")
         figure.tight_layout()
         return save_figure(figure, OUT / name)
 

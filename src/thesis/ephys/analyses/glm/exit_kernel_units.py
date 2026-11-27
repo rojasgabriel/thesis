@@ -18,8 +18,8 @@ of the same measure over the cross-validation fold fits, on both axes.
   `dip`: the same window around its most negative value), as a peak has no
   meaning for them. One point per unit. Units with no flash classification
   are not shown.
-- Color: the direction of the fixation modulation
-  (`hold_effect.fixation_groups`, `plotting.FIXATION_COLORS`).
+- Units of all mice pooled in one color (Gabriel, 2026-11-27); the json
+  still gives each fixation group.
 - Sessions: `flash_kernels.SESSIONS`. Statistics: Wilcoxon signed-rank (after
   exit against in port), each mouse alone, for flash-excited and
   flash-suppressed units, also in each fixation group. The sampling unit is
@@ -57,12 +57,11 @@ from thesis.ephys.analyses.glm.peaks import (
 )
 from thesis.plotting import (
     FIGURE_STYLE,
-    FIXATION_COLORS,
+    OBSERVED_COLOR,
     POINT_ALPHA,
     label_panels,
-    median_marker,
-    mouse_marker,
     save_figure,
+    unit_strip,
 )
 
 OUT = Path("results/glm")
@@ -102,46 +101,50 @@ def main() -> None:
             )
         )
     with plt.rc_context(FIGURE_STYLE):
-        fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.6), layout="constrained")
-        for ax, (kind, (measure, limit)) in zip(axes, PANELS.items(), strict=True):
+        fig, all_axes = plt.subplots(
+            1,
+            4,
+            figsize=(12.6, 4.6),
+            layout="constrained",
+            gridspec_kw={"width_ratios": (1, 0.5, 1, 0.5)},
+        )
+        axes, strips = all_axes[::2], all_axes[1::2]
+        for ax, strip, (kind, (measure, limit)) in zip(
+            axes, strips, PANELS.items(), strict=True
+        ):
             lo, hi = limit
+            change = []  # after exit minus in port, the units of each mouse
             for m, (subject, d, group) in enumerate(sessions):
                 cond = list(d["conditions"])
                 i, j = cond.index(PORT), cond.index(EXIT)
-                marker = mouse_marker(subject, m)
                 keep = np.isin(d["unit_ids"], flash[kind][SESSIONS[m]])
                 x, y = d[measure][:, i], d[measure][:, j]
                 sx, sy = d[f"{measure}_sd"][:, i], d[f"{measure}_sd"][:, j]
                 out = (x < lo) | (x > hi) | (y < lo) | (y > hi)
-                for name in FIXATION_GROUPS:
-                    color = FIXATION_COLORS[name]
-                    k = keep & (group == name)
-                    ax.errorbar(
-                        x[k & ~out],
-                        y[k & ~out],
-                        xerr=sx[k & ~out],
-                        yerr=sy[k & ~out],
-                        fmt=marker,
-                        ms=3.5,
-                        color=color,
-                        ecolor=color,
-                        elinewidth=0.4,
-                        alpha=POINT_ALPHA,
-                        lw=0,
-                    )
-                    ax.scatter(
-                        np.clip(x[k & out], lo, hi),
-                        np.clip(y[k & out], lo, hi),
-                        marker="^",
-                        s=22,
-                        facecolor="white",
-                        edgecolor=color,
-                        lw=0.8,
-                    )
-                    if k.any():
-                        median_marker(
-                            ax, np.median(x[k]), np.median(y[k]), marker, color
-                        )
+                color, k = OBSERVED_COLOR, keep
+                ax.errorbar(
+                    x[k & ~out],
+                    y[k & ~out],
+                    xerr=sx[k & ~out],
+                    yerr=sy[k & ~out],
+                    fmt="o",
+                    ms=3.5,
+                    color=color,
+                    ecolor=color,
+                    elinewidth=0.4,
+                    alpha=POINT_ALPHA,
+                    lw=0,
+                )
+                ax.scatter(
+                    np.clip(x[k & out], lo, hi),
+                    np.clip(y[k & out], lo, hi),
+                    marker="^",
+                    s=22,
+                    facecolor="white",
+                    edgecolor=color,
+                    lw=0.8,
+                )
+                change.append(y[keep] - x[keep])
                 report.setdefault(subject, {})[kind] = {
                     "measure": measure,
                     **summary(x[keep], y[keep]),
@@ -161,6 +164,12 @@ def main() -> None:
                         )
                     ],
                 }
+            # The change of all units and the pooled median.
+            report[f"pooled_change_{kind}"] = unit_strip(strip, 0, change)
+            strip.set_xticks([0], [f"{sum(len(c) for c in change)} units"])
+            strip.set_xlim(-0.6, 0.6)
+            strip.axhline(0, color="0.6", ls="--", lw=0.8)
+            strip.set_ylabel(f"kernel {measure}, after exit − in port (Δ log rate)")
             ax.plot(limit, limit, color="0.6", ls="--", lw=0.8)
             ax.axhline(0, color="0.85", lw=0.6, zorder=0)
             ax.axvline(0, color="0.85", lw=0.6, zorder=0)
@@ -176,21 +185,7 @@ def main() -> None:
                 transform=ax.transAxes,
                 va="bottom",
             )
-            if kind != "excited":
-                continue
-            # One color legend per figure, in panel a, next to the points below
-            # the diagonal.
-            for k, name in enumerate(FIXATION_GROUPS):
-                ax.text(
-                    0.68,
-                    0.33 - 0.055 * k,
-                    name,
-                    color=FIXATION_COLORS[name],
-                    transform=ax.transAxes,
-                    va="top",
-                    fontsize=7,
-                )
-        label_panels(axes, x=-0.2, y=1.02)
+        label_panels(all_axes, x=-0.2, y=1.02)
         print(save_figure(fig, OUT / "exit_kernel_units"))
     (OUT / "exit_kernel_units.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))

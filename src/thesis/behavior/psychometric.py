@@ -54,6 +54,7 @@ from thesis.plotting import (
     FIGURE_STYLE,
     OBSERVED_COLOR,
     REFERENCE_COLOR,
+    mouse_lines,
     mouse_marker,
     save_figure,
 )
@@ -107,44 +108,26 @@ def mouse_behavior(subject: str, recorded: bool) -> dict:
 
 
 def draw(axis, report: list[dict]) -> None:
-    """Draw the psychometric curves of the mice on one axis."""
+    """Draw the psychometric curve of each mouse (gray) and their mean (black)."""
     axis.axvline(0, color=REFERENCE_COLOR, ls="--", lw=0.8)
     axis.axhline(0.5, color=REFERENCE_COLOR, lw=0.5)
     grid = np.linspace(3, 21, 200)
+    fits = [
+        1 / (1 + np.exp(-(d["logistic_intercept"] + d["logistic_slope_per_hz"] * grid)))
+        for d in report
+    ]
+    mouse_lines(axis, stimulus_strength(grid), fits, [d["subject"] for d in report])
     for row, data in enumerate(report):
-        line = LINES.get(data["subject"], "-")
-        marker = mouse_marker(data["subject"], row)
-        rates = np.asarray(data["rates_hz"])
-        p = np.asarray(data["p_right"])
-        interval = np.asarray(data["p_right_95"]).T
-        # A small shift per mouse so the points do not overlap (drawing only).
-        bars = axis.errorbar(
-            stimulus_strength(rates) + 0.04 * (row - (len(report) - 1) / 2),
-            p,
-            yerr=[p - interval[0], interval[1] - p],
-            fmt=marker,
-            color=OBSERVED_COLOR,
-            mfc="white",
-            ms=4,
-            capsize=2,
-            lw=1,
-        )
-        bars[2][0].set_linestyle(line)
-        a, b = data["logistic_intercept"], data["logistic_slope_per_hz"]
+        # The key, above the axes: the marker of the mouse and its accuracy.
+        y = 1.06 + 0.07 * (len(report) - 1 - row)
         axis.plot(
-            stimulus_strength(grid),
-            1 / (1 + np.exp(-(a + b * grid))),
-            color=OBSERVED_COLOR,
-            lw=1.2,
-            ls=line,
-        )
-        y = 1.06 + 0.07 * (len(report) - 1 - row)  # the key, above the axes
-        axis.plot(
-            [0.02, 0.09],
-            [y, y],
-            color=OBSERVED_COLOR,
-            lw=1.2,
-            ls=line,
+            0.055,
+            y,
+            mouse_marker(data["subject"], row),
+            ms=5,
+            color="white",
+            mec="0.3",
+            mew=1,
             transform=axis.transAxes,
             clip_on=False,
         )
@@ -159,6 +142,14 @@ def draw(axis, report: list[dict]) -> None:
             va="center",
             fontsize=7,
         )
+    axis.text(
+        0.03,
+        0.96,
+        f"gray: each mouse (logistic fit)\nblack: mean of the {len(report)} mice",
+        transform=axis.transAxes,
+        va="top",
+        fontsize=7,
+    )
     axis.set(
         xlabel="stimulus strength (left − / right +)",
         ylabel="fraction of right choices",

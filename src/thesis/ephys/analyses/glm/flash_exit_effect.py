@@ -47,7 +47,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import leak_test
-from thesis.plotting import FIGURE_STYLE, OBSERVED_COLOR, mouse_marker, save_figure
+from thesis.plotting import FIGURE_STYLE, OBSERVED_COLOR, save_figure
 
 OUT = Path("results/glm")
 GAP = 0  # long gaps
@@ -60,12 +60,12 @@ def main() -> None:
     if len(sys.argv) > 1:  # only the named subjects, in that order
         values = {subject: values[subject] for subject in sys.argv[1:]}
     n = len(values)
-    pooled_label = "both mice" if n == 2 else "all mice"
+    pooled_label = f"{n} mice"
     rng = np.random.default_rng(SEED)
     effects, report = {}, {}
     with plt.rc_context(FIGURE_STYLE):
-        fig, ax = plt.subplots(figsize=(6.2, 3.6))
-        for j, (subject, d) in enumerate(values.items()):
+        fig, ax = plt.subplots(figsize=(3.4, 3.6))
+        for subject, d in values.items():
             keep = d["excited"]
             r = (
                 d["log real (held out)"][keep, GAP]
@@ -74,8 +74,9 @@ def main() -> None:
             left_out = int(np.sum(~np.isfinite(r)))
             r = r[np.isfinite(r)]
             effects[subject] = r
+            # The units of all mice in one column (Gabriel, 2026-11-27).
             ax.scatter(
-                j + rng.uniform(-0.12, 0.12, len(r)),
+                rng.uniform(-0.15, 0.15, len(r)),
                 np.clip(r, -LIMIT, LIMIT),
                 s=16,
                 color=OBSERVED_COLOR,
@@ -83,23 +84,6 @@ def main() -> None:
                 lw=0,
             )
             med, p = np.median(r), wilcoxon(r).pvalue
-            ax.plot(
-                j,
-                med,
-                mouse_marker(subject, j),
-                color="white",
-                mec="black",
-                ms=11,
-                mew=2,
-                zorder=5,
-            )
-            ax.text(
-                j + 0.22,
-                med,
-                f"median ×{np.exp(med):.2f}\np = {p:.2g}, {len(r)} units",
-                va="center",
-                fontsize=8,
-            )
             report[subject] = dict(
                 units=len(r),
                 left_out=left_out,
@@ -109,10 +93,10 @@ def main() -> None:
         pooled = leak_test.hierarchical_interval(list(effects.values()))
         m, (lo, hi) = pooled["median"], pooled["interval_95"]
         ax.errorbar(
-            n, m, yerr=[[m - lo], [hi - m]], fmt="o", color="black", ms=8, capsize=4
+            0.35, m, yerr=[[m - lo], [hi - m]], fmt="o", color="black", ms=8, capsize=4
         )
         ax.text(
-            n + 0.18,
+            0.5,
             m,
             f"pooled ×{np.exp(m):.2f}\n[×{np.exp(lo):.2f}, ×{np.exp(hi):.2f}]"
             f"\np = {pooled['p_bootstrap']:.2g}",
@@ -127,8 +111,9 @@ def main() -> None:
         ax.axhline(0, color="0.5", ls="--", lw=0.9)
         ticks = np.log([0.25, 0.5, 1, 2, 4])
         ax.set_yticks(ticks, ["×0.25", "×0.5", "×1", "×2", "×4"])
-        ax.set_xticks(range(n + 1), [*values, pooled_label])
-        ax.set_xlim(-0.5, n + 0.9)
+        units = sum(len(r) for r in effects.values())
+        ax.set_xticks([0], [f"{units} units, {pooled_label}"])
+        ax.set_xlim(-0.4, 1.4)
         ax.set_ylim(-LIMIT * 1.03, LIMIT * 1.03)
         outside = sum(int(np.sum(np.abs(r) > LIMIT)) for r in effects.values())
         report["outside_display_limit"] = outside

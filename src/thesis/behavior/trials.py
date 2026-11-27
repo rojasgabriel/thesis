@@ -14,7 +14,8 @@ A session enters `RECORDED` only with good cortical units and expert behavior
 initiated trials) like those of GRB006 and GRB064, and few movement-artifact
 units (`uv run movement-artifacts <subject> <session>`: stable units silent
 in the port, under 0.1 of their recording rate, with a broad spike, fw3m over
-0.25 ms; 0 in GRB006 20240821, GRB064 20261008 and GRB061 20261113).
+0.25 ms; 0 in GRB006 20240821, GRB064 20261008, GRB061 20261124 and GRB068
+20261123).
 
 GRB050 never learned the task and is out. GRB068 20261113 has expert waits
 (0.58 s required, 0.63 s median center-port time) but is out: 45 of its 100
@@ -23,14 +24,21 @@ fails the wait rule and has 12 stable units; in 20261110 and 20261112 the
 recording ended before the probe or behavior did, and they are not synced
 (Gabriel, 2026-11-15: keep it clean). GRB064 stays on 20261008: of its
 sessions that pass the wait rule, none has clearly more clean units or
-trials. GRB061 20261113 fails the wait rule (0.37 s required, 0.48 s median
-against 0.57 s for GRB006) and stays in provisionally, to see how its data
-look until better sessions come (Gabriel, 2026-11-15). It has no ephys session
-with 6 rates; it uses 4 (`MIN_RATES_BY_SUBJECT`).
+trials. GRB061 20261113 failed the wait rule (0.37 s required, 0.48 s median
+against 0.57 s for GRB006) and was in provisionally until better sessions
+came (Gabriel, 2026-11-15). Since 2026-11-25 (Gabriel) GRB061 uses 20261124
+and GRB068 uses 20261123, the first of their sessions to pass every rule:
+GRB061 20261124 has 245 good units (criteria 0), 0.58 s required and 0.65 s
+median center-port time, and 9 rates; GRB068 20261123 has 87 good units,
+0.58 s and 0.68 s, and 9 rates. In GRB068 20261123 the probe stopped before
+the task ended, so its last 3 of 251 trials (and all replays) have no neural
+data and the neural analyses leave them out. GRB061 20261118 fails the wait
+rule (0.46 s). In GRB061 20261123 the camera pulses do not align to the
+video frames. Earlier GRB061 ephys sessions have at most 4 rates, so the
+behavior sessions of GRB061 need only 4 (`MIN_RATES_BY_SUBJECT`).
 
-Behavior-only mice (`PRE_IMPLANT`): GRB061 and GRB068 have no neural data in
-the analyses yet, but they learned the same task. Their sessions are the expert
-sessions before the implant: discrimination sessions before their first ephys
+Mice implanted after training (`PRE_IMPLANT`): GRB061 and GRB068. Their
+behavior sessions are the expert sessions before the implant: discrimination sessions before their first ephys
 recording, with a median required wait (`required_wait_time`) of at least
 `EXPERT_WAIT_S` and at least `MIN_RATES` rates (Gabriel, 2026-11-23: show their
 expert sessions in the behavior figures). `BEHAVIOR_SUBJECTS` lists all mice of
@@ -59,7 +67,8 @@ from thesis.ephys.trials import CATEGORY_BOUNDARY_HZ
 RECORDED = {
     "GRB006": "20240821_121447",
     "GRB064": "20261008_143359",
-    "GRB061": "20261113_133142",
+    "GRB061": "20261124_150239",
+    "GRB068": "20261123_161832",
 }
 SUBJECTS = tuple(RECORDED)
 PRE_IMPLANT = ("GRB061", "GRB068")

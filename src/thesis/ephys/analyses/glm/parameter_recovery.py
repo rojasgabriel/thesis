@@ -35,7 +35,9 @@ paired: each unit has the error of each fit, on the same simulated spikes.
   For motion energy and the session drift, which have no kernel over time,
   the same two measures on the weights of all their columns.
   They are saved in `parameter_recovery.npz` in each session directory;
-  `design_optimization.py` draws them.
+  `design_optimization.py` draws them; `--figure` computes nothing and
+  draws `figures/glm/parameter_recovery.svg`: for each regressor the median
+  over the units of each mouse and the mean ± SEM of the mice.
 
 Units (`--units`), trials, alignment, and exclusions are those of `fit.py`.
 The sampling unit is the unit. The script writes `parameter_recovery.json`
@@ -54,8 +56,12 @@ import shutil
 from multiprocessing import Pool
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 from scipy.stats import wilcoxon
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from thesis.ephys.analyses.glm import cli, dmat, leak_test
 from thesis.ephys.analyses.glm.fit import fit_poisson_at_alpha, load_unit_records
@@ -64,6 +70,13 @@ from thesis.ephys.analyses.glm.kernel_reliability import agreement
 from thesis.ephys.analyses.glm.results import fitted_kernels
 from thesis.ephys.analyses.glm.unique_dev import block_slices
 from thesis.ephys.units import unit_spikes
+from thesis.plotting import (
+    FIGURE_STYLE,
+    MODEL_COLOR,
+    hierarchical_interval,
+    label_panels,
+    save_figure,
+)
 
 SIMULATIONS = 3
 SEED = 0
@@ -187,14 +200,70 @@ def _unit(job: dict) -> dict:
     }
 
 
+def recovery_figure(out: Path) -> Path:
+    """Draw the recovery of each regressor: pooled median of units, 95% interval."""
+    saved = [dict(np.load(out / s / "parameter_recovery.npz")) for s in SESSIONS]
+    names = saved[0]["regressors"].tolist()
+    with plt.rc_context(FIGURE_STYLE):
+        figure, axes = plt.subplots(1, 2, figsize=(9.0, 3.4), layout="constrained")
+        for axis, key, label in zip(
+            axes,
+            ("agreement", "size"),
+            (
+                "agreement of the recovered\nand the true kernel",
+                "size of the recovered kernel\nover the true size",
+            ),
+            strict=True,
+        ):
+            # A unit with no value (no spikes in a simulation) is left out. The
+            # units of all mice are pooled: median and hierarchical interval.
+            for k, n in enumerate(names):
+                groups = [
+                    v[np.isfinite(v)]
+                    for v in (
+                        d[key][:, d["regressors"].tolist().index(n)] for d in saved
+                    )
+                ]
+                stats = hierarchical_interval(groups)
+                low, high = stats["interval_95"]
+                axis.errorbar(
+                    k,
+                    stats["median"],
+                    yerr=[[stats["median"] - low], [high - stats["median"]]],
+                    fmt="o",
+                    color=MODEL_COLOR,
+                    capsize=2,
+                )
+            axis.axhline(1, color="0.5", ls="--", lw=0.8)
+            axis.set_ylim(0, 1.3)
+            axis.set_xticks(
+                range(len(names)),
+                [n.replace("_", " ") for n in names],
+                rotation=45,
+                ha="right",
+            )
+            axis.set_ylabel(
+                label
+                + f"\n(median of {sum(len(d[key]) for d in saved)} units, {len(saved)} mice)"
+            )
+        label_panels(axes)
+        return save_figure(figure, out / "parameter_recovery")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--figure", action="store_true", help="draw the saved recovery of all mice"
+    )
     parser.add_argument("--out", type=Path, default=Path("results/glm"))
     parser.add_argument("--units", type=cli._unit_set, default="all")
     parser.add_argument("--grid", default="hold_grid", help="Grid module.")
     parser.add_argument("--design", default="fine\nkernel", help="Name in its DESIGNS.")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
+    if args.figure:
+        print(recovery_figure(args.out))
+        return
     grid = importlib.import_module(f"thesis.ephys.analyses.glm.{args.grid}")
     settings = grid.DESIGNS[args.design]
     stats = {"grid": args.grid, "under_test": args.design, "in_use": grid.IN_USE}

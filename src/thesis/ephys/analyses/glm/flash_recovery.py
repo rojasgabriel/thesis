@@ -18,18 +18,20 @@ center exit), so the task period does not change with the gap.
   largest bin; since 2026-11-15, the largest bin before) minus the mean from
   -40 to 0 ms, divided by the mean observed rate
   of the unit over all valid bins.
-- Units: the flash-excited units of `flash_excited_units.json` (`peaks.excited_units`).
-  The sampling unit is the unit; points are the mean over units with a 95%
-  interval (1.96 SEM).
-- Fit: response = A (1 - c exp(-gap / tau)), weighted by the SEM of each
-  group, with c free (`C_MAX` only keeps the fit finite). With c > 1 the curve
-  is 0 at the delay tau ln c and rises after it. Until 2026-10-24 c had a bound
-  of 1.5, which set tau to about 120 ms. The fit is on GRB006 only, without
-  the 40-ms group (the response to the flash before falls into its baseline
-  and peak windows). The first flash of a trial
-  enters with a gap of `FIRST_GAP_S` (fully recovered). tau has a bootstrap
-  interval over units. GRB064 is the check: tau is fixed from GRB006 and only
-  A and c are fit; its own tau is also given.
+- Units: the flash-excited units of `flash_excited_units.json`
+  (`peaks.excited_units`), every session of `flash_kernels.SESSIONS`. The
+  units of all mice are pooled (Gabriel, 2026-11-27): the mean over units
+  with its 95% interval (1.96 SEM over units).
+- Fit: response = A (1 - c exp(-gap / tau)) to the mean over the pooled
+  units, weighted by the SEM over units, with c free (`C_MAX` only keeps the fit finite).
+  With c > 1 the curve is 0 at the delay tau ln c and rises after it. The fit
+  is without the 40-ms group (the response to the flash before falls into its
+  baseline and peak windows). The first flash of a trial enters with a gap of
+  `FIRST_GAP_S` (fully recovered). The interval of tau is a hierarchical
+  bootstrap (mice, then units); a resample with no fit is left out and
+  counted. The report also has the fit of each mouse alone (its units, SEM
+  over units). Until 2026-11-26 the fit was on GRB006 only, with GRB064 as
+  the check.
 
 The script writes `flash_recovery.svg` (figures/glm) and `flash_recovery.json`
 (results/glm).
@@ -59,7 +61,6 @@ from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
     OBSERVED_COLOR,
-    label_panels,
     save_figure,
 )
 
@@ -153,150 +154,118 @@ def delay(c: float, tau: float) -> float:
     return float(tau * np.log(max(c, 1.0)))
 
 
-def tau_interval(gaps, peaks, use) -> tuple[list[float], int]:
-    """Return the 95% bootstrap interval of tau over units and the failed fits.
+def tau_interval(gaps, groups, use) -> tuple[list[float], int]:
+    """Return the 95% hierarchical bootstrap interval of tau and the failed fits.
 
-    A resample whose fit does not converge is left out; the count is reported.
+    `groups` has the peaks of each mouse (unit, group). Each draw resamples the
+    mice, then the units of each drawn mouse, and fits the mean of all drawn
+    units. A draw with no fit (no convergence, or the same mouse in every
+    place, so no SEM) is left out; the count is reported.
     """
     rng = np.random.default_rng(0)
     taus = []
     for _ in range(BOOTSTRAPS):
-        sample = peaks[rng.integers(0, len(peaks), len(peaks))]
+        drawn = np.vstack(
+            [
+                groups[m][rng.integers(0, len(groups[m]), len(groups[m]))]
+                for m in rng.integers(0, len(groups), len(groups))
+            ]
+        )
         try:
-            taus.append(fit(gaps, sample, use)[2])
-        except RuntimeError:
+            taus.append(fit(gaps, drawn, use)[2])
+        except (RuntimeError, ValueError):
             continue
     return np.percentile(taus, [2.5, 97.5]).tolist(), BOOTSTRAPS - len(taus)
 
 
 def main() -> None:
     excited = load_excited_units()
-    # A session of `SESSIONS` with no fit yet has no units (GRB061 on
-    # 2026-11-15); it is skipped and named.
-    skipped = [s for s in SESSIONS if s not in excited]
-    if skipped:
-        print(f"No units yet, skipped: {', '.join(skipped)}")
-    data = {
-        s.split("_")[0]: session_peaks(s, sorted(excited[s]))
-        for s in SESSIONS
-        if s in excited
-    }
-    report = {}
-    gaps, peaks = data["GRB006"]
+    data = {s.split("_")[0]: session_peaks(s, sorted(excited[s])) for s in SESSIONS}
+    groups = [p for _, p in data.values()]
+    if len({len(g) for g, _ in data.values()}) != 1:
+        raise ValueError("The mice do not have the same gap groups.")
+    gaps = np.mean([g for g, _ in data.values()], 0)
+    units = np.vstack(groups)  # (units of all mice, gap groups)
     use = gaps > dmat.short_gap_s()  # without the 40-ms group
-    A, c, tau = fit(gaps, peaks, use)
-    interval, failed = tau_interval(gaps, peaks, use)
-    report["GRB006"] = {
-        "A": A,
-        "c": c,
-        "tau_s": tau,
-        "tau_interval_95_s": interval,
-        "tau_bootstrap_fits_failed": failed,
-        "delay_s": delay(c, tau),
-    }
-    gaps64, peaks64 = data["GRB064"]
-    use64 = gaps64 > dmat.short_gap_s()
-    A64, c64, _ = fit(gaps64, peaks64, use64, tau=tau)
-    own = fit(gaps64, peaks64, use64)
-    own_interval, own_failed = tau_interval(gaps64, peaks64, use64)
-    report["GRB064"] = {
-        "A_with_GRB006_tau": A64,
-        "c_with_GRB006_tau": c64,
-        "own_tau_s": own[2],
-        "own_delay_s": delay(own[1], own[2]),
-        "own_tau_interval_95_s": own_interval,
-        "own_tau_bootstrap_fits_failed": own_failed,
+    A, c, tau = fit(gaps, units, use)
+    interval, failed = tau_interval(gaps, groups, use)
+    report = {
+        "pooled": {
+            "A": A,
+            "c": c,
+            "tau_s": tau,
+            "tau_interval_95_s": interval,
+            "tau_bootstrap_fits_failed": failed,
+            "delay_s": delay(c, tau),
+            "mean_gap_s": gaps.tolist(),
+            "mean_peak": units.mean(0).tolist(),
+            "units": len(units),
+        }
     }
     for subject, (g, p) in data.items():
-        report[subject].update(
+        report[subject] = dict(
             units=len(p),
             median_gap_s=g.tolist(),
             mean_peak=p.mean(0).tolist(),
             sem_peak=(p.std(0, ddof=1) / np.sqrt(len(p))).tolist(),
         )
+        try:
+            own = fit(g, p, g > dmat.short_gap_s())
+            report[subject].update(own_tau_s=own[2], own_delay_s=delay(own[1], own[2]))
+        except RuntimeError:
+            report[subject].update(own_tau_s=None)
     curve_gaps = np.linspace(0.03, 0.6, 300)
+    color = CONCEPT_COLORS["visual"]
+    first = gaps >= FIRST_GAP_S
+    x = np.where(first, 650, 1000 * gaps)
+    mean = units.mean(0)
+    half = 1.96 * units.std(0, ddof=1) / np.sqrt(len(units))
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(1, 2, figsize=(7.0, 2.8), layout="constrained")
-        for axis, subject, (a, cc), note in (
-            (
-                axes[0],
-                "GRB006",
-                (A, c),
-                f"fit without 40 ms: τ = {1000 * tau:.0f} ms, 0 until {1000 * delay(c, tau):.0f} ms",
-            ),
-            (
-                axes[1],
-                "GRB064",
-                (A64, c64),
-                f"τ fixed from GRB006 ({1000 * tau:.0f} ms)",
-            ),
-        ):
-            g, p = data[subject]
-            color = CONCEPT_COLORS["visual"]  # flash peaks; the panel is the mouse
-            mean = p.mean(0)
-            interval = 1.96 * p.std(0, ddof=1) / np.sqrt(len(p))
-            first = g >= FIRST_GAP_S
-            x = np.where(first, 650, 1000 * g)
-            for xi, mi, ei, is_first, gi in zip(
-                x, mean, interval, first, g, strict=True
-            ):
-                fitted = not is_first and gi > dmat.short_gap_s()
-                axis.errorbar(
-                    [xi],
-                    [mi],
-                    yerr=[ei],
-                    fmt="s" if is_first else "o",
-                    color=color,
-                    mfc=color if fitted else "white",
-                    ms=4.5,
-                    capsize=2,
-                    lw=1,
-                )
-            axis.plot(
-                1000 * curve_gaps, recovery(curve_gaps, a, cc, tau), color=color, lw=1.2
+        figure, axis = plt.subplots(figsize=(4.2, 3.0), layout="constrained")
+        for xi, mi, ei, is_first, used in zip(x, mean, half, first, use, strict=True):
+            axis.errorbar(
+                [xi],
+                [mi],
+                yerr=[ei],
+                fmt="s" if is_first else "o",
+                color=color,
+                mfc=color if used and not is_first else "white",
+                ms=5,
+                capsize=2,
+                lw=1.2,
+                zorder=4,
             )
-            axis.plot([600, 700], [a, a], color=color, lw=1.2, ls=":")
-            axis.text(
-                0.04,
-                0.96,
-                f"{subject}, {len(p)} flash-excited units, in port\n{note}",
-                transform=axis.transAxes,
-                va="top",
-                fontsize=7,
-                color=OBSERVED_COLOR,
-            )
-            axis.text(
-                0.97,
-                0.04,
-                "open circle (40 ms): not fit,\nthe flash before overlaps it",
-                transform=axis.transAxes,
-                fontsize=6,
-                color=OBSERVED_COLOR,
-                ha="right",
-                va="bottom",
-            )
-            axis.set_xlabel("gap from the flash before (ms)")
-            axis.set_xticks(
-                [40, 160, 280, 400, 520, 650],
-                ["40", "160", "280", "400", "520", "first\nof trial"],
-            )
-        axes[0].set_ylabel("flash peak (/ mean rate)")
-        # One scale for both mice.
-        top = max(
-            (p.mean(0) + 1.96 * p.std(0, ddof=1) / np.sqrt(len(p))).max()
-            for _, p in data.values()
+        axis.plot(
+            1000 * curve_gaps,
+            recovery(curve_gaps, A, c, tau),
+            color=OBSERVED_COLOR,
+            lw=1.4,
+            zorder=3,
         )
-        for axis in axes:
-            axis.set_ylim(0, top * 1.25)
-        label_panels(axes, x=-0.2, y=1.05)
+        axis.plot([600, 700], [A, A], color=OBSERVED_COLOR, lw=1.4, ls=":")
+        axis.text(
+            0.97,
+            0.04,
+            f"{sum(len(p) for p in groups)} flash-excited units, {len(groups)} mice\n"
+            f"fit without 40 ms: τ = {1000 * tau:.0f} ms\n"
+            "open circle (40 ms): not fit",
+            transform=axis.transAxes,
+            fontsize=7,
+            color=OBSERVED_COLOR,
+            ha="right",
+            va="bottom",
+        )
+        axis.set_xlabel("gap from the flash before (ms)")
+        axis.set_xticks(
+            [40, 160, 280, 400, 520, 650],
+            ["40", "160", "280", "400", "520", "first\nof trial"],
+        )
+        axis.set_ylabel("flash peak (/ mean rate)")
+        axis.set_ylim(bottom=min(0, (mean - half).min() * 1.1))
         print(save_figure(figure, OUT / "flash_recovery"))
     (OUT / "flash_recovery.json").write_text(json.dumps(report, indent=1))
-    print(
-        json.dumps(
-            {s: {k: v for k, v in r.items() if "tau" in k} for s, r in report.items()},
-            indent=1,
-        )
-    )
+    print(json.dumps(report["pooled"], indent=1))
+    print({s: r.get("own_tau_s") for s, r in report.items() if s != "pooled"})
 
 
 if __name__ == "__main__":

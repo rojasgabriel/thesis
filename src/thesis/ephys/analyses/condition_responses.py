@@ -32,8 +32,8 @@ Common rules:
   `MIN_RATE_HZ`, the one with the largest |d'| of those trial rates.
 - Panels: a, b, the example neuron of each mouse: spikes of every trial, the
   first group above the second, and the mean rate (SEM over trials) of each
-  group (second solid, first dashed); c, d, the preference of every unit,
-  sorted by its value in the preference window. The heatmap limit is `LIMIT`;
+  group (second solid, first dashed); last panel, the preference of every
+  unit of all mice, sorted by its value in the preference window. The heatmap limit is `LIMIT`;
   values past it take the end color, none is removed, and the report counts
   them. The sampling unit is the trial in a and b and the unit in c and d.
 
@@ -299,24 +299,32 @@ def main() -> None:
     sessions = [session_responses(s, spec) for s in SESSIONS]
     first, second = spec["names"]
     with plt.rc_context(FIGURE_STYLE):
-        figure = plt.figure(figsize=(9.0, 6.2), layout="constrained")
-        grid = figure.add_gridspec(2, 2, width_ratios=(1.0, 0.8))
-        panel_axes, image = [], None
+        rows = len(sessions)
+        # Landscape (for slides): the example units in two columns, then the
+        # heatmap of all units.
+        lines = -(-rows // 2)
+        figure = plt.figure(figsize=(12.0, 2.9 * lines), layout="constrained")
+        grid = figure.add_gridspec(lines, 3, width_ratios=(1.0, 1.0, 0.9))
+        rasters = []
         for row, data in enumerate(sessions):
-            cell = grid[row, 0].subgridspec(2, 1, height_ratios=(1.3, 1.0), hspace=0.05)
+            cell = grid[row // 2, row % 2].subgridspec(
+                2, 1, height_ratios=(1.3, 1.0), hspace=0.05
+            )
             raster = figure.add_subplot(cell[0])
             rate = figure.add_subplot(cell[1], sharex=raster)
             raster.tick_params(labelbottom=False)
             draw_example(raster, rate, data, spec)
-            heat = figure.add_subplot(grid[row, 1])
-            image = draw_population(heat, data, spec)
-            panel_axes += [raster, heat]
-        figure.colorbar(
-            image,
-            ax=[a for a in panel_axes[1::2]],
-            label=f"{second} − {first} (/ mean rate)",
+            rasters.append(raster)
+        # The units of all mice in one heatmap (unit-level plots pool the mice).
+        pooled = dict(
+            sessions[0],
+            preference=np.concatenate([d["preference"] for d in sessions]),
+            subject=f"{rows} mice",
         )
-        label_panels([panel_axes[0], panel_axes[2], panel_axes[1], panel_axes[3]])
+        heat = figure.add_subplot(grid[:, 2])
+        image = draw_population(heat, pooled, spec)
+        figure.colorbar(image, ax=heat, label=f"{second} − {first} (/ mean rate)")
+        label_panels([*rasters, heat])
         path = save_figure(figure, OUT / name)
     report = {
         d["subject"]: {

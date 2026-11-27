@@ -34,13 +34,13 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from thesis.ephys.analyses.decoding_time_course import COLORS, SESSIONS
+from thesis.ephys.analyses.decoding_time_course import COLORS, SESSIONS, draw_courses
 from thesis.plotting import (
     CONCEPT_COLORS,
     FIGURE_STYLE,
-    OBSERVED_COLOR,
     REFERENCE_COLOR,
     label_panels,
+    mouse_lines,
     save_figure,
 )
 
@@ -54,92 +54,55 @@ def main() -> None:
     courses = {item["subject"]: item for item in json.loads(DECODING.read_text())}
     subjects = [session.split("_")[0] for session in SESSIONS]
     with plt.rc_context(FIGURE_STYLE):
-        figure, axes = plt.subplots(
+        figure, (kernel, decoding) = plt.subplots(
             2,
-            len(subjects),
-            figsize=(4.5 * len(subjects), 4.8),
+            1,
+            figsize=(4.8, 5.2),
             sharex=True,
-            sharey="row",
             height_ratios=(1, 1.2),
             layout="constrained",
         )
-        for column, subject in enumerate(subjects):
-            kernel, decoding = axes[:, column]
-            data = kernels[subject]
-            x = np.asarray(data["kernel_bin_centers_ms"]) / 1000
-            w = np.asarray(data["kernel_weights"])
-            ci = np.asarray(data["kernel_weights_95"]).T
-            kernel.axhline(0, color=REFERENCE_COLOR, lw=0.6)
-            kernel.errorbar(
-                x,
-                w,
-                yerr=[w - ci[0], ci[1] - w],
-                fmt="o-",
-                color=OBSERVED_COLOR,
-                mfc="white",
-                ms=4,
-                capsize=2,
-                lw=1,
-            )
-            kernel.set_title(
-                f"{subject} (kernel p = {data['kernel_flat_lr_p']:.2g} against flat)",
-                fontsize=8,
-            )
-            part = courses[subject]["first_flash"]
-            centers = np.asarray(part["centers_s"])
-            nulls = np.stack(
-                [np.asarray(part[label]["shuffle_2.5_50_97.5"]) for label in COLORS]
-            )
-            decoding.fill_between(
-                centers,
-                nulls[:, :, 0].min(0),
-                nulls[:, :, 2].max(0),
-                color="0.88",
-                lw=0,
-            )
-            for label, color in COLORS.items():
-                mean = np.asarray(part[label]["accuracy"])
-                sem = np.asarray(part[label]["sem_across_folds"])
-                decoding.fill_between(
-                    centers, mean - sem, mean + sem, color=color, alpha=0.25, lw=0
-                )
-                decoding.plot(centers, mean, color=color, lw=1.6)
-            decoding.axhline(0.5, color=REFERENCE_COLOR, ls=":", lw=0.8)
-            exit_s = courses[subject]["median_exit_after_first_flash_s"]
-            for axis in (kernel, decoding):
+        # Behavior: a gray kernel for each mouse and the black mean of the mice.
+        kernel.axhline(0, color=REFERENCE_COLOR, lw=0.6)
+        mouse_lines(
+            kernel,
+            np.asarray(kernels[subjects[0]]["kernel_bin_centers_ms"]) / 1000,
+            [kernels[s]["kernel_weights"] for s in subjects],
+            subjects,
+        )
+        # V1: a thin line for each mouse and the mean ± SEM of the mice.
+        draw_courses(decoding, [courses[s]["first_flash"] for s in subjects])
+        exits = [courses[s]["median_exit_after_first_flash_s"] for s in subjects]
+        for axis in (kernel, decoding):
+            for exit_s in exits:
                 axis.axvline(exit_s, color=CONCEPT_COLORS["task"], ls="--", lw=0.8)
-            kernel.text(
-                exit_s - 0.02,
-                0.97,
-                "median exit",
-                color=CONCEPT_COLORS["task"],
-                fontsize=7,
-                ha="right",
-                va="top",
-                transform=kernel.get_xaxis_transform(),
-            )
-            decoding.set_xlabel("time from the first flash (s)")
+        kernel.text(
+            min(exits) - 0.02,
+            0.97,
+            "median exit of each mouse",
+            color=CONCEPT_COLORS["task"],
+            fontsize=7,
+            ha="right",
+            va="top",
+            transform=kernel.get_xaxis_transform(),
+        )
+        decoding.set_xlabel("time from the first flash (s)")
         for label, y in (("category", 0.96), ("choice", 0.86)):
-            axes[1, 0].text(
+            decoding.text(
                 0.03,
                 y,
                 label,
                 color=COLORS[label],
                 va="top",
-                transform=axes[1, 0].transAxes,
+                transform=decoding.transAxes,
             )
-        axes[1, -1].text(
-            0.97,
-            0.02,
-            "shuffle",
-            color="0.5",
-            ha="right",
-            transform=axes[1, -1].transAxes,
+        decoding.text(
+            0.97, 0.02, "shuffle", color="0.5", ha="right", transform=decoding.transAxes
         )
-        axes[0, 0].set_ylabel("behavior: weight on a\nright choice (log-odds/flash)")
-        axes[1, 0].set_ylabel("V1: held-out accuracy")
-        axes[1, 0].set_xlim(-0.1, 1.0)
-        label_panels(axes.ravel(), x=-0.22, y=1.04)
+        kernel.set_ylabel("behavior: weight on a\nright choice (log-odds/flash)")
+        decoding.set_ylabel("V1: held-out accuracy")
+        decoding.set_xlim(-0.1, 1.0)
+        label_panels([kernel, decoding], x=-0.22, y=1.04)
         print(save_figure(figure, OUT / "kernel_decoding"))
 
 

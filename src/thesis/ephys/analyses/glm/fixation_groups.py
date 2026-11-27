@@ -20,9 +20,9 @@ movement terms of the GLM explain? Exploratory; no new fit.
   direction (all units): held-out bits per spike lost when that term is
   shuffled (`unique_dev.py`).
 
-Sampling unit: the unit. Each dot is a unit; the mouse is the marker shape and
-the color is the fixation group; open markers: the median of each mouse and
-group. c and d use a
+Sampling unit: the unit. Each dot is a unit of the pooled mice; the color is
+the fixation group; the large point is the pooled median with its
+hierarchical-bootstrap 95% interval. c and d use a
 symmetric log axis, linear within ±0.01 bits/spike. Statistics, each mouse
 alone: Kruskal-Wallis over the three groups (groups with fewer than 3 units
 are left out of the test).
@@ -56,9 +56,8 @@ from thesis.plotting import (
     FIGURE_STYLE,
     FIXATION_COLORS,
     POINT_ALPHA,
+    hierarchical_interval,
     label_panels,
-    median_marker,
-    mouse_marker,
     save_figure,
 )
 
@@ -119,32 +118,19 @@ def main() -> None:
         fig, axes = plt.subplots(1, 4, figsize=(12, 3.6), layout="constrained")
         rng = np.random.default_rng(0)
         for axis, (key, ylabel) in zip(axes, MEASURES.items(), strict=True):
-            for m, d in enumerate(data):
-                marker = mouse_marker(d["subject"], m)
-                by_group = []
-                for g, name in enumerate(FIXATION_GROUPS):
-                    v = np.array(
+            by_mouse = []  # [mouse][group] -> values
+            for d in data:
+                by_group = [
+                    np.array(
                         [
                             x
                             for u, x in d["values"][key].items()
                             if d["groups"].get(u) == name
                         ]
                     )
-                    by_group.append(v)
-                    x = g + (m - 0.5) * 0.36
-                    axis.scatter(
-                        x + rng.uniform(-0.1, 0.1, len(v)),
-                        v,
-                        s=9,
-                        marker=marker,
-                        color=FIXATION_COLORS[name],
-                        alpha=POINT_ALPHA,
-                        lw=0,
-                    )
-                    if len(v):
-                        median_marker(
-                            axis, x, np.median(v), marker, FIXATION_COLORS[name]
-                        )
+                    for name in FIXATION_GROUPS
+                ]
+                by_mouse.append(by_group)
                 tested = [v for v in by_group if len(v) >= 3]
                 report.setdefault(key, {})[d["subject"]] = {
                     "units": {n: len(v) for n, v in zip(SHORT, by_group, strict=True)},
@@ -156,11 +142,41 @@ def main() -> None:
                     if len(tested) >= 2
                     else None,
                 }
+            # Each group: the units of all mice pooled and the pooled median
+            # with its hierarchical-bootstrap 95% interval (Gabriel, 2026-11-27).
+            for g, name in enumerate(FIXATION_GROUPS):
+                color = FIXATION_COLORS[name]
+                groups = [mouse[g] for mouse in by_mouse]
+                values = np.concatenate(groups)
+                axis.scatter(
+                    g + rng.uniform(-0.14, 0.14, len(values)),
+                    values,
+                    s=9,
+                    color=color,
+                    alpha=POINT_ALPHA,
+                    lw=0,
+                )
+                stats = hierarchical_interval([v for v in groups if len(v)])
+                low, high = stats["interval_95"]
+                axis.errorbar(
+                    g,
+                    stats["median"],
+                    yerr=[[stats["median"] - low], [high - stats["median"]]],
+                    fmt="o",
+                    ms=6,
+                    color=color,
+                    mec="white",
+                    mew=0.6,
+                    capsize=3,
+                    zorder=6,
+                )
+                report[key].setdefault("pooled", {})[SHORT[g]] = stats
             axis.axhline(0, color="0.6", ls="--", lw=0.8, zorder=0)
             if key in ("video", "turn_direction"):
                 # Most gains are near 0 and a few are large: linear within ±0.01.
                 axis.set_yscale("symlog", linthresh=0.01)
             axis.set_xticks(range(3), SHORT)
+            axis.set_xlim(-0.5, 2.5)
             axis.set_xlabel("fixation effect")
             axis.set_ylabel(ylabel)
         label_panels(axes, x=-0.25, y=1.04)
